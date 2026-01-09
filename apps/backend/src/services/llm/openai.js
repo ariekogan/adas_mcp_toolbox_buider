@@ -112,7 +112,8 @@ export default class OpenAIAdapter {
         model: this.model,
         messages: allMessages,
         max_tokens: maxTokens,
-        temperature
+        temperature,
+        response_format: { type: "json_object" }  // Force JSON output
       };
 
       if (tools.length > 0) {
