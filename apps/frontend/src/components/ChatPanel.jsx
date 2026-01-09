@@ -113,13 +113,14 @@ const styles = {
     marginBottom: '12px'
   },
   msgQuestion: {
-    background: 'var(--accent)',
-    color: 'white',
+    background: 'var(--bg-secondary)',
+    color: 'var(--text-primary)',
     padding: '10px 14px',
     borderRadius: '8px',
     marginTop: '12px',
     fontWeight: '500',
-    fontSize: '14px'
+    fontSize: '14px',
+    borderLeft: '3px solid var(--accent)'
   },
   msgHeading: {
     fontWeight: '600',
