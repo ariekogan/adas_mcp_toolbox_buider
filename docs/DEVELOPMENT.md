@@ -70,15 +70,21 @@ This document describes the development environment setup for the ToolBox Factor
 
 ### Network (Tailscale)
 
-Both machines are connected via Tailscale VPN. The IP addresses may change, so use the SSH alias `mac1` which should be configured in `~/.ssh/config`.
+Both machines are connected via Tailscale VPN.
 
-**Note:** Update Tailscale IPs in SSH config if they change:
+| Machine | Tailscale IP | Note |
+|---------|--------------|------|
+| MAC 1 | 100.110.191.63 | Docker host |
+| MAC 2 | (local) | Development machine |
+
+**SSH Config** (`~/.ssh/config` on mac2):
 ```bash
-# ~/.ssh/config on mac2
 Host mac1
-    HostName <TAILSCALE_IP>
+    HostName 100.110.191.63
     User ariekogan333
 ```
+
+**Note:** If Tailscale IP changes, update the SSH config accordingly.
 
 ## Git Workflow
 
@@ -169,9 +175,13 @@ ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && \
 
 ### Access URLs (from mac2)
 
-- **Frontend (Dev):** http://mac1:3310
-- **Backend API:** http://mac1:4300
-- **Health Check:** http://mac1:4300/api/health
+- **Frontend (Dev):** http://100.110.191.63:3310
+- **Backend API:** http://100.110.191.63:4300
+- **Health Check:** http://100.110.191.63:4300/api/health
+
+Or using SSH alias:
+- http://mac1:3310
+- http://mac1:4300
 
 ## Configuration
 
