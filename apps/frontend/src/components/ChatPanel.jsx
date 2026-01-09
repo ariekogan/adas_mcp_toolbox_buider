@@ -390,6 +390,30 @@ function formatMessage(content) {
       continue;
     }
 
+    // Check if line ends with a question that should be separated
+    // Match pattern: "some text. Question here?"
+    const inlineQuestionMatch = line.match(/^(.+[.!])\s+([A-Z][^.!?]*\?)$/);
+    if (inlineQuestionMatch) {
+      flushList();
+      const beforeQuestion = inlineQuestionMatch[1].trim();
+      const question = inlineQuestionMatch[2].trim();
+
+      // Render the text before the question
+      elements.push(
+        <div key={`p-${i}-before`} style={styles.msgParagraph}>
+          {formatInlineText(beforeQuestion)}
+        </div>
+      );
+
+      // Render the question separately with question styling
+      elements.push(
+        <div key={`q-${i}`} style={styles.msgQuestion}>
+          {formatInlineText(question)}
+        </div>
+      );
+      continue;
+    }
+
     // Long paragraphs - split into sentences for better readability
     if (line.length > 100) {
       flushList();
