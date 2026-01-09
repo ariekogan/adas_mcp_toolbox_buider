@@ -17,7 +17,18 @@ export function applyStateUpdate(toolbox, updates) {
         if (typeof value === "object" && !value.id) {
           value.id = `${arrayPath.slice(0, -1)}_${uuidv4().slice(0, 8)}`;
         }
-        array.push(value);
+
+        // Check for duplicates by name (for tools, scenarios, etc.)
+        const existingIndex = array.findIndex(item =>
+          item.name && value.name && item.name === value.name
+        );
+
+        if (existingIndex >= 0) {
+          // Update existing item instead of adding duplicate
+          array[existingIndex] = { ...array[existingIndex], ...value };
+        } else {
+          array.push(value);
+        }
       }
       continue;
     }
