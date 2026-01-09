@@ -27,10 +27,16 @@ app.locals.log = log;
 
 // Health check
 app.get("/api/health", (_req, res) => {
-  res.json({ 
-    ok: true, 
+  const provider = process.env.LLM_PROVIDER || "anthropic";
+  const hasApiKey = provider === "anthropic"
+    ? !!process.env.ANTHROPIC_API_KEY
+    : !!process.env.OPENAI_API_KEY;
+
+  res.json({
+    ok: true,
     service: "adas_mcp_toolbox_builder-backend",
-    llmProvider: process.env.LLM_PROVIDER || "anthropic"
+    llmProvider: provider,
+    hasApiKey
   });
 });
 

@@ -21,6 +21,23 @@ export function useSettings() {
     }
   });
   const [showModal, setShowModal] = useState(false);
+  const [backendStatus, setBackendStatus] = useState({ hasApiKey: false, llmProvider: null });
+
+  // Check backend health for API key status
+  useEffect(() => {
+    api.checkHealth()
+      .then(health => {
+        setBackendStatus({
+          hasApiKey: health.hasApiKey || false,
+          llmProvider: health.llmProvider || 'anthropic'
+        });
+        // Sync provider from backend
+        if (health.llmProvider && health.llmProvider !== settings.llm_provider) {
+          setSettings(prev => ({ ...prev, llm_provider: health.llmProvider }));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     try {
@@ -43,8 +60,9 @@ export function useSettings() {
   }, [settings]);
 
   const hasApiKey = useCallback(() => {
-    return !!getActiveApiKey();
-  }, [getActiveApiKey]);
+    // Check backend status first (server-side keys), then local storage
+    return backendStatus.hasApiKey || !!getActiveApiKey();
+  }, [backendStatus.hasApiKey, getActiveApiKey]);
 
   return {
     settings,
@@ -53,7 +71,8 @@ export function useSettings() {
     openSettings,
     closeSettings,
     getActiveApiKey,
-    hasApiKey
+    hasApiKey,
+    backendStatus
   };
 }
 
