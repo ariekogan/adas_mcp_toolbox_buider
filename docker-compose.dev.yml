@@ -1,0 +1,19 @@
+services:
+  backend:
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+    volumes:
+      - ./apps/backend:/app
+      - ${MEMORY_PATH:-./memory}:/memory
+    command: sh -c "pnpm install --silent && pnpm dev"
+
+  frontend:
+    volumes:
+      - ./apps/frontend:/app
+    environment:
+      - HOST=0.0.0.0
+      - VITE_API_URL=http://localhost:${BACKEND_HOST_PORT:-4300}
+    ports:
+      - "${VITE_DEV_HOST_PORT:-3310}:3100"
+    command: sh -c "pnpm install --silent && pnpm dev"
