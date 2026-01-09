@@ -1,0 +1,7 @@
+FROM node:20-alpine
+RUN corepack enable
+WORKDIR /app
+
+EXPOSE 3100
+
+CMD ["sh", "-c", "pnpm install --silent && pnpm dev"]

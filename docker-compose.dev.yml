@@ -1,19 +1,25 @@
 services:
   backend:
+    build:
+      context: ./apps/backend
     environment:
       - NODE_ENV=development
       - LOG_LEVEL=${LOG_LEVEL:-debug}
     volumes:
       - ./apps/backend:/app
+      - /app/node_modules
       - ${MEMORY_PATH:-./memory}:/memory
     command: sh -c "pnpm install --silent && pnpm dev"
 
   frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile.dev
     volumes:
       - ./apps/frontend:/app
+      - /app/node_modules
     environment:
       - HOST=0.0.0.0
       - VITE_API_URL=http://localhost:${BACKEND_HOST_PORT:-4300}
     ports:
       - "${VITE_DEV_HOST_PORT:-3310}:3100"
-    command: sh -c "pnpm install --silent && pnpm dev"
