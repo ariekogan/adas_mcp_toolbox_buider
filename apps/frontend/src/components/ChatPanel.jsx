@@ -390,13 +390,46 @@ function formatMessage(content) {
       continue;
     }
 
-    // Long paragraphs get special styling
-    const isLongParagraph = line.length > 150;
+    // Long paragraphs - split into sentences for better readability
+    if (line.length > 150) {
+      flushList();
+      // Split on sentence boundaries (. followed by space and capital letter, or ? or !)
+      const sentences = line.split(/(?<=[.!?])\s+(?=[A-Z])/).filter(s => s.trim());
+
+      if (sentences.length > 1) {
+        // Multiple sentences - render each separately
+        sentences.forEach((sentence, j) => {
+          const trimmed = sentence.trim();
+          // Check if this sentence is a question
+          if (trimmed.endsWith('?') && trimmed.length > 20) {
+            elements.push(
+              <div key={`q-${i}-${j}`} style={styles.msgQuestion}>
+                {formatInlineText(trimmed)}
+              </div>
+            );
+          } else {
+            elements.push(
+              <div key={`p-${i}-${j}`} style={styles.msgParagraph}>
+                {formatInlineText(trimmed)}
+              </div>
+            );
+          }
+        });
+      } else {
+        // Single long sentence - use long paragraph style
+        elements.push(
+          <div key={`p-${i}`} style={styles.msgLongParagraph}>
+            {formatInlineText(line)}
+          </div>
+        );
+      }
+      continue;
+    }
 
     // Regular paragraph
     flushList();
     elements.push(
-      <div key={`p-${i}`} style={isLongParagraph ? styles.msgLongParagraph : styles.msgParagraph}>
+      <div key={`p-${i}`} style={styles.msgParagraph}>
         {formatInlineText(line)}
       </div>
     );
