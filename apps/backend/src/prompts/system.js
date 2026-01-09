@@ -159,8 +159,17 @@ Your response format:
 }
 \`\`\`
 
-IMPORTANT: When you define tools, scenarios, or any information - you MUST include it in state_update!
-Just describing things in "message" does NOT save them. Use state_update to persist data.
+IMPORTANT RULES FOR state_update:
+1. EVERY response MUST check: "Did I mention any tool, scenario, or detail? If yes, ADD IT to state_update!"
+2. Just describing things in "message" does NOT save them - the UI only shows what's in state_update
+3. If you list 4 tools in your message, you MUST have 4 corresponding tools_push or proposed_tools_push entries
+4. NEVER have an empty state_update if you're providing information about the toolbox
+
+Example - if you say "Here are 3 tools: Device Manager, App Installer, Screen Capture" your state_update MUST include:
+{
+  "proposed_tools_push": { "name": "device_manager", "purpose": "Manage device connections" },
+  // ... repeat for each tool
+}
 
 ### State Update Examples:
 
