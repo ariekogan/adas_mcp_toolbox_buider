@@ -166,6 +166,14 @@ const styles = {
 };
 
 function formatMessage(content) {
+  // Filter out raw JSON fragments that might leak through
+  const jsonPatterns = [
+    /^\s*\{\s*$/,
+    /^\s*\}\s*$/,
+    /^\s*"[a-z_]+"\s*:\s*(null|true|false|"[^"]*"|\d+)\s*,?\s*$/i,
+    /^\s*"(message|state_update|suggested_focus)"\s*:/i
+  ];
+
   // Parse the message into structured sections
   const lines = content.split('\n');
   const elements = [];
@@ -243,8 +251,13 @@ function formatMessage(content) {
       continue;
     }
 
-    // Example blocks (indented or starting with Example/Input/Output)
-    if (line.startsWith('Example') || line.startsWith('Input:') || line.startsWith('Output:') ||
+    // Skip raw JSON fragments
+    if (jsonPatterns.some(pattern => pattern.test(line))) {
+      continue;
+    }
+
+    // Example blocks (indented or starting with Example/Input/Output for mock data)
+    if (line.match(/^Example\s*\d*:/i) ||
         line.startsWith('- **Input') || line.startsWith('- **Output') || line.startsWith('- **Expected')) {
       flushList();
       if (!inExample) inExample = true;
@@ -257,6 +270,17 @@ function formatMessage(content) {
       continue;
     } else if (inExample) {
       flushExample();
+    }
+
+    // Section labels like "Inputs:", "Outputs:", "Parameters:" - treat as headings
+    if (/^[A-Z][a-z]+s?:\s*$/.test(line)) {
+      flushList();
+      elements.push(
+        <div key={`h-${i}`} style={styles.msgHeading}>
+          {line.replace(':', '')}
+        </div>
+      );
+      continue;
     }
 
     // Questions (lines ending with ?)
@@ -283,7 +307,7 @@ function formatMessage(content) {
       continue;
     }
 
-    // List items (starting with - or number.)
+    // List items (starting with - or • or number.)
     if (/^[-•]\s/.test(line) || /^\d+\.\s/.test(line)) {
       const itemText = line.replace(/^[-•]\s+/, '').replace(/^\d+\.\s+/, '');
       currentList.push(itemText);
