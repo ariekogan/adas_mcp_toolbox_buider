@@ -53,16 +53,49 @@ export async function processMessage({ project, toolbox, conversation, userMessa
     if (content.endsWith("```")) {
       content = content.slice(0, -3);
     }
+
+    // Try to find JSON object in the content
+    content = content.trim();
+    if (!content.startsWith("{")) {
+      // Look for first { in content
+      const jsonStart = content.indexOf("{");
+      if (jsonStart !== -1) {
+        content = content.slice(jsonStart);
+      }
+    }
+    if (!content.endsWith("}")) {
+      // Look for last } in content
+      const jsonEnd = content.lastIndexOf("}");
+      if (jsonEnd !== -1) {
+        content = content.slice(0, jsonEnd + 1);
+      }
+    }
+
     parsed = JSON.parse(content.trim());
     console.log("[Conversation] Parsed JSON response, state_update keys:", Object.keys(parsed.state_update || {}));
   } catch (err) {
-    // If parsing fails, treat entire response as message
-    console.log("[Conversation] Failed to parse JSON, treating as plain text. First 200 chars:", response.content.substring(0, 200));
-    parsed = {
-      message: response.content,
-      state_update: {},
-      suggested_focus: null
-    };
+    // If parsing fails, check if the content looks like JSON with a "message" field
+    // and try to extract just the message
+    console.log("[Conversation] Failed to parse JSON:", err.message);
+    console.log("[Conversation] First 300 chars:", response.content.substring(0, 300));
+
+    // Try regex to extract message field
+    const messageMatch = response.content.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (messageMatch) {
+      console.log("[Conversation] Extracted message via regex");
+      parsed = {
+        message: messageMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"'),
+        state_update: {},
+        suggested_focus: null
+      };
+    } else {
+      // Treat entire response as message
+      parsed = {
+        message: response.content,
+        state_update: {},
+        suggested_focus: null
+      };
+    }
   }
   
   return {
