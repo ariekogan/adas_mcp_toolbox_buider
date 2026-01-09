@@ -101,7 +101,7 @@ export default function App() {
     addMessage
   } = useProject();
 
-  const { settings, updateSettings, showModal, openSettings, closeSettings, hasApiKey } = useSettings();
+  const { settings, updateSettings, showModal, openSettings, closeSettings, hasApiKey, backendStatus } = useSettings();
   const [uiFocus, setUiFocus] = useState(null);
   const [greeting, setGreeting] = useState(null);
 
@@ -221,6 +221,7 @@ export default function App() {
           settings={settings}
           onSave={updateSettings}
           onClose={closeSettings}
+          backendStatus={backendStatus}
         />
       )}
     </div>

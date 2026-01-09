@@ -101,6 +101,18 @@ const styles = {
     color: 'var(--text-muted)',
     marginTop: '4px'
   },
+  serverBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 10px',
+    background: 'rgba(16, 185, 129, 0.15)',
+    border: '1px solid rgba(16, 185, 129, 0.3)',
+    borderRadius: '6px',
+    fontSize: '12px',
+    color: '#10b981',
+    marginBottom: '8px'
+  },
   footer: {
     padding: '16px 24px',
     borderTop: '1px solid var(--border)',
@@ -127,7 +139,7 @@ const styles = {
   }
 };
 
-export default function SettingsModal({ settings, onSave, onClose }) {
+export default function SettingsModal({ settings, onSave, onClose, backendStatus }) {
   const [local, setLocal] = useState({ ...settings });
   const [showKeys, setShowKeys] = useState({
     anthropic: false,
@@ -143,6 +155,9 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     onClose();
   };
 
+  const serverHasKey = backendStatus?.hasApiKey;
+  const serverProvider = backendStatus?.llmProvider;
+
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
@@ -150,11 +165,19 @@ export default function SettingsModal({ settings, onSave, onClose }) {
           <span style={styles.title}>Settings</span>
           <button style={styles.closeBtn} onClick={onClose}>×</button>
         </div>
-        
+
         <div style={styles.body}>
+          {/* Server Status Banner */}
+          {serverHasKey && (
+            <div style={{ ...styles.serverBadge, marginBottom: '16px', width: 'fit-content' }}>
+              <span>&#x2713;</span>
+              <span>Server configured with {serverProvider === 'openai' ? 'OpenAI' : 'Anthropic'} API key</span>
+            </div>
+          )}
+
           <div style={styles.section}>
             <div style={styles.sectionTitle}>LLM Provider</div>
-            
+
             <div style={styles.field}>
               <div style={styles.radioGroup}>
                 <label style={styles.radio}>
@@ -165,6 +188,9 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                     onChange={() => update('llm_provider', 'anthropic')}
                   />
                   Anthropic (Claude)
+                  {serverProvider === 'anthropic' && serverHasKey && (
+                    <span style={{ fontSize: '11px', color: '#10b981', marginLeft: '4px' }}>(server)</span>
+                  )}
                 </label>
                 <label style={styles.radio}>
                   <input
@@ -174,23 +200,39 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                     onChange={() => update('llm_provider', 'openai')}
                   />
                   OpenAI (GPT-4)
+                  {serverProvider === 'openai' && serverHasKey && (
+                    <span style={{ fontSize: '11px', color: '#10b981', marginLeft: '4px' }}>(server)</span>
+                  )}
                 </label>
               </div>
             </div>
           </div>
-          
+
           <div style={styles.section}>
             <div style={styles.sectionTitle}>API Keys</div>
-            
-            <div style={styles.field}>
-              <label style={styles.label}>Anthropic API Key</label>
+            <div style={styles.hint}>
+              {serverHasKey
+                ? 'Server has API key configured. Enter your own key below to override.'
+                : 'Enter your API key to enable chat functionality.'
+              }
+            </div>
+
+            <div style={{ ...styles.field, marginTop: '12px' }}>
+              <label style={styles.label}>
+                Anthropic API Key
+                {serverProvider === 'anthropic' && serverHasKey && !local.anthropic_api_key && (
+                  <span style={{ color: '#10b981', marginLeft: '8px', fontSize: '11px' }}>
+                    &#x2713; Using server key
+                  </span>
+                )}
+              </label>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <input
                   type={showKeys.anthropic ? 'text' : 'password'}
                   style={{ ...styles.input, flex: 1 }}
                   value={local.anthropic_api_key || ''}
                   onChange={e => update('anthropic_api_key', e.target.value)}
-                  placeholder="sk-ant-..."
+                  placeholder={serverProvider === 'anthropic' && serverHasKey ? '(using server key)' : 'sk-ant-...'}
                 />
                 <button
                   style={styles.cancelBtn}
@@ -203,16 +245,23 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 Get your key at console.anthropic.com
               </div>
             </div>
-            
+
             <div style={styles.field}>
-              <label style={styles.label}>OpenAI API Key</label>
+              <label style={styles.label}>
+                OpenAI API Key
+                {serverProvider === 'openai' && serverHasKey && !local.openai_api_key && (
+                  <span style={{ color: '#10b981', marginLeft: '8px', fontSize: '11px' }}>
+                    &#x2713; Using server key
+                  </span>
+                )}
+              </label>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <input
                   type={showKeys.openai ? 'text' : 'password'}
                   style={{ ...styles.input, flex: 1 }}
                   value={local.openai_api_key || ''}
                   onChange={e => update('openai_api_key', e.target.value)}
-                  placeholder="sk-..."
+                  placeholder={serverProvider === 'openai' && serverHasKey ? '(using server key)' : 'sk-...'}
                 />
                 <button
                   style={styles.cancelBtn}
@@ -226,10 +275,10 @@ export default function SettingsModal({ settings, onSave, onClose }) {
               </div>
             </div>
           </div>
-          
+
           <div style={styles.section}>
             <div style={styles.sectionTitle}>Model Selection</div>
-            
+
             {local.llm_provider === 'anthropic' && (
               <div style={styles.field}>
                 <label style={styles.label}>Claude Model</label>
@@ -244,7 +293,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 </select>
               </div>
             )}
-            
+
             {local.llm_provider === 'openai' && (
               <div style={styles.field}>
                 <label style={styles.label}>GPT Model</label>
@@ -262,7 +311,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
             )}
           </div>
         </div>
-        
+
         <div style={styles.footer}>
           <button style={styles.cancelBtn} onClick={onClose}>
             Cancel
