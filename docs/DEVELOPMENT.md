@@ -127,8 +127,8 @@ git merge dev
 git push origin main
 git checkout dev
 
-# Sync mac1 with latest code
-ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && git pull'
+# Sync mac1 with latest code (ensure on dev branch)
+ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && git checkout dev && git pull origin dev'
 ```
 
 ## Docker Commands
