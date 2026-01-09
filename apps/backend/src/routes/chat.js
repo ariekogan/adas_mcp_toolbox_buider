@@ -74,7 +74,8 @@ router.post("/", async (req, res, next) => {
       toolbox: updatedToolbox,
       suggested_focus: response.suggestedFocus,
       progress,
-      usage: response.usage
+      usage: response.usage,
+      tools_used: response.toolsUsed
     });
     
   } catch (err) {

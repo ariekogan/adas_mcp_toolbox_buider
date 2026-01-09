@@ -67,7 +67,8 @@ export async function processMessage({ project, toolbox, conversation, userMessa
     message: parsed.message || "",
     stateUpdate: parsed.state_update || {},
     suggestedFocus: parsed.suggested_focus || null,
-    usage: response.usage
+    usage: response.usage,
+    toolsUsed: response.toolsUsed || null
   };
 }
 

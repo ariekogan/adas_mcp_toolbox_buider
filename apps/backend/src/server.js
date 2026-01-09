@@ -5,6 +5,7 @@ import chatRouter from "./routes/chat.js";
 import projectsRouter from "./routes/projects.js";
 import mockRouter from "./routes/mock.js";
 import exportRouter from "./routes/export.js";
+import { isSearchAvailable } from "./services/webSearch.js";
 
 const app = express();
 
@@ -31,12 +32,17 @@ app.get("/api/health", (_req, res) => {
   const hasApiKey = provider === "anthropic"
     ? !!process.env.ANTHROPIC_API_KEY
     : !!process.env.OPENAI_API_KEY;
+  const searchProvider = process.env.SEARCH_PROVIDER || "duckduckgo";
 
   res.json({
     ok: true,
     service: "adas_mcp_toolbox_builder-backend",
     llmProvider: provider,
-    hasApiKey
+    hasApiKey,
+    webSearch: {
+      available: isSearchAvailable(),
+      provider: searchProvider
+    }
   });
 });
 
