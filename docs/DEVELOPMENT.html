@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ToolBox Factory - Development Environment</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            border-bottom: 1px solid #bdc3c7;
+            padding-bottom: 5px;
+            margin-top: 30px;
+        }
+        h3 {
+            color: #7f8c8d;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 15px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        code {
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        pre {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .architecture {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre;
+            overflow-x: auto;
+        }
+        .note {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 10px 15px;
+            margin: 15px 0;
+        }
+        .important {
+            background-color: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 10px 15px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>ToolBox Factory - Development Environment</h1>
+
+    <h2>Overview</h2>
+    <p>This document describes the development environment setup for the ToolBox Factory project.</p>
+
+    <h2>Environment Architecture</h2>
+    <div class="architecture">
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           TAILSCALE VPN                                  │
+│                                                                          │
+│  ┌─────────────────────────┐          ┌─────────────────────────────┐   │
+│  │        MAC 2            │          │           MAC 1              │   │
+│  │   (Development)         │   SSH    │       (Deployment)           │   │
+│  │                         │ ──────►  │                              │   │
+│  │  MacBook-Air.local      │          │  ArieMacBook-Pro.local       │   │
+│  │  User: arie             │          │  User: ariekogan333          │   │
+│  │  Home: /Users/arie      │          │  Home: /Users/ariekogan333   │   │
+│  │                         │          │                              │   │
+│  │  - Code editing         │          │  - Docker runtime            │   │
+│  │  - Git operations       │          │  - Container builds          │   │
+│  │  - Claude Code IDE      │          │  - Running services          │   │
+│  │                         │          │                              │   │
+│  │  Project:               │          │  Project:                    │   │
+│  │  ~/Projects/adas_mcp_   │          │  ~/Projects/adas_mcp_        │   │
+│  │  toolbox_builder        │          │  toolbox_builder             │   │
+│  └─────────────────────────┘          └─────────────────────────────┘   │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ git push/pull
+                                    ▼
+                          ┌─────────────────────┐
+                          │       GitHub        │
+                          │                     │
+                          │  ariekogan/adas_    │
+                          │  mcp_toolbox_buider │
+                          │                     │
+                          │  Branches:          │
+                          │  - main (stable)    │
+                          │  - dev (active)     │
+                          └─────────────────────┘
+    </div>
+
+    <h2>Machine Details</h2>
+
+    <h3>MAC 2 - Development Machine</h3>
+    <table>
+        <tr><th>Property</th><th>Value</th></tr>
+        <tr><td>Hostname</td><td>MacBook-Air.local</td></tr>
+        <tr><td>User</td><td>arie</td></tr>
+        <tr><td>Home Directory</td><td>/Users/arie</td></tr>
+        <tr><td>Project Path</td><td>/Users/arie/Projects/adas_mcp_toolbox_builder</td></tr>
+        <tr><td>SSH Alias</td><td>(local)</td></tr>
+        <tr><td>Role</td><td>Code editing, git operations</td></tr>
+    </table>
+
+    <h3>MAC 1 - Deployment Machine</h3>
+    <table>
+        <tr><th>Property</th><th>Value</th></tr>
+        <tr><td>Hostname</td><td>ArieMacBook-Pro.local</td></tr>
+        <tr><td>User</td><td>ariekogan333</td></tr>
+        <tr><td>Home Directory</td><td>/Users/ariekogan333</td></tr>
+        <tr><td>Project Path</td><td>/Users/ariekogan333/Projects/adas_mcp_toolbox_builder</td></tr>
+        <tr><td>SSH Alias</td><td>mac1</td></tr>
+        <tr><td>Role</td><td>Docker runtime, running services</td></tr>
+        <tr><td>Docker Path</td><td>/usr/local/bin/docker</td></tr>
+    </table>
+
+    <h3>Network (Tailscale)</h3>
+    <p>Both machines are connected via Tailscale VPN. The IP addresses may change, so use the SSH alias <code>mac1</code> which should be configured in <code>~/.ssh/config</code>.</p>
+
+    <div class="note">
+        <strong>Note:</strong> Update Tailscale IPs in SSH config if they change:
+        <pre># ~/.ssh/config on mac2
+Host mac1
+    HostName &lt;TAILSCALE_IP&gt;
+    User ariekogan333</pre>
+    </div>
+
+    <h2>Git Workflow</h2>
+
+    <h3>Branch Strategy</h3>
+    <table>
+        <tr><th>Branch</th><th>Purpose</th></tr>
+        <tr><td><code>main</code></td><td>Stable, production-ready code</td></tr>
+        <tr><td><code>dev</code></td><td>Active development branch</td></tr>
+    </table>
+
+    <h3>Development Flow</h3>
+    <pre>1. Work on dev branch (mac2)
+   └── Edit code
+   └── Test locally via SSH to mac1
+   └── Commit changes
+
+2. When stable
+   └── Merge dev → main
+   └── Push to GitHub
+   └── Deploy on mac1</pre>
+
+    <h3>Common Git Commands</h3>
+    <pre># Start new work (on mac2)
+git checkout dev
+git pull origin dev
+
+# After making changes
+git add .
+git commit -m "Description of changes"
+git push origin dev
+
+# When ready to release (stable build)
+git checkout main
+git merge dev
+git push origin main
+git checkout dev
+
+# Sync mac1 with latest code
+ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && git pull'</pre>
+
+    <h2>Docker Commands</h2>
+    <p>All Docker commands run on <strong>mac1</strong> via SSH from mac2.</p>
+
+    <h3>Start Development Environment</h3>
+    <pre># From mac2
+ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && \
+  /usr/local/bin/docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build'</pre>
+
+    <h3>Stop Environment</h3>
+    <pre>ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && \
+  /usr/local/bin/docker compose down'</pre>
+
+    <h3>View Logs</h3>
+    <pre>ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && \
+  /usr/local/bin/docker compose logs -f'</pre>
+
+    <h2>Service Ports</h2>
+    <table>
+        <tr><th>Service</th><th>Internal Port</th><th>Host Port (Dev)</th><th>Host Port (Prod)</th></tr>
+        <tr><td>Backend</td><td>4000</td><td>4300</td><td>4300</td></tr>
+        <tr><td>Frontend (Dev)</td><td>3100</td><td>3310</td><td>-</td></tr>
+        <tr><td>Frontend (Prod)</td><td>80</td><td>-</td><td>3300</td></tr>
+    </table>
+
+    <h3>Access URLs (from mac2)</h3>
+    <ul>
+        <li><strong>Frontend (Dev):</strong> http://mac1:3310</li>
+        <li><strong>Backend API:</strong> http://mac1:4300</li>
+        <li><strong>Health Check:</strong> http://mac1:4300/api/health</li>
+    </ul>
+
+    <h2>Configuration</h2>
+
+    <h3>Environment Variables</h3>
+    <p>Create <code>.env</code> file on mac1 (not committed to git):</p>
+    <pre>ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && cp .env.example .env'
+# Then edit .env with your API keys</pre>
+
+    <p>Required variables:</p>
+    <pre># LLM Configuration
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+ANTHROPIC_MODEL=claude-sonnet-4-20250514
+
+# Ports (optional, defaults shown)
+FRONTEND_HOST_PORT=3300
+BACKEND_HOST_PORT=4300
+VITE_DEV_HOST_PORT=3310</pre>
+
+    <h2>Quick Reference - Daily Workflow</h2>
+    <pre># 1. Start work (mac2)
+cd ~/Projects/adas_mcp_toolbox_builder
+git checkout dev
+git pull
+
+# 2. Start services (run once, keep running)
+ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && \
+  /usr/local/bin/docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build'
+
+# 3. Make code changes locally on mac2
+#    (hot reload will pick up changes for frontend)
+
+# 4. For backend changes, sync to mac1
+git add . && git commit -m "changes" && git push
+ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && git pull'
+
+# 5. Test in browser
+open http://mac1:3310
+
+# 6. End of day - stop services
+ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && \
+  /usr/local/bin/docker compose down'</pre>
+
+    <h2>Troubleshooting</h2>
+
+    <div class="important">
+        <strong>Docker not found on mac1:</strong> Use full path: <code>/usr/local/bin/docker compose ...</code>
+    </div>
+
+    <p><strong>pnpm TTY error:</strong> Already fixed with <code>CI=true</code> in docker-compose.dev.yml</p>
+
+    <p><strong>Services not starting:</strong></p>
+    <pre>ssh mac1 '/usr/local/bin/docker logs adas_mcp_toolbox_builder-backend-1'
+ssh mac1 '/usr/local/bin/docker logs adas_mcp_toolbox_builder-frontend-1'</pre>
+
+    <p><strong>Port already in use:</strong></p>
+    <pre>ssh mac1 '/usr/local/bin/docker compose down'
+ssh mac1 'lsof -i :4300'  # Check what's using the port</pre>
+
+    <hr>
+    <p><em>Last updated: January 2026</em></p>
+</body>
+</html>
