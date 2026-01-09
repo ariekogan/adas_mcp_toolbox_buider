@@ -16,9 +16,11 @@ services:
     build:
       context: ./apps/frontend
       dockerfile: Dockerfile.dev
+    depends_on:
+      - backend
     environment:
       - HOST=0.0.0.0
-      - VITE_API_URL=http://localhost:${BACKEND_HOST_PORT:-4300}
+      - VITE_API_URL=http://backend:4000
       - CI=true
     volumes:
       - ./apps/frontend/src:/app/src
