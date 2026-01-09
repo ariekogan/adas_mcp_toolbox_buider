@@ -162,6 +162,29 @@ const styles = {
   msgParagraph: {
     marginBottom: '8px',
     lineHeight: '1.6'
+  },
+  msgLongParagraph: {
+    marginBottom: '12px',
+    lineHeight: '1.7',
+    padding: '8px 12px',
+    background: 'var(--bg-secondary)',
+    borderRadius: '6px'
+  },
+  msgToolList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    margin: '10px 0'
+  },
+  msgToolItem: {
+    padding: '8px 12px',
+    background: 'var(--bg-secondary)',
+    borderRadius: '6px',
+    borderLeft: '3px solid var(--accent)'
+  },
+  msgToolName: {
+    fontWeight: '600',
+    color: 'var(--accent)'
   }
 };
 
@@ -325,10 +348,54 @@ function formatMessage(content) {
       continue;
     }
 
+    // Check if line contains tool names pattern (e.g., "Email Scanner, Email Organizer, and Response Sender")
+    const toolListMatch = line.match(/tools?[^:]*:\s*([A-Z][a-z]+\s*[A-Z]?[a-z]*(?:,\s*[A-Z][a-z]+\s*[A-Z]?[a-z]*)+(?:,?\s*and\s*[A-Z][a-z]+\s*[A-Z]?[a-z]*)?)/i);
+    if (toolListMatch) {
+      flushList();
+      // Extract tool names from the match
+      const toolsStr = toolListMatch[1];
+      const toolNames = toolsStr.split(/,\s*|\s+and\s+/).filter(t => t.trim());
+
+      // Show intro text
+      const introText = line.substring(0, line.indexOf(toolListMatch[0]) + toolListMatch[0].indexOf(toolListMatch[1])).trim();
+      if (introText) {
+        elements.push(
+          <div key={`p-${i}`} style={styles.msgParagraph}>
+            {formatInlineText(introText)}
+          </div>
+        );
+      }
+
+      // Show tools as a styled list
+      elements.push(
+        <div key={`tools-${i}`} style={styles.msgToolList}>
+          {toolNames.map((tool, j) => (
+            <div key={j} style={styles.msgToolItem}>
+              <span style={styles.msgToolName}>{tool.trim()}</span>
+            </div>
+          ))}
+        </div>
+      );
+
+      // Show remaining text if any
+      const afterTools = line.substring(line.indexOf(toolListMatch[1]) + toolListMatch[1].length).trim();
+      if (afterTools && afterTools.length > 10) {
+        elements.push(
+          <div key={`p-after-${i}`} style={styles.msgParagraph}>
+            {formatInlineText(afterTools.replace(/^[.,]\s*/, ''))}
+          </div>
+        );
+      }
+      continue;
+    }
+
+    // Long paragraphs get special styling
+    const isLongParagraph = line.length > 150;
+
     // Regular paragraph
     flushList();
     elements.push(
-      <div key={`p-${i}`} style={styles.msgParagraph}>
+      <div key={`p-${i}`} style={isLongParagraph ? styles.msgLongParagraph : styles.msgParagraph}>
         {formatInlineText(line)}
       </div>
     );
