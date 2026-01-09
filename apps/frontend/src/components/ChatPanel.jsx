@@ -191,10 +191,11 @@ const styles = {
 function formatMessage(content) {
   // Filter out raw JSON fragments that might leak through
   const jsonPatterns = [
-    /^\s*\{\s*$/,
-    /^\s*\}\s*$/,
-    /^\s*"[a-z_]+"\s*:\s*(null|true|false|"[^"]*"|\d+)\s*,?\s*$/i,
-    /^\s*"(message|state_update|suggested_focus)"\s*:/i
+    /^\s*[\{\}\[\]]\s*$/,                    // Single { } [ ]
+    /^\s*[\{\}\[\]],?\s*$/,                  // { } [ ] with optional comma
+    /^\s*"[a-z_]+"\s*:\s*[\{\[]\s*$/i,       // "key": { or "key": [
+    /^\s*"[a-z_]+"\s*:\s*(null|true|false|"[^"]*"|\d+)\s*,?\s*$/i,  // "key": value
+    /^\s*"(message|state_update|suggested_focus|tools_push|inputs|outputs|name|purpose|id|status)"\s*:/i
   ];
 
   // Parse the message into structured sections
