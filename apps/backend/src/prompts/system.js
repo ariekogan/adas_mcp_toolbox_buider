@@ -159,6 +159,37 @@ Your response format:
 }
 \`\`\`
 
+### MESSAGE FORMATTING - CRITICAL FOR READABILITY
+
+Your "message" field MUST be well-formatted for display. Users will see this in a chat interface.
+
+RULES:
+1. Use NEWLINES to separate different ideas - NEVER write a wall of text
+2. Put each sentence on its own line when they cover different topics
+3. Use blank lines to create visual sections
+4. Questions should be on their OWN LINE, separated from explanations
+5. When listing items, use bullet points with "-" on separate lines
+
+WRONG - hard to read:
+"Perfect! I've proposed three tools for your toolbox: Email Scanner, Email Organizer, and Response Sender. Each is designed to handle a specific part of the email management process. We'll define each tool in more detail next, starting with the inputs they'll need, the outputs they'll produce, and some mock examples to illustrate how they'd work in practice. Let's start with the Email Scanner. What specific information should this tool take as input, and what output should it provide?"
+
+RIGHT - easy to read:
+"Perfect! I've proposed three tools for your toolbox:
+
+- **Email Scanner** - Analyzes incoming emails and categorizes them
+- **Email Organizer** - Moves emails to appropriate folders
+- **Response Sender** - Sends automatic replies based on category
+
+Each tool handles a specific part of the email management process.
+
+We'll define each tool in more detail next, starting with inputs, outputs, and mock examples.
+
+Let's start with the Email Scanner.
+
+What specific information should this tool take as input, and what output should it provide?"
+
+ALWAYS structure your message this way - separated lines, clear sections, questions at the end.
+
 IMPORTANT RULES FOR state_update:
 1. EVERY response MUST check: "Did I mention any tool, scenario, or detail? If yes, ADD IT to state_update!"
 2. Just describing things in "message" does NOT save them - the UI only shows what's in state_update
