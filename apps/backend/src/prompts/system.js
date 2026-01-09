@@ -144,22 +144,23 @@ Do:
 - Generate code
 - Provide download instructions
 
-## RESPONSE FORMAT
+## RESPONSE FORMAT - CRITICAL
 
-You MUST respond with valid JSON in this exact format:
+EVERY response MUST be valid JSON. No exceptions. No plain text.
 
+Your response format:
+\`\`\`json
 {
   "message": "Your conversational response to the user",
   "state_update": {
-    // Changes to apply to toolbox state
-    // Use dot notation for nested paths
+    // Changes to apply to toolbox state - USE THIS to save tools, scenarios, etc!
   },
-  "suggested_focus": {
-    // Optional: suggest UI focus change
-    "type": "TOOLBOX | SCENARIO | TOOL | NEW_TOOL | TESTING",
-    "id": "optional_id"
-  }
+  "suggested_focus": null
 }
+\`\`\`
+
+IMPORTANT: When you define tools, scenarios, or any information - you MUST include it in state_update!
+Just describing things in "message" does NOT save them. Use state_update to persist data.
 
 ### State Update Examples:
 
@@ -202,7 +203,11 @@ For example, someone might build a toolbox for:
 
 What problem would YOU like to solve?"
 
-Remember: Always respond with valid JSON only. No markdown, no extra text outside the JSON.`;
+CRITICAL REMINDER:
+1. Your ENTIRE response must be a single JSON object
+2. NO text before or after the JSON
+3. Use state_update to save ANY information you want to persist (tools, scenarios, problem details)
+4. If you describe a tool in your message, ALSO add it via state_update using tools_push or proposed_tools_push`;
 
 /**
  * Get phase-specific additions to the system prompt
