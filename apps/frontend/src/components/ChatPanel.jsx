@@ -107,17 +107,213 @@ const styles = {
     fontSize: '24px',
     marginBottom: '8px',
     color: 'var(--text-primary)'
+  },
+  // Formatted message styles
+  msgSection: {
+    marginBottom: '12px'
+  },
+  msgQuestion: {
+    background: 'var(--accent)',
+    color: 'white',
+    padding: '10px 14px',
+    borderRadius: '8px',
+    marginTop: '12px',
+    fontWeight: '500',
+    fontSize: '14px'
+  },
+  msgHeading: {
+    fontWeight: '600',
+    fontSize: '14px',
+    marginBottom: '6px',
+    marginTop: '12px',
+    color: 'var(--text-primary)'
+  },
+  msgList: {
+    margin: '8px 0',
+    paddingLeft: '20px'
+  },
+  msgListItem: {
+    marginBottom: '4px',
+    lineHeight: '1.5'
+  },
+  msgCode: {
+    background: 'var(--bg-secondary)',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    fontFamily: 'monospace',
+    fontSize: '13px'
+  },
+  msgExample: {
+    background: 'var(--bg-secondary)',
+    padding: '10px 12px',
+    borderRadius: '6px',
+    margin: '8px 0',
+    fontSize: '13px',
+    borderLeft: '3px solid var(--accent)'
+  },
+  msgDone: {
+    color: 'var(--success)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    marginBottom: '4px'
+  },
+  msgParagraph: {
+    marginBottom: '8px',
+    lineHeight: '1.6'
   }
 };
 
 function formatMessage(content) {
-  // Simple formatting: preserve line breaks and basic markdown
-  return content.split('\n').map((line, i) => (
-    <span key={i}>
-      {line}
-      {i < content.split('\n').length - 1 && <br />}
-    </span>
-  ));
+  // Parse the message into structured sections
+  const lines = content.split('\n');
+  const elements = [];
+  let currentList = [];
+  let inExample = false;
+  let exampleLines = [];
+
+  const flushList = () => {
+    if (currentList.length > 0) {
+      elements.push(
+        <ul key={`list-${elements.length}`} style={styles.msgList}>
+          {currentList.map((item, i) => (
+            <li key={i} style={styles.msgListItem}>{formatInlineText(item)}</li>
+          ))}
+        </ul>
+      );
+      currentList = [];
+    }
+  };
+
+  const flushExample = () => {
+    if (exampleLines.length > 0) {
+      elements.push(
+        <div key={`ex-${elements.length}`} style={styles.msgExample}>
+          {exampleLines.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      );
+      exampleLines = [];
+      inExample = false;
+    }
+  };
+
+  const formatInlineText = (text) => {
+    // Handle inline formatting: **bold**, `code`, etc.
+    const parts = [];
+    let remaining = text;
+    let key = 0;
+
+    while (remaining.length > 0) {
+      // Check for `code`
+      const codeMatch = remaining.match(/^(.*?)`([^`]+)`(.*)$/);
+      if (codeMatch) {
+        if (codeMatch[1]) parts.push(<span key={key++}>{codeMatch[1]}</span>);
+        parts.push(<code key={key++} style={styles.msgCode}>{codeMatch[2]}</code>);
+        remaining = codeMatch[3];
+        continue;
+      }
+
+      // Check for **bold**
+      const boldMatch = remaining.match(/^(.*?)\*\*([^*]+)\*\*(.*)$/);
+      if (boldMatch) {
+        if (boldMatch[1]) parts.push(<span key={key++}>{boldMatch[1]}</span>);
+        parts.push(<strong key={key++}>{boldMatch[2]}</strong>);
+        remaining = boldMatch[3];
+        continue;
+      }
+
+      // No more formatting, add remaining text
+      parts.push(<span key={key++}>{remaining}</span>);
+      break;
+    }
+
+    return parts.length > 0 ? parts : text;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    // Skip empty lines but flush lists
+    if (!line) {
+      flushList();
+      flushExample();
+      continue;
+    }
+
+    // Example blocks (indented or starting with Example/Input/Output)
+    if (line.startsWith('Example') || line.startsWith('Input:') || line.startsWith('Output:') ||
+        line.startsWith('- **Input') || line.startsWith('- **Output') || line.startsWith('- **Expected')) {
+      flushList();
+      if (!inExample) inExample = true;
+      exampleLines.push(formatInlineText(line));
+      continue;
+    }
+
+    if (inExample && (line.startsWith('-') || line.startsWith('{'))) {
+      exampleLines.push(formatInlineText(line));
+      continue;
+    } else if (inExample) {
+      flushExample();
+    }
+
+    // Questions (lines ending with ?)
+    if (line.endsWith('?') && line.length > 20) {
+      flushList();
+      elements.push(
+        <div key={`q-${i}`} style={styles.msgQuestion}>
+          {formatInlineText(line)}
+        </div>
+      );
+      continue;
+    }
+
+    // Headings (lines with ** at start and end, or numbered with **)
+    if ((line.startsWith('**') && line.endsWith('**')) ||
+        /^\d+\.\s+\*\*/.test(line)) {
+      flushList();
+      const headingText = line.replace(/^\d+\.\s+/, '').replace(/\*\*/g, '');
+      elements.push(
+        <div key={`h-${i}`} style={styles.msgHeading}>
+          {headingText}
+        </div>
+      );
+      continue;
+    }
+
+    // List items (starting with - or number.)
+    if (/^[-•]\s/.test(line) || /^\d+\.\s/.test(line)) {
+      const itemText = line.replace(/^[-•]\s+/, '').replace(/^\d+\.\s+/, '');
+      currentList.push(itemText);
+      continue;
+    }
+
+    // Done/completed items (containing ✓ or "done" or "complete" or "added")
+    if (line.includes('✓') || /\b(done|complete|added|saved|created)\b/i.test(line)) {
+      flushList();
+      elements.push(
+        <div key={`done-${i}`} style={styles.msgDone}>
+          <span>✓</span> {formatInlineText(line.replace('✓', '').trim())}
+        </div>
+      );
+      continue;
+    }
+
+    // Regular paragraph
+    flushList();
+    elements.push(
+      <div key={`p-${i}`} style={styles.msgParagraph}>
+        {formatInlineText(line)}
+      </div>
+    );
+  }
+
+  // Flush any remaining items
+  flushList();
+  flushExample();
+
+  return elements.length > 0 ? elements : content;
 }
 
 export default function ChatPanel({ 
