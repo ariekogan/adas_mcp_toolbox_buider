@@ -82,7 +82,21 @@ const styles = {
     background: 'var(--bg-card)',
     borderRadius: '12px',
     color: 'var(--text-muted)',
-    fontSize: '14px'
+    fontSize: '14px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px'
+  },
+  typingDots: {
+    display: 'flex',
+    gap: '4px'
+  },
+  typingDot: {
+    width: '8px',
+    height: '8px',
+    borderRadius: '50%',
+    background: 'var(--accent)',
+    animation: 'pulse 1.4s ease-in-out infinite'
   },
   welcome: {
     textAlign: 'center',
@@ -162,7 +176,18 @@ export default function ChatPanel({
         
         {sending && (
           <div style={styles.typing}>
-            Thinking...
+            <div style={styles.typingDots}>
+              <span style={{ ...styles.typingDot, animationDelay: '0s' }} />
+              <span style={{ ...styles.typingDot, animationDelay: '0.2s' }} />
+              <span style={{ ...styles.typingDot, animationDelay: '0.4s' }} />
+            </div>
+            <span>Working on it...</span>
+            <style>{`
+              @keyframes pulse {
+                0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+                40% { transform: scale(1); opacity: 1; }
+              }
+            `}</style>
           </div>
         )}
         
