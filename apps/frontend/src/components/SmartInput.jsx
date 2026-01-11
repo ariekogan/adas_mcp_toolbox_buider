@@ -42,24 +42,25 @@ const styles = {
   listContainer: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '2px',
-    marginBottom: '8px'
+    gap: '1px',
+    marginBottom: '6px'
   },
   listOption: {
-    padding: '8px 12px',
+    padding: '6px 10px',
     background: 'transparent',
-    border: '1px solid var(--border)',
-    borderRadius: '6px',
-    color: 'var(--text-secondary)',
+    border: 'none',
+    borderLeft: '2px solid var(--border)',
+    borderRadius: '0',
+    color: 'var(--text-muted)',
     cursor: 'pointer',
-    fontSize: '13px',
+    fontSize: '12px',
     textAlign: 'left',
     transition: 'all 0.15s ease',
     lineHeight: '1.3'
   },
   listOptionHover: {
-    background: 'var(--bg-secondary)',
-    borderColor: 'var(--accent)',
+    background: 'transparent',
+    borderLeftColor: 'var(--accent)',
     color: 'var(--text-primary)'
   },
   otherButton: {
@@ -72,13 +73,14 @@ const styles = {
     fontSize: '12px'
   },
   otherButtonList: {
-    padding: '8px 12px',
+    padding: '6px 10px',
     background: 'transparent',
-    border: '1px dashed var(--border)',
-    borderRadius: '6px',
+    border: 'none',
+    borderLeft: '2px dashed var(--border)',
+    borderRadius: '0',
     color: 'var(--text-muted)',
     cursor: 'pointer',
-    fontSize: '12px',
+    fontSize: '11px',
     textAlign: 'left'
   },
   inputRow: {
