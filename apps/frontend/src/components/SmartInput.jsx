@@ -117,28 +117,29 @@ const styles = {
     opacity: 0.5,
     cursor: 'not-allowed'
   },
-  // Upload styles
+  // Upload styles - compact icon button
   uploadRow: {
     display: 'flex',
     alignItems: 'center',
-    gap: '10px',
-    marginBottom: '8px'
+    gap: '6px'
   },
   uploadButton: {
-    padding: '8px 14px',
-    background: 'var(--bg-secondary)',
-    border: '1px dashed var(--border)',
-    borderRadius: '8px',
-    color: 'var(--text-secondary)',
+    padding: '8px',
+    background: 'transparent',
+    border: '1px solid var(--border)',
+    borderRadius: '6px',
+    color: 'var(--text-muted)',
     cursor: 'pointer',
-    fontSize: '13px',
+    fontSize: '14px',
     display: 'flex',
     alignItems: 'center',
-    gap: '6px',
-    transition: 'all 0.15s ease'
+    justifyContent: 'center',
+    transition: 'all 0.15s ease',
+    minWidth: '36px',
+    height: '36px'
   },
   uploadButtonHover: {
-    background: 'var(--bg-card)',
+    background: 'var(--bg-secondary)',
     borderColor: 'var(--accent)',
     color: 'var(--accent)'
   },
@@ -178,8 +179,19 @@ const styles = {
     fontWeight: '500'
   },
   uploadHint: {
-    fontSize: '12px',
+    fontSize: '11px',
     color: 'var(--text-muted)'
+  },
+  // Input row with upload button inline
+  inputRowWithUpload: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'flex-end'
+  },
+  buttonGroup: {
+    display: 'flex',
+    gap: '6px',
+    alignItems: 'center'
   }
 };
 
@@ -270,12 +282,12 @@ export default function SmartInput({
     }
   };
 
-  // Upload row component
-  const renderUploadRow = () => {
+  // Upload button component - compact icon
+  const renderUploadButton = () => {
     if (!onFileUpload) return null;
 
     return (
-      <div style={styles.uploadRow}>
+      <>
         <input
           ref={fileInputRef}
           type="file"
@@ -285,37 +297,36 @@ export default function SmartInput({
         />
 
         {selectedFile ? (
-          <>
+          <div style={styles.uploadRow}>
             <div style={styles.fileSelected}>
               <span style={styles.fileName}>{selectedFile.name}</span>
-              <button style={styles.removeFile} onClick={handleRemoveFile}>x</button>
+              <button style={styles.removeFile} onClick={handleRemoveFile}>×</button>
             </div>
             <button
               style={styles.analyzeButton}
               onClick={handleFileUpload}
               disabled={sending}
             >
-              {sending ? 'Analyzing...' : 'Analyze File'}
+              {sending ? '...' : 'Analyze'}
             </button>
+          </div>
           </>
         ) : (
-          <>
-            <button
-              style={{
-                ...styles.uploadButton,
-                ...(hoveredUpload ? styles.uploadButtonHover : {})
-              }}
-              onClick={() => fileInputRef.current?.click()}
-              onMouseEnter={() => setHoveredUpload(true)}
-              onMouseLeave={() => setHoveredUpload(false)}
-              disabled={sending}
-            >
-              + Upload examples
-            </button>
-            <span style={styles.uploadHint}>.txt, .csv, .json, .eml</span>
-          </>
+          <button
+            style={{
+              ...styles.uploadButton,
+              ...(hoveredUpload ? styles.uploadButtonHover : {})
+            }}
+            onClick={() => fileInputRef.current?.click()}
+            onMouseEnter={() => setHoveredUpload(true)}
+            onMouseLeave={() => setHoveredUpload(false)}
+            disabled={sending}
+            title="Upload example file (.txt, .csv, .json, .eml)"
+          >
+            📎
+          </button>
         )}
-      </div>
+      </>
     );
   };
 
@@ -325,7 +336,6 @@ export default function SmartInput({
     if (useList) {
       return (
         <div style={styles.container}>
-          {renderUploadRow()}
           <div style={styles.listContainer}>
             {options.map((option, i) => (
               <button
@@ -350,6 +360,7 @@ export default function SmartInput({
               Something else...
             </button>
           </div>
+          {renderUploadButton()}
         </div>
       );
     }
@@ -357,7 +368,6 @@ export default function SmartInput({
     // Pill buttons for short options
     return (
       <div style={styles.container}>
-        {renderUploadRow()}
         <div style={styles.selectionContainer}>
           {options.map((option, i) => (
             <button
@@ -382,6 +392,7 @@ export default function SmartInput({
             Other...
           </button>
         </div>
+        {renderUploadButton()}
       </div>
     );
   }
@@ -389,7 +400,6 @@ export default function SmartInput({
   // Text mode (default) or "Other" selected
   return (
     <div style={styles.container}>
-      {renderUploadRow()}
       {mode === 'selection' && showTextInput && options.length > 0 && (
         <div style={useList ? styles.listContainer : styles.selectionContainer}>
           {options.map((option, i) => (
@@ -409,7 +419,7 @@ export default function SmartInput({
           ))}
         </div>
       )}
-      <div style={styles.inputRow}>
+      <div style={styles.inputRowWithUpload}>
         <textarea
           ref={inputRef}
           style={styles.input}
@@ -420,16 +430,19 @@ export default function SmartInput({
           rows={1}
           disabled={sending}
         />
-        <button
-          style={{
-            ...styles.sendButton,
-            ...(sending || !input.trim() ? styles.sendButtonDisabled : {})
-          }}
-          onClick={handleSend}
-          disabled={sending || !input.trim()}
-        >
-          Send
-        </button>
+        <div style={styles.buttonGroup}>
+          {renderUploadButton()}
+          <button
+            style={{
+              ...styles.sendButton,
+              ...(sending || !input.trim() ? styles.sendButtonDisabled : {})
+            }}
+            onClick={handleSend}
+            disabled={sending || !input.trim()}
+          >
+            Send
+          </button>
+        </div>
       </div>
     </div>
   );

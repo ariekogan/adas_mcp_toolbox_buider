@@ -672,22 +672,30 @@ export default function ChatPanel({
         )}
         
         {messages.map((msg, i) => {
-          // Check if this assistant message looks like a status summary
-          const isStatusSummary = msg.role === 'assistant' &&
-            msg.content && (
-              msg.content.toLowerCase().includes('status') ||
-              msg.content.toLowerCase().includes('summary') ||
-              msg.content.toLowerCase().includes('progress') ||
-              msg.content.toLowerCase().includes("here's what we have") ||
-              msg.content.toLowerCase().includes('so far')
-            );
-
-          // Only show dashboard on the last assistant message if it's a status summary
-          const isLastAssistant = msg.role === 'assistant' &&
+          // Check if this is the last assistant message
+          const isLastAssistant = msg.role === 'assistant' && (
             i === messages.length - 1 ||
-            (i === messages.length - 2 && messages[messages.length - 1]?.role === 'user');
+            (i === messages.length - 2 && messages[messages.length - 1]?.role === 'user')
+          );
 
-          const showDashboard = isStatusSummary && isLastAssistant && domain;
+          // Show dashboard on last assistant message if it mentions status-related words
+          const hasStatusContent = msg.content && (
+            msg.content.toLowerCase().includes('status') ||
+            msg.content.toLowerCase().includes('summary') ||
+            msg.content.toLowerCase().includes('progress') ||
+            msg.content.toLowerCase().includes("here's what we have") ||
+            msg.content.toLowerCase().includes("here's where we") ||
+            msg.content.toLowerCase().includes('so far') ||
+            msg.content.toLowerCase().includes('currently are') ||
+            msg.content.toLowerCase().includes('current state') ||
+            msg.content.toLowerCase().includes('what we have defined') ||
+            msg.content.toLowerCase().includes('problem statement') ||
+            msg.content.toLowerCase().includes('scenarios defined') ||
+            msg.content.toLowerCase().includes('intents defined') ||
+            msg.content.toLowerCase().includes('tools defined')
+          );
+
+          const showDashboard = isLastAssistant && hasStatusContent && domain;
 
           return (
             <div
