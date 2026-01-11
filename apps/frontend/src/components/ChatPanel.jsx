@@ -331,13 +331,14 @@ function formatMessage(content) {
       continue;
     }
 
-    // Questions (lines ending with ?)
-    if (line.endsWith('?') && line.length > 20) {
+    // Questions (standalone lines ending with ?, not starting with - or bullets)
+    // Only style as question if it's a standalone question, not part of a list
+    if (line.endsWith('?') && line.length > 20 && !line.startsWith('-') && !line.startsWith('•')) {
       flushList();
-      // Check if this is the last line or after a separator - make it a call-to-action
-      const isLastQuestion = i >= lines.length - 2 || elements.some(el => el.key?.startsWith('sep-'));
+      // Check if this is after a separator (---) - make it a call-to-action
+      const isAfterSeparator = elements.some(el => el.key?.startsWith('sep-'));
       elements.push(
-        <div key={`q-${i}`} style={isLastQuestion ? styles.msgCallToAction : styles.msgQuestion}>
+        <div key={`q-${i}`} style={isAfterSeparator ? styles.msgCallToAction : styles.msgQuestion}>
           {formatInlineText(line)}
         </div>
       );
