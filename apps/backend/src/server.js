@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import multer from "multer";
 
 import chatRouter from "./routes/chat.js";
 import domainsRouter from "./routes/domains.js";
@@ -11,6 +12,22 @@ const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+
+// Configure multer for file uploads (text files only)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (_req, file, cb) => {
+    const allowedExtensions = ['.txt', '.csv', '.json', '.md', '.eml', '.log'];
+    const ext = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
+    if (allowedExtensions.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only text-based files are allowed (.txt, .csv, .json, .md, .eml, .log)'));
+    }
+  }
+});
+app.locals.upload = upload;
 
 const port = Number(process.env.PORT || 4000);
 const logLevel = process.env.LOG_LEVEL || "info";

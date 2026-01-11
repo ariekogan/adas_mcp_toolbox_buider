@@ -200,25 +200,43 @@ Your response format:
 }
 \`\`\`
 
-### Input Hints - GUIDE USER INPUT
+### Input Hints - CRITICAL: GUIDE USER INPUT
 
-Use \`input_hint\` to guide the user's next response:
+Use \`input_hint\` to guide the user's next response. **PREFER SELECTION MODE** to make interaction faster and easier.
 
-1. **Text mode** (default): Free-form text input
+1. **Selection mode** (PREFERRED): Show clickable options - user can always type custom if needed
+   \`"input_hint": { "mode": "selection", "options": ["Option 1", "Option 2", "Option 3"] }\`
+
+2. **Text mode**: Only for truly open-ended questions where you can't predict answers
    \`"input_hint": { "mode": "text" }\`
 
-2. **Selection mode**: Show clickable options (user can still type custom)
-   \`"input_hint": { "mode": "selection", "options": ["Customer support", "Sales assistance", "HR helpdesk"] }\`
+**CRITICAL: USE SELECTION MODE 80%+ OF THE TIME!**
 
-ALWAYS use selection mode when:
-- You give examples in your message (turn those into options!)
-- Asking yes/no or choice questions
-- Offering predefined categories
+You MUST use selection mode when:
+- You give ANY examples in your message (ALWAYS turn examples into clickable options!)
+- Asking yes/no questions: \`["Yes", "No"]\`
+- Asking confirmation: \`["Yes, that's correct", "No, let me clarify"]\`
+- Offering categories or choices
+- Asking about types, options, or preferences
+- Suggesting next steps
+- Asking which item to work on
+- ANY question where you can anticipate 2-6 likely answers
+
+Only use text mode for:
+- Asking for a name (user's name, company name)
+- Asking for a description in their own words
+- Truly unique/creative input you cannot predict
+
+**Options can be full sentences** - the UI adapts automatically:
+- Short options (< 25 chars avg): displayed as pill buttons
+- Longer options: displayed as a clean vertical list
 
 Examples:
-- "What problem to solve?" + examples → \`{ "mode": "selection", "options": ["Customer support", "Sales", "HR"] }\`
-- "Is this correct?" → \`{ "mode": "selection", "options": ["Yes, looks good", "No, let me clarify"] }\`
-- "Which tool first?" → \`{ "mode": "selection", "options": ["check_order", "process_refund"] }\`
+- "What problem?" → \`{ "mode": "selection", "options": ["Customer support automation", "Sales lead qualification", "HR request handling", "IT helpdesk tickets"] }\`
+- "Correct?" → \`{ "mode": "selection", "options": ["Yes, looks good", "No, let me clarify"] }\`
+- "Which tool?" → \`{ "mode": "selection", "options": ["check_order_status", "process_refund", "update_shipping"] }\`
+- "What inputs does this tool need?" → \`{ "mode": "selection", "options": ["Just the order ID", "Order ID and customer email", "Let me describe custom inputs"] }\`
+- "What should happen next?" → \`{ "mode": "selection", "options": ["Add another scenario", "Move on to defining intents", "Review what we have so far"] }\`
 
 ### MESSAGE FORMATTING - CRITICAL FOR READABILITY
 

@@ -4,6 +4,8 @@
  * Modes:
  * - text: Standard text input
  * - selection: Clickable options with optional custom input
+ *   - Short options (< 30 chars avg): pill buttons
+ *   - Long options: list/table format
  */
 
 import { useState, useRef, useEffect } from 'react';
@@ -14,6 +16,7 @@ const styles = {
     flexDirection: 'column',
     gap: '8px'
   },
+  // Pill buttons for short options
   selectionContainer: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -21,7 +24,7 @@ const styles = {
     marginBottom: '4px'
   },
   optionButton: {
-    padding: '8px 16px',
+    padding: '10px 18px',
     background: 'var(--bg-secondary)',
     border: '1px solid var(--border)',
     borderRadius: '20px',
@@ -35,8 +38,32 @@ const styles = {
     borderColor: 'var(--accent)',
     color: 'white'
   },
+  // List format for long options
+  listContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    marginBottom: '8px'
+  },
+  listOption: {
+    padding: '12px 16px',
+    background: 'var(--bg-secondary)',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    color: 'var(--text-primary)',
+    cursor: 'pointer',
+    fontSize: '14px',
+    textAlign: 'left',
+    transition: 'all 0.15s ease',
+    lineHeight: '1.4'
+  },
+  listOptionHover: {
+    background: 'var(--accent)',
+    borderColor: 'var(--accent)',
+    color: 'white'
+  },
   otherButton: {
-    padding: '8px 16px',
+    padding: '10px 18px',
     background: 'transparent',
     border: '1px dashed var(--border)',
     borderRadius: '20px',
@@ -44,23 +71,34 @@ const styles = {
     cursor: 'pointer',
     fontSize: '14px'
   },
+  otherButtonList: {
+    padding: '10px 16px',
+    background: 'transparent',
+    border: '1px dashed var(--border)',
+    borderRadius: '8px',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    fontSize: '14px',
+    textAlign: 'left'
+  },
   inputRow: {
     display: 'flex',
     gap: '8px'
   },
   input: {
     flex: 1,
-    padding: '16px 18px',
+    padding: '20px',
     background: 'var(--bg-secondary)',
     border: '1px solid var(--border)',
     borderRadius: '8px',
     color: 'var(--text-primary)',
     fontSize: '16px',
     resize: 'none',
-    minHeight: '60px',
-    maxHeight: '160px',
+    minHeight: '120px',
+    maxHeight: '250px',
     fontFamily: 'inherit',
-    lineHeight: '1.5'
+    lineHeight: '1.5',
+    boxSizing: 'border-box'
   },
   sendButton: {
     padding: '12px 20px',
@@ -76,23 +114,101 @@ const styles = {
   sendButtonDisabled: {
     opacity: 0.5,
     cursor: 'not-allowed'
+  },
+  // Upload styles
+  uploadRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    marginBottom: '8px'
+  },
+  uploadButton: {
+    padding: '8px 14px',
+    background: 'var(--bg-secondary)',
+    border: '1px dashed var(--border)',
+    borderRadius: '8px',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    fontSize: '13px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    transition: 'all 0.15s ease'
+  },
+  uploadButtonHover: {
+    background: 'var(--bg-card)',
+    borderColor: 'var(--accent)',
+    color: 'var(--accent)'
+  },
+  fileSelected: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '8px 14px',
+    background: 'var(--accent)15',
+    border: '1px solid var(--accent)',
+    borderRadius: '8px',
+    fontSize: '13px'
+  },
+  fileName: {
+    color: 'var(--text-primary)',
+    maxWidth: '200px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
+  },
+  removeFile: {
+    background: 'none',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    padding: '2px 6px',
+    fontSize: '14px'
+  },
+  analyzeButton: {
+    padding: '8px 14px',
+    background: 'var(--accent)',
+    border: 'none',
+    borderRadius: '6px',
+    color: 'white',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: '500'
+  },
+  uploadHint: {
+    fontSize: '12px',
+    color: 'var(--text-muted)'
   }
 };
+
+// Determine if options are "short" (use pills) or "long" (use list)
+function shouldUseListFormat(options) {
+  if (!options || options.length === 0) return false;
+  const avgLength = options.reduce((sum, opt) => sum + opt.length, 0) / options.length;
+  const maxLength = Math.max(...options.map(opt => opt.length));
+  // Use list if avg > 25 chars OR any option > 40 chars
+  return avgLength > 25 || maxLength > 40;
+}
 
 export default function SmartInput({
   inputHint,
   onSend,
+  onFileUpload,
   sending,
   placeholder = "Type your message..."
 }) {
   const [input, setInput] = useState('');
   const [showTextInput, setShowTextInput] = useState(false);
   const [hoveredOption, setHoveredOption] = useState(null);
+  const [hoveredUpload, setHoveredUpload] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const mode = inputHint?.mode || 'text';
   const options = inputHint?.options || [];
   const customPlaceholder = inputHint?.placeholder || placeholder;
+  const useList = shouldUseListFormat(options);
 
   // Reset showTextInput when inputHint changes
   useEffect(() => {
@@ -128,10 +244,118 @@ export default function SmartInput({
     }
   };
 
-  // Selection mode with options
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+    }
+  };
+
+  const handleFileUpload = () => {
+    if (selectedFile && onFileUpload) {
+      onFileUpload(selectedFile);
+      setSelectedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveFile = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Upload row component
+  const renderUploadRow = () => {
+    if (!onFileUpload) return null;
+
+    return (
+      <div style={styles.uploadRow}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".txt,.csv,.json,.md,.eml,.log"
+          onChange={handleFileSelect}
+          style={{ display: 'none' }}
+        />
+
+        {selectedFile ? (
+          <>
+            <div style={styles.fileSelected}>
+              <span style={styles.fileName}>{selectedFile.name}</span>
+              <button style={styles.removeFile} onClick={handleRemoveFile}>x</button>
+            </div>
+            <button
+              style={styles.analyzeButton}
+              onClick={handleFileUpload}
+              disabled={sending}
+            >
+              {sending ? 'Analyzing...' : 'Analyze File'}
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              style={{
+                ...styles.uploadButton,
+                ...(hoveredUpload ? styles.uploadButtonHover : {})
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              onMouseEnter={() => setHoveredUpload(true)}
+              onMouseLeave={() => setHoveredUpload(false)}
+              disabled={sending}
+            >
+              + Upload examples
+            </button>
+            <span style={styles.uploadHint}>.txt, .csv, .json, .eml</span>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // Selection mode with options (not showing text input)
   if (mode === 'selection' && options.length > 0 && !showTextInput) {
+    // List format for long options
+    if (useList) {
+      return (
+        <div style={styles.container}>
+          {renderUploadRow()}
+          <div style={styles.listContainer}>
+            {options.map((option, i) => (
+              <button
+                key={i}
+                style={{
+                  ...styles.listOption,
+                  ...(hoveredOption === i ? styles.listOptionHover : {})
+                }}
+                onClick={() => handleOptionClick(option)}
+                onMouseEnter={() => setHoveredOption(i)}
+                onMouseLeave={() => setHoveredOption(null)}
+                disabled={sending}
+              >
+                {option}
+              </button>
+            ))}
+            <button
+              style={styles.otherButtonList}
+              onClick={() => setShowTextInput(true)}
+              disabled={sending}
+            >
+              Something else...
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Pill buttons for short options
     return (
       <div style={styles.container}>
+        {renderUploadRow()}
         <div style={styles.selectionContainer}>
           {options.map((option, i) => (
             <button
@@ -163,14 +387,15 @@ export default function SmartInput({
   // Text mode (default) or "Other" selected
   return (
     <div style={styles.container}>
-      {mode === 'selection' && showTextInput && (
-        <div style={styles.selectionContainer}>
+      {renderUploadRow()}
+      {mode === 'selection' && showTextInput && options.length > 0 && (
+        <div style={useList ? styles.listContainer : styles.selectionContainer}>
           {options.map((option, i) => (
             <button
               key={i}
               style={{
-                ...styles.optionButton,
-                ...(hoveredOption === i ? styles.optionButtonHover : {})
+                ...(useList ? styles.listOption : styles.optionButton),
+                ...(hoveredOption === i ? (useList ? styles.listOptionHover : styles.optionButtonHover) : {})
               }}
               onClick={() => handleOptionClick(option)}
               onMouseEnter={() => setHoveredOption(i)}

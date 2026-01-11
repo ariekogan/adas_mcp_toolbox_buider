@@ -3,6 +3,7 @@ import SkillList from './components/SkillList';
 import ChatPanel from './components/ChatPanel';
 import SkillPanel from './components/SkillPanel';
 import SettingsModal from './components/SettingsModal';
+import ExtractionReviewModal from './components/ExtractionReviewModal';
 import { useSkill } from './hooks/useSkill';
 import { useSettings } from './hooks/useSettings';
 import * as api from './api/client';
@@ -104,6 +105,11 @@ export default function App() {
   const [sending, setSending] = useState(false);
   const [inputHint, setInputHint] = useState(null);
 
+  // File upload extraction state
+  const [extraction, setExtraction] = useState(null);
+  const [extractionFileInfo, setExtractionFileInfo] = useState(null);
+  const [applyingExtraction, setApplyingExtraction] = useState(false);
+
   const messages = currentSkill?.conversation || [];
 
   useEffect(() => {
@@ -201,6 +207,61 @@ export default function App() {
     }
   }, [currentSkill]);
 
+  // File upload handlers
+  const handleFileUpload = useCallback(async (file) => {
+    if (!currentSkill) return;
+
+    setSending(true);
+    try {
+      const result = await api.digestFile(currentSkill.id, file);
+      setExtraction(result.extraction);
+      setExtractionFileInfo(result.file_info);
+    } catch (err) {
+      addMessage({
+        id: `msg_${Date.now()}`,
+        role: 'assistant',
+        content: `Error processing file: ${err.message}`,
+        timestamp: new Date().toISOString()
+      });
+    } finally {
+      setSending(false);
+    }
+  }, [currentSkill, addMessage]);
+
+  const handleApplyExtraction = useCallback(async (filteredExtraction) => {
+    if (!currentSkill) return;
+
+    setApplyingExtraction(true);
+    try {
+      const result = await api.applyExtraction(currentSkill.id, filteredExtraction);
+      addMessage({
+        id: `msg_${Date.now()}`,
+        role: 'assistant',
+        content: result.message || 'Extraction applied successfully!',
+        timestamp: new Date().toISOString()
+      });
+      if (result.skill) {
+        updateSkill(result.skill);
+      }
+      setExtraction(null);
+      setExtractionFileInfo(null);
+    } catch (err) {
+      addMessage({
+        id: `msg_${Date.now()}`,
+        role: 'assistant',
+        content: `Error applying extraction: ${err.message}`,
+        timestamp: new Date().toISOString()
+      });
+    } finally {
+      setApplyingExtraction(false);
+    }
+  }, [currentSkill, addMessage, updateSkill]);
+
+  const handleCancelExtraction = useCallback(() => {
+    setExtraction(null);
+    setExtractionFileInfo(null);
+  }, []);
+
   const apiConfigured = hasApiKey();
 
   return (
@@ -238,6 +299,7 @@ export default function App() {
             <ChatPanel
               messages={messages}
               onSendMessage={handleSendMessage}
+              onFileUpload={handleFileUpload}
               sending={sending}
               skillName={currentSkill.name}
               inputHint={inputHint}
@@ -267,6 +329,16 @@ export default function App() {
           onSave={updateSettings}
           onClose={closeSettings}
           backendStatus={backendStatus}
+        />
+      )}
+
+      {extraction && (
+        <ExtractionReviewModal
+          extraction={extraction}
+          fileInfo={extractionFileInfo}
+          onApply={handleApplyExtraction}
+          onCancel={handleCancelExtraction}
+          applying={applyingExtraction}
         />
       )}
     </div>

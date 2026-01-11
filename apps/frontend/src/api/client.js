@@ -93,6 +93,42 @@ export async function getSkillGreeting() {
   };
 }
 
+// File digestion
+export async function digestFile(skillId, file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('domain_id', skillId);
+
+  const response = await fetch(`${API_BASE}/chat/domain/digest`, {
+    method: 'POST',
+    body: formData
+    // Don't set Content-Type - browser sets it with boundary
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `Upload failed: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function applyExtraction(skillId, extraction) {
+  const response = await request('/chat/domain/digest/apply', {
+    method: 'POST',
+    body: JSON.stringify({
+      domain_id: skillId,
+      extraction
+    })
+  });
+
+  if (response.domain) {
+    response.skill = response.domain;
+    delete response.domain;
+  }
+  return response;
+}
+
 // Mock testing
 export async function runMock(skillId, toolId, input, mode = 'example') {
   return request(`/mock/${skillId}/${toolId}`, {
@@ -125,6 +161,8 @@ export default {
   getSkillValidation,
   sendSkillMessage,
   getSkillGreeting,
+  digestFile,
+  applyExtraction,
   runMock,
   exportSkill,
   previewExport,

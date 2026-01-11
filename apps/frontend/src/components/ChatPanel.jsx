@@ -49,20 +49,7 @@ const styles = {
   },
   inputArea: {
     padding: '16px',
-    borderTop: '1px solid var(--border)',
-    display: 'flex',
-    gap: '8px'
-  },
-  input: {
-    flex: 1,
-    padding: '12px 16px',
-    background: 'var(--bg-card)',
-    border: '1px solid var(--border)',
-    borderRadius: '8px',
-    color: 'var(--text-primary)',
-    resize: 'none',
-    minHeight: '48px',
-    maxHeight: '120px'
+    borderTop: '1px solid var(--border)'
   },
   sendBtn: {
     padding: '12px 20px',
@@ -511,6 +498,7 @@ function formatMessage(content) {
 export default function ChatPanel({
   messages = [],
   onSendMessage,
+  onFileUpload,
   sending,
   skillName,
   inputHint
@@ -572,6 +560,7 @@ export default function ChatPanel({
         <SmartInput
           inputHint={inputHint}
           onSend={onSendMessage}
+          onFileUpload={onFileUpload}
           sending={sending}
         />
       </div>
