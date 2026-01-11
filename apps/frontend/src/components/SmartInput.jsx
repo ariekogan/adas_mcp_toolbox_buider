@@ -310,7 +310,6 @@ export default function SmartInput({
               {sending ? '...' : 'Analyze'}
             </button>
           </div>
-          </>
         ) : (
           <button
             style={{
