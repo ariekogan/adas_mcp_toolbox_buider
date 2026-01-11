@@ -679,21 +679,22 @@ export default function ChatPanel({
           );
 
           // Show dashboard on last assistant message if it mentions status-related words
-          const hasStatusContent = msg.content && (
-            msg.content.toLowerCase().includes('status') ||
-            msg.content.toLowerCase().includes('summary') ||
-            msg.content.toLowerCase().includes('progress') ||
-            msg.content.toLowerCase().includes("here's what we have") ||
-            msg.content.toLowerCase().includes("here's where we") ||
-            msg.content.toLowerCase().includes('so far') ||
-            msg.content.toLowerCase().includes('currently are') ||
-            msg.content.toLowerCase().includes('current state') ||
-            msg.content.toLowerCase().includes('what we have defined') ||
-            msg.content.toLowerCase().includes('problem statement') ||
-            msg.content.toLowerCase().includes('scenarios defined') ||
-            msg.content.toLowerCase().includes('intents defined') ||
-            msg.content.toLowerCase().includes('tools defined')
-          );
+          const contentLower = msg.content?.toLowerCase() || '';
+          const hasStatusContent =
+            contentLower.includes('status') ||
+            contentLower.includes('summary') ||
+            contentLower.includes('progress') ||
+            contentLower.includes("let's review") ||
+            contentLower.includes("here's what we") ||
+            contentLower.includes("here's where we") ||
+            contentLower.includes('so far') ||
+            contentLower.includes('currently') ||
+            contentLower.includes('current state') ||
+            contentLower.includes('what we have') ||
+            contentLower.includes('problem statement:') ||
+            contentLower.includes('scenarios defined:') ||
+            contentLower.includes('intents defined:') ||
+            contentLower.includes('tools defined:');
 
           const showDashboard = isLastAssistant && hasStatusContent && domain;
 
