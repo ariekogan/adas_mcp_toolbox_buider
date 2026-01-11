@@ -50,16 +50,17 @@ const styles = {
   },
   input: {
     flex: 1,
-    padding: '12px 14px',
+    padding: '14px 16px',
     background: 'var(--bg-secondary)',
     border: '1px solid var(--border)',
     borderRadius: '8px',
     color: 'var(--text-primary)',
-    fontSize: '14px',
+    fontSize: '15px',
     resize: 'none',
-    minHeight: '44px',
-    maxHeight: '120px',
-    fontFamily: 'inherit'
+    minHeight: '52px',
+    maxHeight: '140px',
+    fontFamily: 'inherit',
+    lineHeight: '1.5'
   },
   sendButton: {
     padding: '12px 20px',
