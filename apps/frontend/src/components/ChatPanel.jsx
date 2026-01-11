@@ -281,6 +281,19 @@ function formatMessage(content) {
     return parts.length > 0 ? parts : text;
   };
 
+  // Find the index of the LAST standalone question (for CTA styling)
+  const isStandaloneQuestion = (line) =>
+    line.endsWith('?') && line.length > 20 && !line.startsWith('-') && !line.startsWith('•');
+
+  let lastQuestionIndex = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (isStandaloneQuestion(line)) {
+      lastQuestionIndex = i;
+      break;
+    }
+  }
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
@@ -332,16 +345,24 @@ function formatMessage(content) {
     }
 
     // Questions (standalone lines ending with ?, not starting with - or bullets)
-    // Only style as question if it's a standalone question, not part of a list
-    if (line.endsWith('?') && line.length > 20 && !line.startsWith('-') && !line.startsWith('•')) {
+    // Only the LAST question gets CTA styling, others are regular text with formatting
+    if (isStandaloneQuestion(line)) {
       flushList();
-      // Check if this is after a separator (---) - make it a call-to-action
-      const isAfterSeparator = elements.some(el => el.key?.startsWith('sep-'));
-      elements.push(
-        <div key={`q-${i}`} style={isAfterSeparator ? styles.msgCallToAction : styles.msgQuestion}>
-          {formatInlineText(line)}
-        </div>
-      );
+      if (i === lastQuestionIndex) {
+        // Last question - style as call-to-action
+        elements.push(
+          <div key={`q-${i}`} style={styles.msgCallToAction}>
+            {formatInlineText(line)}
+          </div>
+        );
+      } else {
+        // Other questions - just regular paragraph with formatting
+        elements.push(
+          <p key={`p-${i}`} style={styles.msgParagraph}>
+            {formatInlineText(line)}
+          </p>
+        );
+      }
       continue;
     }
 
