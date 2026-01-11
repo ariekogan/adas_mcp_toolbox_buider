@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import ProjectList from './components/ProjectList';
+import SkillList from './components/SkillList';
 import ChatPanel from './components/ChatPanel';
-import DomainPanel from './components/DomainPanel';
+import SkillPanel from './components/SkillPanel';
 import SettingsModal from './components/SettingsModal';
-import { useDomain } from './hooks/useDomain';
+import { useSkill } from './hooks/useSkill';
 import { useSettings } from './hooks/useSettings';
 import * as api from './api/client';
 
@@ -87,34 +87,34 @@ const styles = {
 
 export default function App() {
   const {
-    domains,
-    currentDomain,
+    skills,
+    currentSkill,
     loading,
-    loadDomains,
-    createDomain,
-    loadDomain,
-    deleteDomain,
-    updateDomain,
+    loadSkills,
+    createSkill,
+    loadSkill,
+    deleteSkill,
+    updateSkill,
     addMessage
-  } = useDomain();
+  } = useSkill();
 
   const { settings, updateSettings, showModal, openSettings, closeSettings, hasApiKey, backendStatus } = useSettings();
   const [uiFocus, setUiFocus] = useState(null);
   const [greeting, setGreeting] = useState(null);
   const [sending, setSending] = useState(false);
 
-  const messages = currentDomain?.conversation || [];
+  const messages = currentSkill?.conversation || [];
 
   useEffect(() => {
-    loadDomains();
-  }, [loadDomains]);
+    loadSkills();
+  }, [loadSkills]);
 
   useEffect(() => {
-    api.getDomainGreeting().then(setGreeting).catch(() => {});
+    api.getSkillGreeting().then(setGreeting).catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (currentDomain && currentDomain.conversation?.length === 0 && greeting) {
+    if (currentSkill && currentSkill.conversation?.length === 0 && greeting) {
       addMessage({
         id: `msg_${Date.now()}`,
         role: 'assistant',
@@ -122,20 +122,20 @@ export default function App() {
         timestamp: new Date().toISOString()
       });
     }
-  }, [currentDomain, greeting, addMessage]);
+  }, [currentSkill, greeting, addMessage]);
 
   const handleSelect = useCallback(async (id) => {
     setUiFocus(null);
-    await loadDomain(id);
-  }, [loadDomain]);
+    await loadSkill(id);
+  }, [loadSkill]);
 
   const handleCreate = useCallback(async (name) => {
     setUiFocus(null);
-    await createDomain(name, { llm_provider: settings.llm_provider });
-  }, [createDomain, settings.llm_provider]);
+    await createSkill(name, { llm_provider: settings.llm_provider });
+  }, [createSkill, settings.llm_provider]);
 
   const handleSendMessage = useCallback(async (message) => {
-    if (!currentDomain) return;
+    if (!currentSkill) return;
 
     addMessage({
       id: `msg_${Date.now()}`,
@@ -146,7 +146,7 @@ export default function App() {
 
     setSending(true);
     try {
-      const response = await api.sendDomainMessage(currentDomain.id, message, uiFocus);
+      const response = await api.sendSkillMessage(currentSkill.id, message, uiFocus);
       addMessage({
         id: `msg_${Date.now()}`,
         role: 'assistant',
@@ -155,8 +155,8 @@ export default function App() {
         state_update: response.state_update,
         suggested_focus: response.suggested_focus
       });
-      if (response.domain) {
-        updateDomain(response.domain);
+      if (response.skill) {
+        updateSkill(response.skill);
       }
     } catch (err) {
       addMessage({
@@ -168,17 +168,17 @@ export default function App() {
     } finally {
       setSending(false);
     }
-  }, [currentDomain, uiFocus, addMessage, updateDomain]);
+  }, [currentSkill, uiFocus, addMessage, updateSkill]);
 
   const handleExport = useCallback(async () => {
-    if (!currentDomain) return;
+    if (!currentSkill) return;
     try {
-      const result = await api.exportDomain(currentDomain.id);
+      const result = await api.exportSkill(currentSkill.id);
       alert(`Export complete! Version ${result.version}\n\nFiles:\n${result.files.map(f => f.name).join('\n')}`);
     } catch (err) {
       alert(`Export failed: ${err.message}`);
     }
-  }, [currentDomain]);
+  }, [currentSkill]);
 
   const apiConfigured = hasApiKey();
 
@@ -186,7 +186,7 @@ export default function App() {
     <div style={styles.app}>
       <div style={styles.topBar}>
         <div style={styles.logo}>
-          DAL Builder
+          Skill Builder
         </div>
         <div style={styles.topActions}>
           <span style={{
@@ -203,37 +203,37 @@ export default function App() {
       </div>
 
       <div style={styles.main}>
-        <ProjectList
-          projects={domains}
-          currentId={currentDomain?.id}
+        <SkillList
+          skills={skills}
+          currentId={currentSkill?.id}
           onSelect={handleSelect}
           onCreate={handleCreate}
-          onDelete={deleteDomain}
+          onDelete={deleteSkill}
           loading={loading}
         />
 
-        {currentDomain ? (
+        {currentSkill ? (
           <div style={styles.mainContent}>
             <ChatPanel
               messages={messages}
               onSendMessage={handleSendMessage}
               sending={sending}
-              projectName={currentDomain.name}
+              skillName={currentSkill.name}
             />
-            <DomainPanel
-              domain={currentDomain}
+            <SkillPanel
+              skill={currentSkill}
               focus={uiFocus}
               onFocusChange={setUiFocus}
               onExport={handleExport}
-              domainId={currentDomain.id}
+              skillId={currentSkill.id}
             />
           </div>
         ) : (
           <div style={styles.welcome}>
-            <div style={styles.welcomeTitle}>Welcome to DAL Builder</div>
+            <div style={styles.welcomeTitle}>Welcome to Skill Builder</div>
             <p style={styles.welcomeText}>
-              Create domain configurations for ADAS through guided conversation.
-              Select a domain from the sidebar or create a new one to get started.
+              Create AI agent skills through guided conversation.
+              Select a skill from the sidebar or create a new one to get started.
             </p>
           </div>
         )}

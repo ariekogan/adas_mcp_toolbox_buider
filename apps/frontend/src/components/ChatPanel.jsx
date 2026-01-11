@@ -468,11 +468,11 @@ function formatMessage(content) {
   return elements.length > 0 ? elements : content;
 }
 
-export default function ChatPanel({ 
-  messages = [], 
-  onSendMessage, 
+export default function ChatPanel({
+  messages = [],
+  onSendMessage,
   sending,
-  projectName 
+  skillName
 }) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
@@ -498,14 +498,14 @@ export default function ChatPanel({
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        💬 Chat {projectName && `— ${projectName}`}
+        Chat {skillName && `— ${skillName}`}
       </div>
       
       <div style={styles.messages}>
         {messages.length === 0 && (
           <div style={styles.welcome}>
             <div style={styles.welcomeTitle}>Welcome!</div>
-            <p>Start a conversation to build your toolbox.</p>
+            <p>Start a conversation to build your skill.</p>
           </div>
         )}
         

@@ -23,13 +23,13 @@ export async function checkHealth() {
   return request('/health');
 }
 
-// Domains
-export async function listDomains() {
+// Skills (mapped to domains backend)
+export async function listSkills() {
   const data = await request('/domains');
   return data.domains;
 }
 
-export async function createDomain(name, settings = {}) {
+export async function createSkill(name, settings = {}) {
   const data = await request('/domains', {
     method: 'POST',
     body: JSON.stringify({ name, settings })
@@ -37,12 +37,12 @@ export async function createDomain(name, settings = {}) {
   return data.domain;
 }
 
-export async function getDomain(id) {
+export async function getSkill(id) {
   const data = await request(`/domains/${id}`);
   return data.domain;
 }
 
-export async function updateDomain(id, updates) {
+export async function updateSkill(id, updates) {
   const data = await request(`/domains/${id}`, {
     method: 'PATCH',
     body: JSON.stringify({ updates })
@@ -50,7 +50,7 @@ export async function updateDomain(id, updates) {
   return data.domain;
 }
 
-export async function updateDomainSettings(id, settings) {
+export async function updateSkillSettings(id, settings) {
   const data = await request(`/domains/${id}/settings`, {
     method: 'PATCH',
     body: JSON.stringify(settings)
@@ -58,66 +58,72 @@ export async function updateDomainSettings(id, settings) {
   return data.domain;
 }
 
-export async function deleteDomain(id) {
+export async function deleteSkill(id) {
   return request(`/domains/${id}`, { method: 'DELETE' });
 }
 
-export async function getDomainValidation(id) {
+export async function getSkillValidation(id) {
   const data = await request(`/domains/${id}/validation`);
   return data.validation;
 }
 
 // Chat
-export async function sendDomainMessage(domainId, message, uiFocus = null) {
-  return request('/chat/domain', {
+export async function sendSkillMessage(skillId, message, uiFocus = null) {
+  const response = await request('/chat/domain', {
     method: 'POST',
     body: JSON.stringify({
-      domain_id: domainId,
+      domain_id: skillId,
       message,
       ui_focus: uiFocus
     })
   });
+  // Rename domain to skill in response
+  if (response.domain) {
+    response.skill = response.domain;
+    delete response.domain;
+  }
+  return response;
 }
 
-export async function getDomainGreeting() {
+export async function getSkillGreeting() {
   const data = await request('/chat/domain/greeting');
   return data.message;
 }
 
 // Mock testing
-export async function runMock(domainId, toolId, input, mode = 'example') {
-  return request(`/mock/${domainId}/${toolId}`, {
+export async function runMock(skillId, toolId, input, mode = 'example') {
+  return request(`/mock/${skillId}/${toolId}`, {
     method: 'POST',
     body: JSON.stringify({ input, mode })
   });
 }
 
 // Export
-export async function exportDomain(domainId) {
-  return request(`/export/${domainId}`);
+export async function exportSkill(skillId) {
+  return request(`/export/${skillId}`);
 }
 
-export async function previewExport(domainId) {
-  return request(`/export/${domainId}/preview`);
+export async function previewExport(skillId) {
+  return request(`/export/${skillId}/preview`);
 }
 
-export async function downloadExport(domainId, version) {
-  return request(`/export/${domainId}/download/${version}`);
+export async function downloadExport(skillId, version) {
+  return request(`/export/${skillId}/download/${version}`);
 }
 
 export default {
   checkHealth,
-  listDomains,
-  createDomain,
-  getDomain,
-  updateDomain,
-  updateDomainSettings,
-  deleteDomain,
-  getDomainValidation,
-  sendDomainMessage,
-  getDomainGreeting,
+  listSkills,
+  createSkill,
+  getSkill,
+  updateSkill,
+  updateSkillSettings,
+  deleteSkill,
+  getSkillValidation,
+  sendSkillMessage,
+  getSkillGreeting,
   runMock,
-  exportDomain,
+  exportSkill,
   previewExport,
   downloadExport
 };

@@ -99,19 +99,19 @@ router.post("/domain", async (req, res, next) => {
 });
 
 /**
- * Get initial greeting for domain chat
+ * Get initial greeting for skill chat
  * GET /api/chat/domain/greeting
  */
 router.get("/domain/greeting", async (req, res) => {
   res.json({
-    message: `Hi! I'm here to help you build a custom AI agent domain.
+    message: `Hi! I'm here to help you build a custom AI agent skill.
 
-A domain defines everything your AI agent needs to handle a specific area:
+A skill teaches your AI agent how to handle a specific type of work:
 - **Intents**: What requests can the agent handle?
 - **Tools**: What actions can the agent perform?
 - **Policy**: What rules must the agent follow?
 
-For example, someone might build a domain for:
+For example, someone might build a skill for:
 - Customer support (handle orders, refunds, shipping questions)
 - Sales assistance (look up products, generate quotes, check inventory)
 - HR helpdesk (answer benefits questions, process time-off requests)
