@@ -1,67 +1,67 @@
 import { Router } from "express";
-import store from "../store/projects.js";
+import domainsStore from "../store/domains.js";
 import { generateExportFiles } from "../services/export.js";
 
 const router = Router();
 
-// Export project as MCP server
-router.get("/:projectId", async (req, res, next) => {
+// Export domain as MCP server
+router.get("/:domainId", async (req, res, next) => {
   try {
-    const { projectId } = req.params;
+    const { domainId } = req.params;
     const log = req.app.locals.log;
-    
-    log.info(`Exporting project ${projectId}`);
-    
-    // Load project
-    const { toolbox } = await store.load(projectId);
-    
+
+    log.info(`Exporting domain ${domainId}`);
+
+    // Load domain
+    const domain = await domainsStore.load(domainId);
+
     // Check if ready to export
-    const incompleteTool = toolbox.tools?.find(t => t.status !== "COMPLETE");
+    const incompleteTool = domain.tools?.find(t => t.status !== "COMPLETE");
     if (incompleteTool) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: "Not all tools are complete",
         incomplete_tool: incompleteTool.name
       });
     }
-    
+
     // Generate files
-    const files = generateExportFiles(toolbox);
-    
+    const files = generateExportFiles(domain);
+
     // Save export
-    const version = toolbox.version || 1;
-    await store.saveExport(projectId, version, files);
-    
-    // Update toolbox status
-    toolbox.status = "EXPORTED";
-    await store.saveToolbox(projectId, toolbox);
-    
+    const version = domain.version || 1;
+    await domainsStore.saveExport(domainId, version, files);
+
+    // Update domain status
+    domain.phase = "EXPORTED";
+    await domainsStore.save(domain);
+
     res.json({
       version,
-      files: files.map(f => ({ 
-        name: f.name, 
+      files: files.map(f => ({
+        name: f.name,
         size: f.content.length,
         preview: f.content.slice(0, 200) + (f.content.length > 200 ? "..." : "")
       })),
-      download_url: `/api/export/${projectId}/download/${version}`
+      download_url: `/api/export/${domainId}/download/${version}`
     });
-    
+
   } catch (err) {
-    if (err.code === "ENOENT") {
-      return res.status(404).json({ error: "Project not found" });
+    if (err.message?.includes('not found') || err.code === "ENOENT") {
+      return res.status(404).json({ error: "Domain not found" });
     }
     next(err);
   }
 });
 
 // Download export as files (returns JSON with file contents)
-router.get("/:projectId/download/:version", async (req, res, next) => {
+router.get("/:domainId/download/:version", async (req, res, next) => {
   try {
-    const { projectId, version } = req.params;
-    
-    const files = await store.getExport(projectId, Number(version));
-    
+    const { domainId, version } = req.params;
+
+    const files = await domainsStore.getExport(domainId, Number(version));
+
     res.json({ files });
-    
+
   } catch (err) {
     if (err.code === "ENOENT") {
       return res.status(404).json({ error: "Export not found" });
@@ -71,23 +71,23 @@ router.get("/:projectId/download/:version", async (req, res, next) => {
 });
 
 // Preview generated code without saving
-router.get("/:projectId/preview", async (req, res, next) => {
+router.get("/:domainId/preview", async (req, res, next) => {
   try {
-    const { projectId } = req.params;
-    
-    const { toolbox } = await store.load(projectId);
-    const files = generateExportFiles(toolbox);
-    
+    const { domainId } = req.params;
+
+    const domain = await domainsStore.load(domainId);
+    const files = generateExportFiles(domain);
+
     res.json({
       files: files.map(f => ({
         name: f.name,
         content: f.content
       }))
     });
-    
+
   } catch (err) {
-    if (err.code === "ENOENT") {
-      return res.status(404).json({ error: "Project not found" });
+    if (err.message?.includes('not found') || err.code === "ENOENT") {
+      return res.status(404).json({ error: "Domain not found" });
     }
     next(err);
   }

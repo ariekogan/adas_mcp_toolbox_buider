@@ -1,39 +1,39 @@
 import { Router } from "express";
-import store from "../store/projects.js";
+import domainsStore from "../store/domains.js";
 import { createAdapter } from "../services/llm/adapter.js";
 
 const router = Router();
 
 // Run mock test for a tool
-router.post("/:projectId/:toolId", async (req, res, next) => {
+router.post("/:domainId/:toolId", async (req, res, next) => {
   try {
-    const { projectId, toolId } = req.params;
+    const { domainId, toolId } = req.params;
     const { input, mode = "example" } = req.body;
     const log = req.app.locals.log;
-    
-    log.debug(`Mock test: project=${projectId}, tool=${toolId}, mode=${mode}`);
-    
-    // Load project
-    const { project, toolbox } = await store.load(projectId);
-    
+
+    log.debug(`Mock test: domain=${domainId}, tool=${toolId}, mode=${mode}`);
+
+    // Load domain
+    const domain = await domainsStore.load(domainId);
+
     // Find tool
-    const tool = toolbox.tools?.find(t => t.id === toolId || t.name === toolId);
+    const tool = domain.tools?.find(t => t.id === toolId || t.name === toolId);
     if (!tool) {
       return res.status(404).json({ error: "Tool not found" });
     }
-    
+
     let output;
-    
+
     if (mode === "example") {
       // Example-based mock: find matching example
       output = findMatchingExample(tool, input);
     } else if (mode === "llm") {
       // LLM-simulated mock
-      output = await simulateWithLLM(project, tool, input);
+      output = await simulateWithLLM(domain, tool, input);
     } else {
       return res.status(400).json({ error: "Invalid mode. Use 'example' or 'llm'" });
     }
-    
+
     res.json({
       tool: tool.name,
       input,
@@ -41,10 +41,10 @@ router.post("/:projectId/:toolId", async (req, res, next) => {
       mode,
       matched: mode === "example" && output._matched
     });
-    
+
   } catch (err) {
-    if (err.code === "ENOENT") {
-      return res.status(404).json({ error: "Project not found" });
+    if (err.message?.includes('not found') || err.code === "ENOENT") {
+      return res.status(404).json({ error: "Domain not found" });
     }
     next(err);
   }
@@ -85,8 +85,8 @@ function findMatchingExample(tool, input) {
 /**
  * Simulate tool output using LLM
  */
-async function simulateWithLLM(project, tool, input) {
-  const provider = project.settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
+async function simulateWithLLM(domain, tool, input) {
+  const provider = domain.settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
   const adapter = createAdapter(provider);
   
   const prompt = `You are simulating a tool for testing purposes.
