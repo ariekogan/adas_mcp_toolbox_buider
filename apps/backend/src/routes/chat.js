@@ -106,17 +106,15 @@ router.get("/domain/greeting", async (req, res) => {
   res.json({
     message: `Hi! I'm here to help you build a custom AI agent skill.
 
-A skill teaches your AI agent how to handle a specific type of work:
-- **Intents**: What requests can the agent handle?
-- **Tools**: What actions can the agent perform?
-- **Policy**: What rules must the agent follow?
+A skill teaches your AI agent how to handle a specific type of work. For example:
 
-For example, someone might build a skill for:
-- Customer support (handle orders, refunds, shipping questions)
-- Sales assistance (look up products, generate quotes, check inventory)
-- HR helpdesk (answer benefits questions, process time-off requests)
+- **Customer support** - handle orders, refunds, shipping questions
+- **Sales assistance** - look up products, generate quotes
+- **HR helpdesk** - answer benefits questions, process time-off
 
-What problem would YOU like your AI agent to solve?`
+---
+
+What problem would you like your AI agent to solve?`
   });
 });
 

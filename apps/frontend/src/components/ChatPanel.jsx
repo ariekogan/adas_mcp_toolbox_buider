@@ -185,6 +185,21 @@ const styles = {
   msgToolName: {
     fontWeight: '600',
     color: 'var(--accent)'
+  },
+  msgSeparator: {
+    borderTop: '1px solid var(--border)',
+    margin: '16px 0',
+    opacity: 0.5
+  },
+  msgCallToAction: {
+    background: 'linear-gradient(135deg, var(--accent) 0%, #7c3aed 100%)',
+    color: 'white',
+    padding: '14px 18px',
+    borderRadius: '10px',
+    marginTop: '12px',
+    fontWeight: '500',
+    fontSize: '15px',
+    textAlign: 'center'
   }
 };
 
@@ -280,6 +295,14 @@ function formatMessage(content) {
       continue;
     }
 
+    // Horizontal separator (---)
+    if (/^-{3,}$/.test(line)) {
+      flushList();
+      flushExample();
+      elements.push(<div key={`sep-${i}`} style={styles.msgSeparator} />);
+      continue;
+    }
+
     // Example blocks (indented or starting with Example/Input/Output for mock data)
     if (line.match(/^Example\s*\d*:/i) ||
         line.startsWith('- **Input') || line.startsWith('- **Output') || line.startsWith('- **Expected')) {
@@ -310,8 +333,10 @@ function formatMessage(content) {
     // Questions (lines ending with ?)
     if (line.endsWith('?') && line.length > 20) {
       flushList();
+      // Check if this is the last line or after a separator - make it a call-to-action
+      const isLastQuestion = i >= lines.length - 2 || elements.some(el => el.key?.startsWith('sep-'));
       elements.push(
-        <div key={`q-${i}`} style={styles.msgQuestion}>
+        <div key={`q-${i}`} style={isLastQuestion ? styles.msgCallToAction : styles.msgQuestion}>
           {formatInlineText(line)}
         </div>
       );
