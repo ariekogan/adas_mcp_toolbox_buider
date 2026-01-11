@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 
 import chatRouter from "./routes/chat.js";
-import projectsRouter from "./routes/projects.js";
+import domainsRouter from "./routes/domains.js";
 import mockRouter from "./routes/mock.js";
 import exportRouter from "./routes/export.js";
 import { isSearchAvailable } from "./services/webSearch.js";
@@ -47,7 +47,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 // Routes
-app.use("/api/projects", projectsRouter);
+app.use("/api/domains", domainsRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/mock", mockRouter);
 app.use("/api/export", exportRouter);

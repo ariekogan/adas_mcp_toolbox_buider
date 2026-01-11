@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import ProjectList from './components/ProjectList';
 import ChatPanel from './components/ChatPanel';
-import ToolboxPanel from './components/ToolboxPanel';
+import DomainPanel from './components/DomainPanel';
 import SettingsModal from './components/SettingsModal';
-import { useProject } from './hooks/useProject';
-import { useChat } from './hooks/useChat';
+import { useDomain } from './hooks/useDomain';
 import { useSettings } from './hooks/useSettings';
 import * as api from './api/client';
 
@@ -88,75 +87,98 @@ const styles = {
 
 export default function App() {
   const {
-    projects,
-    currentProject,
-    toolbox,
-    conversation,
+    domains,
+    currentDomain,
     loading,
-    loadProjects,
-    createProject,
-    loadProject,
-    deleteProject,
-    updateToolbox,
+    loadDomains,
+    createDomain,
+    loadDomain,
+    deleteDomain,
+    updateDomain,
     addMessage
-  } = useProject();
+  } = useDomain();
 
   const { settings, updateSettings, showModal, openSettings, closeSettings, hasApiKey, backendStatus } = useSettings();
   const [uiFocus, setUiFocus] = useState(null);
   const [greeting, setGreeting] = useState(null);
+  const [sending, setSending] = useState(false);
 
-  const { sending, sendMessage } = useChat({
-    projectId: currentProject?.id,
-    onToolboxUpdate: updateToolbox,
-    onMessageAdd: addMessage
-  });
+  const messages = currentDomain?.conversation || [];
 
-  // Load projects on mount
   useEffect(() => {
-    loadProjects();
-  }, [loadProjects]);
+    loadDomains();
+  }, [loadDomains]);
 
-  // Load greeting
   useEffect(() => {
-    api.getGreeting().then(setGreeting);
+    api.getDomainGreeting().then(setGreeting).catch(() => {});
   }, []);
 
-  // Add greeting when starting new project
   useEffect(() => {
-    if (currentProject && conversation?.messages?.length === 0 && greeting) {
+    if (currentDomain && currentDomain.conversation?.length === 0 && greeting) {
       addMessage({
+        id: `msg_${Date.now()}`,
         role: 'assistant',
         content: greeting,
         timestamp: new Date().toISOString()
       });
     }
-  }, [currentProject, conversation?.messages?.length, greeting, addMessage]);
+  }, [currentDomain, greeting, addMessage]);
 
-  const handleSelectProject = useCallback(async (id) => {
-    await loadProject(id);
+  const handleSelect = useCallback(async (id) => {
     setUiFocus(null);
-  }, [loadProject]);
+    await loadDomain(id);
+  }, [loadDomain]);
 
-  const handleCreateProject = useCallback(async (name) => {
-    await createProject(name, {
-      llm_provider: settings.llm_provider
-    });
+  const handleCreate = useCallback(async (name) => {
     setUiFocus(null);
-  }, [createProject, settings.llm_provider]);
+    await createDomain(name, { llm_provider: settings.llm_provider });
+  }, [createDomain, settings.llm_provider]);
 
   const handleSendMessage = useCallback(async (message) => {
-    await sendMessage(message, uiFocus);
-  }, [sendMessage, uiFocus]);
+    if (!currentDomain) return;
+
+    addMessage({
+      id: `msg_${Date.now()}`,
+      role: 'user',
+      content: message,
+      timestamp: new Date().toISOString()
+    });
+
+    setSending(true);
+    try {
+      const response = await api.sendDomainMessage(currentDomain.id, message, uiFocus);
+      addMessage({
+        id: `msg_${Date.now()}`,
+        role: 'assistant',
+        content: response.message,
+        timestamp: new Date().toISOString(),
+        state_update: response.state_update,
+        suggested_focus: response.suggested_focus
+      });
+      if (response.domain) {
+        updateDomain(response.domain);
+      }
+    } catch (err) {
+      addMessage({
+        id: `msg_${Date.now()}`,
+        role: 'assistant',
+        content: `Error: ${err.message}`,
+        timestamp: new Date().toISOString()
+      });
+    } finally {
+      setSending(false);
+    }
+  }, [currentDomain, uiFocus, addMessage, updateDomain]);
 
   const handleExport = useCallback(async () => {
-    if (!currentProject) return;
+    if (!currentDomain) return;
     try {
-      const result = await api.exportProject(currentProject.id);
+      const result = await api.exportDomain(currentDomain.id);
       alert(`Export complete! Version ${result.version}\n\nFiles:\n${result.files.map(f => f.name).join('\n')}`);
     } catch (err) {
       alert(`Export failed: ${err.message}`);
     }
-  }, [currentProject]);
+  }, [currentDomain]);
 
   const apiConfigured = hasApiKey();
 
@@ -164,7 +186,7 @@ export default function App() {
     <div style={styles.app}>
       <div style={styles.topBar}>
         <div style={styles.logo}>
-          🧰 MCP Toolbox Builder
+          DAL Builder
         </div>
         <div style={styles.topActions}>
           <span style={{
@@ -172,50 +194,51 @@ export default function App() {
             background: apiConfigured ? '#10b98120' : '#ef444420',
             color: apiConfigured ? 'var(--success)' : 'var(--error)'
           }}>
-            {apiConfigured ? '✓ API Key Set' : '⚠ No API Key'}
+            {apiConfigured ? 'API Key Set' : 'No API Key'}
           </span>
           <button style={styles.settingsBtn} onClick={openSettings}>
-            ⚙️ Settings
+            Settings
           </button>
         </div>
       </div>
-      
+
       <div style={styles.main}>
         <ProjectList
-          projects={projects}
-          currentId={currentProject?.id}
-          onSelect={handleSelectProject}
-          onCreate={handleCreateProject}
-          onDelete={deleteProject}
+          projects={domains}
+          currentId={currentDomain?.id}
+          onSelect={handleSelect}
+          onCreate={handleCreate}
+          onDelete={deleteDomain}
           loading={loading}
         />
-        
-        {currentProject ? (
+
+        {currentDomain ? (
           <div style={styles.mainContent}>
             <ChatPanel
-              messages={conversation?.messages || []}
+              messages={messages}
               onSendMessage={handleSendMessage}
               sending={sending}
-              projectName={currentProject.name}
+              projectName={currentDomain.name}
             />
-            <ToolboxPanel
-              toolbox={toolbox}
+            <DomainPanel
+              domain={currentDomain}
               focus={uiFocus}
               onFocusChange={setUiFocus}
               onExport={handleExport}
+              domainId={currentDomain.id}
             />
           </div>
         ) : (
           <div style={styles.welcome}>
-            <div style={styles.welcomeTitle}>Welcome to MCP Toolbox Builder</div>
+            <div style={styles.welcomeTitle}>Welcome to DAL Builder</div>
             <p style={styles.welcomeText}>
-              Create custom AI tools through guided conversation.
-              Select a project from the sidebar or create a new one to get started.
+              Create domain configurations for ADAS through guided conversation.
+              Select a domain from the sidebar or create a new one to get started.
             </p>
           </div>
         )}
       </div>
-      
+
       {showModal && (
         <SettingsModal
           settings={settings}

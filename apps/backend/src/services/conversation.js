@@ -1,12 +1,20 @@
-import { buildSystemPrompt } from "../prompts/system.js";
+import { buildSystemPrompt, buildPromptForState } from "../prompts/system.js";
 import { createAdapter } from "./llm/adapter.js";
 
 /**
  * Process a chat message and get LLM response
+ *
+ * Supports both:
+ * - Legacy format: { project, toolbox, conversation }
+ * - DraftDomain format: { domain }
  */
-export async function processMessage({ project, toolbox, conversation, userMessage, uiFocus }) {
+export async function processMessage({ project, toolbox, conversation, domain, userMessage, uiFocus }) {
+  // Determine if we're using legacy or new format
+  const isNewFormat = domain !== undefined;
+  const state = isNewFormat ? domain : toolbox;
+  const messages_history = isNewFormat ? domain.conversation : conversation.messages;
   // Build messages array for LLM
-  const messages = conversation.messages.map(m => ({
+  const messages = messages_history.map(m => ({
     role: m.role,
     content: m.content
   }));
@@ -21,14 +29,15 @@ export async function processMessage({ project, toolbox, conversation, userMessa
     content: contextualMessage
   });
   
-  // Build system prompt with current state
-  const systemPrompt = buildSystemPrompt(toolbox);
-  
-  // Get LLM adapter
-  const provider = project.settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
+  // Build system prompt with current state (auto-detects format)
+  const systemPrompt = isNewFormat ? buildPromptForState(domain) : buildSystemPrompt(toolbox);
+
+  // Get LLM adapter - settings can come from project (legacy) or domain._settings (new)
+  const settings = isNewFormat ? domain._settings : project?.settings;
+  const provider = settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
   const adapter = createAdapter(provider, {
-    apiKey: project.settings?.api_key,
-    model: project.settings?.llm_model
+    apiKey: settings?.api_key,
+    model: settings?.llm_model
   });
   
   // Send to LLM

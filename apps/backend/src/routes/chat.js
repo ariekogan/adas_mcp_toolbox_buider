@@ -1,26 +1,31 @@
 import { Router } from "express";
 import store from "../store/projects.js";
+import domainsStore from "../store/domains.js";
 import { processMessage } from "../services/conversation.js";
-import { applyStateUpdate, calculateProgress } from "../services/state.js";
+import { applyStateUpdate, applyStateUpdateWithValidation, calculateProgress, shouldSuggestPhaseAdvance } from "../services/state.js";
 
 const router = Router();
 
-// Send chat message
+// ═══════════════════════════════════════════════════════════════
+// LEGACY PROJECT CHAT (for backward compatibility)
+// ═══════════════════════════════════════════════════════════════
+
+// Send chat message (legacy format)
 router.post("/", async (req, res, next) => {
   try {
     const { project_id, message, ui_focus } = req.body;
     const log = req.app.locals.log;
-    
+
     if (!project_id) {
       return res.status(400).json({ error: "project_id is required" });
     }
-    
+
     if (!message) {
       return res.status(400).json({ error: "message is required" });
     }
-    
+
     log.debug(`Chat request for project ${project_id}`);
-    
+
     // Load project data
     let data;
     try {
@@ -31,15 +36,15 @@ router.post("/", async (req, res, next) => {
       }
       throw err;
     }
-    
+
     const { project, toolbox, conversation } = data;
-    
+
     // Save user message
     await store.appendMessage(project_id, {
       role: "user",
       content: message
     });
-    
+
     // Process with LLM
     log.debug("Sending to LLM...");
     const response = await processMessage({
@@ -49,9 +54,9 @@ router.post("/", async (req, res, next) => {
       userMessage: message,
       uiFocus: ui_focus
     });
-    
+
     log.debug("LLM response received", { usage: response.usage });
-    
+
     // Apply state updates
     let updatedToolbox = toolbox;
     if (response.stateUpdate && Object.keys(response.stateUpdate).length > 0) {
@@ -59,16 +64,16 @@ router.post("/", async (req, res, next) => {
       updatedToolbox = applyStateUpdate(toolbox, response.stateUpdate);
       await store.saveToolbox(project_id, updatedToolbox);
     }
-    
+
     // Save assistant message
     await store.appendMessage(project_id, {
       role: "assistant",
       content: response.message
     });
-    
+
     // Calculate progress
     const progress = calculateProgress(updatedToolbox);
-    
+
     res.json({
       message: response.message,
       toolbox: updatedToolbox,
@@ -77,14 +82,14 @@ router.post("/", async (req, res, next) => {
       usage: response.usage,
       tools_used: response.toolsUsed
     });
-    
+
   } catch (err) {
     req.app.locals.log.error("Chat error:", err);
     next(err);
   }
 });
 
-// Get initial greeting (for new conversations)
+// Get initial greeting (for new conversations) - legacy
 router.get("/greeting", async (req, res) => {
   res.json({
     message: `Hi! I'm here to help you build a custom AI toolbox.
@@ -97,6 +102,125 @@ For example, someone might build a toolbox for:
 - Scheduling appointments
 
 What problem would YOU like to solve?`
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// DOMAIN CHAT (new DAL Builder format)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Send chat message for a domain
+ * POST /api/chat/domain
+ *
+ * Body: { domain_id: string, message: string, ui_focus?: object }
+ */
+router.post("/domain", async (req, res, next) => {
+  try {
+    const { domain_id, message, ui_focus } = req.body;
+    const log = req.app.locals.log;
+
+    if (!domain_id) {
+      return res.status(400).json({ error: "domain_id is required" });
+    }
+
+    if (!message) {
+      return res.status(400).json({ error: "message is required" });
+    }
+
+    log.debug(`Domain chat request for ${domain_id}`);
+
+    // Load domain (auto-migrates if legacy)
+    let domain;
+    try {
+      domain = await domainsStore.load(domain_id);
+    } catch (err) {
+      if (err.message?.includes('not found') || err.code === "ENOENT") {
+        return res.status(404).json({ error: "Domain not found" });
+      }
+      throw err;
+    }
+
+    // Save user message to domain conversation
+    domain.conversation.push({
+      id: `msg_${Date.now()}`,
+      role: "user",
+      content: message,
+      timestamp: new Date().toISOString()
+    });
+
+    // Process with LLM (using domain format)
+    log.debug("Sending to LLM (domain format)...");
+    const response = await processMessage({
+      domain,
+      userMessage: message,
+      uiFocus: ui_focus
+    });
+
+    log.debug("LLM response received", { usage: response.usage });
+
+    // Apply state updates with validation
+    let updatedDomain = domain;
+    if (response.stateUpdate && Object.keys(response.stateUpdate).length > 0) {
+      log.debug("Applying state updates", response.stateUpdate);
+      updatedDomain = applyStateUpdateWithValidation(domain, response.stateUpdate);
+    }
+
+    // Save assistant message to domain conversation
+    updatedDomain.conversation.push({
+      id: `msg_${Date.now()}`,
+      role: "assistant",
+      content: response.message,
+      timestamp: new Date().toISOString(),
+      state_update: response.stateUpdate,
+      suggested_focus: response.suggestedFocus
+    });
+
+    // Save updated domain
+    await domainsStore.save(updatedDomain);
+
+    // Calculate progress from validation completeness
+    const progress = calculateProgress(updatedDomain);
+
+    // Check if we should suggest phase advancement
+    const phaseSuggestion = shouldSuggestPhaseAdvance(updatedDomain);
+
+    res.json({
+      message: response.message,
+      domain: updatedDomain,
+      suggested_focus: response.suggestedFocus,
+      progress,
+      validation: updatedDomain.validation,
+      phase_suggestion: phaseSuggestion,
+      usage: response.usage,
+      tools_used: response.toolsUsed
+    });
+
+  } catch (err) {
+    req.app.locals.log.error("Domain chat error:", err);
+    next(err);
+  }
+});
+
+/**
+ * Get initial greeting for domain chat
+ * GET /api/chat/domain/greeting
+ */
+router.get("/domain/greeting", async (req, res) => {
+  res.json({
+    message: `Hi! I'm here to help you build a custom AI agent domain.
+
+A domain defines everything your AI agent needs to handle a specific area:
+- **Intents**: What requests can the agent handle?
+- **Tools**: What actions can the agent perform?
+- **Policy**: What rules must the agent follow?
+
+For example, someone might build a domain for:
+- Customer support (handle orders, refunds, shipping questions)
+- Sales assistance (look up products, generate quotes, check inventory)
+- HR helpdesk (answer benefits questions, process time-off requests)
+
+What problem would YOU like your AI agent to solve?`
   });
 });
 

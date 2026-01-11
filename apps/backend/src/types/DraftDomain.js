@@ -1,0 +1,421 @@
+/**
+ * DraftDomain Schema - DAL Builder
+ *
+ * The canonical object shared by chat and UI. Replaces project.json + toolbox.json.
+ * @module types/DraftDomain
+ */
+
+/**
+ * @typedef {'PROBLEM_DISCOVERY' | 'SCENARIO_EXPLORATION' | 'INTENT_DEFINITION' | 'TOOLS_PROPOSAL' | 'TOOL_DEFINITION' | 'POLICY_DEFINITION' | 'MOCK_TESTING' | 'READY_TO_EXPORT' | 'EXPORTED'} Phase
+ */
+
+/**
+ * @typedef {'string' | 'number' | 'boolean' | 'object' | 'array'} DataType
+ */
+
+// ═══════════════════════════════════════════════════════════════
+// SUPPORTING TYPES
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * @typedef {Object} Scenario
+ * @property {string} id
+ * @property {string} title
+ * @property {string} description
+ * @property {string[]} steps
+ * @property {string} expected_outcome
+ */
+
+/**
+ * @typedef {Object} IntentEntity
+ * @property {string} name
+ * @property {DataType} type
+ * @property {boolean} required
+ * @property {'message' | 'context'} extract_from
+ */
+
+/**
+ * @typedef {Object} IntentRateLimit
+ * @property {number} max_per_session
+ * @property {number} cooldown_seconds
+ * @property {string} message
+ */
+
+/**
+ * @typedef {Object} IntentGuardrails
+ * @property {string[]} pre_conditions
+ * @property {IntentRateLimit} [rate_limit]
+ */
+
+/**
+ * @typedef {Object} Intent
+ * @property {string} id
+ * @property {string} description
+ * @property {string[]} examples
+ * @property {string} [maps_to_workflow] - workflow.id reference
+ * @property {boolean} maps_to_workflow_resolved
+ * @property {IntentEntity[]} [entities]
+ * @property {IntentGuardrails} [guardrails]
+ */
+
+/**
+ * @typedef {Object} ToolInput
+ * @property {string} name
+ * @property {DataType} type
+ * @property {boolean} required
+ * @property {string} description
+ * @property {*} [default]
+ * @property {string[]} [enum]
+ */
+
+/**
+ * @typedef {Object} ToolOutput
+ * @property {DataType} type
+ * @property {string} description
+ * @property {Object} [schema]
+ */
+
+/**
+ * @typedef {Object} MockExample
+ * @property {string} id
+ * @property {Object} input
+ * @property {*} output
+ * @property {string} [description]
+ */
+
+/**
+ * @typedef {Object} MockTestResult
+ * @property {string} id
+ * @property {string} timestamp
+ * @property {Object} input
+ * @property {*} [expected_output]
+ * @property {*} actual_output
+ * @property {boolean} passed
+ * @property {string} [notes]
+ */
+
+/**
+ * @typedef {Object} PolicyCondition
+ * @property {string} when - Expression: "amount > 500"
+ * @property {'allow' | 'deny' | 'escalate' | 'require_approval'} action
+ * @property {string} [message]
+ */
+
+/**
+ * @typedef {Object} ToolPolicy
+ * @property {'always' | 'conditional' | 'never'} allowed
+ * @property {PolicyCondition[]} [conditions]
+ * @property {'always' | 'conditional' | 'never'} [requires_approval]
+ * @property {string} [rate_limit] - e.g., "100/minute"
+ */
+
+/**
+ * @typedef {Object} ToolMock
+ * @property {boolean} enabled
+ * @property {'examples' | 'llm' | 'hybrid'} mode
+ * @property {MockExample[]} examples
+ * @property {string[]} [llm_rules]
+ */
+
+/**
+ * @typedef {Object} Tool
+ * @property {string} id
+ * @property {'temporary' | 'permanent'} id_status
+ * @property {string} name
+ * @property {string} description
+ * @property {ToolInput[]} inputs
+ * @property {ToolOutput} output
+ * @property {ToolPolicy} policy - Inline policy (tool-level)
+ * @property {ToolMock} mock - Mock configuration
+ * @property {'untested' | 'tested' | 'skipped'} mock_status
+ * @property {MockTestResult[]} [mock_test_results]
+ */
+
+/**
+ * @typedef {Object} ApprovalRule
+ * @property {string} id
+ * @property {string} tool_id - May be unresolved
+ * @property {boolean} tool_id_resolved
+ * @property {PolicyCondition[]} conditions
+ * @property {string} [approver] - Role or queue
+ */
+
+/**
+ * @typedef {Object} Workflow
+ * @property {string} id
+ * @property {string} name
+ * @property {string} description
+ * @property {string} trigger
+ * @property {string[]} steps - Tool IDs (may be unresolved)
+ * @property {boolean[]} steps_resolved - Per-step resolution status
+ * @property {boolean} required - Must follow this sequence?
+ * @property {'warn' | 'block' | 'ask_user'} [on_deviation]
+ */
+
+/**
+ * @typedef {Object} ToolBoxImport
+ * @property {string} import - ToolBox ID from registry
+ * @property {string} version - Semver constraint
+ * @property {Object} [overrides]
+ * @property {Object} [overrides.tools]
+ * @property {string[]} [overrides.tools.include]
+ * @property {string[]} [overrides.tools.exclude]
+ * @property {Object} [overrides.policy]
+ */
+
+/**
+ * @typedef {Object} Channel
+ * @property {'api' | 'slack' | 'email' | 'webhook'} type
+ * @property {boolean} enabled
+ * @property {Object} config
+ */
+
+/**
+ * @typedef {Object} Message
+ * @property {string} id
+ * @property {'user' | 'assistant' | 'system'} role
+ * @property {string} content
+ * @property {string} timestamp
+ * @property {Object} [state_update]
+ * @property {SuggestedFocus} [suggested_focus]
+ */
+
+/**
+ * @typedef {Object} SuggestedFocus
+ * @property {'problem' | 'scenarios' | 'intents' | 'tools' | 'policy' | 'engine' | 'export'} panel
+ * @property {string} [section]
+ * @property {string} [field]
+ * @property {'add' | 'edit' | 'review'} [action]
+ */
+
+/**
+ * @typedef {Object} ValidationIssue
+ * @property {string} code - e.g., "TOOL_NOT_FOUND"
+ * @property {'error' | 'warning'} severity
+ * @property {string} path - e.g., "policy.workflows[0].steps[2]"
+ * @property {string} message
+ * @property {string} [suggestion]
+ */
+
+/**
+ * @typedef {Object} ValidationCompleteness
+ * @property {boolean} problem
+ * @property {boolean} scenarios
+ * @property {boolean} role
+ * @property {boolean} intents
+ * @property {boolean} tools
+ * @property {boolean} policy
+ * @property {boolean} engine
+ * @property {boolean} mocks_tested
+ */
+
+/**
+ * @typedef {Object} ValidationUnresolved
+ * @property {string[]} tools - Referenced but not defined
+ * @property {string[]} workflows - Referenced but not defined
+ * @property {string[]} intents - Referenced but not defined
+ */
+
+/**
+ * @typedef {Object} ValidationResult
+ * @property {boolean} valid - No blocking errors?
+ * @property {boolean} ready_to_export - All requirements met?
+ * @property {ValidationIssue[]} errors - Block progress
+ * @property {ValidationIssue[]} warnings - Inform but allow
+ * @property {ValidationUnresolved} unresolved
+ * @property {ValidationCompleteness} completeness
+ */
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN DraftDomain INTERFACE
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * @typedef {Object} Problem
+ * @property {string} statement
+ * @property {string} context
+ * @property {string[]} goals
+ */
+
+/**
+ * @typedef {Object} CommunicationStyle
+ * @property {'formal' | 'casual' | 'technical'} tone
+ * @property {'concise' | 'balanced' | 'detailed'} verbosity
+ */
+
+/**
+ * @typedef {Object} Role
+ * @property {string} name
+ * @property {string} persona
+ * @property {string[]} goals
+ * @property {string[]} limitations
+ * @property {CommunicationStyle} [communication_style]
+ */
+
+/**
+ * @typedef {Object} IntentThresholds
+ * @property {number} accept - Default: 0.8
+ * @property {number} clarify - Default: 0.5
+ * @property {number} reject - Default: 0.5
+ */
+
+/**
+ * @typedef {Object} OutOfDomainConfig
+ * @property {'redirect' | 'reject' | 'escalate'} action
+ * @property {string} message
+ * @property {string[]} [suggest_domains]
+ */
+
+/**
+ * @typedef {Object} IntentsConfig
+ * @property {Intent[]} supported
+ * @property {IntentThresholds} thresholds
+ * @property {OutOfDomainConfig} out_of_domain
+ */
+
+/**
+ * @typedef {Object} RV2Config
+ * @property {number} max_iterations - Default: 10
+ * @property {number} iteration_timeout_ms - Default: 30000
+ * @property {boolean} allow_parallel_tools - Default: false
+ * @property {'escalate' | 'fail' | 'ask_user'} on_max_iterations
+ */
+
+/**
+ * @typedef {Object} CriticConfig
+ * @property {boolean} enabled
+ * @property {number} check_interval - Default: 3
+ * @property {'low' | 'medium' | 'high'} strictness
+ */
+
+/**
+ * @typedef {Object} ReflectionConfig
+ * @property {boolean} enabled
+ * @property {'shallow' | 'medium' | 'deep'} depth
+ */
+
+/**
+ * @typedef {Object} ReplanningConfig
+ * @property {boolean} enabled
+ * @property {number} max_replans - Default: 2
+ */
+
+/**
+ * @typedef {Object} HLRConfig
+ * @property {boolean} enabled - Default: true
+ * @property {CriticConfig} critic
+ * @property {ReflectionConfig} reflection
+ * @property {ReplanningConfig} replanning
+ */
+
+/**
+ * @typedef {Object} AutonomyConfig
+ * @property {'autonomous' | 'supervised' | 'restricted'} level
+ */
+
+/**
+ * @typedef {Object} EngineConfig
+ * @property {RV2Config} rv2
+ * @property {HLRConfig} hlr
+ * @property {AutonomyConfig} autonomy
+ */
+
+/**
+ * @typedef {Object} Guardrails
+ * @property {string[]} never - Things agent must NEVER do
+ * @property {string[]} always - Things agent must ALWAYS do
+ */
+
+/**
+ * @typedef {Object} EscalationConfig
+ * @property {boolean} enabled
+ * @property {string[]} conditions
+ * @property {string} target - queue name or handler
+ */
+
+/**
+ * @typedef {Object} PolicyConfig
+ * @property {Guardrails} guardrails
+ * @property {ApprovalRule[]} approvals
+ * @property {Workflow[]} workflows
+ * @property {EscalationConfig} escalation
+ */
+
+/**
+ * The main DraftDomain interface - canonical object for DAL Builder
+ * @typedef {Object} DraftDomain
+ * @property {string} id
+ * @property {string} name
+ * @property {string} description
+ * @property {string} version
+ * @property {Phase} phase
+ * @property {string} created_at
+ * @property {string} updated_at
+ * @property {Problem} problem
+ * @property {Scenario[]} scenarios
+ * @property {Role} role
+ * @property {Object<string, string>} glossary
+ * @property {IntentsConfig} intents
+ * @property {EngineConfig} engine
+ * @property {ToolBoxImport[]} toolbox_imports
+ * @property {Tool[]} tools
+ * @property {PolicyConfig} policy
+ * @property {Channel[]} channels
+ * @property {ValidationResult} validation
+ * @property {Message[]} conversation
+ */
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE DEFINITIONS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * All valid phases in order
+ * @type {Phase[]}
+ */
+export const PHASES = [
+  'PROBLEM_DISCOVERY',
+  'SCENARIO_EXPLORATION',
+  'INTENT_DEFINITION',
+  'TOOLS_PROPOSAL',
+  'TOOL_DEFINITION',
+  'POLICY_DEFINITION',
+  'MOCK_TESTING',
+  'READY_TO_EXPORT',
+  'EXPORTED'
+];
+
+/**
+ * Phase display names
+ * @type {Object<Phase, string>}
+ */
+export const PHASE_LABELS = {
+  PROBLEM_DISCOVERY: 'Problem Discovery',
+  SCENARIO_EXPLORATION: 'Scenario Exploration',
+  INTENT_DEFINITION: 'Intent Definition',
+  TOOLS_PROPOSAL: 'Tools Proposal',
+  TOOL_DEFINITION: 'Tool Definition',
+  POLICY_DEFINITION: 'Policy Definition',
+  MOCK_TESTING: 'Mock Testing',
+  READY_TO_EXPORT: 'Ready to Export',
+  EXPORTED: 'Exported'
+};
+
+/**
+ * Get phase index (for ordering)
+ * @param {Phase} phase
+ * @returns {number}
+ */
+export function getPhaseIndex(phase) {
+  return PHASES.indexOf(phase);
+}
+
+/**
+ * Check if phase1 comes before phase2
+ * @param {Phase} phase1
+ * @param {Phase} phase2
+ * @returns {boolean}
+ */
+export function isPhaseBefore(phase1, phase2) {
+  return getPhaseIndex(phase1) < getPhaseIndex(phase2);
+}

@@ -1,0 +1,440 @@
+/**
+ * Domains Store - file-based storage for DraftDomain
+ *
+ * Storage structure:
+ *   /memory/<slug>/domain.json     - new DAL format
+ *   /memory/<slug>/project.json    - legacy format (auto-migrated)
+ *   /memory/<slug>/exports/        - exported files
+ *
+ * @module store/domains
+ */
+
+import fs from 'fs/promises';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import { createEmptyDraftDomain } from '../utils/defaults.js';
+import { validateDraftDomain } from '../validators/index.js';
+import { migrateToV2 } from '../services/migrate.js';
+
+// /memory is mounted per-tenant, slugs are direct children
+const MEMORY_PATH = process.env.MEMORY_PATH || '/memory';
+
+/**
+ * @typedef {import('../types/DraftDomain.js').DraftDomain} DraftDomain
+ */
+
+// ═══════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+async function ensureDir(dir) {
+  try {
+    await fs.mkdir(dir, { recursive: true });
+  } catch (err) {
+    if (err.code !== 'EEXIST') throw err;
+  }
+}
+
+async function fileExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readJson(filePath) {
+  const data = await fs.readFile(filePath, 'utf-8');
+  return JSON.parse(data);
+}
+
+async function writeJson(filePath, data) {
+  await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CORE OPERATIONS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Initialize storage
+ */
+async function init() {
+  await ensureDir(MEMORY_PATH);
+}
+
+/**
+ * List all domains (new format with domain.json)
+ * Also shows legacy projects that can be migrated
+ */
+async function list() {
+  await init();
+
+  const domains = [];
+
+  try {
+    const slugs = await fs.readdir(MEMORY_PATH);
+
+    for (const slug of slugs) {
+      try {
+        const slugDir = path.join(MEMORY_PATH, slug);
+        const stat = await fs.stat(slugDir);
+        if (!stat.isDirectory()) continue;
+
+        // Check for new format (domain.json)
+        const domainPath = path.join(slugDir, 'domain.json');
+        if (await fileExists(domainPath)) {
+          const domain = await readJson(domainPath);
+          domains.push({
+            id: slug,
+            name: domain.name,
+            phase: domain.phase,
+            created_at: domain.created_at,
+            updated_at: domain.updated_at,
+            tools_count: domain.tools?.length || 0,
+            progress: domain.validation?.completeness
+              ? calculateOverallProgress(domain.validation.completeness)
+              : 0,
+            format: 'v2',
+          });
+          continue;
+        }
+
+        // Check for legacy format (project.json) - mark for migration
+        const projectPath = path.join(slugDir, 'project.json');
+        if (await fileExists(projectPath)) {
+          const project = await readJson(projectPath);
+          let toolbox = null;
+          try {
+            toolbox = await readJson(path.join(slugDir, 'toolbox.json'));
+          } catch {}
+
+          domains.push({
+            id: slug,
+            name: project.name,
+            phase: toolbox?.status || 'PROBLEM_DISCOVERY',
+            created_at: project.created_at,
+            updated_at: project.updated_at,
+            tools_count: toolbox?.tools?.length || 0,
+            progress: calculateLegacyProgress(toolbox),
+            format: 'legacy',
+            needs_migration: true,
+          });
+        }
+      } catch (err) {
+        // Skip invalid slugs
+      }
+    }
+  } catch (err) {
+    // No memory directory yet
+  }
+
+  return domains.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+}
+
+/**
+ * Create a new domain
+ * @param {string} name
+ * @param {Object} [settings]
+ * @returns {Promise<DraftDomain>}
+ */
+async function create(name, settings = {}) {
+  await init();
+
+  const slug = `dom_${uuidv4().slice(0, 8)}`;
+  const slugDir = path.join(MEMORY_PATH, slug);
+
+  await ensureDir(slugDir);
+  await ensureDir(path.join(slugDir, 'exports'));
+
+  const domain = createEmptyDraftDomain(slug, name);
+
+  // Store settings
+  if (settings.llm_provider || settings.llm_model) {
+    domain._settings = {
+      llm_provider: settings.llm_provider || process.env.LLM_PROVIDER || 'anthropic',
+      llm_model: settings.llm_model || null,
+    };
+  }
+
+  // Initial validation
+  domain.validation = validateDraftDomain(domain);
+
+  await writeJson(path.join(slugDir, 'domain.json'), domain);
+
+  return domain;
+}
+
+/**
+ * Load a domain by slug (with auto-migration from legacy format)
+ * @param {string} slug
+ * @returns {Promise<DraftDomain>}
+ */
+async function load(slug) {
+  const slugDir = path.join(MEMORY_PATH, slug);
+
+  // Try new format first (domain.json)
+  const domainPath = path.join(slugDir, 'domain.json');
+  if (await fileExists(domainPath)) {
+    const domain = await readJson(domainPath);
+    // Re-validate on load
+    domain.validation = validateDraftDomain(domain);
+    return domain;
+  }
+
+  // Try legacy format and migrate
+  const projectPath = path.join(slugDir, 'project.json');
+  if (await fileExists(projectPath)) {
+    console.log(`Migrating legacy project ${slug} to domain format...`);
+
+    const project = await readJson(projectPath);
+    const toolbox = await readJson(path.join(slugDir, 'toolbox.json')).catch(() => ({
+      id: slug,
+      status: 'PROBLEM_DISCOVERY',
+      version: 1,
+      problem: { statement: null, target_user: null, systems_involved: [], confirmed: false },
+      scenarios: [],
+      proposed_tools: [],
+      tools: [],
+      workflows: [],
+    }));
+    const conversation = await readJson(path.join(slugDir, 'conversation.json')).catch(
+      () => ({ project_id: slug, messages: [] })
+    );
+
+    // Migrate to new format
+    const domain = migrateToV2(project, toolbox, conversation);
+    domain.id = slug; // Ensure slug is used as ID
+
+    // Preserve settings
+    if (project.settings) {
+      domain._settings = project.settings;
+    }
+
+    // Save in new format (domain.json in same slug dir)
+    await save(domain);
+
+    // Archive legacy files
+    try {
+      const archiveDir = path.join(slugDir, '.migrated');
+      await ensureDir(archiveDir);
+      await fs.rename(projectPath, path.join(archiveDir, 'project.json'));
+      await fs.rename(path.join(slugDir, 'toolbox.json'), path.join(archiveDir, 'toolbox.json')).catch(() => {});
+      await fs.rename(path.join(slugDir, 'conversation.json'), path.join(archiveDir, 'conversation.json')).catch(() => {});
+    } catch (err) {
+      console.log(`Could not archive legacy files for ${slug}:`, err.message);
+    }
+
+    return domain;
+  }
+
+  throw new Error(`Domain ${slug} not found`);
+}
+
+/**
+ * Save a domain
+ * @param {DraftDomain} domain
+ * @returns {Promise<void>}
+ */
+async function save(domain) {
+  const slugDir = path.join(MEMORY_PATH, domain.id);
+  await ensureDir(slugDir);
+  await ensureDir(path.join(slugDir, 'exports'));
+
+  // Update timestamp
+  domain.updated_at = new Date().toISOString();
+
+  await writeJson(path.join(slugDir, 'domain.json'), domain);
+}
+
+/**
+ * Append a message to the domain conversation
+ * @param {string} slug
+ * @param {Object} message
+ * @returns {Promise<DraftDomain>}
+ */
+async function appendMessage(slug, message) {
+  const domain = await load(slug);
+
+  const newMessage = {
+    ...message,
+    id: `msg_${uuidv4().slice(0, 8)}`,
+    timestamp: new Date().toISOString(),
+  };
+
+  domain.conversation.push(newMessage);
+  await save(domain);
+
+  return domain;
+}
+
+/**
+ * Update domain with state changes and re-validate
+ * @param {string} slug
+ * @param {Object} updates - State updates to apply
+ * @returns {Promise<DraftDomain>}
+ */
+async function updateState(slug, updates) {
+  const domain = await load(slug);
+
+  // Apply updates
+  applyUpdates(domain, updates);
+
+  // Re-validate
+  domain.validation = validateDraftDomain(domain);
+
+  await save(domain);
+  return domain;
+}
+
+/**
+ * Apply state updates to domain (supports dot notation)
+ * @param {DraftDomain} domain
+ * @param {Object} updates
+ */
+function applyUpdates(domain, updates) {
+  for (const [key, value] of Object.entries(updates)) {
+    // Handle array push notation: "tools_push"
+    if (key.endsWith('_push')) {
+      const arrayKey = key.slice(0, -5);
+      const arr = getNestedValue(domain, arrayKey);
+      if (Array.isArray(arr)) {
+        if (value.name && arr.some(item => item.name === value.name)) {
+          const idx = arr.findIndex(item => item.name === value.name);
+          arr[idx] = { ...arr[idx], ...value };
+        } else {
+          arr.push(value);
+        }
+      }
+      continue;
+    }
+
+    // Handle array index notation: "tools[0].status"
+    const indexMatch = key.match(/^(.+)\[(\d+)\]\.(.+)$/);
+    if (indexMatch) {
+      const [, arrayPath, index, property] = indexMatch;
+      const arr = getNestedValue(domain, arrayPath);
+      if (Array.isArray(arr) && arr[parseInt(index)]) {
+        setNestedValue(arr[parseInt(index)], property, value);
+      }
+      continue;
+    }
+
+    // Handle dot notation: "problem.statement"
+    setNestedValue(domain, key, value);
+  }
+}
+
+function getNestedValue(obj, path) {
+  return path.split('.').reduce((current, key) => current?.[key], obj);
+}
+
+function setNestedValue(obj, path, value) {
+  const keys = path.split('.');
+  const lastKey = keys.pop();
+  const target = keys.reduce((current, key) => {
+    if (current[key] === undefined) {
+      current[key] = {};
+    }
+    return current[key];
+  }, obj);
+  target[lastKey] = value;
+}
+
+/**
+ * Update domain settings
+ * @param {string} slug
+ * @param {Object} settings
+ * @returns {Promise<DraftDomain>}
+ */
+async function updateSettings(slug, settings) {
+  const domain = await load(slug);
+  domain._settings = { ...domain._settings, ...settings };
+  await save(domain);
+  return domain;
+}
+
+/**
+ * Delete a domain
+ * @param {string} slug
+ */
+async function remove(slug) {
+  const slugDir = path.join(MEMORY_PATH, slug);
+  await fs.rm(slugDir, { recursive: true, force: true }).catch(() => {});
+}
+
+/**
+ * Save export files
+ * @param {string} slug
+ * @param {string} version
+ * @param {Array<{name: string, content: string}>} files
+ * @returns {Promise<string>} Export directory path
+ */
+async function saveExport(slug, version, files) {
+  const exportDir = path.join(MEMORY_PATH, slug, 'exports', `v${version}`);
+  await ensureDir(exportDir);
+
+  for (const file of files) {
+    await fs.writeFile(path.join(exportDir, file.name), file.content);
+  }
+
+  return exportDir;
+}
+
+/**
+ * Get export files
+ * @param {string} slug
+ * @param {string} version
+ * @returns {Promise<Array<{name: string, content: string}>>}
+ */
+async function getExport(slug, version) {
+  const exportDir = path.join(MEMORY_PATH, slug, 'exports', `v${version}`);
+  const files = await fs.readdir(exportDir);
+
+  const result = [];
+  for (const file of files) {
+    const content = await fs.readFile(path.join(exportDir, file), 'utf-8');
+    result.push({ name: file, content });
+  }
+
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+function calculateOverallProgress(completeness) {
+  const sections = ['problem', 'scenarios', 'role', 'intents', 'tools', 'policy', 'engine', 'mocks_tested'];
+  const completed = sections.filter(s => completeness[s]).length;
+  return Math.round((completed / sections.length) * 100);
+}
+
+function calculateLegacyProgress(toolbox) {
+  if (!toolbox) return 0;
+  const phaseProgress = {
+    PROBLEM_DISCOVERY: 10,
+    SCENARIO_EXPLORATION: 25,
+    TOOLS_PROPOSAL: 40,
+    TOOL_DEFINITION: 60,
+    MOCK_TESTING: 80,
+    READY_TO_EXPORT: 95,
+    EXPORTED: 100,
+  };
+  return phaseProgress[toolbox.status] || 0;
+}
+
+export default {
+  init,
+  list,
+  create,
+  load,
+  save,
+  appendMessage,
+  updateState,
+  updateSettings,
+  remove,
+  saveExport,
+  getExport,
+};

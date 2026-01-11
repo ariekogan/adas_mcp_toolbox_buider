@@ -1,6 +1,15 @@
 /**
  * System prompt for the MCP Toolbox Builder conversation
+ *
+ * This module supports both:
+ * - Legacy toolbox format (project.json + toolbox.json)
+ * - New DraftDomain format (domain.json) via buildDALSystemPrompt()
  */
+
+import { buildDALSystemPrompt } from './dalSystem.js';
+
+// Re-export DAL system prompt builder
+export { buildDALSystemPrompt };
 
 export const SYSTEM_PROMPT = `You are a Toolbox Builder assistant. Your job is to help non-technical users create a custom set of AI tools (an MCP server) through conversation.
 
@@ -359,4 +368,18 @@ ${JSON.stringify(toolbox, null, 2)}
 `;
 }
 
-export default { SYSTEM_PROMPT, getPhasePrompt, buildSystemPrompt };
+/**
+ * Build system prompt - automatically detects format
+ * @param {Object} state - Either toolbox (legacy) or DraftDomain (new)
+ * @returns {string}
+ */
+export function buildPromptForState(state) {
+  // Detect if this is a DraftDomain (has 'phase' and 'validation')
+  if (state.phase !== undefined && state.validation !== undefined) {
+    return buildDALSystemPrompt(state);
+  }
+  // Legacy format (has 'status')
+  return buildSystemPrompt(state);
+}
+
+export default { SYSTEM_PROMPT, getPhasePrompt, buildSystemPrompt, buildDALSystemPrompt, buildPromptForState };
