@@ -42,43 +42,43 @@ const styles = {
   listContainer: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '4px',
+    gap: '2px',
     marginBottom: '8px'
   },
   listOption: {
-    padding: '12px 16px',
-    background: 'var(--bg-secondary)',
+    padding: '8px 12px',
+    background: 'transparent',
     border: '1px solid var(--border)',
-    borderRadius: '8px',
-    color: 'var(--text-primary)',
+    borderRadius: '6px',
+    color: 'var(--text-secondary)',
     cursor: 'pointer',
-    fontSize: '14px',
+    fontSize: '13px',
     textAlign: 'left',
     transition: 'all 0.15s ease',
-    lineHeight: '1.4'
+    lineHeight: '1.3'
   },
   listOptionHover: {
-    background: 'var(--accent)',
+    background: 'var(--bg-secondary)',
     borderColor: 'var(--accent)',
-    color: 'white'
+    color: 'var(--text-primary)'
   },
   otherButton: {
-    padding: '10px 18px',
+    padding: '8px 14px',
     background: 'transparent',
     border: '1px dashed var(--border)',
-    borderRadius: '20px',
-    color: 'var(--text-secondary)',
+    borderRadius: '16px',
+    color: 'var(--text-muted)',
     cursor: 'pointer',
-    fontSize: '14px'
+    fontSize: '12px'
   },
   otherButtonList: {
-    padding: '10px 16px',
+    padding: '8px 12px',
     background: 'transparent',
     border: '1px dashed var(--border)',
-    borderRadius: '8px',
-    color: 'var(--text-secondary)',
+    borderRadius: '6px',
+    color: 'var(--text-muted)',
     cursor: 'pointer',
-    fontSize: '14px',
+    fontSize: '12px',
     textAlign: 'left'
   },
   inputRow: {
