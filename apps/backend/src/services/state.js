@@ -27,21 +27,26 @@ export function applyStateUpdate(state, updates) {
       const arrayPath = key.slice(0, -5); // Remove "_push"
       const array = getNestedValue(newState, arrayPath);
       if (Array.isArray(array)) {
-        // Auto-generate ID if not provided
-        if (typeof value === "object" && !value.id) {
-          value.id = `${arrayPath.slice(0, -1)}_${uuidv4().slice(0, 8)}`;
-        }
+        // Handle both single item and array of items
+        const itemsToAdd = Array.isArray(value) ? value : [value];
 
-        // Check for duplicates by name (for tools, scenarios, etc.)
-        const existingIndex = array.findIndex(item =>
-          item.name && value.name && item.name === value.name
-        );
+        for (const item of itemsToAdd) {
+          // Auto-generate ID if not provided
+          if (typeof item === "object" && !item.id) {
+            item.id = `${arrayPath.slice(0, -1)}_${uuidv4().slice(0, 8)}`;
+          }
 
-        if (existingIndex >= 0) {
-          // Update existing item instead of adding duplicate
-          array[existingIndex] = { ...array[existingIndex], ...value };
-        } else {
-          array.push(value);
+          // Check for duplicates by name (for tools, scenarios, etc.)
+          const existingIndex = array.findIndex(existing =>
+            existing.name && item.name && existing.name === item.name
+          );
+
+          if (existingIndex >= 0) {
+            // Update existing item instead of adding duplicate
+            array[existingIndex] = { ...array[existingIndex], ...item };
+          } else {
+            array.push(item);
+          }
         }
       }
       continue;
