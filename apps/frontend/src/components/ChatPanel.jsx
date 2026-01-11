@@ -192,14 +192,15 @@ const styles = {
     opacity: 0.5
   },
   msgCallToAction: {
-    background: 'linear-gradient(135deg, var(--accent) 0%, #7c3aed 100%)',
-    color: 'white',
-    padding: '14px 18px',
-    borderRadius: '10px',
-    marginTop: '12px',
+    background: 'var(--bg-secondary)',
+    color: 'var(--text-primary)',
+    padding: '14px 16px',
+    borderRadius: '8px',
+    marginTop: '16px',
     fontWeight: '500',
     fontSize: '15px',
-    textAlign: 'center'
+    border: '1px solid var(--accent)',
+    borderLeft: '4px solid var(--accent)'
   }
 };
 
