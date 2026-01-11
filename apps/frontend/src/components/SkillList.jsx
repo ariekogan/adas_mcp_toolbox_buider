@@ -41,15 +41,39 @@ const styles = {
     borderRadius: '8px',
     cursor: 'pointer',
     marginBottom: '4px',
-    transition: 'background 0.2s'
+    transition: 'background 0.2s',
+    position: 'relative'
   },
   skillActive: {
     background: 'var(--bg-tertiary)'
+  },
+  skillHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start'
   },
   skillName: {
     fontSize: '14px',
     fontWeight: '500',
     marginBottom: '4px'
+  },
+  deleteBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    fontSize: '12px',
+    opacity: 0,
+    transition: 'opacity 0.2s, color 0.2s'
+  },
+  deleteBtnVisible: {
+    opacity: 1
+  },
+  deleteBtnHover: {
+    color: 'var(--error)',
+    background: 'var(--error)15'
   },
   skillMeta: {
     fontSize: '12px',
@@ -153,6 +177,8 @@ export default function SkillList({
 }) {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
+  const [hoveredSkill, setHoveredSkill] = useState(null);
+  const [hoveredDelete, setHoveredDelete] = useState(false);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -181,23 +207,42 @@ export default function SkillList({
 
         {skills.map(skill => {
           const phaseStyle = getPhaseStyle(skill.phase);
+          const isHovered = hoveredSkill === skill.id;
           return (
             <div
               key={skill.id}
               style={{
                 ...styles.skill,
-                ...(skill.id === currentId ? styles.skillActive : {})
+                ...(skill.id === currentId || isHovered ? styles.skillActive : {})
               }}
               onClick={() => onSelect(skill.id)}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-              onMouseLeave={e => {
-                if (skill.id !== currentId) {
-                  e.currentTarget.style.background = 'transparent';
-                }
+              onMouseEnter={() => setHoveredSkill(skill.id)}
+              onMouseLeave={() => {
+                setHoveredSkill(null);
+                setHoveredDelete(false);
               }}
             >
-              <div style={styles.skillName}>
-                {skill.name}
+              <div style={styles.skillHeader}>
+                <div style={styles.skillName}>
+                  {skill.name}
+                </div>
+                <button
+                  style={{
+                    ...styles.deleteBtn,
+                    ...(isHovered ? styles.deleteBtnVisible : {}),
+                    ...(hoveredDelete && isHovered ? styles.deleteBtnHover : {})
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`Delete "${skill.name}"?`)) {
+                      onDelete(skill.id);
+                    }
+                  }}
+                  onMouseEnter={() => setHoveredDelete(true)}
+                  onMouseLeave={() => setHoveredDelete(false)}
+                >
+                  ✕
+                </button>
               </div>
               <div style={styles.skillMeta}>
                 {skill.tools_count || 0} tools · v{skill.version || 1}
