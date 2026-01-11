@@ -303,6 +303,7 @@ export default function App() {
               sending={sending}
               skillName={currentSkill.name}
               inputHint={inputHint}
+              domain={currentSkill.domain}
             />
             <SkillPanel
               skill={currentSkill}

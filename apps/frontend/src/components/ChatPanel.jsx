@@ -1,5 +1,152 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useMemo } from 'react';
 import SmartInput from './SmartInput';
+
+// Mini dashboard component for status summaries
+function MiniDashboard({ domain }) {
+  if (!domain) return null;
+
+  const validation = domain.validation || {};
+  const completeness = validation.completeness || {};
+
+  // Calculate progress
+  const categories = [
+    { key: 'problem', label: 'Problem' },
+    { key: 'scenarios', label: 'Scenarios' },
+    { key: 'role', label: 'Role' },
+    { key: 'intents', label: 'Intents' },
+    { key: 'tools', label: 'Tools' },
+    { key: 'policy', label: 'Policy' },
+    { key: 'engine', label: 'Engine' },
+    { key: 'mocks_tested', label: 'Mocks' }
+  ];
+
+  const completed = categories.filter(c => completeness[c.key]).length;
+  const progress = Math.round((completed / categories.length) * 100);
+
+  const errorCount = validation.errors?.length || 0;
+  const warningCount = validation.warnings?.length || 0;
+
+  // Progress bar color based on percentage
+  const progressColor = progress >= 75 ? 'var(--success)' : progress >= 40 ? 'var(--warning)' : 'var(--accent)';
+
+  return (
+    <div style={dashboardStyles.container}>
+      {/* Progress */}
+      <div style={dashboardStyles.progressSection}>
+        <span style={{ ...dashboardStyles.progressText, color: progressColor }}>{progress}%</span>
+        <div style={dashboardStyles.progressBar}>
+          <div style={{
+            ...dashboardStyles.progressFill,
+            width: `${progress}%`,
+            background: progressColor
+          }} />
+        </div>
+      </div>
+
+      <div style={dashboardStyles.divider} />
+
+      {/* Errors & Warnings */}
+      {errorCount > 0 && (
+        <div style={dashboardStyles.stat}>
+          <div style={{ ...dashboardStyles.statDot, background: 'var(--error)' }} />
+          <span style={{ color: 'var(--error)' }}>{errorCount} error{errorCount !== 1 ? 's' : ''}</span>
+        </div>
+      )}
+      {warningCount > 0 && (
+        <div style={dashboardStyles.stat}>
+          <div style={{ ...dashboardStyles.statDot, background: 'var(--warning)' }} />
+          <span style={{ color: 'var(--warning)' }}>{warningCount} warning{warningCount !== 1 ? 's' : ''}</span>
+        </div>
+      )}
+      {errorCount === 0 && warningCount === 0 && (
+        <div style={dashboardStyles.stat}>
+          <div style={{ ...dashboardStyles.statDot, background: 'var(--success)' }} />
+          <span style={{ color: 'var(--success)' }}>No issues</span>
+        </div>
+      )}
+
+      <div style={dashboardStyles.divider} />
+
+      {/* Categories */}
+      <div style={dashboardStyles.categories}>
+        {categories.map(cat => (
+          <span
+            key={cat.key}
+            style={{
+              ...dashboardStyles.category,
+              background: completeness[cat.key] ? 'var(--success)' : 'var(--bg-tertiary)',
+              color: completeness[cat.key] ? 'white' : 'var(--text-muted)'
+            }}
+          >
+            {cat.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Mini dashboard styles
+const dashboardStyles = {
+  container: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px',
+    padding: '10px 12px',
+    background: 'var(--bg-secondary)',
+    borderRadius: '8px',
+    marginBottom: '12px',
+    fontSize: '11px',
+    alignItems: 'center'
+  },
+  progressSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px'
+  },
+  progressBar: {
+    width: '60px',
+    height: '6px',
+    background: 'var(--bg-tertiary)',
+    borderRadius: '3px',
+    overflow: 'hidden'
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: '3px',
+    transition: 'width 0.3s ease'
+  },
+  progressText: {
+    fontWeight: '600',
+    minWidth: '32px'
+  },
+  divider: {
+    width: '1px',
+    height: '16px',
+    background: 'var(--border)'
+  },
+  stat: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px'
+  },
+  statDot: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%'
+  },
+  categories: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '4px'
+  },
+  category: {
+    padding: '2px 6px',
+    borderRadius: '3px',
+    fontSize: '10px',
+    fontWeight: '500'
+  }
+};
 
 const styles = {
   container: {
@@ -501,7 +648,8 @@ export default function ChatPanel({
   onFileUpload,
   sending,
   skillName,
-  inputHint
+  inputHint,
+  domain
 }) {
   const messagesEndRef = useRef(null);
 
@@ -523,18 +671,38 @@ export default function ChatPanel({
           </div>
         )}
         
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            style={{
-              ...styles.message,
-              ...(msg.role === 'user' ? styles.userMessage : styles.assistantMessage),
-              ...(msg.isError ? styles.errorMessage : {})
-            }}
-          >
-            {formatMessage(msg.content)}
-          </div>
-        ))}
+        {messages.map((msg, i) => {
+          // Check if this assistant message looks like a status summary
+          const isStatusSummary = msg.role === 'assistant' &&
+            msg.content && (
+              msg.content.toLowerCase().includes('status') ||
+              msg.content.toLowerCase().includes('summary') ||
+              msg.content.toLowerCase().includes('progress') ||
+              msg.content.toLowerCase().includes("here's what we have") ||
+              msg.content.toLowerCase().includes('so far')
+            );
+
+          // Only show dashboard on the last assistant message if it's a status summary
+          const isLastAssistant = msg.role === 'assistant' &&
+            i === messages.length - 1 ||
+            (i === messages.length - 2 && messages[messages.length - 1]?.role === 'user');
+
+          const showDashboard = isStatusSummary && isLastAssistant && domain;
+
+          return (
+            <div
+              key={i}
+              style={{
+                ...styles.message,
+                ...(msg.role === 'user' ? styles.userMessage : styles.assistantMessage),
+                ...(msg.isError ? styles.errorMessage : {})
+              }}
+            >
+              {showDashboard && <MiniDashboard domain={domain} />}
+              {formatMessage(msg.content)}
+            </div>
+          );
+        })}
         
         {sending && (
           <div style={styles.typing}>
