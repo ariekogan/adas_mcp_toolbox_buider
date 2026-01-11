@@ -113,14 +113,8 @@ const styles = {
     marginBottom: '12px'
   },
   msgQuestion: {
-    background: 'var(--bg-secondary)',
-    color: 'var(--text-primary)',
-    padding: '10px 14px',
-    borderRadius: '8px',
-    marginTop: '12px',
-    fontWeight: '500',
-    fontSize: '14px',
-    borderLeft: '3px solid var(--accent)'
+    marginBottom: '8px',
+    lineHeight: '1.6'
   },
   msgHeading: {
     fontWeight: '600',
@@ -165,10 +159,7 @@ const styles = {
   },
   msgLongParagraph: {
     marginBottom: '12px',
-    lineHeight: '1.7',
-    padding: '8px 12px',
-    background: 'var(--bg-secondary)',
-    borderRadius: '6px'
+    lineHeight: '1.7'
   },
   msgToolList: {
     display: 'flex',
