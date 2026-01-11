@@ -5,12 +5,8 @@ import SmartInput from './SmartInput';
 function MiniDashboard({ domain }) {
   if (!domain) return null;
 
-  // Handle both domain.validation (from API response) and direct validation object
   const validation = domain.validation || {};
   const completeness = validation.completeness || {};
-
-  // Debug: log to verify we're rendering
-  console.log('MiniDashboard render:', { domain: !!domain, validation: !!domain.validation, completeness });
 
   // Calculate progress
   const categories = [
@@ -701,11 +697,6 @@ export default function ChatPanel({
             contentLower.includes('tools defined:');
 
           const showDashboard = isLastAssistant && hasStatusContent && domain;
-
-          // Debug logging
-          if (msg.role === 'assistant' && i === messages.length - 1) {
-            console.log('Dashboard check:', { isLastAssistant, hasStatusContent, hasDomain: !!domain, showDashboard });
-          }
 
           return (
             <div
