@@ -111,6 +111,7 @@ export async function processMessage({ project, toolbox, conversation, domain, u
     message: parsed.message || "",
     stateUpdate: parsed.state_update || {},
     suggestedFocus: parsed.suggested_focus || null,
+    inputHint: parsed.input_hint || null,
     usage: response.usage,
     toolsUsed: response.toolsUsed || null
   };

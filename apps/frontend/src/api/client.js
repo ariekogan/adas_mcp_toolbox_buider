@@ -87,7 +87,10 @@ export async function sendSkillMessage(skillId, message, uiFocus = null) {
 
 export async function getSkillGreeting() {
   const data = await request('/chat/domain/greeting');
-  return data.message;
+  return {
+    message: data.message,
+    inputHint: data.input_hint
+  };
 }
 
 // Mock testing

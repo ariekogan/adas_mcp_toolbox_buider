@@ -69,7 +69,8 @@ router.post("/domain", async (req, res, next) => {
       content: response.message,
       timestamp: new Date().toISOString(),
       state_update: response.stateUpdate,
-      suggested_focus: response.suggestedFocus
+      suggested_focus: response.suggestedFocus,
+      input_hint: response.inputHint
     });
 
     // Save updated domain
@@ -85,6 +86,7 @@ router.post("/domain", async (req, res, next) => {
       message: response.message,
       domain: updatedDomain,
       suggested_focus: response.suggestedFocus,
+      input_hint: response.inputHint,
       progress,
       validation: updatedDomain.validation,
       phase_suggestion: phaseSuggestion,
@@ -114,7 +116,11 @@ A skill teaches your AI agent how to handle a specific type of work. For example
 
 ---
 
-What problem would you like your AI agent to solve?`
+What problem would you like your AI agent to solve?`,
+    input_hint: {
+      mode: "selection",
+      options: ["Customer support", "Sales assistance", "HR helpdesk"]
+    }
   });
 });
 

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
+import SmartInput from './SmartInput';
 
 const styles = {
   container: {
@@ -511,28 +512,14 @@ export default function ChatPanel({
   messages = [],
   onSendMessage,
   sending,
-  skillName
+  skillName,
+  inputHint
 }) {
-  const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, sending]);
-
-  const handleSend = () => {
-    if (!input.trim() || sending) return;
-    onSendMessage(input.trim());
-    setInput('');
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
 
   return (
     <div style={styles.container}>
@@ -582,25 +569,11 @@ export default function ChatPanel({
       </div>
       
       <div style={styles.inputArea}>
-        <textarea
-          ref={inputRef}
-          style={styles.input}
-          placeholder="Type your message..."
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          rows={1}
+        <SmartInput
+          inputHint={inputHint}
+          onSend={onSendMessage}
+          sending={sending}
         />
-        <button
-          style={{
-            ...styles.sendBtn,
-            ...(sending || !input.trim() ? styles.sendBtnDisabled : {})
-          }}
-          onClick={handleSend}
-          disabled={sending || !input.trim()}
-        >
-          Send
-        </button>
       </div>
     </div>
   );

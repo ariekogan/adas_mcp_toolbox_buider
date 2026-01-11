@@ -191,9 +191,34 @@ Your response format:
   "state_update": {
     // Changes to apply to domain state - USE THIS to save intents, tools, policy, etc!
   },
-  "suggested_focus": null
+  "suggested_focus": null,
+  "input_hint": {
+    "mode": "text" | "selection",
+    "options": ["Option 1", "Option 2"],
+    "placeholder": "Optional placeholder text"
+  }
 }
 \`\`\`
+
+### Input Hints - GUIDE USER INPUT
+
+Use \`input_hint\` to guide the user's next response:
+
+1. **Text mode** (default): Free-form text input
+   \`"input_hint": { "mode": "text" }\`
+
+2. **Selection mode**: Show clickable options (user can still type custom)
+   \`"input_hint": { "mode": "selection", "options": ["Customer support", "Sales assistance", "HR helpdesk"] }\`
+
+ALWAYS use selection mode when:
+- You give examples in your message (turn those into options!)
+- Asking yes/no or choice questions
+- Offering predefined categories
+
+Examples:
+- "What problem to solve?" + examples → \`{ "mode": "selection", "options": ["Customer support", "Sales", "HR"] }\`
+- "Is this correct?" → \`{ "mode": "selection", "options": ["Yes, looks good", "No, let me clarify"] }\`
+- "Which tool first?" → \`{ "mode": "selection", "options": ["check_order", "process_refund"] }\`
 
 ### MESSAGE FORMATTING - CRITICAL FOR READABILITY
 

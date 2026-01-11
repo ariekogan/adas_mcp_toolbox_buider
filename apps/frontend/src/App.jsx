@@ -100,8 +100,9 @@ export default function App() {
 
   const { settings, updateSettings, showModal, openSettings, closeSettings, hasApiKey, backendStatus } = useSettings();
   const [uiFocus, setUiFocus] = useState(null);
-  const [greeting, setGreeting] = useState(null);
+  const [greetingData, setGreetingData] = useState(null);
   const [sending, setSending] = useState(false);
+  const [inputHint, setInputHint] = useState(null);
 
   const messages = currentSkill?.conversation || [];
 
@@ -110,19 +111,32 @@ export default function App() {
   }, [loadSkills]);
 
   useEffect(() => {
-    api.getSkillGreeting().then(setGreeting).catch(() => {});
+    api.getSkillGreeting().then(setGreetingData).catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (currentSkill && currentSkill.conversation?.length === 0 && greeting) {
+    if (currentSkill && currentSkill.conversation?.length === 0 && greetingData) {
       addMessage({
         id: `msg_${Date.now()}`,
         role: 'assistant',
-        content: greeting,
-        timestamp: new Date().toISOString()
+        content: greetingData.message,
+        timestamp: new Date().toISOString(),
+        input_hint: greetingData.inputHint
       });
+      // Set input hint from greeting
+      setInputHint(greetingData.inputHint);
     }
-  }, [currentSkill, greeting, addMessage]);
+  }, [currentSkill, greetingData, addMessage]);
+
+  // Update inputHint when messages change (use last assistant message's hint)
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+      if (lastAssistant?.input_hint) {
+        setInputHint(lastAssistant.input_hint);
+      }
+    }
+  }, [messages]);
 
   const handleSelect = useCallback(async (id) => {
     setUiFocus(null);
@@ -136,6 +150,9 @@ export default function App() {
 
   const handleSendMessage = useCallback(async (message) => {
     if (!currentSkill) return;
+
+    // Clear input hint while sending
+    setInputHint(null);
 
     addMessage({
       id: `msg_${Date.now()}`,
@@ -153,8 +170,11 @@ export default function App() {
         content: response.message,
         timestamp: new Date().toISOString(),
         state_update: response.state_update,
-        suggested_focus: response.suggested_focus
+        suggested_focus: response.suggested_focus,
+        input_hint: response.input_hint
       });
+      // Update input hint from response
+      setInputHint(response.input_hint || null);
       if (response.skill) {
         updateSkill(response.skill);
       }
@@ -165,6 +185,7 @@ export default function App() {
         content: `Error: ${err.message}`,
         timestamp: new Date().toISOString()
       });
+      setInputHint(null);
     } finally {
       setSending(false);
     }
@@ -219,6 +240,7 @@ export default function App() {
               onSendMessage={handleSendMessage}
               sending={sending}
               skillName={currentSkill.name}
+              inputHint={inputHint}
             />
             <SkillPanel
               skill={currentSkill}
