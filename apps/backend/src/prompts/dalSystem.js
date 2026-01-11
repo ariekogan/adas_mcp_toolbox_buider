@@ -227,6 +227,10 @@ Only use text mode for:
 - Asking for a description in their own words
 - Truly unique/creative input you cannot predict
 
+**CRITICAL: NEVER ask "what would you like to do?" without options!**
+When asking what to do next, ALWAYS provide options like:
+\`{ "mode": "selection", "options": ["Add more details to tools", "Define policies and guardrails", "Test the tools with mock data", "Something else"] }\`
+
 **Options can be full sentences** - the UI adapts automatically:
 - Short options (< 25 chars avg): displayed as pill buttons
 - Longer options: displayed as a clean vertical list
