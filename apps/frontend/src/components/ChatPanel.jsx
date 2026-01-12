@@ -365,6 +365,14 @@ const styles = {
     background: 'rgba(139, 92, 246, 0.15)',
     color: '#a78bfa'
   },
+  msgSectionSummary: {
+    fontStyle: 'italic',
+    fontSize: '12px',
+    color: 'var(--text-muted)',
+    marginTop: '-4px',
+    marginBottom: '8px',
+    paddingLeft: '4px'
+  },
   msgList: {
     margin: '8px 0',
     paddingLeft: '20px'
@@ -639,6 +647,18 @@ function formatMessage(content) {
           </div>
         );
       }
+      continue;
+    }
+
+    // Italic summary lines (lines that start and end with single *)
+    if (line.startsWith('*') && line.endsWith('*') && !line.startsWith('**')) {
+      flushList();
+      const summaryText = line.slice(1, -1).trim();
+      elements.push(
+        <div key={`summary-${i}`} style={styles.msgSectionSummary}>
+          {summaryText}
+        </div>
+      );
       continue;
     }
 

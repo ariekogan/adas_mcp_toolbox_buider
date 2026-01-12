@@ -311,7 +311,19 @@ export default function App() {
               focus={uiFocus}
               onFocusChange={setUiFocus}
               onExport={handleExport}
-              onAskAbout={(topic) => handleSendMessage(`Explain the "${topic}" section: what is it for, what is the current status, what's missing, and how can I improve it?`)}
+              onAskAbout={(topic) => handleSendMessage(`Explain the "${topic}" section. For each section header, start with a SHORT one-line italic summary (like "Reasonable, needs some improvements" or "Perfect!" or "Not too much, a few more examples will help"). Then provide details. Use this format:
+
+**Current Status:**
+*[short summary]*
+[details]
+
+**What's Missing:**
+*[short summary]*
+[details]
+
+**How to Improve:**
+*[short summary]*
+[suggestions]`)}
               skillId={currentSkill.id}
             />
           </div>
