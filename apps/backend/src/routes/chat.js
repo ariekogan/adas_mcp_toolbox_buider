@@ -92,7 +92,10 @@ router.post("/domain", async (req, res, next) => {
     const explainTopic = detectExplainRequest(message);
     if (explainTopic) {
       log.debug(`Detected explain request for topic: ${explainTopic}`);
+      const helpDoc = getHelpDoc(explainTopic);
+      log.debug(`Help doc found: ${helpDoc ? helpDoc.title : 'NOT FOUND'}`);
       processedMessage = enhanceExplainMessage(message, explainTopic);
+      log.debug(`Enhanced message length: ${processedMessage.length} chars`);
     }
 
     // Process with LLM (using domain format)
