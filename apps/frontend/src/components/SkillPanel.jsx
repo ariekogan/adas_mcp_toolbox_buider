@@ -472,6 +472,7 @@ export default function SkillPanel({
   onFocusChange,
   onExport,
   onAskAbout,
+  onIssuesChange,
   skillId
 }) {
   const [activeTab, setActiveTab] = useState('overview');
@@ -485,14 +486,14 @@ export default function SkillPanel({
   const [expandedItems, setExpandedItems] = useState({});
   const [testingTool, setTestingTool] = useState(null);
 
-  // Cascading validation
+  // Cascading validation - pass onIssuesChange for persistence
   const {
     issues,
     activeIssues,
     dismissIssue,
     markReviewing,
     clearResolved
-  } = useValidation(skill);
+  } = useValidation(skill, onIssuesChange);
 
   // Handle validation item review click - sends to chat
   const handleValidationReview = (issue) => {

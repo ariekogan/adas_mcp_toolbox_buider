@@ -320,6 +320,12 @@ export default function App() {
                   handleSendMessage(`Tell me about the "${topicOrPrompt}" section - what's the current status, what's missing, and how can I improve it?`);
                 }
               }}
+              onIssuesChange={(issues) => {
+                // Persist cascading validation issues to backend
+                api.updateSkill(currentSkill.id, { cascading_issues: issues }).catch(err => {
+                  console.error('Failed to persist validation issues:', err);
+                });
+              }}
               skillId={currentSkill.id}
             />
           </div>

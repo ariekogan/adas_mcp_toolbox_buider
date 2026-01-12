@@ -8,10 +8,31 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { runValidation, isIssueStillRelevant, VALIDATION_SEVERITY } from '../services/validationEngine';
 
-export function useValidation(skill) {
-  const [issues, setIssues] = useState([]);
+/**
+ * @param {Object} skill - The skill/domain object
+ * @param {Function} onIssuesChange - Callback when issues change (for persistence)
+ */
+export function useValidation(skill, onIssuesChange) {
+  // Initialize from skill's persisted cascading_issues or empty array
+  const [issues, setIssues] = useState(() => skill?.cascading_issues || []);
   const [lastRunTimestamp, setLastRunTimestamp] = useState(null);
   const previousSkillRef = useRef(null);
+  const isInitialMount = useRef(true);
+
+  // Sync issues from skill when skill changes (e.g., loaded from backend)
+  useEffect(() => {
+    if (skill?.cascading_issues && isInitialMount.current) {
+      setIssues(skill.cascading_issues);
+      isInitialMount.current = false;
+    }
+  }, [skill?.id]); // Only on skill id change (new skill loaded)
+
+  // Persist issues when they change
+  useEffect(() => {
+    if (onIssuesChange && !isInitialMount.current) {
+      onIssuesChange(issues);
+    }
+  }, [issues, onIssuesChange]);
 
   // Add a new validation issue
   const addIssue = useCallback((issue) => {
