@@ -192,8 +192,9 @@ function validateToolAdded(change, skill) {
   const tool = change.item;
   const toolName = tool?.name || 'New tool';
 
-  // Check if tool has policy
-  if (!tool?.policy || tool.policy.allowed === undefined) {
+  // Check if tool has policy - accept any non-empty policy object
+  const hasPolicy = tool?.policy && Object.keys(tool.policy).length > 0;
+  if (!hasPolicy) {
     issues.push({
       id: generateIssueId(),
       severity: VALIDATION_SEVERITY.BLOCKER,
@@ -329,9 +330,10 @@ function validatePolicyModified(change, skill) {
 export function runFullValidation(skill) {
   const issues = [];
 
-  // Check all tools have policies
+  // Check all tools have policies - accept any non-empty policy object
   (skill.tools || []).forEach(tool => {
-    if (!tool?.policy || tool.policy.allowed === undefined) {
+    const hasPolicy = tool?.policy && Object.keys(tool.policy).length > 0;
+    if (!hasPolicy) {
       issues.push({
         id: generateIssueId(),
         severity: VALIDATION_SEVERITY.BLOCKER,
@@ -393,13 +395,21 @@ export function isIssueStillRelevant(issue, skill) {
     if (toolNameMatch) {
       const toolName = toolNameMatch[1];
       const tool = (skill.tools || []).find(t => t.name === toolName);
-      // If tool has policy now, issue is no longer relevant
-      if (tool?.policy && tool.policy.allowed !== undefined) {
-        return false;
-      }
       // If tool was deleted, issue is no longer relevant
       if (!tool) {
         return false;
+      }
+      // If tool has any policy configuration, consider it resolved
+      // Check for: policy.allowed, policy.requires_approval, or any non-empty policy object
+      if (tool.policy) {
+        const hasAllowed = tool.policy.allowed !== undefined;
+        const hasApproval = tool.policy.requires_approval !== undefined;
+        const hasConditions = tool.policy.conditions && tool.policy.conditions.length > 0;
+        const hasAnyPolicyKey = Object.keys(tool.policy).length > 0;
+
+        if (hasAllowed || hasApproval || hasConditions || hasAnyPolicyKey) {
+          return false;
+        }
       }
     }
   }
