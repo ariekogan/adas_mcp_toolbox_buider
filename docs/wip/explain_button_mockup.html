@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Explain Button Mockups</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      padding: 40px;
+      line-height: 1.5;
+    }
+
+    h1 {
+      color: #fff;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      color: #888;
+      margin-bottom: 40px;
+    }
+
+    .mockup-container {
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+      max-width: 600px;
+    }
+
+    .mockup {
+      background: #252540;
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid #333;
+    }
+
+    .mockup-label {
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 15px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #e0e0e0;
+    }
+
+    .expand-icon {
+      color: #666;
+      font-size: 10px;
+    }
+
+    /* ===== OPTION A: Soft Background Pill ===== */
+    .explain-a {
+      font-size: 10px;
+      padding: 3px 10px;
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .explain-a:hover {
+      background: rgba(59, 130, 246, 0.25);
+      color: #93c5fd;
+    }
+
+    /* ===== OPTION B: Border Only Pill ===== */
+    .explain-b {
+      font-size: 10px;
+      padding: 3px 10px;
+      background: transparent;
+      color: #888;
+      border-radius: 999px;
+      border: 1px solid #444;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .explain-b:hover {
+      border-color: #60a5fa;
+      color: #60a5fa;
+    }
+
+    /* ===== OPTION C: Accent Border Pill ===== */
+    .explain-c {
+      font-size: 10px;
+      padding: 3px 10px;
+      background: transparent;
+      color: #60a5fa;
+      border-radius: 999px;
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .explain-c:hover {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: #60a5fa;
+    }
+
+    /* ===== OPTION D: Filled Accent Pill ===== */
+    .explain-d {
+      font-size: 10px;
+      padding: 3px 10px;
+      background: rgba(59, 130, 246, 0.2);
+      color: #60a5fa;
+      border-radius: 999px;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .explain-d:hover {
+      background: rgba(59, 130, 246, 0.3);
+      border-color: #60a5fa;
+    }
+
+    /* ===== OPTION E: Muted Ghost Pill ===== */
+    .explain-e {
+      font-size: 10px;
+      padding: 3px 10px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #999;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .explain-e:hover {
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+    }
+
+    /* ===== OPTION F: Tiny Compact ===== */
+    .explain-f {
+      font-size: 9px;
+      padding: 2px 8px;
+      background: rgba(59, 130, 246, 0.12);
+      color: #60a5fa;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      letter-spacing: 0.3px;
+    }
+    .explain-f:hover {
+      background: rgba(59, 130, 246, 0.25);
+    }
+
+    /* ===== OPTION G: With ? prefix ===== */
+    .explain-g {
+      font-size: 10px;
+      padding: 3px 10px;
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .explain-g:hover {
+      background: rgba(59, 130, 246, 0.25);
+    }
+    .explain-g::before {
+      content: "? ";
+      opacity: 0.7;
+    }
+
+    /* ===== OPTION H: Dashed Border ===== */
+    .explain-h {
+      font-size: 10px;
+      padding: 3px 10px;
+      background: transparent;
+      color: #888;
+      border-radius: 999px;
+      border: 1px dashed #555;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .explain-h:hover {
+      border-color: #60a5fa;
+      border-style: solid;
+      color: #60a5fa;
+    }
+
+    .winner {
+      border: 2px solid #22c55e !important;
+      position: relative;
+    }
+    .winner::after {
+      content: "RECOMMENDED";
+      position: absolute;
+      top: -10px;
+      right: 20px;
+      font-size: 9px;
+      background: #22c55e;
+      color: #000;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <h1>Explain Button Mockups</h1>
+  <p class="subtitle">Small elegant oval pills - hover to see interaction</p>
+
+  <div class="mockup-container">
+
+    <!-- Option A -->
+    <div class="mockup winner">
+      <div class="mockup-label">Option A: Soft Background Pill</div>
+      <div class="section-header">
+        <div class="section-title">
+          <span class="expand-icon">></span>
+          Problem
+        </div>
+        <button class="explain-a">explain</button>
+      </div>
+    </div>
+
+    <!-- Option B -->
+    <div class="mockup">
+      <div class="mockup-label">Option B: Border Only Pill (Muted)</div>
+      <div class="section-header">
+        <div class="section-title">
+          <span class="expand-icon">></span>
+          Problem
+        </div>
+        <button class="explain-b">explain</button>
+      </div>
+    </div>
+
+    <!-- Option C -->
+    <div class="mockup">
+      <div class="mockup-label">Option C: Accent Border Pill</div>
+      <div class="section-header">
+        <div class="section-title">
+          <span class="expand-icon">></span>
+          Problem
+        </div>
+        <button class="explain-c">explain</button>
+      </div>
+    </div>
+
+    <!-- Option D -->
+    <div class="mockup">
+      <div class="mockup-label">Option D: Filled + Border Pill</div>
+      <div class="section-header">
+        <div class="section-title">
+          <span class="expand-icon">></span>
+          Problem
+        </div>
+        <button class="explain-d">explain</button>
+      </div>
+    </div>
+
+    <!-- Option E -->
+    <div class="mockup">
+      <div class="mockup-label">Option E: Muted Ghost Pill</div>
+      <div class="section-header">
+        <div class="section-title">
+          <span class="expand-icon">></span>
+          Problem
+        </div>
+        <button class="explain-e">explain</button>
+      </div>
+    </div>
+
+    <!-- Option F -->
+    <div class="mockup">
+      <div class="mockup-label">Option F: Tiny Compact</div>
+      <div class="section-header">
+        <div class="section-title">
+          <span class="expand-icon">></span>
+          Problem
+        </div>
+        <button class="explain-f">explain</button>
+      </div>
+    </div>
+
+    <!-- Option G -->
+    <div class="mockup">
+      <div class="mockup-label">Option G: With ? Prefix</div>
+      <div class="section-header">
+        <div class="section-title">
+          <span class="expand-icon">></span>
+          Problem
+        </div>
+        <button class="explain-g">explain</button>
+      </div>
+    </div>
+
+    <!-- Option H -->
+    <div class="mockup">
+      <div class="mockup-label">Option H: Dashed Border</div>
+      <div class="section-header">
+        <div class="section-title">
+          <span class="expand-icon">></span>
+          Problem
+        </div>
+        <button class="explain-h">explain</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // Add click feedback
+    document.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        alert('Explain clicked! Would send: "Tell me about the Problem section"');
+      });
+    });
+  </script>
+</body>
+</html>

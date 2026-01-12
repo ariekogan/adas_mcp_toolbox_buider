@@ -286,29 +286,21 @@ const styles = {
     borderRadius: '3px',
     marginLeft: '4px'
   },
-  // Info button for explaining properties
+  // Info button for explaining properties - Option C: Accent Border Pill
   infoBtn: {
-    width: '18px',
-    height: '18px',
-    padding: 0,
+    padding: '3px 10px',
     background: 'transparent',
-    border: '1px solid var(--border)',
-    borderRadius: '50%',
-    color: 'var(--text-muted)',
+    border: '1px solid rgba(59, 130, 246, 0.4)',
+    borderRadius: '999px',
+    color: '#60a5fa',
     cursor: 'pointer',
     fontSize: '10px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: '6px',
-    opacity: 0.6,
     transition: 'all 0.15s ease',
     flexShrink: 0
   },
   infoBtnHover: {
-    opacity: 1,
-    borderColor: 'var(--accent)',
-    color: 'var(--accent)'
+    background: 'rgba(59, 130, 246, 0.15)',
+    borderColor: '#60a5fa'
   },
   sectionHeaderWithInfo: {
     display: 'flex',
@@ -447,7 +439,7 @@ function getTabBadge(tabId, skill) {
   }
 }
 
-// Info button component
+// Info button component - Option C: Accent Border Pill with "explain" text
 function InfoButton({ topic, onAskAbout }) {
   const [hovered, setHovered] = useState(false);
 
@@ -467,7 +459,7 @@ function InfoButton({ topic, onAskAbout }) {
       onMouseLeave={() => setHovered(false)}
       title={`Explain ${topic}`}
     >
-      ?
+      explain
     </button>
   );
 }
