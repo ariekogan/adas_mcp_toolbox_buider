@@ -322,14 +322,17 @@ export const HELP_DOCS = {
 export function getHelpDoc(topic) {
   const normalizedTopic = topic.toLowerCase().trim();
 
-  // Direct match
-  if (HELP_DOCS[normalizedTopic]) {
-    return HELP_DOCS[normalizedTopic];
+  // Direct match (case-insensitive)
+  for (const [key, doc] of Object.entries(HELP_DOCS)) {
+    if (key.toLowerCase() === normalizedTopic) {
+      return doc;
+    }
   }
 
-  // Partial match
+  // Partial match (case-insensitive)
   for (const [key, doc] of Object.entries(HELP_DOCS)) {
-    if (normalizedTopic.includes(key) || key.includes(normalizedTopic)) {
+    const normalizedKey = key.toLowerCase();
+    if (normalizedTopic.includes(normalizedKey) || normalizedKey.includes(normalizedTopic)) {
       return doc;
     }
   }
