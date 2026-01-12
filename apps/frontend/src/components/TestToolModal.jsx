@@ -1,6 +1,5 @@
 import { useState } from 'react';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3310';
+import { runMock } from '../api/client';
 
 const styles = {
   overlay: {
@@ -244,18 +243,7 @@ export default function TestToolModal({ tool, projectId, onClose }) {
         inputObj[input.name] = value;
       });
 
-      const response = await fetch(`${API_BASE}/api/mock/${projectId}/${tool.id || tool.name}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: inputObj, mode })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Test failed');
-      }
-
+      const data = await runMock(projectId, tool.id || tool.name, inputObj, mode);
       setResult(data);
     } catch (err) {
       setError(err.message);
