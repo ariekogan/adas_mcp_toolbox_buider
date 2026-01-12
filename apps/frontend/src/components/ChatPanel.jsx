@@ -1,32 +1,82 @@
 import { useRef, useEffect, useMemo } from 'react';
 import SmartInput from './SmartInput';
 
+/**
+ * Get badge color based on ratio and thresholds
+ */
+function getBadgeColor(current, total, minRequired = 1) {
+  if (total === 0 || current === 0) return { bg: 'var(--bg-tertiary)', color: 'var(--text-muted)' };
+  const ratio = current / total;
+  if (ratio >= 1) return { bg: 'rgba(34, 197, 94, 0.2)', color: '#22c55e' };
+  if (current >= minRequired) return { bg: 'rgba(234, 179, 8, 0.2)', color: '#eab308' };
+  return { bg: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' };
+}
+
+/**
+ * Get category badge info with counts
+ */
+function getCategoryBadge(key, domain) {
+  switch (key) {
+    case 'problem': {
+      const has = domain.problem?.statement?.length >= 10 ? 1 : 0;
+      return { label: 'Problem', text: has ? '✓' : '0', ...getBadgeColor(has, 1) };
+    }
+    case 'scenarios': {
+      const count = domain.scenarios?.length || 0;
+      return { label: 'Scenarios', text: `${count}`, ...getBadgeColor(count, 2, 1) };
+    }
+    case 'role': {
+      const has = (domain.role?.name && domain.role?.persona) ? 1 : 0;
+      return { label: 'Role', text: has ? '✓' : '0', ...getBadgeColor(has, 1) };
+    }
+    case 'intents': {
+      const intents = domain.intents?.supported || [];
+      const withExamples = intents.filter(i => i.examples?.length > 0).length;
+      if (intents.length === 0) return { label: 'Intents', text: '0', bg: 'var(--bg-tertiary)', color: 'var(--text-muted)' };
+      return { label: 'Intents', text: `${withExamples}/${intents.length}`, ...getBadgeColor(withExamples, intents.length, 1) };
+    }
+    case 'tools': {
+      const tools = domain.tools || [];
+      if (tools.length === 0) return { label: 'Tools', text: '0', bg: 'var(--bg-tertiary)', color: 'var(--text-muted)' };
+      const defined = tools.filter(t => t.name && t.description && t.output?.description).length;
+      return { label: 'Tools', text: `${defined}/${tools.length}`, ...getBadgeColor(defined, tools.length, 1) };
+    }
+    case 'policy': {
+      const never = domain.policy?.guardrails?.never?.length || 0;
+      const always = domain.policy?.guardrails?.always?.length || 0;
+      const total = never + always;
+      return { label: 'Policy', text: `${total}`, ...getBadgeColor(total, 2, 1) };
+    }
+    case 'mocks': {
+      const tools = domain.tools || [];
+      if (tools.length === 0) return { label: 'Mocks', text: '0', bg: 'var(--bg-tertiary)', color: 'var(--text-muted)' };
+      const tested = tools.filter(t => t.mock_status === 'tested' || t.mock_status === 'skipped').length;
+      return { label: 'Mocks', text: `${tested}/${tools.length}`, ...getBadgeColor(tested, tools.length, 1) };
+    }
+    case 'engine': {
+      return { label: 'Engine', text: '✓', bg: 'rgba(34, 197, 94, 0.2)', color: '#22c55e' };
+    }
+    default:
+      return { label: key, text: '?', bg: 'var(--bg-tertiary)', color: 'var(--text-muted)' };
+  }
+}
+
 // Mini dashboard component for status summaries
 function MiniDashboard({ domain }) {
   if (!domain) return null;
 
   const validation = domain.validation || {};
-  const completeness = validation.completeness || {};
+  const categoryKeys = ['problem', 'scenarios', 'role', 'intents', 'tools', 'policy', 'mocks', 'engine'];
+  const badges = categoryKeys.map(key => getCategoryBadge(key, domain));
 
-  // Calculate progress
-  const categories = [
-    { key: 'problem', label: 'Problem' },
-    { key: 'scenarios', label: 'Scenarios' },
-    { key: 'role', label: 'Role' },
-    { key: 'intents', label: 'Intents' },
-    { key: 'tools', label: 'Tools' },
-    { key: 'policy', label: 'Policy' },
-    { key: 'engine', label: 'Engine' },
-    { key: 'mocks_tested', label: 'Mocks' }
-  ];
-
-  const completed = categories.filter(c => completeness[c.key]).length;
-  const progress = Math.round((completed / categories.length) * 100);
+  // Calculate overall progress from badges
+  const greenCount = badges.filter(b => b.color === '#22c55e').length;
+  const yellowCount = badges.filter(b => b.color === '#eab308').length;
+  const progress = Math.round(((greenCount + yellowCount * 0.5) / badges.length) * 100);
 
   const errorCount = validation.errors?.length || 0;
   const warningCount = validation.warnings?.length || 0;
 
-  // Progress bar color based on percentage
   const progressColor = progress >= 75 ? 'var(--success)' : progress >= 40 ? 'var(--warning)' : 'var(--accent)';
 
   return (
@@ -67,18 +117,18 @@ function MiniDashboard({ domain }) {
 
       <div style={dashboardStyles.divider} />
 
-      {/* Categories */}
+      {/* Categories with counts */}
       <div style={dashboardStyles.categories}>
-        {categories.map(cat => (
+        {badges.map(badge => (
           <span
-            key={cat.key}
+            key={badge.label}
             style={{
               ...dashboardStyles.category,
-              background: completeness[cat.key] ? 'var(--success)' : 'var(--bg-tertiary)',
-              color: completeness[cat.key] ? 'white' : 'var(--text-muted)'
+              background: badge.bg,
+              color: badge.color
             }}
           >
-            {cat.label}
+            {badge.label} <span style={{ fontWeight: '600' }}>{badge.text}</span>
           </span>
         ))}
       </div>
