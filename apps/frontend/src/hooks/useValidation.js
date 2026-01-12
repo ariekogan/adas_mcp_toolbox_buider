@@ -14,24 +14,50 @@ import { runValidation, isIssueStillRelevant, VALIDATION_SEVERITY } from '../ser
  */
 export function useValidation(skill, onIssuesChange) {
   // Initialize from skill's persisted cascading_issues or empty array
-  const [issues, setIssues] = useState(() => skill?.cascading_issues || []);
+  const [issues, setIssues] = useState([]);
   const [lastRunTimestamp, setLastRunTimestamp] = useState(null);
   const previousSkillRef = useRef(null);
-  const isInitialMount = useRef(true);
+  const lastSkillIdRef = useRef(null);
+  const hasLoadedFromSkillRef = useRef(false);
 
-  // Sync issues from skill when skill changes (e.g., loaded from backend)
+  // Sync issues from skill when skill id changes (new skill loaded)
   useEffect(() => {
-    if (skill?.cascading_issues && isInitialMount.current) {
+    if (!skill) return;
+
+    // Only load from skill if it's a different skill or first load
+    if (skill.id !== lastSkillIdRef.current) {
+      lastSkillIdRef.current = skill.id;
+      hasLoadedFromSkillRef.current = false;
+    }
+
+    // Load persisted issues from skill (once per skill)
+    if (!hasLoadedFromSkillRef.current && skill.cascading_issues) {
       setIssues(skill.cascading_issues);
-      isInitialMount.current = false;
+      hasLoadedFromSkillRef.current = true;
+    } else if (!hasLoadedFromSkillRef.current) {
+      // No persisted issues, mark as loaded
+      hasLoadedFromSkillRef.current = true;
     }
-  }, [skill?.id]); // Only on skill id change (new skill loaded)
+  }, [skill?.id, skill?.cascading_issues]);
 
-  // Persist issues when they change
+  // Persist issues when they change (debounced to avoid too many saves)
+  const persistTimeoutRef = useRef(null);
   useEffect(() => {
-    if (onIssuesChange && !isInitialMount.current) {
-      onIssuesChange(issues);
+    if (!onIssuesChange || !hasLoadedFromSkillRef.current) return;
+
+    // Debounce persistence
+    if (persistTimeoutRef.current) {
+      clearTimeout(persistTimeoutRef.current);
     }
+    persistTimeoutRef.current = setTimeout(() => {
+      onIssuesChange(issues);
+    }, 500);
+
+    return () => {
+      if (persistTimeoutRef.current) {
+        clearTimeout(persistTimeoutRef.current);
+      }
+    };
   }, [issues, onIssuesChange]);
 
   // Add a new validation issue
