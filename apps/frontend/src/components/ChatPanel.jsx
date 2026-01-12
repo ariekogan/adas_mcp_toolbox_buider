@@ -250,9 +250,10 @@ const styles = {
   },
   userMessage: {
     alignSelf: 'flex-end',
-    background: 'var(--accent)',
-    color: 'white',
-    borderBottomRightRadius: '4px'
+    background: 'var(--bg-tertiary)',
+    color: 'var(--text-primary)',
+    borderBottomRightRadius: '4px',
+    borderLeft: '2px solid var(--accent)'
   },
   assistantMessage: {
     alignSelf: 'flex-start',
