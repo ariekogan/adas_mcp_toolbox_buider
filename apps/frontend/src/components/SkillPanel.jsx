@@ -440,8 +440,7 @@ export default function SkillPanel({
               )}
             </div>
           );
-        }
-        ))}
+        })}
       </div>
 
       <div style={styles.content}>
