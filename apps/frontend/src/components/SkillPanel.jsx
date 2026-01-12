@@ -10,7 +10,7 @@
  * - Validation status
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import TestToolModal from './TestToolModal';
 import IntentsPanel from './IntentsPanel';
 import PolicyPanel from './PolicyPanel';
@@ -429,6 +429,17 @@ export default function SkillPanel({
   });
   const [expandedItems, setExpandedItems] = useState({});
   const [testingTool, setTestingTool] = useState(null);
+
+  // Handle focus changes to switch tabs and expand sections
+  useEffect(() => {
+    if (focus?.tab) {
+      setActiveTab(focus.tab);
+      // Expand the section if specified
+      if (focus.section) {
+        setExpanded(prev => ({ ...prev, [focus.section]: true }));
+      }
+    }
+  }, [focus]);
 
   const toggleSection = (section) => {
     setExpanded(prev => ({ ...prev, [section]: !prev[section] }));

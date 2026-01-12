@@ -61,13 +61,25 @@ function getCategoryBadge(key, domain) {
   }
 }
 
+// Map category keys to focus targets (tab + optional section)
+const CATEGORY_FOCUS_MAP = {
+  problem: { tab: 'overview', section: 'problem' },
+  scenarios: { tab: 'overview', section: 'scenarios' },
+  role: { tab: 'overview', section: 'role' },
+  intents: { tab: 'intents' },
+  tools: { tab: 'tools' },
+  policy: { tab: 'policy' },
+  mocks: { tab: 'tools', section: 'mocks' },
+  engine: { tab: 'engine' }
+};
+
 // Mini dashboard component for status summaries
-function MiniDashboard({ domain }) {
+function MiniDashboard({ domain, onFocusChange }) {
   if (!domain) return null;
 
   const validation = domain.validation || {};
   const categoryKeys = ['problem', 'scenarios', 'role', 'intents', 'tools', 'policy', 'mocks', 'engine'];
-  const badges = categoryKeys.map(key => getCategoryBadge(key, domain));
+  const badges = categoryKeys.map(key => ({ ...getCategoryBadge(key, domain), key }));
 
   // Calculate overall progress from badges
   const greenCount = badges.filter(b => b.color === '#22c55e').length;
@@ -124,9 +136,12 @@ function MiniDashboard({ domain }) {
             key={badge.label}
             style={{
               ...dashboardStyles.category,
+              ...dashboardStyles.categoryClickable,
               background: badge.bg,
               color: badge.color
             }}
+            onClick={() => onFocusChange?.(CATEGORY_FOCUS_MAP[badge.key])}
+            title={`Go to ${badge.label}`}
           >
             {badge.label} <span style={{ fontWeight: '600' }}>{badge.text}</span>
           </span>
@@ -195,6 +210,11 @@ const dashboardStyles = {
     borderRadius: '3px',
     fontSize: '10px',
     fontWeight: '500'
+  },
+  categoryClickable: {
+    cursor: 'pointer',
+    transition: 'transform 0.15s, box-shadow 0.15s',
+    userSelect: 'none'
   }
 };
 
@@ -699,7 +719,8 @@ export default function ChatPanel({
   sending,
   skillName,
   inputHint,
-  domain
+  domain,
+  onFocusChange
 }) {
   const messagesEndRef = useRef(null);
 
@@ -757,7 +778,7 @@ export default function ChatPanel({
                 ...(msg.isError ? styles.errorMessage : {})
               }}
             >
-              {showDashboard && <MiniDashboard domain={domain} />}
+              {showDashboard && <MiniDashboard domain={domain} onFocusChange={onFocusChange} />}
               {formatMessage(msg.content)}
             </div>
           );

@@ -304,6 +304,7 @@ export default function App() {
               skillName={currentSkill.name}
               inputHint={inputHint}
               domain={currentSkill}
+              onFocusChange={setUiFocus}
             />
             <SkillPanel
               skill={currentSkill}
