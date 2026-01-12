@@ -63,15 +63,6 @@ const styles = {
     borderLeftColor: 'var(--accent)',
     color: 'var(--text-primary)'
   },
-  otherButton: {
-    padding: '8px 14px',
-    background: 'transparent',
-    border: '1px dashed var(--border)',
-    borderRadius: '16px',
-    color: 'var(--text-muted)',
-    cursor: 'pointer',
-    fontSize: '12px'
-  },
   otherButtonList: {
     padding: '6px 10px',
     background: 'transparent',
@@ -81,7 +72,26 @@ const styles = {
     color: 'var(--text-muted)',
     cursor: 'pointer',
     fontSize: '11px',
-    textAlign: 'left'
+    textAlign: 'left',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px'
+  },
+  otherButton: {
+    padding: '8px 14px',
+    background: 'transparent',
+    border: '1px dashed var(--border)',
+    borderRadius: '16px',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px'
+  },
+  keyboardIcon: {
+    fontSize: '12px',
+    opacity: 0.7
   },
   inputRow: {
     display: 'flex',
@@ -356,10 +366,9 @@ export default function SmartInput({
               onClick={() => setShowTextInput(true)}
               disabled={sending}
             >
-              Something else...
+              <span style={styles.keyboardIcon}>⌨</span> Something else...
             </button>
           </div>
-          {renderUploadButton()}
         </div>
       );
     }
@@ -388,10 +397,9 @@ export default function SmartInput({
             onClick={() => setShowTextInput(true)}
             disabled={sending}
           >
-            Other...
+            <span style={styles.keyboardIcon}>⌨</span> Other...
           </button>
         </div>
-        {renderUploadButton()}
       </div>
     );
   }
