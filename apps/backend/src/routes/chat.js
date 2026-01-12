@@ -3,8 +3,49 @@ import domainsStore from "../store/domains.js";
 import { processMessage } from "../services/conversation.js";
 import { applyStateUpdateWithValidation, calculateProgress, shouldSuggestPhaseAdvance } from "../services/state.js";
 import { digestFileContent, getFileType } from "../services/fileDigestion.js";
+import { getHelpDoc, formatHelpDoc } from "../data/helpDocs.js";
 
 const router = Router();
+
+/**
+ * Detect if message is an "explain" request and extract topic
+ * @param {string} message - User message
+ * @returns {string|null} - Topic to explain, or null if not an explain request
+ */
+function detectExplainRequest(message) {
+  // Pattern: "Tell me about the "X" section - what's the current status..."
+  const explainPattern = /Tell me about the ["']([^"']+)["'] section/i;
+  const match = message.match(explainPattern);
+  if (match) {
+    return match[1];
+  }
+  return null;
+}
+
+/**
+ * Enhance explain message with system documentation
+ * @param {string} message - Original user message
+ * @param {string} topic - Topic to explain
+ * @returns {string} - Enhanced message with documentation
+ */
+function enhanceExplainMessage(message, topic) {
+  const helpDoc = getHelpDoc(topic);
+  if (!helpDoc) {
+    return message;
+  }
+
+  const formattedDoc = formatHelpDoc(helpDoc);
+
+  return `${message}
+
+---
+**SYSTEM DOCUMENTATION FOR THIS TOPIC:**
+
+${formattedDoc}
+---
+
+Use the documentation above to explain this section in the context of the current skill being built. Be specific about how the current settings/values affect this particular skill. Make recommendations based on what's already defined (problem, tools, intents, etc.).`;
+}
 
 /**
  * Send chat message for a domain
@@ -38,7 +79,7 @@ router.post("/domain", async (req, res, next) => {
       throw err;
     }
 
-    // Save user message to domain conversation
+    // Save user message to domain conversation (original message)
     domain.conversation.push({
       id: `msg_${Date.now()}`,
       role: "user",
@@ -46,11 +87,19 @@ router.post("/domain", async (req, res, next) => {
       timestamp: new Date().toISOString()
     });
 
+    // Check if this is an explain request and enhance with documentation
+    let processedMessage = message;
+    const explainTopic = detectExplainRequest(message);
+    if (explainTopic) {
+      log.debug(`Detected explain request for topic: ${explainTopic}`);
+      processedMessage = enhanceExplainMessage(message, explainTopic);
+    }
+
     // Process with LLM (using domain format)
     log.debug("Sending to LLM (domain format)...");
     const response = await processMessage({
       domain,
-      userMessage: message,
+      userMessage: processedMessage,
       uiFocus: ui_focus
     });
 
