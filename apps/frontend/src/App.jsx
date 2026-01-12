@@ -311,7 +311,15 @@ export default function App() {
               focus={uiFocus}
               onFocusChange={setUiFocus}
               onExport={handleExport}
-              onAskAbout={(topic) => handleSendMessage(`Tell me about the "${topic}" section - what's the current status, what's missing, and how can I improve it?`)}
+              onAskAbout={(topicOrPrompt, isRawPrompt) => {
+                if (isRawPrompt) {
+                  // Validation list sends raw prompts directly
+                  handleSendMessage(topicOrPrompt);
+                } else {
+                  // Explain buttons send topics to be wrapped
+                  handleSendMessage(`Tell me about the "${topicOrPrompt}" section - what's the current status, what's missing, and how can I improve it?`);
+                }
+              }}
               skillId={currentSkill.id}
             />
           </div>

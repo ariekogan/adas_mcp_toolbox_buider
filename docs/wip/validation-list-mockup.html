@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Validation List UI Mockup</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    h2 {
+      color: #888;
+      font-size: 12px;
+      text-transform: uppercase;
+      margin: 30px 0 10px 0;
+      letter-spacing: 1px;
+    }
+
+    .skill-panel {
+      background: #252540;
+      border-radius: 12px;
+      overflow: hidden;
+      max-width: 400px;
+      margin: 20px auto;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    .panel-header {
+      padding: 16px;
+      border-bottom: 1px solid #333355;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-header h3 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .progress-section {
+      padding: 16px;
+      border-bottom: 1px solid #333355;
+    }
+
+    .progress-bar {
+      height: 8px;
+      background: #1a1a2e;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 75%;
+      background: linear-gradient(90deg, #6366f1, #8b5cf6);
+      border-radius: 4px;
+    }
+
+    .progress-label {
+      font-size: 12px;
+      color: #888;
+      margin-top: 6px;
+    }
+
+    /* Validation List Styles */
+    .validation-list {
+      background: #1e1e35;
+      border-top: 1px solid #333355;
+    }
+
+    .validation-header {
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .validation-header:hover {
+      background: #252550;
+    }
+
+    .validation-icon {
+      font-size: 16px;
+    }
+
+    .validation-summary {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .validation-count {
+      background: #ef4444;
+      color: white;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+
+    .validation-count.warning {
+      background: #f59e0b;
+    }
+
+    .expand-icon {
+      color: #666;
+      font-size: 12px;
+    }
+
+    .validation-items {
+      padding: 0 12px 12px 12px;
+    }
+
+    .validation-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border-left: 3px solid transparent;
+    }
+
+    .validation-item:hover {
+      transform: translateX(4px);
+    }
+
+    .validation-item:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Blocker - Red */
+    .validation-item.blocker {
+      background: rgba(239, 68, 68, 0.15);
+      border-left-color: #ef4444;
+    }
+    .validation-item.blocker:hover {
+      background: rgba(239, 68, 68, 0.25);
+    }
+
+    /* Warning - Orange */
+    .validation-item.warning {
+      background: rgba(245, 158, 11, 0.15);
+      border-left-color: #f59e0b;
+    }
+    .validation-item.warning:hover {
+      background: rgba(245, 158, 11, 0.25);
+    }
+
+    /* Suggestion - Yellow */
+    .validation-item.suggestion {
+      background: rgba(234, 179, 8, 0.12);
+      border-left-color: #eab308;
+    }
+    .validation-item.suggestion:hover {
+      background: rgba(234, 179, 8, 0.22);
+    }
+
+    /* Info - Blue */
+    .validation-item.info {
+      background: rgba(59, 130, 246, 0.12);
+      border-left-color: #3b82f6;
+    }
+    .validation-item.info:hover {
+      background: rgba(59, 130, 246, 0.22);
+    }
+
+    .item-icon {
+      font-size: 14px;
+      margin-top: 2px;
+    }
+
+    .item-content {
+      flex: 1;
+    }
+
+    .item-title {
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+
+    .item-context {
+      font-size: 11px;
+      color: #888;
+      margin-top: 3px;
+    }
+
+    .item-action {
+      font-size: 11px;
+      color: #6366f1;
+      white-space: nowrap;
+      margin-top: 2px;
+    }
+
+    .item-action:hover {
+      text-decoration: underline;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-top: 1px solid #333355;
+      background: #1e1e35;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 12px 8px;
+      text-align: center;
+      font-size: 12px;
+      color: #888;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+    }
+
+    .tab.active {
+      color: #8b5cf6;
+      border-bottom-color: #8b5cf6;
+    }
+
+    .tab:hover {
+      color: #a78bfa;
+    }
+
+    /* Alternative Designs */
+    .design-variants {
+      max-width: 800px;
+      margin: 40px auto;
+    }
+
+    .variant-row {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* Floating Panel Variant */
+    .floating-panel {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #252540;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      width: 300px;
+      overflow: hidden;
+      border: 1px solid #333355;
+    }
+
+    .floating-header {
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #1e1e35;
+      border-bottom: 1px solid #333355;
+    }
+
+    .floating-header h4 {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .close-btn {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      background: transparent;
+      border: none;
+      color: #666;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    .close-btn:hover {
+      background: #333;
+      color: #fff;
+    }
+
+    /* Badge on Tab */
+    .tab-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #ef4444;
+      color: white;
+      font-size: 10px;
+      min-width: 16px;
+      height: 16px;
+      border-radius: 8px;
+      margin-left: 4px;
+      padding: 0 4px;
+    }
+
+    .tab-badge.warning {
+      background: #f59e0b;
+    }
+
+    /* Resolved state */
+    .validation-item.resolved {
+      opacity: 0.5;
+    }
+
+    .validation-item.resolved .item-title {
+      text-decoration: line-through;
+    }
+
+    /* Pulse animation for new items */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .validation-item.new {
+      animation: pulse 2s infinite;
+    }
+
+    .new-badge {
+      font-size: 9px;
+      background: #6366f1;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 6px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    /* Demo Controls */
+    .demo-controls {
+      text-align: center;
+      margin: 20px 0;
+    }
+
+    .demo-btn {
+      background: #6366f1;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin: 0 5px;
+      font-size: 13px;
+    }
+
+    .demo-btn:hover {
+      background: #5558e3;
+    }
+
+    .demo-btn.secondary {
+      background: #333355;
+    }
+
+    .demo-btn.secondary:hover {
+      background: #444466;
+    }
+
+    /* Toast notification */
+    .toast {
+      position: fixed;
+      bottom: 340px;
+      right: 20px;
+      background: #252540;
+      border: 1px solid #6366f1;
+      border-radius: 8px;
+      padding: 12px 16px;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      animation: slideIn 0.3s ease;
+    }
+
+    .toast.show {
+      display: flex;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(100px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    .toast-icon {
+      font-size: 20px;
+    }
+
+    .toast-content {
+      font-size: 13px;
+    }
+
+    .toast-title {
+      font-weight: 500;
+    }
+
+    .toast-desc {
+      color: #888;
+      font-size: 11px;
+      margin-top: 2px;
+    }
+  </style>
+</head>
+<body>
+
+  <h2 style="text-align: center; margin-bottom: 20px; font-size: 18px; color: #8b5cf6;">
+    Validation List UI - Design Mockup
+  </h2>
+
+  <!-- Main Panel with Validation List -->
+  <div class="skill-panel">
+    <div class="panel-header">
+      <h3>Customer Service Skill</h3>
+      <span style="color: #666;">⋯</span>
+    </div>
+
+    <div class="progress-section">
+      <div class="progress-bar">
+        <div class="progress-fill"></div>
+      </div>
+      <div class="progress-label">75% Complete</div>
+    </div>
+
+    <!-- Validation List - Collapsed by default -->
+    <div class="validation-list" id="validationList">
+      <div class="validation-header" onclick="toggleList()">
+        <span class="validation-icon">⚠️</span>
+        <span class="validation-summary">Items need attention</span>
+        <span class="validation-count">3</span>
+        <span class="expand-icon" id="expandIcon">▾</span>
+      </div>
+
+      <div class="validation-items" id="validationItems">
+        <div class="validation-item blocker new">
+          <span class="item-icon">⛔</span>
+          <div class="item-content">
+            <div class="item-title">
+              Tool "get_order" missing from policy
+              <span class="new-badge">New</span>
+            </div>
+            <div class="item-context">After adding "Order Lookup" workflow</div>
+          </div>
+          <span class="item-action" onclick="handleClick('blocker')">Review →</span>
+        </div>
+
+        <div class="validation-item warning">
+          <span class="item-icon">⚠️</span>
+          <div class="item-content">
+            <div class="item-title">3 intents may need updated examples</div>
+            <div class="item-context">After adding "Express Shipping" scenario</div>
+          </div>
+          <span class="item-action" onclick="handleClick('warning')">Review →</span>
+        </div>
+
+        <div class="validation-item suggestion">
+          <span class="item-icon">💡</span>
+          <div class="item-content">
+            <div class="item-title">Consider adding error handling for API timeout</div>
+            <div class="item-context">Tool "check_inventory" has no fallback</div>
+          </div>
+          <span class="item-action" onclick="handleClick('suggestion')">Review →</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab">Overview</div>
+      <div class="tab active">
+        Intents
+        <span class="tab-badge warning">2</span>
+      </div>
+      <div class="tab">
+        Tools
+        <span class="tab-badge">1</span>
+      </div>
+      <div class="tab">Policy</div>
+    </div>
+  </div>
+
+  <!-- Demo Controls -->
+  <div class="demo-controls">
+    <button class="demo-btn" onclick="addNewIssue()">+ Add Issue</button>
+    <button class="demo-btn secondary" onclick="resolveFirst()">✓ Resolve First</button>
+    <button class="demo-btn secondary" onclick="toggleFloating()">Toggle Floating</button>
+  </div>
+
+  <!-- Floating Panel Alternative -->
+  <div class="floating-panel" id="floatingPanel" style="display: none;">
+    <div class="floating-header">
+      <span>⚠️</span>
+      <h4>Validation Issues</h4>
+      <button class="close-btn" onclick="toggleFloating()">×</button>
+    </div>
+    <div class="validation-items" style="padding: 12px;">
+      <div class="validation-item blocker">
+        <span class="item-icon">⛔</span>
+        <div class="item-content">
+          <div class="item-title">Tool "get_order" missing from policy</div>
+          <div class="item-context">After adding workflow</div>
+        </div>
+        <span class="item-action">→</span>
+      </div>
+
+      <div class="validation-item warning">
+        <span class="item-icon">⚠️</span>
+        <div class="item-content">
+          <div class="item-title">3 intents need review</div>
+          <div class="item-context">New scenario added</div>
+        </div>
+        <span class="item-action">→</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">
+    <span class="toast-icon">💬</span>
+    <div class="toast-content">
+      <div class="toast-title">Sent to Chat</div>
+      <div class="toast-desc">Review request added to conversation</div>
+    </div>
+  </div>
+
+  <script>
+    let isExpanded = true;
+
+    function toggleList() {
+      isExpanded = !isExpanded;
+      document.getElementById('validationItems').style.display = isExpanded ? 'block' : 'none';
+      document.getElementById('expandIcon').textContent = isExpanded ? '▾' : '▸';
+    }
+
+    function toggleFloating() {
+      const panel = document.getElementById('floatingPanel');
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function handleClick(type) {
+      // Show toast
+      const toast = document.getElementById('toast');
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
+    function addNewIssue() {
+      const items = document.getElementById('validationItems');
+      const newItem = document.createElement('div');
+      newItem.className = 'validation-item info new';
+      newItem.innerHTML = `
+        <span class="item-icon">ℹ️</span>
+        <div class="item-content">
+          <div class="item-title">
+            New scenario "Return Policy" detected
+            <span class="new-badge">New</span>
+          </div>
+          <div class="item-context">May need new intents</div>
+        </div>
+        <span class="item-action">Review →</span>
+      `;
+      items.insertBefore(newItem, items.firstChild);
+
+      // Update count
+      const count = items.children.length;
+      document.querySelector('.validation-count').textContent = count;
+    }
+
+    function resolveFirst() {
+      const firstItem = document.querySelector('.validation-item:not(.resolved)');
+      if (firstItem) {
+        firstItem.classList.add('resolved');
+        firstItem.classList.remove('new');
+        const badge = firstItem.querySelector('.new-badge');
+        if (badge) badge.remove();
+      }
+    }
+  </script>
+
+</body>
+</html>

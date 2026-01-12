@@ -16,6 +16,8 @@ import IntentsPanel from './IntentsPanel';
 import PolicyPanel from './PolicyPanel';
 import EnginePanel from './EnginePanel';
 import ValidationBanner from './ValidationBanner';
+import ValidationList from './ValidationList';
+import { useValidation } from '../hooks/useValidation';
 
 const styles = {
   container: {
@@ -483,6 +485,24 @@ export default function SkillPanel({
   const [expandedItems, setExpandedItems] = useState({});
   const [testingTool, setTestingTool] = useState(null);
 
+  // Cascading validation
+  const {
+    issues,
+    activeIssues,
+    dismissIssue,
+    markReviewing,
+    clearResolved
+  } = useValidation(skill);
+
+  // Handle validation item review click - sends to chat
+  const handleValidationReview = (issue) => {
+    markReviewing(issue.id);
+    if (onAskAbout && issue.chatPrompt) {
+      // Send the contextual prompt to chat
+      onAskAbout(issue.chatPrompt, true); // true = raw prompt, don't wrap
+    }
+  };
+
   // Handle focus changes to switch tabs and expand sections
   useEffect(() => {
     if (focus?.tab) {
@@ -579,6 +599,16 @@ export default function SkillPanel({
                 <div style={{ ...styles.progressFill, width: `${progress}%` }} />
               </div>
             </div>
+
+            {/* Cascading Validation List */}
+            {issues.length > 0 && (
+              <ValidationList
+                issues={issues}
+                onReviewClick={handleValidationReview}
+                onDismiss={dismissIssue}
+                onClearResolved={clearResolved}
+              />
+            )}
 
             {/* Problem */}
             <div style={styles.section}>
