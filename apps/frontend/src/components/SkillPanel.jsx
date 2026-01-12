@@ -285,6 +285,41 @@ const styles = {
     padding: '2px 6px',
     borderRadius: '3px',
     marginLeft: '4px'
+  },
+  // Info button for explaining properties
+  infoBtn: {
+    width: '18px',
+    height: '18px',
+    padding: 0,
+    background: 'transparent',
+    border: '1px solid var(--border)',
+    borderRadius: '50%',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    fontSize: '10px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: '6px',
+    opacity: 0.6,
+    transition: 'all 0.15s ease',
+    flexShrink: 0
+  },
+  infoBtnHover: {
+    opacity: 1,
+    borderColor: 'var(--accent)',
+    color: 'var(--accent)'
+  },
+  sectionHeaderWithInfo: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%'
+  },
+  fieldLabelRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px'
   }
 };
 
@@ -412,11 +447,37 @@ function getTabBadge(tabId, skill) {
   }
 }
 
+// Info button component
+function InfoButton({ topic, onAskAbout }) {
+  const [hovered, setHovered] = useState(false);
+
+  if (!onAskAbout) return null;
+
+  return (
+    <button
+      style={{
+        ...styles.infoBtn,
+        ...(hovered ? styles.infoBtnHover : {})
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onAskAbout(topic);
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      title={`Explain ${topic}`}
+    >
+      ?
+    </button>
+  );
+}
+
 export default function SkillPanel({
   skill,
   focus,
   onFocusChange,
   onExport,
+  onAskAbout,
   skillId
 }) {
   const [activeTab, setActiveTab] = useState('overview');
@@ -529,10 +590,13 @@ export default function SkillPanel({
 
             {/* Problem */}
             <div style={styles.section}>
-              <div style={styles.sectionHeader} onClick={() => toggleSection('problem')}>
-                <div style={styles.sectionTitle}>
-                  <span style={{ ...styles.expandIcon, transform: expanded.problem ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
-                  Problem
+              <div style={styles.sectionHeader}>
+                <div style={styles.sectionHeaderWithInfo}>
+                  <div style={styles.sectionTitle} onClick={() => toggleSection('problem')}>
+                    <span style={{ ...styles.expandIcon, transform: expanded.problem ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                    Problem
+                  </div>
+                  <InfoButton topic="problem statement" onAskAbout={onAskAbout} />
                 </div>
               </div>
               {expanded.problem && (
@@ -567,10 +631,13 @@ export default function SkillPanel({
 
             {/* Role */}
             <div style={styles.section}>
-              <div style={styles.sectionHeader} onClick={() => toggleSection('role')}>
-                <div style={styles.sectionTitle}>
-                  <span style={{ ...styles.expandIcon, transform: expanded.role ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
-                  Role / Persona
+              <div style={styles.sectionHeader}>
+                <div style={styles.sectionHeaderWithInfo}>
+                  <div style={styles.sectionTitle} onClick={() => toggleSection('role')}>
+                    <span style={{ ...styles.expandIcon, transform: expanded.role ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                    Role / Persona
+                  </div>
+                  <InfoButton topic="role and persona" onAskAbout={onAskAbout} />
                 </div>
               </div>
               {expanded.role && (
@@ -595,10 +662,13 @@ export default function SkillPanel({
 
             {/* Scenarios */}
             <div style={styles.section}>
-              <div style={styles.sectionHeader} onClick={() => toggleSection('scenarios')}>
-                <div style={styles.sectionTitle}>
-                  <span style={{ ...styles.expandIcon, transform: expanded.scenarios ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
-                  Scenarios ({skill.scenarios?.length || 0})
+              <div style={styles.sectionHeader}>
+                <div style={styles.sectionHeaderWithInfo}>
+                  <div style={styles.sectionTitle} onClick={() => toggleSection('scenarios')}>
+                    <span style={{ ...styles.expandIcon, transform: expanded.scenarios ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                    Scenarios ({skill.scenarios?.length || 0})
+                  </div>
+                  <InfoButton topic="scenarios" onAskAbout={onAskAbout} />
                 </div>
               </div>
               {expanded.scenarios && (

@@ -311,6 +311,7 @@ export default function App() {
               focus={uiFocus}
               onFocusChange={setUiFocus}
               onExport={handleExport}
+              onAskAbout={(topic) => handleSendMessage(`Explain the "${topic}" section: what is it for, what is the current status, what's missing, and how can I improve it?`)}
               skillId={currentSkill.id}
             />
           </div>
