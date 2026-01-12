@@ -319,40 +319,93 @@ function getMockStatusColor(status) {
 }
 
 /**
- * Get tab health badge info based on completeness
- * Returns { text, style } for the badge
+ * Get badge style based on ratio and thresholds
+ * @param {number} current - current count
+ * @param {number} total - total/target count
+ * @param {number} minRequired - minimum required for "ok" (yellow)
  */
-function getTabBadge(tabId, completeness) {
-  if (!completeness) return null;
+function getBadgeStyle(current, total, minRequired = 1) {
+  if (total === 0) return styles.badgeGray;
+  const ratio = current / total;
+  if (ratio >= 1) return styles.badgeGreen;      // 100% = green
+  if (current >= minRequired) return styles.badgeYellow;  // meets minimum = yellow
+  return styles.badgeRed;                         // below minimum = red
+}
+
+/**
+ * Get tab health badge info based on skill data
+ * Returns { text, style } for the badge with actual counts
+ */
+function getTabBadge(tabId, skill) {
+  if (!skill) return null;
 
   switch (tabId) {
     case 'overview': {
-      // Overview covers: problem, scenarios, role
-      const fields = ['problem', 'scenarios', 'role'];
-      const complete = fields.filter(f => completeness[f]).length;
-      if (complete === fields.length) return { text: '✓', style: styles.badgeGreen };
-      if (complete > 0) return { text: `${complete}/${fields.length}`, style: styles.badgeYellow };
-      return { text: '0', style: styles.badgeGray };
+      // Overview: problem (1), scenarios (need 2+), role (1)
+      let count = 0;
+      const total = 3;
+      if (skill.problem?.statement?.length >= 10) count++;
+      if (skill.scenarios?.length >= 1) count++;
+      if (skill.role?.name && skill.role?.persona) count++;
+      return {
+        text: `${count}/${total}`,
+        style: getBadgeStyle(count, total, 2) // need at least 2/3 for yellow
+      };
     }
     case 'intents': {
-      if (completeness.intents) return { text: '✓', style: styles.badgeGreen };
-      return { text: '0', style: styles.badgeGray };
+      // Intents: count of supported intents with examples
+      const intents = skill.intents?.supported || [];
+      const withExamples = intents.filter(i => i.examples?.length > 0).length;
+      const total = Math.max(intents.length, 1); // at least show /1 if empty
+      if (intents.length === 0) {
+        return { text: '0', style: styles.badgeGray };
+      }
+      return {
+        text: `${withExamples}/${intents.length}`,
+        style: getBadgeStyle(withExamples, intents.length, 1)
+      };
     }
     case 'tools': {
-      // Tools covers: tools, mocks_tested
-      const fields = ['tools', 'mocks_tested'];
-      const complete = fields.filter(f => completeness[f]).length;
-      if (complete === fields.length) return { text: '✓', style: styles.badgeGreen };
-      if (complete > 0) return { text: `${complete}/${fields.length}`, style: styles.badgeYellow };
-      return { text: '0', style: styles.badgeGray };
+      // Tools: count of fully defined tools + tested mocks
+      const tools = skill.tools || [];
+      if (tools.length === 0) {
+        return { text: '0', style: styles.badgeGray };
+      }
+      const defined = tools.filter(t => t.name && t.description && t.output?.description).length;
+      const tested = tools.filter(t => t.mock_status === 'tested' || t.mock_status === 'skipped').length;
+      // Show defined/total, color based on testing status too
+      const score = defined + tested;
+      const maxScore = tools.length * 2; // full definition + tested
+      return {
+        text: `${defined}/${tools.length}`,
+        style: getBadgeStyle(score, maxScore, tools.length) // need all defined for yellow
+      };
     }
     case 'policy': {
-      if (completeness.policy) return { text: '✓', style: styles.badgeGreen };
-      return { text: '0', style: styles.badgeGray };
+      // Policy: count guardrails (never + always)
+      const never = skill.policy?.guardrails?.never?.length || 0;
+      const always = skill.policy?.guardrails?.always?.length || 0;
+      const total = never + always;
+      if (total === 0) {
+        return { text: '0', style: styles.badgeGray };
+      }
+      // Consider 2+ guardrails as "complete"
+      return {
+        text: `${total}`,
+        style: getBadgeStyle(total, 2, 1) // 2+ = green, 1 = yellow, 0 = gray
+      };
     }
     case 'engine': {
-      // Engine always has defaults
-      return { text: '✓', style: styles.badgeGreen };
+      // Engine: check if custom settings exist
+      const hasCustom = skill.engine && (
+        skill.engine.model ||
+        skill.engine.temperature !== undefined ||
+        skill.engine.max_tokens
+      );
+      return {
+        text: hasCustom ? '✓' : 'default',
+        style: styles.badgeGreen // Engine always ok (has defaults)
+      };
     }
     default:
       return null;
@@ -422,7 +475,7 @@ export default function SkillPanel({
       {/* Tabs */}
       <div style={styles.tabs}>
         {TABS.map(tab => {
-          const badge = getTabBadge(tab.id, skill.validation?.completeness);
+          const badge = getTabBadge(tab.id, skill);
           return (
             <div
               key={tab.id}
