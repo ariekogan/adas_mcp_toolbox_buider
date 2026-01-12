@@ -248,9 +248,12 @@ export default function PolicyPanel({ policy, focus, onFocusChange, onAskAbout }
         <>
           {/* Guardrails - Never */}
           <div style={styles.subsection}>
-            <div style={styles.subsectionTitle}>
-              <span style={{ ...styles.guardrailIcon, ...styles.neverIcon }}>X</span>
-              Never ({guardrails.never?.length || 0})
+            <div style={{ ...styles.subsectionTitle, justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ ...styles.guardrailIcon, ...styles.neverIcon }}>X</span>
+                Never ({guardrails.never?.length || 0})
+              </div>
+              <ExplainButton topic="never guardrails" onAskAbout={onAskAbout} />
             </div>
             {guardrails.never?.length > 0 ? (
               guardrails.never.map((item, i) => (
@@ -266,9 +269,12 @@ export default function PolicyPanel({ policy, focus, onFocusChange, onAskAbout }
 
           {/* Guardrails - Always */}
           <div style={styles.subsection}>
-            <div style={styles.subsectionTitle}>
-              <span style={{ ...styles.guardrailIcon, ...styles.alwaysIcon }}>Y</span>
-              Always ({guardrails.always?.length || 0})
+            <div style={{ ...styles.subsectionTitle, justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ ...styles.guardrailIcon, ...styles.alwaysIcon }}>Y</span>
+                Always ({guardrails.always?.length || 0})
+              </div>
+              <ExplainButton topic="always guardrails" onAskAbout={onAskAbout} />
             </div>
             {guardrails.always?.length > 0 ? (
               guardrails.always.map((item, i) => (
@@ -284,8 +290,9 @@ export default function PolicyPanel({ policy, focus, onFocusChange, onAskAbout }
 
           {/* Workflows */}
           <div style={styles.subsection}>
-            <div style={styles.subsectionTitle}>
-              Workflows ({workflows.length})
+            <div style={{ ...styles.subsectionTitle, justifyContent: 'space-between' }}>
+              <span>Workflows ({workflows.length})</span>
+              <ExplainButton topic="workflows" onAskAbout={onAskAbout} />
             </div>
             {workflows.length > 0 ? (
               workflows.map((workflow, i) => {
@@ -370,8 +377,9 @@ export default function PolicyPanel({ policy, focus, onFocusChange, onAskAbout }
           {/* Approval Rules */}
           {approvals.length > 0 && (
             <div style={styles.subsection}>
-              <div style={styles.subsectionTitle}>
-                Approval Rules ({approvals.length})
+              <div style={{ ...styles.subsectionTitle, justifyContent: 'space-between' }}>
+                <span>Approval Rules ({approvals.length})</span>
+                <ExplainButton topic="approval rules" onAskAbout={onAskAbout} />
               </div>
               {approvals.map((rule, i) => {
                 const resolvedColor = getResolvedColor(rule.tool_id_resolved !== false);
@@ -407,7 +415,10 @@ export default function PolicyPanel({ policy, focus, onFocusChange, onAskAbout }
 
           {/* Escalation */}
           <div style={styles.subsection}>
-            <div style={styles.subsectionTitle}>Escalation</div>
+            <div style={{ ...styles.subsectionTitle, justifyContent: 'space-between' }}>
+              <span>Escalation</span>
+              <ExplainButton topic="escalation" onAskAbout={onAskAbout} />
+            </div>
             <div style={styles.escalationBox}>
               <div style={styles.escalationHeader}>
                 <span style={styles.label}>Status</span>

@@ -326,18 +326,24 @@ export default function IntentsPanel({ intents, focus, onFocusChange, onAskAbout
 
           {/* Thresholds */}
           {(thresholds.accept || thresholds.clarify || thresholds.reject) && (
-            <div style={styles.thresholds}>
-              <div style={styles.thresholdItem}>
-                <div style={styles.thresholdValue}>{thresholds.accept || 0.8}</div>
-                <div style={styles.thresholdLabel}>Accept</div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <span style={styles.label}>Thresholds</span>
+                <ExplainButton topic="intent thresholds" onAskAbout={onAskAbout} />
               </div>
-              <div style={styles.thresholdItem}>
-                <div style={styles.thresholdValue}>{thresholds.clarify || 0.5}</div>
-                <div style={styles.thresholdLabel}>Clarify</div>
-              </div>
-              <div style={styles.thresholdItem}>
-                <div style={styles.thresholdValue}>{thresholds.reject || 0.5}</div>
-                <div style={styles.thresholdLabel}>Reject</div>
+              <div style={styles.thresholds}>
+                <div style={styles.thresholdItem}>
+                  <div style={styles.thresholdValue}>{thresholds.accept || 0.8}</div>
+                  <div style={styles.thresholdLabel}>Accept</div>
+                </div>
+                <div style={styles.thresholdItem}>
+                  <div style={styles.thresholdValue}>{thresholds.clarify || 0.5}</div>
+                  <div style={styles.thresholdLabel}>Clarify</div>
+                </div>
+                <div style={styles.thresholdItem}>
+                  <div style={styles.thresholdValue}>{thresholds.reject || 0.5}</div>
+                  <div style={styles.thresholdLabel}>Reject</div>
+                </div>
               </div>
             </div>
           )}
@@ -345,14 +351,17 @@ export default function IntentsPanel({ intents, focus, onFocusChange, onAskAbout
           {/* Out of Domain */}
           {out_of_domain.action && (
             <div style={styles.outOfDomain}>
-              <div style={styles.outOfDomainHeader}>
-                <span style={styles.label}>Out of Domain</span>
-                <span style={{
-                  ...styles.actionBadge,
-                  ...getActionColor(out_of_domain.action)
-                }}>
-                  {out_of_domain.action}
-                </span>
+              <div style={{ ...styles.outOfDomainHeader, justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={styles.label}>Out of Domain</span>
+                  <span style={{
+                    ...styles.actionBadge,
+                    ...getActionColor(out_of_domain.action)
+                  }}>
+                    {out_of_domain.action}
+                  </span>
+                </div>
+                <ExplainButton topic="out of domain handling" onAskAbout={onAskAbout} />
               </div>
               {out_of_domain.message && (
                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>

@@ -234,7 +234,10 @@ export default function EnginePanel({ engine, onAskAbout }) {
         <>
           {/* Autonomy Level */}
           <div style={styles.subsection}>
-            <div style={styles.subsectionTitle}>Autonomy Level</div>
+            <div style={{ ...styles.subsectionTitle, justifyContent: 'space-between' }}>
+              <span>Autonomy Level</span>
+              <ExplainButton topic="autonomy level" onAskAbout={onAskAbout} />
+            </div>
             <div style={styles.autonomyLevel}>
               {['autonomous', 'supervised', 'restricted'].map(level => (
                 <div
@@ -257,7 +260,10 @@ export default function EnginePanel({ engine, onAskAbout }) {
 
           {/* RV2 Settings */}
           <div style={styles.subsection}>
-            <div style={styles.subsectionTitle}>RV2 Engine</div>
+            <div style={{ ...styles.subsectionTitle, justifyContent: 'space-between' }}>
+              <span>RV2 Engine</span>
+              <ExplainButton topic="RV2 engine" onAskAbout={onAskAbout} />
+            </div>
             <div style={styles.settingRow}>
               <span style={styles.settingLabel}>Max Iterations</span>
               <span style={styles.settingValue}>{rv2.max_iterations || 10}</span>
@@ -283,14 +289,17 @@ export default function EnginePanel({ engine, onAskAbout }) {
 
           {/* HLR Settings */}
           <div style={styles.subsection}>
-            <div style={styles.subsectionTitle}>
-              HLR (High-Level Reasoning)
-              <span style={{
-                ...styles.badge,
-                ...(hlr.enabled !== false ? styles.enabledBadge : styles.disabledBadge)
-              }}>
-                {hlr.enabled !== false ? 'Enabled' : 'Disabled'}
-              </span>
+            <div style={{ ...styles.subsectionTitle, justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>HLR (High-Level Reasoning)</span>
+                <span style={{
+                  ...styles.badge,
+                  ...(hlr.enabled !== false ? styles.enabledBadge : styles.disabledBadge)
+                }}>
+                  {hlr.enabled !== false ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
+              <ExplainButton topic="HLR high-level reasoning" onAskAbout={onAskAbout} />
             </div>
 
             {hlr.enabled !== false && (
