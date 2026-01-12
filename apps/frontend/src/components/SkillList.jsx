@@ -65,11 +65,11 @@ const styles = {
     padding: '2px 6px',
     borderRadius: '4px',
     fontSize: '12px',
-    opacity: 0,
+    opacity: 0.4,
     transition: 'opacity 0.2s, color 0.2s'
   },
   deleteBtnVisible: {
-    opacity: 1
+    opacity: 0.7
   },
   deleteBtnHover: {
     color: 'var(--error)',

@@ -56,11 +56,36 @@ const styles = {
     color: 'var(--text-muted)',
     cursor: 'pointer',
     borderBottom: '2px solid transparent',
-    transition: 'all 0.2s'
+    transition: 'all 0.2s',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px'
   },
   tabActive: {
     color: 'var(--accent)',
     borderBottomColor: 'var(--accent)'
+  },
+  tabBadge: {
+    fontSize: '9px',
+    padding: '1px 5px',
+    borderRadius: '8px',
+    fontWeight: '600'
+  },
+  badgeGreen: {
+    background: 'rgba(34, 197, 94, 0.2)',
+    color: '#22c55e'
+  },
+  badgeYellow: {
+    background: 'rgba(234, 179, 8, 0.2)',
+    color: '#eab308'
+  },
+  badgeRed: {
+    background: 'rgba(239, 68, 68, 0.2)',
+    color: '#ef4444'
+  },
+  badgeGray: {
+    background: 'rgba(107, 114, 128, 0.2)',
+    color: '#6b7280'
   },
   content: {
     flex: 1,
@@ -293,6 +318,47 @@ function getMockStatusColor(status) {
   return colors[status] || colors.untested;
 }
 
+/**
+ * Get tab health badge info based on completeness
+ * Returns { text, style } for the badge
+ */
+function getTabBadge(tabId, completeness) {
+  if (!completeness) return null;
+
+  switch (tabId) {
+    case 'overview': {
+      // Overview covers: problem, scenarios, role
+      const fields = ['problem', 'scenarios', 'role'];
+      const complete = fields.filter(f => completeness[f]).length;
+      if (complete === fields.length) return { text: '✓', style: styles.badgeGreen };
+      if (complete > 0) return { text: `${complete}/${fields.length}`, style: styles.badgeYellow };
+      return { text: '0', style: styles.badgeGray };
+    }
+    case 'intents': {
+      if (completeness.intents) return { text: '✓', style: styles.badgeGreen };
+      return { text: '0', style: styles.badgeGray };
+    }
+    case 'tools': {
+      // Tools covers: tools, mocks_tested
+      const fields = ['tools', 'mocks_tested'];
+      const complete = fields.filter(f => completeness[f]).length;
+      if (complete === fields.length) return { text: '✓', style: styles.badgeGreen };
+      if (complete > 0) return { text: `${complete}/${fields.length}`, style: styles.badgeYellow };
+      return { text: '0', style: styles.badgeGray };
+    }
+    case 'policy': {
+      if (completeness.policy) return { text: '✓', style: styles.badgeGreen };
+      return { text: '0', style: styles.badgeGray };
+    }
+    case 'engine': {
+      // Engine always has defaults
+      return { text: '✓', style: styles.badgeGreen };
+    }
+    default:
+      return null;
+  }
+}
+
 export default function SkillPanel({
   skill,
   focus,
@@ -355,17 +421,26 @@ export default function SkillPanel({
 
       {/* Tabs */}
       <div style={styles.tabs}>
-        {TABS.map(tab => (
-          <div
-            key={tab.id}
-            style={{
-              ...styles.tab,
-              ...(activeTab === tab.id ? styles.tabActive : {})
-            }}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </div>
+        {TABS.map(tab => {
+          const badge = getTabBadge(tab.id, skill.validation?.completeness);
+          return (
+            <div
+              key={tab.id}
+              style={{
+                ...styles.tab,
+                ...(activeTab === tab.id ? styles.tabActive : {})
+              }}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+              {badge && (
+                <span style={{ ...styles.tabBadge, ...badge.style }}>
+                  {badge.text}
+                </span>
+              )}
+            </div>
+          );
+        }
         ))}
       </div>
 
