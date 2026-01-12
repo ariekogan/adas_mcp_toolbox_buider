@@ -378,4 +378,136 @@ export function runFullValidation(skill) {
   return issues;
 }
 
-export default { runValidation, runFullValidation, VALIDATION_SEVERITY, VALIDATION_CATEGORY };
+/**
+ * Check if an existing issue is still relevant given current skill state
+ * Returns true if issue should be kept, false if it should be removed
+ */
+export function isIssueStillRelevant(issue, skill) {
+  const title = issue.title || '';
+  const category = issue.category;
+  const triggeredBy = issue.triggeredBy || {};
+
+  // Tool missing policy - check if tool now has policy
+  if (title.includes('missing policy')) {
+    const toolNameMatch = title.match(/Tool "([^"]+)" missing policy/);
+    if (toolNameMatch) {
+      const toolName = toolNameMatch[1];
+      const tool = (skill.tools || []).find(t => t.name === toolName);
+      // If tool has policy now, issue is no longer relevant
+      if (tool?.policy && tool.policy.allowed !== undefined) {
+        return false;
+      }
+      // If tool was deleted, issue is no longer relevant
+      if (!tool) {
+        return false;
+      }
+    }
+  }
+
+  // Add mock data for tool - check if tool now has mocks
+  if (title.includes('Add mock data for')) {
+    const toolNameMatch = title.match(/Add mock data for "([^"]+)"/);
+    if (toolNameMatch) {
+      const toolName = toolNameMatch[1];
+      const tool = (skill.tools || []).find(t => t.name === toolName);
+      // If tool has mock examples now, issue is no longer relevant
+      if (tool?.mock?.examples && tool.mock.examples.length > 0) {
+        return false;
+      }
+      // If tool was deleted, issue is no longer relevant
+      if (!tool) {
+        return false;
+      }
+    }
+  }
+
+  // Intent needs examples - check if intent now has examples
+  if (title.includes('needs examples')) {
+    const intentNameMatch = title.match(/Intent "([^"]+)" needs examples/);
+    if (intentNameMatch) {
+      const intentName = intentNameMatch[1];
+      const intent = (skill.intents?.supported || []).find(i => i.name === intentName);
+      // If intent has examples now, issue is no longer relevant
+      if (intent?.examples && intent.examples.length > 0) {
+        return false;
+      }
+      // If intent was deleted, issue is no longer relevant
+      if (!intent) {
+        return false;
+      }
+    }
+  }
+
+  // Review intents for scenario - check if scenario was deleted
+  if (title.includes('Review intents for')) {
+    const scenarioNameMatch = title.match(/Review intents for "([^"]+)"/);
+    if (scenarioNameMatch) {
+      const scenarioName = scenarioNameMatch[1];
+      const scenario = (skill.scenarios || []).find(s => s.title === scenarioName);
+      // If scenario was deleted, issue is no longer relevant
+      if (!scenario) {
+        return false;
+      }
+    }
+  }
+
+  // Scenario may need new tools - check if scenario was deleted
+  if (title.includes('Scenario may need new tools')) {
+    const triggeredScenarioId = triggeredBy.id;
+    if (triggeredScenarioId) {
+      const scenario = (skill.scenarios || []).find(s =>
+        s.id === triggeredScenarioId || s.title === triggeredScenarioId
+      );
+      if (!scenario) {
+        return false;
+      }
+    }
+  }
+
+  // Review examples for intent - check if intent was deleted
+  if (title.includes('Review examples for')) {
+    const intentNameMatch = title.match(/Review examples for "([^"]+)"/);
+    if (intentNameMatch) {
+      const intentName = intentNameMatch[1];
+      const intent = (skill.intents?.supported || []).find(i => i.name === intentName);
+      if (!intent) {
+        return false;
+      }
+    }
+  }
+
+  // Update mocks for tool - check if tool was deleted or inputs unchanged
+  if (title.includes('Update mocks for')) {
+    const toolNameMatch = title.match(/Update mocks for "([^"]+)"/);
+    if (toolNameMatch) {
+      const toolName = toolNameMatch[1];
+      const tool = (skill.tools || []).find(t => t.name === toolName);
+      if (!tool) {
+        return false;
+      }
+    }
+  }
+
+  // Problem statement missing - check if problem now exists
+  if (title === 'Problem statement missing') {
+    if (skill.problem?.statement && skill.problem.statement.length >= 10) {
+      return false;
+    }
+  }
+
+  // Policy guardrails updated - info messages auto-expire (keep for limited time)
+  if (title === 'Policy guardrails updated') {
+    const createdAt = new Date(issue.createdAt || triggeredBy.timestamp);
+    const now = new Date();
+    const hoursSinceCreated = (now - createdAt) / (1000 * 60 * 60);
+    // Auto-expire info messages after 1 hour
+    if (hoursSinceCreated > 1) {
+      return false;
+    }
+  }
+
+  // Default: keep the issue
+  return true;
+}
+
+export default { runValidation, runFullValidation, isIssueStillRelevant, VALIDATION_SEVERITY, VALIDATION_CATEGORY };

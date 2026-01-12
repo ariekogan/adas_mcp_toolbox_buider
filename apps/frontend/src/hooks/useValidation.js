@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { runValidation, VALIDATION_SEVERITY } from '../services/validationEngine';
+import { runValidation, isIssueStillRelevant, VALIDATION_SEVERITY } from '../services/validationEngine';
 
 export function useValidation(skill) {
   const [issues, setIssues] = useState([]);
@@ -77,7 +77,22 @@ export function useValidation(skill) {
     const prevSkill = previousSkillRef.current;
     previousSkillRef.current = skill;
 
-    // Skip on first load (no previous state)
+    // Always check relevance of existing issues (even on first load after issues exist)
+    setIssues(prev => {
+      const stillRelevant = prev.filter(issue => {
+        // Keep dismissed issues as-is (user explicitly dismissed)
+        if (issue.status === 'dismissed') return true;
+        // Check if issue is still relevant
+        return isIssueStillRelevant(issue, skill);
+      });
+      // Only update if something was removed
+      if (stillRelevant.length !== prev.length) {
+        return stillRelevant;
+      }
+      return prev;
+    });
+
+    // Skip adding new issues on first load (no previous state)
     if (!prevSkill) return;
 
     // Detect what changed
