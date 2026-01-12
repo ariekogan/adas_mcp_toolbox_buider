@@ -328,6 +328,43 @@ const styles = {
     marginTop: '12px',
     color: 'var(--text-primary)'
   },
+  msgSectionHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontWeight: '600',
+    fontSize: '13px',
+    marginBottom: '8px',
+    marginTop: '16px',
+    padding: '8px 12px',
+    borderRadius: '6px',
+    background: 'var(--bg-secondary)'
+  },
+  msgSectionIcon: {
+    fontSize: '14px',
+    width: '20px',
+    height: '20px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '4px'
+  },
+  msgSectionStatus: {
+    background: 'rgba(59, 130, 246, 0.15)',
+    color: '#60a5fa'
+  },
+  msgSectionMissing: {
+    background: 'rgba(251, 191, 36, 0.15)',
+    color: '#fbbf24'
+  },
+  msgSectionImprove: {
+    background: 'rgba(34, 197, 94, 0.15)',
+    color: '#22c55e'
+  },
+  msgSectionPurpose: {
+    background: 'rgba(139, 92, 246, 0.15)',
+    color: '#a78bfa'
+  },
   msgList: {
     margin: '8px 0',
     paddingLeft: '20px'
@@ -564,14 +601,44 @@ function formatMessage(content) {
 
     // Headings (lines with ** at start and end, or numbered with **)
     if ((line.startsWith('**') && line.endsWith('**')) ||
-        /^\d+\.\s+\*\*/.test(line)) {
+        /^\d+\.\s+\*\*/.test(line) ||
+        (line.startsWith('**') && line.includes(':**'))) {
       flushList();
-      const headingText = line.replace(/^\d+\.\s+/, '').replace(/\*\*/g, '');
-      elements.push(
-        <div key={`h-${i}`} style={styles.msgHeading}>
-          {headingText}
-        </div>
-      );
+      const headingText = line.replace(/^\d+\.\s+/, '').replace(/\*\*/g, '').replace(/:$/, '');
+
+      // Check for special section headers with icons
+      const lowerHeading = headingText.toLowerCase();
+      let icon = null;
+      let sectionStyle = null;
+
+      if (lowerHeading.includes('current status') || lowerHeading.includes('status')) {
+        icon = '📊';
+        sectionStyle = styles.msgSectionStatus;
+      } else if (lowerHeading.includes('missing') || lowerHeading.includes("what's missing")) {
+        icon = '⚠️';
+        sectionStyle = styles.msgSectionMissing;
+      } else if (lowerHeading.includes('improve') || lowerHeading.includes('how to')) {
+        icon = '💡';
+        sectionStyle = styles.msgSectionImprove;
+      } else if (lowerHeading.includes('purpose') || lowerHeading.includes('what is') || lowerHeading.includes('overview')) {
+        icon = '📋';
+        sectionStyle = styles.msgSectionPurpose;
+      }
+
+      if (icon && sectionStyle) {
+        elements.push(
+          <div key={`h-${i}`} style={styles.msgSectionHeader}>
+            <span style={{ ...styles.msgSectionIcon, ...sectionStyle }}>{icon}</span>
+            <span>{headingText}</span>
+          </div>
+        );
+      } else {
+        elements.push(
+          <div key={`h-${i}`} style={styles.msgHeading}>
+            {headingText}
+          </div>
+        );
+      }
       continue;
     }
 
