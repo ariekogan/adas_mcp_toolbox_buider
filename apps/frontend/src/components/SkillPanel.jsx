@@ -508,25 +508,25 @@ export default function SkillPanel({
       </div>
 
       <div style={styles.content}>
-        {/* Validation Banner */}
-        {skill.validation && (
-          <ValidationBanner validation={skill.validation} showDetails={activeTab === 'overview'} />
-        )}
-
-        {/* Progress */}
-        <div style={styles.progress}>
-          <div style={styles.progressLabel}>
-            <span>{skill.phase?.replace(/_/g, ' ')}</span>
-            <span>{progress}%</span>
-          </div>
-          <div style={styles.progressBar}>
-            <div style={{ ...styles.progressFill, width: `${progress}%` }} />
-          </div>
-        </div>
-
         {/* Overview Tab */}
         {activeTab === 'overview' && (
           <>
+            {/* Validation Banner - only in Overview */}
+            {skill.validation && (
+              <ValidationBanner validation={skill.validation} showDetails={true} />
+            )}
+
+            {/* Progress */}
+            <div style={styles.progress}>
+              <div style={styles.progressLabel}>
+                <span>{skill.phase?.replace(/_/g, ' ')}</span>
+                <span>{progress}%</span>
+              </div>
+              <div style={styles.progressBar}>
+                <div style={{ ...styles.progressFill, width: `${progress}%` }} />
+              </div>
+            </div>
+
             {/* Problem */}
             <div style={styles.section}>
               <div style={styles.sectionHeader} onClick={() => toggleSection('problem')}>
