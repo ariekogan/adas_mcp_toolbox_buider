@@ -6,6 +6,38 @@
 
 import { useState } from 'react';
 
+// Info button component - Option C: Accent Border Pill
+function ExplainButton({ topic, onAskAbout }) {
+  const [hovered, setHovered] = useState(false);
+
+  if (!onAskAbout) return null;
+
+  return (
+    <button
+      style={{
+        padding: '3px 10px',
+        background: hovered ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+        border: '1px solid ' + (hovered ? '#60a5fa' : 'rgba(59, 130, 246, 0.4)'),
+        borderRadius: '999px',
+        color: '#60a5fa',
+        cursor: 'pointer',
+        fontSize: '10px',
+        transition: 'all 0.15s ease',
+        flexShrink: 0
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onAskAbout(topic);
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      title={`Explain ${topic}`}
+    >
+      explain
+    </button>
+  );
+}
+
 const styles = {
   section: {
     marginBottom: '20px'
@@ -171,7 +203,7 @@ function getResolvedColor(resolved) {
     : { bg: '#f59e0b20', color: '#fbbf24' };
 }
 
-export default function IntentsPanel({ intents, focus, onFocusChange }) {
+export default function IntentsPanel({ intents, focus, onFocusChange, onAskAbout }) {
   const [expanded, setExpanded] = useState(true);
   const [expandedItems, setExpandedItems] = useState({});
 
@@ -192,13 +224,14 @@ export default function IntentsPanel({ intents, focus, onFocusChange }) {
 
   return (
     <div style={styles.section}>
-      <div style={styles.sectionHeader} onClick={() => setExpanded(!expanded)}>
-        <div style={styles.sectionTitle}>
+      <div style={styles.sectionHeader}>
+        <div style={styles.sectionTitle} onClick={() => setExpanded(!expanded)}>
           <span style={{ ...styles.expandIcon, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
             >
           </span>
           Intents ({supported.length})
         </div>
+        <ExplainButton topic="intents" onAskAbout={onAskAbout} />
       </div>
 
       {expanded && (

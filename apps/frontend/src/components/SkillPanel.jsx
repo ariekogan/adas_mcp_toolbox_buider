@@ -687,13 +687,16 @@ export default function SkillPanel({
 
         {/* Intents Tab */}
         {activeTab === 'intents' && (
-          <IntentsPanel intents={skill.intents} focus={focus} onFocusChange={onFocusChange} />
+          <IntentsPanel intents={skill.intents} focus={focus} onFocusChange={onFocusChange} onAskAbout={onAskAbout} />
         )}
 
         {/* Tools Tab */}
         {activeTab === 'tools' && (
           <div style={styles.section}>
-            <div style={styles.sectionTitle}>Tools ({skill.tools?.length || 0})</div>
+            <div style={styles.sectionHeader}>
+              <div style={styles.sectionTitle}>Tools ({skill.tools?.length || 0})</div>
+              <InfoButton topic="tools" onAskAbout={onAskAbout} />
+            </div>
             {skill.tools?.length > 0 ? (
               skill.tools.map((tool, i) => {
                 const mockColor = getMockStatusColor(tool.mock_status);
@@ -780,12 +783,12 @@ export default function SkillPanel({
 
         {/* Policy Tab */}
         {activeTab === 'policy' && (
-          <PolicyPanel policy={skill.policy} focus={focus} onFocusChange={onFocusChange} />
+          <PolicyPanel policy={skill.policy} focus={focus} onFocusChange={onFocusChange} onAskAbout={onAskAbout} />
         )}
 
         {/* Engine Tab */}
         {activeTab === 'engine' && (
-          <EnginePanel engine={skill.engine} />
+          <EnginePanel engine={skill.engine} onAskAbout={onAskAbout} />
         )}
       </div>
 
