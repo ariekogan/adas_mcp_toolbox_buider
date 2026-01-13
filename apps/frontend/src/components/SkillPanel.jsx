@@ -512,10 +512,12 @@ function ValidateButton({ section, skillId, onValidationResults, disabled }) {
       let result;
       if (section === 'tools') {
         result = await validateToolsConsistency(skillId);
+        console.log('Validation result:', result);
       }
       // Add more section validators here as needed
 
       if (onValidationResults && result) {
+        console.log('Calling onValidationResults with:', section, result);
         onValidationResults(section, result);
       }
     } catch (err) {
@@ -525,20 +527,28 @@ function ValidateButton({ section, skillId, onValidationResults, disabled }) {
     }
   };
 
+  // Loading spinner animation
+  const spinnerStyle = loading ? {
+    display: 'inline-block',
+    animation: 'spin 1s linear infinite'
+  } : {};
+
   return (
     <button
       style={{
         ...styles.validateBtn,
-        ...(hovered ? styles.validateBtnHover : {}),
+        ...(hovered && !loading ? styles.validateBtnHover : {}),
         ...(loading ? styles.validateBtnLoading : {})
       }}
       onClick={handleValidate}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      title={`Validate ${section}`}
+      title={loading ? 'Validating...' : `Validate ${section}`}
       disabled={loading || disabled}
     >
-      {loading ? '⏳' : '✓'}
+      {loading ? (
+        <span style={spinnerStyle}>⟳</span>
+      ) : '✓'}
     </button>
   );
 }
@@ -584,10 +594,13 @@ export default function SkillPanel({
 
   // Handle manual validation results from ValidateButton
   const handleValidationResults = (section, result) => {
+    console.log('handleValidationResults called:', section, result);
     if (result.issues && result.issues.length > 0) {
-      result.issues.forEach(issue => {
+      console.log(`Adding ${result.issues.length} issues to validation list`);
+      result.issues.forEach((issue, idx) => {
+        console.log(`Adding issue ${idx}:`, issue);
         addIssue({
-          id: `manual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          id: `manual_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 9)}`,
           severity: issue.severity === 'blocker' ? 'blocker' :
                     issue.severity === 'warning' ? 'warning' : 'suggestion',
           category: section,
