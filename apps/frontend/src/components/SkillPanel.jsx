@@ -18,6 +18,7 @@ import EnginePanel from './EnginePanel';
 import ValidationBanner from './ValidationBanner';
 import ValidationList from './ValidationList';
 import { useValidation } from '../hooks/useValidation';
+import { validateToolsConsistency } from '../api/client';
 
 const styles = {
   container: {
@@ -304,6 +305,35 @@ const styles = {
     background: 'rgba(59, 130, 246, 0.15)',
     borderColor: '#60a5fa'
   },
+  // Validate button - similar style but different color
+  validateBtn: {
+    padding: '3px 8px',
+    background: 'transparent',
+    border: '1px solid rgba(139, 92, 246, 0.4)',
+    borderRadius: '999px',
+    color: '#a78bfa',
+    cursor: 'pointer',
+    fontSize: '10px',
+    transition: 'all 0.15s ease',
+    flexShrink: 0,
+    marginLeft: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '3px'
+  },
+  validateBtnHover: {
+    background: 'rgba(139, 92, 246, 0.15)',
+    borderColor: '#a78bfa'
+  },
+  validateBtnLoading: {
+    opacity: 0.6,
+    cursor: 'not-allowed'
+  },
+  sectionHeaderButtons: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px'
+  },
   sectionHeaderWithInfo: {
     display: 'flex',
     alignItems: 'center',
@@ -466,6 +496,53 @@ function InfoButton({ topic, onAskAbout }) {
   );
 }
 
+// Validate button component - triggers LLM validation for a section
+function ValidateButton({ section, skillId, onValidationResults, disabled }) {
+  const [hovered, setHovered] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  if (!skillId) return null;
+
+  const handleValidate = async (e) => {
+    e.stopPropagation();
+    if (loading || disabled) return;
+
+    setLoading(true);
+    try {
+      let result;
+      if (section === 'tools') {
+        result = await validateToolsConsistency(skillId);
+      }
+      // Add more section validators here as needed
+
+      if (onValidationResults && result) {
+        onValidationResults(section, result);
+      }
+    } catch (err) {
+      console.error(`Validation failed for ${section}:`, err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      style={{
+        ...styles.validateBtn,
+        ...(hovered ? styles.validateBtnHover : {}),
+        ...(loading ? styles.validateBtnLoading : {})
+      }}
+      onClick={handleValidate}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      title={`Validate ${section}`}
+      disabled={loading || disabled}
+    >
+      {loading ? '⏳' : '✓'}
+    </button>
+  );
+}
+
 export default function SkillPanel({
   skill,
   focus,
@@ -490,6 +567,7 @@ export default function SkillPanel({
   const {
     issues,
     activeIssues,
+    addIssue,
     dismissIssue,
     markReviewing,
     clearResolved
@@ -501,6 +579,32 @@ export default function SkillPanel({
     if (onAskAbout && issue.chatPrompt) {
       // Send the contextual prompt to chat
       onAskAbout(issue.chatPrompt, true); // true = raw prompt, don't wrap
+    }
+  };
+
+  // Handle manual validation results from ValidateButton
+  const handleValidationResults = (section, result) => {
+    if (result.issues && result.issues.length > 0) {
+      result.issues.forEach(issue => {
+        addIssue({
+          id: `manual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          severity: issue.severity === 'blocker' ? 'blocker' :
+                    issue.severity === 'warning' ? 'warning' : 'suggestion',
+          category: section,
+          title: `${issue.type}: ${issue.tools?.join(', ') || 'check'}`,
+          context: issue.description,
+          chatPrompt: `There's a ${section} consistency issue: ${issue.description}. ${issue.suggestion}. Please review and fix this.`,
+          triggeredBy: {
+            type: 'manual_validation',
+            section,
+            timestamp: new Date().toISOString()
+          },
+          relatedIds: issue.tools || []
+        });
+      });
+    } else {
+      // No issues found - could show a toast/notification
+      console.log(`✓ No issues found in ${section}`);
     }
   };
 
@@ -726,7 +830,15 @@ export default function SkillPanel({
           <div style={styles.section}>
             <div style={styles.sectionHeader}>
               <div style={styles.sectionTitle}>Tools ({skill.tools?.length || 0})</div>
-              <InfoButton topic="tools" onAskAbout={onAskAbout} />
+              <div style={styles.sectionHeaderButtons}>
+                <InfoButton topic="tools" onAskAbout={onAskAbout} />
+                <ValidateButton
+                  section="tools"
+                  skillId={skill?.id}
+                  onValidationResults={handleValidationResults}
+                  disabled={(skill.tools?.length || 0) < 2}
+                />
+              </div>
             </div>
             {skill.tools?.length > 0 ? (
               skill.tools.map((tool, i) => {
