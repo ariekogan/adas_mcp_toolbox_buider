@@ -6,6 +6,7 @@ import chatRouter from "./routes/chat.js";
 import domainsRouter from "./routes/domains.js";
 import mockRouter from "./routes/mock.js";
 import exportRouter from "./routes/export.js";
+import validateRouter from "./routes/validate.js";
 import { isSearchAvailable } from "./services/webSearch.js";
 
 const app = express();
@@ -68,6 +69,7 @@ app.use("/api/domains", domainsRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/mock", mockRouter);
 app.use("/api/export", exportRouter);
+app.use("/api/validate", validateRouter);
 
 // Error handler
 app.use((err, req, res, _next) => {

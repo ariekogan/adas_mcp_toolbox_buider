@@ -137,6 +137,17 @@ export async function runMock(skillId, toolId, input, mode = 'example') {
   });
 }
 
+// Validation
+export async function validateToolsConsistency(skillId, newTool = null) {
+  return request('/validate/tools-consistency', {
+    method: 'POST',
+    body: JSON.stringify({
+      domain_id: skillId,
+      new_tool: newTool
+    })
+  });
+}
+
 // Export
 export async function exportSkill(skillId) {
   return request(`/export/${skillId}`);
@@ -164,6 +175,7 @@ export default {
   digestFile,
   applyExtraction,
   runMock,
+  validateToolsConsistency,
   exportSkill,
   previewExport,
   downloadExport

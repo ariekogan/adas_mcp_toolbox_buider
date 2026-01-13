@@ -7,6 +7,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { runValidation, isIssueStillRelevant, VALIDATION_SEVERITY } from '../services/validationEngine';
+import { validateToolsConsistency } from '../api/client';
 
 /**
  * @param {Object} skill - The skill/domain object
@@ -155,8 +156,42 @@ export function useValidation(skill, onIssuesChange) {
       });
 
       setLastRunTimestamp(new Date().toISOString());
+
+      // If a tool was added and there are 2+ tools, run LLM consistency check
+      const toolAdded = changes.find(c => c.type === 'tool_added');
+      if (toolAdded && (skill.tools?.length || 0) >= 2 && skill.id) {
+        runLLMConsistencyCheck(skill.id, toolAdded.item, addIssue);
+      }
     }
   }, [skill, addIssue]);
+
+  // Run LLM-based tool consistency check (async, non-blocking)
+  async function runLLMConsistencyCheck(skillId, newTool, addIssueFn) {
+    try {
+      const result = await validateToolsConsistency(skillId, newTool);
+      if (result.issues && result.issues.length > 0) {
+        result.issues.forEach(issue => {
+          addIssueFn({
+            id: `llm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            severity: issue.severity === 'blocker' ? 'blocker' :
+                      issue.severity === 'warning' ? 'warning' : 'suggestion',
+            category: 'tools',
+            title: `${issue.type}: ${issue.tools.join(', ')}`,
+            context: issue.description,
+            chatPrompt: `There's a tool consistency issue: ${issue.description}. ${issue.suggestion}. Please review and fix this.`,
+            triggeredBy: {
+              type: 'llm_consistency_check',
+              timestamp: new Date().toISOString()
+            },
+            relatedIds: issue.tools
+          });
+        });
+      }
+    } catch (err) {
+      console.error('LLM consistency check failed:', err);
+      // Non-blocking - don't show error to user for background check
+    }
+  }
 
   // Computed values
   const activeIssues = issues.filter(i => i.status === 'new' || i.status === 'reviewing');
