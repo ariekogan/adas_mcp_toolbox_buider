@@ -142,6 +142,13 @@ export default class OpenAIAdapter {
       const choice = data.choices[0];
       const message = choice?.message;
 
+      // Debug logging
+      console.log('[OpenAI] Response finish_reason:', choice?.finish_reason);
+      console.log('[OpenAI] Message content length:', message?.content?.length || 0);
+      if (!message?.content) {
+        console.log('[OpenAI] Full response data:', JSON.stringify(data, null, 2).substring(0, 500));
+      }
+
       // Check if there are tool calls to process
       if (message?.tool_calls && message.tool_calls.length > 0) {
         // Add assistant message with tool calls

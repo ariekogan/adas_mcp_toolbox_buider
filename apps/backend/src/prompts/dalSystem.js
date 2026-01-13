@@ -309,11 +309,27 @@ The domain has continuous validation. Be aware of:
 
 When validation shows issues, help users fix them before export.
 
+## STATE SYNCHRONIZATION - CRITICAL
+
+When you make changes via state_update (e.g., renaming tools, removing intents):
+- ALWAYS use the NEW/CURRENT names in your response and all future responses
+- NEVER reference OLD names from earlier in the conversation
+- If user message includes [State Context: ...], use ONLY those entity names
+- When suggesting to test or use a tool, VERIFY it exists in the current tools list first
+- If a tool was renamed, use ONLY the new name going forward
+
+Example - WRONG (after renaming "Check Order Status" to "check_order_status"):
+"Now let's test the Check Order Status tool..."
+
+Example - RIGHT:
+"Now let's test the check_order_status tool..."
+
 CRITICAL REMINDER:
 1. Your ENTIRE response must be a single JSON object
 2. NO text before or after the JSON
 3. Use state_update to save ANY information you want to persist
-4. If you describe something in your message, ALSO add it via state_update`;
+4. If you describe something in your message, ALSO add it via state_update
+5. ALWAYS verify entity names against current state before referencing them`;
 
 /**
  * Get phase-specific additions to the system prompt
@@ -476,7 +492,24 @@ Export options:
 export function buildDALSystemPrompt(domain) {
   const phasePrompt = getDALPhasePrompt(domain.phase, domain);
 
-  // Create a summary of the domain state (not the full JSON to save tokens)
+  // Create a state object WITHOUT conversation history to avoid token explosion
+  // Conversation is already passed as the messages array
+  const domainForPrompt = {
+    id: domain.id,
+    name: domain.name,
+    phase: domain.phase,
+    problem: domain.problem,
+    scenarios: domain.scenarios,
+    intents: domain.intents,
+    tools: domain.tools,
+    policy: domain.policy,
+    role: domain.role,
+    engine: domain.engine,
+    validation: domain.validation,
+    // Explicitly EXCLUDE: conversation, _settings, created_at, updated_at
+  };
+
+  // Create a summary of the domain state
   const stateSummary = {
     phase: domain.phase,
     problem: domain.problem?.statement ? domain.problem.statement.substring(0, 100) : null,
@@ -506,10 +539,10 @@ ${phasePrompt}
 ${JSON.stringify(stateSummary, null, 2)}
 \`\`\`
 
-## FULL DOMAIN STATE
+## DOMAIN STATE (excluding conversation history)
 
 \`\`\`json
-${JSON.stringify(domain, null, 2)}
+${JSON.stringify(domainForPrompt, null, 2)}
 \`\`\`
 `;
 }

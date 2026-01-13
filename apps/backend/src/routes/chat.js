@@ -4,6 +4,7 @@ import { processMessage } from "../services/conversation.js";
 import { applyStateUpdateWithValidation, calculateProgress, shouldSuggestPhaseAdvance } from "../services/state.js";
 import { digestFileContent, getFileType } from "../services/fileDigestion.js";
 import { getHelpDoc, formatHelpDoc } from "../data/helpDocs.js";
+import { enhanceWithStateContext } from "../services/stateSync.js";
 
 const router = Router();
 
@@ -96,6 +97,17 @@ router.post("/domain", async (req, res, next) => {
       log.debug(`Help doc found: ${helpDoc ? helpDoc.title : 'NOT FOUND'}`);
       processedMessage = enhanceExplainMessage(message, explainTopic);
       log.debug(`Enhanced message length: ${processedMessage.length} chars`);
+    }
+
+    // State context injection - keeps AI aligned with current entity names
+    try {
+      const enhanced = enhanceWithStateContext(processedMessage, domain);
+      if (enhanced !== processedMessage) {
+        processedMessage = enhanced;
+        log.debug("State context injected into message");
+      }
+    } catch (stateSyncErr) {
+      log.warn("State sync failed (non-blocking):", stateSyncErr.message);
     }
 
     // Process with LLM (using domain format)
