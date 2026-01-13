@@ -500,6 +500,7 @@ function InfoButton({ topic, onAskAbout }) {
 function ValidateButton({ section, skillId, onValidationResults, disabled }) {
   const [hovered, setHovered] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resultCount, setResultCount] = useState(null);
 
   if (!skillId) return null;
 
@@ -508,6 +509,7 @@ function ValidateButton({ section, skillId, onValidationResults, disabled }) {
     if (loading || disabled) return;
 
     setLoading(true);
+    setResultCount(null);
     try {
       let result;
       if (section === 'tools') {
@@ -516,40 +518,62 @@ function ValidateButton({ section, skillId, onValidationResults, disabled }) {
       }
       // Add more section validators here as needed
 
-      if (onValidationResults && result) {
-        console.log('Calling onValidationResults with:', section, result);
-        onValidationResults(section, result);
+      if (result) {
+        const count = result.issues?.length || 0;
+        setResultCount(count);
+        console.log(`Validation found ${count} issues`);
+
+        if (onValidationResults) {
+          console.log('Calling onValidationResults with:', section, result);
+          onValidationResults(section, result);
+        }
+
+        // Clear result count after 3 seconds
+        setTimeout(() => setResultCount(null), 3000);
       }
     } catch (err) {
       console.error(`Validation failed for ${section}:`, err);
+      setResultCount(-1); // Error state
+      setTimeout(() => setResultCount(null), 3000);
     } finally {
       setLoading(false);
     }
   };
 
-  // Loading spinner animation
-  const spinnerStyle = loading ? {
-    display: 'inline-block',
-    animation: 'spin 1s linear infinite'
-  } : {};
-
   return (
-    <button
-      style={{
-        ...styles.validateBtn,
-        ...(hovered && !loading ? styles.validateBtnHover : {}),
-        ...(loading ? styles.validateBtnLoading : {})
-      }}
-      onClick={handleValidate}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      title={loading ? 'Validating...' : `Validate ${section}`}
-      disabled={loading || disabled}
-    >
-      {loading ? (
-        <span style={spinnerStyle}>⟳</span>
-      ) : '✓'}
-    </button>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <button
+        style={{
+          ...styles.validateBtn,
+          ...(hovered && !loading ? styles.validateBtnHover : {}),
+          ...(loading ? styles.validateBtnLoading : {})
+        }}
+        onClick={handleValidate}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        title={`Validate ${section}`}
+        disabled={loading || disabled}
+      >
+        {loading ? (
+          <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
+        ) : '✓'}
+      </button>
+      {/* Status text shown next to button */}
+      {loading && (
+        <span style={{ fontSize: '10px', color: '#a78bfa', fontStyle: 'italic' }}>
+          Validating...
+        </span>
+      )}
+      {resultCount !== null && !loading && (
+        <span style={{
+          fontSize: '10px',
+          color: resultCount === 0 ? '#10b981' : resultCount > 0 ? '#f59e0b' : '#ef4444',
+          fontWeight: '500'
+        }}>
+          {resultCount === 0 ? '✓ OK' : resultCount > 0 ? `${resultCount} issues` : 'Error'}
+        </span>
+      )}
+    </div>
   );
 }
 
