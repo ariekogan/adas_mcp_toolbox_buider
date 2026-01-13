@@ -226,9 +226,7 @@ export default function IntentsPanel({ intents, focus, onFocusChange, onAskAbout
     <div style={styles.section}>
       <div style={styles.sectionHeader}>
         <div style={styles.sectionTitle} onClick={() => setExpanded(!expanded)}>
-          <span style={{ ...styles.expandIcon, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-            >
-          </span>
+          <span style={{ ...styles.expandIcon, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
           Intents ({supported.length})
         </div>
         <ExplainButton topic="intents" onAskAbout={onAskAbout} />
@@ -253,9 +251,7 @@ export default function IntentsPanel({ intents, focus, onFocusChange, onAskAbout
                   onClick={() => onFocusChange?.({ type: 'INTENT', id: intent.id })}
                 >
                   <div style={styles.cardTitle} onClick={(e) => { e.stopPropagation(); toggleItem(intent.id || i); }}>
-                    <span style={{ ...styles.expandIcon, transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-                      >
-                    </span>
+                    <span style={{ ...styles.expandIcon, transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
                     {intent.description || `Intent ${i + 1}`}
                     {intent.maps_to_workflow && (
                       <span style={{
@@ -263,7 +259,7 @@ export default function IntentsPanel({ intents, focus, onFocusChange, onAskAbout
                         background: resolvedColor.bg,
                         color: resolvedColor.color
                       }}>
-                        -> {intent.maps_to_workflow}
+                        → {intent.maps_to_workflow}
                       </span>
                     )}
                   </div>

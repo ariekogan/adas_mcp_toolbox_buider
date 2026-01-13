@@ -233,9 +233,7 @@ export default function PolicyPanel({ policy, focus, onFocusChange, onAskAbout }
     <div style={styles.section}>
       <div style={styles.sectionHeader}>
         <div style={styles.sectionTitle} onClick={() => setExpanded(!expanded)}>
-          <span style={{ ...styles.expandIcon, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-            >
-          </span>
+          <span style={{ ...styles.expandIcon, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
           Policy
           {(guardrails.never?.length > 0 || guardrails.always?.length > 0) && (
             <span style={{ color: 'var(--success)', fontSize: '11px' }}>configured</span>
@@ -311,9 +309,7 @@ export default function PolicyPanel({ policy, focus, onFocusChange, onAskAbout }
                     onClick={() => onFocusChange?.({ type: 'WORKFLOW', id: workflow.id })}
                   >
                     <div style={styles.cardTitle} onClick={(e) => { e.stopPropagation(); toggleWorkflow(workflow.id || i); }}>
-                      <span style={{ ...styles.expandIcon, transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-                        >
-                      </span>
+                      <span style={{ ...styles.expandIcon, transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
                       {workflow.name || `Workflow ${i + 1}`}
                       <span style={{
                         ...styles.status,
@@ -399,7 +395,7 @@ export default function PolicyPanel({ policy, focus, onFocusChange, onAskAbout }
                       <div style={styles.conditionsList}>
                         {rule.conditions.map((cond, j) => (
                           <div key={j} style={styles.conditionItem}>
-                            When: {cond.when} -> {cond.action}
+                            When: {cond.when} → {cond.action}
                           </div>
                         ))}
                       </div>

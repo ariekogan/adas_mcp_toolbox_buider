@@ -335,6 +335,53 @@ function validatePolicyModified(change, skill) {
 export function runFullValidation(skill) {
   const issues = [];
 
+  // Check all tools are fully defined
+  (skill.tools || []).forEach(tool => {
+    const toolName = tool.name || 'Unknown';
+
+    // Check for missing description
+    if (!tool.description) {
+      issues.push({
+        id: generateIssueId(),
+        severity: VALIDATION_SEVERITY.BLOCKER,
+        category: VALIDATION_CATEGORY.TOOLS,
+        title: `Tool "${toolName}" missing description`,
+        context: `Tools must have a description`,
+        chatPrompt: `The tool "${toolName}" is missing a description. Please add a description explaining what this tool does.`,
+        triggeredBy: { type: 'full_validation', timestamp: new Date().toISOString() },
+        relatedIds: [tool.id || tool.name]
+      });
+    }
+
+    // Check for missing inputs definition
+    if (!tool.inputs || tool.inputs.length === 0) {
+      issues.push({
+        id: generateIssueId(),
+        severity: VALIDATION_SEVERITY.BLOCKER,
+        category: VALIDATION_CATEGORY.TOOLS,
+        title: `Tool "${toolName}" missing inputs`,
+        context: `Tools must define their input parameters`,
+        chatPrompt: `The tool "${toolName}" has no inputs defined. Please define what input parameters this tool needs (name, type, required, description for each).`,
+        triggeredBy: { type: 'full_validation', timestamp: new Date().toISOString() },
+        relatedIds: [tool.id || tool.name]
+      });
+    }
+
+    // Check for missing output definition
+    if (!tool.output || !tool.output.description) {
+      issues.push({
+        id: generateIssueId(),
+        severity: VALIDATION_SEVERITY.WARNING,
+        category: VALIDATION_CATEGORY.TOOLS,
+        title: `Tool "${toolName}" missing output definition`,
+        context: `Tools should describe their output`,
+        chatPrompt: `The tool "${toolName}" doesn't have an output definition. Please describe what this tool returns.`,
+        triggeredBy: { type: 'full_validation', timestamp: new Date().toISOString() },
+        relatedIds: [tool.id || tool.name]
+      });
+    }
+  });
+
   // Check all tools have policies - inline policy OR referenced in domain approvals
   const domainApprovals = skill?.policy?.approvals || [];
   (skill.tools || []).forEach(tool => {
@@ -447,6 +494,39 @@ export function isIssueStillRelevant(issue, skill) {
       if (!tool) {
         return false;
       }
+    }
+  }
+
+  // Tool missing description - check if tool now has description
+  if (title.includes('missing description')) {
+    const toolNameMatch = title.match(/Tool "([^"]+)" missing description/);
+    if (toolNameMatch) {
+      const toolName = toolNameMatch[1];
+      const tool = (skill.tools || []).find(t => t.name === toolName);
+      if (!tool) return false; // Tool deleted
+      if (tool.description) return false; // Now has description
+    }
+  }
+
+  // Tool missing inputs - check if tool now has inputs
+  if (title.includes('missing inputs')) {
+    const toolNameMatch = title.match(/Tool "([^"]+)" missing inputs/);
+    if (toolNameMatch) {
+      const toolName = toolNameMatch[1];
+      const tool = (skill.tools || []).find(t => t.name === toolName);
+      if (!tool) return false; // Tool deleted
+      if (tool.inputs && tool.inputs.length > 0) return false; // Now has inputs
+    }
+  }
+
+  // Tool missing output definition - check if tool now has output
+  if (title.includes('missing output definition')) {
+    const toolNameMatch = title.match(/Tool "([^"]+)" missing output definition/);
+    if (toolNameMatch) {
+      const toolName = toolNameMatch[1];
+      const tool = (skill.tools || []).find(t => t.name === toolName);
+      if (!tool) return false; // Tool deleted
+      if (tool.output?.description) return false; // Now has output
     }
   }
 

@@ -786,7 +786,7 @@ export default function SkillPanel({
               <div style={styles.sectionHeader}>
                 <div style={styles.sectionHeaderWithInfo}>
                   <div style={styles.sectionTitle} onClick={() => toggleSection('problem')}>
-                    <span style={{ ...styles.expandIcon, transform: expanded.problem ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                    <span style={{ ...styles.expandIcon, transform: expanded.problem ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
                     Problem
                   </div>
                   <InfoButton topic="problem statement" onAskAbout={onAskAbout} />
@@ -827,7 +827,7 @@ export default function SkillPanel({
               <div style={styles.sectionHeader}>
                 <div style={styles.sectionHeaderWithInfo}>
                   <div style={styles.sectionTitle} onClick={() => toggleSection('role')}>
-                    <span style={{ ...styles.expandIcon, transform: expanded.role ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                    <span style={{ ...styles.expandIcon, transform: expanded.role ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
                     Role / Persona
                   </div>
                   <InfoButton topic="role and persona" onAskAbout={onAskAbout} />
@@ -858,7 +858,7 @@ export default function SkillPanel({
               <div style={styles.sectionHeader}>
                 <div style={styles.sectionHeaderWithInfo}>
                   <div style={styles.sectionTitle} onClick={() => toggleSection('scenarios')}>
-                    <span style={{ ...styles.expandIcon, transform: expanded.scenarios ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                    <span style={{ ...styles.expandIcon, transform: expanded.scenarios ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
                     Scenarios ({skill.scenarios?.length || 0})
                   </div>
                   <InfoButton topic="scenarios" onAskAbout={onAskAbout} />
@@ -869,7 +869,7 @@ export default function SkillPanel({
                   skill.scenarios.map((scenario, i) => (
                     <div key={scenario.id || i} style={styles.card}>
                       <div style={styles.cardTitle} onClick={() => toggleItem('scenario', scenario.id || i)}>
-                        <span style={{ ...styles.expandIcon, transform: isItemExpanded('scenario', scenario.id || i) ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                        <span style={{ ...styles.expandIcon, transform: isItemExpanded('scenario', scenario.id || i) ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
                         {scenario.title || `Scenario ${i + 1}`}
                       </div>
                       <div style={styles.cardMeta}>{scenario.steps?.length || 0} steps</div>
@@ -915,7 +915,7 @@ export default function SkillPanel({
                 return (
                   <div key={tool.id || i} style={{ ...styles.card, ...(isFocused ? styles.cardFocused : {}) }}>
                     <div style={styles.cardTitle} onClick={() => toggleItem('tool', tool.id || i)}>
-                      <span style={{ ...styles.expandIcon, transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                      <span style={{ ...styles.expandIcon, transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
                       {tool.name || `Tool ${i + 1}`}
                       <span style={{ ...styles.status, background: mockColor.bg, color: mockColor.color }}>
                         {tool.mock_status || 'untested'}

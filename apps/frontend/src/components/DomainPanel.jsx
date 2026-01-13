@@ -393,7 +393,7 @@ export default function DomainPanel({
             <div style={styles.section}>
               <div style={styles.sectionHeader} onClick={() => toggleSection('problem')}>
                 <div style={styles.sectionTitle}>
-                  <span style={{ ...styles.expandIcon, transform: expanded.problem ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                  <span style={{ ...styles.expandIcon, transform: expanded.problem ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
                   Problem
                 </div>
               </div>
@@ -431,7 +431,7 @@ export default function DomainPanel({
             <div style={styles.section}>
               <div style={styles.sectionHeader} onClick={() => toggleSection('role')}>
                 <div style={styles.sectionTitle}>
-                  <span style={{ ...styles.expandIcon, transform: expanded.role ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                  <span style={{ ...styles.expandIcon, transform: expanded.role ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
                   Role / Persona
                 </div>
               </div>
@@ -459,7 +459,7 @@ export default function DomainPanel({
             <div style={styles.section}>
               <div style={styles.sectionHeader} onClick={() => toggleSection('scenarios')}>
                 <div style={styles.sectionTitle}>
-                  <span style={{ ...styles.expandIcon, transform: expanded.scenarios ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                  <span style={{ ...styles.expandIcon, transform: expanded.scenarios ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
                   Scenarios ({domain.scenarios?.length || 0})
                 </div>
               </div>
@@ -468,7 +468,7 @@ export default function DomainPanel({
                   domain.scenarios.map((scenario, i) => (
                     <div key={scenario.id || i} style={styles.card}>
                       <div style={styles.cardTitle} onClick={() => toggleItem('scenario', scenario.id || i)}>
-                        <span style={{ ...styles.expandIcon, transform: isItemExpanded('scenario', scenario.id || i) ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                        <span style={{ ...styles.expandIcon, transform: isItemExpanded('scenario', scenario.id || i) ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
                         {scenario.title || `Scenario ${i + 1}`}
                       </div>
                       <div style={styles.cardMeta}>{scenario.steps?.length || 0} steps</div>
@@ -503,7 +503,7 @@ export default function DomainPanel({
                 return (
                   <div key={tool.id || i} style={{ ...styles.card, ...(isFocused ? styles.cardFocused : {}) }}>
                     <div style={styles.cardTitle} onClick={() => toggleItem('tool', tool.id || i)}>
-                      <span style={{ ...styles.expandIcon, transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>></span>
+                      <span style={{ ...styles.expandIcon, transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
                       {tool.name || `Tool ${i + 1}`}
                       <span style={{ ...styles.status, background: mockColor.bg, color: mockColor.color }}>
                         {tool.mock_status || 'untested'}

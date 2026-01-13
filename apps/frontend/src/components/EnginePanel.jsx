@@ -216,9 +216,7 @@ export default function EnginePanel({ engine, onAskAbout }) {
     <div style={styles.section}>
       <div style={styles.sectionHeader}>
         <div style={styles.sectionTitle} onClick={() => setExpanded(!expanded)}>
-          <span style={{ ...styles.expandIcon, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-            >
-          </span>
+          <span style={{ ...styles.expandIcon, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
           Engine Settings
           <span style={{
             ...styles.badge,
