@@ -604,7 +604,8 @@ export default function SkillPanel({
     addIssue,
     dismissIssue,
     markReviewing,
-    clearResolved
+    clearResolved,
+    clearByTriggerType
   } = useValidation(skill, onIssuesChange);
 
   // Handle validation item review click - sends to chat
@@ -618,11 +619,25 @@ export default function SkillPanel({
 
   // Handle manual validation results from ValidateButton
   const handleValidationResults = (section, result) => {
-    console.log('handleValidationResults called:', section, result);
+    // Clear previous manual validation issues for this section before adding new ones
+    clearByTriggerType('manual_validation');
+
     if (result.issues && result.issues.length > 0) {
-      console.log(`Adding ${result.issues.length} issues to validation list`);
-      result.issues.forEach((issue, idx) => {
-        console.log(`Adding issue ${idx}:`, issue);
+      // Deduplicate issues by type+tools combination
+      const uniqueIssues = [];
+      const seenKeys = new Set();
+
+      result.issues.forEach(issue => {
+        const key = `${issue.type}:${(issue.tools || []).sort().join(',')}`;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          uniqueIssues.push(issue);
+        }
+      });
+
+      console.log(`Adding ${uniqueIssues.length} unique issues (from ${result.issues.length} total)`);
+
+      uniqueIssues.forEach((issue, idx) => {
         addIssue({
           id: `manual_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 9)}`,
           severity: issue.severity === 'blocker' ? 'blocker' :
@@ -639,9 +654,23 @@ export default function SkillPanel({
           relatedIds: issue.tools || []
         });
       });
+
+      // Send summary to chat
+      if (onAskAbout && uniqueIssues.length > 0) {
+        const summary = uniqueIssues.map(i =>
+          `• **${i.type}**: ${i.tools?.join(', ')} - ${i.description}`
+        ).join('\n');
+
+        onAskAbout(
+          `I ran a ${section} consistency check and found ${uniqueIssues.length} issue(s):\n\n${summary}\n\nPlease help me fix these issues. You can see them in the validation panel on the right.`,
+          true
+        );
+      }
     } else {
-      // No issues found - could show a toast/notification
-      console.log(`✓ No issues found in ${section}`);
+      // No issues - send positive message to chat
+      if (onAskAbout) {
+        onAskAbout(`I ran a ${section} consistency check - no issues found! ✓`, true);
+      }
     }
   };
 

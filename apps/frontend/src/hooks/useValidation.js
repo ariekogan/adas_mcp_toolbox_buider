@@ -68,6 +68,10 @@ export function useValidation(skill, onIssuesChange) {
       if (prev.some(i => i.id === issue.id)) {
         return prev;
       }
+      // Also check for semantic duplicates (same title)
+      if (prev.some(i => i.title === issue.title && i.status !== 'dismissed')) {
+        return prev;
+      }
       return [...prev, { ...issue, status: 'new', createdAt: new Date().toISOString() }];
     });
   }, []);
@@ -101,6 +105,11 @@ export function useValidation(skill, onIssuesChange) {
   // Clear resolved/dismissed issues
   const clearResolved = useCallback(() => {
     setIssues(prev => prev.filter(i => i.status !== 'resolved' && i.status !== 'dismissed'));
+  }, []);
+
+  // Clear issues by trigger type (e.g., 'manual_validation', 'llm_consistency_check')
+  const clearByTriggerType = useCallback((triggerType) => {
+    setIssues(prev => prev.filter(i => i.triggeredBy?.type !== triggerType));
   }, []);
 
   // Dismiss an issue (user chose to ignore)
@@ -214,7 +223,8 @@ export function useValidation(skill, onIssuesChange) {
     markReviewing,
     resolveIssue,
     clearAll,
-    clearResolved
+    clearResolved,
+    clearByTriggerType
   };
 }
 
