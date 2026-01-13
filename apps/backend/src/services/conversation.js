@@ -82,6 +82,7 @@ export async function processMessage({ project, toolbox, conversation, domain, u
 
     parsed = JSON.parse(content.trim());
     console.log("[Conversation] Parsed JSON response, state_update keys:", Object.keys(parsed.state_update || {}));
+    console.log("[Conversation] input_hint:", parsed.input_hint ? JSON.stringify(parsed.input_hint) : "none");
   } catch (err) {
     // If parsing fails, check if the content looks like JSON with a "message" field
     // and try to extract just the message

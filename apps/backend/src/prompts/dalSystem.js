@@ -329,7 +329,12 @@ CRITICAL REMINDER:
 2. NO text before or after the JSON
 3. Use state_update to save ANY information you want to persist
 4. If you describe something in your message, ALSO add it via state_update
-5. ALWAYS verify entity names against current state before referencing them`;
+5. ALWAYS verify entity names against current state before referencing them
+6. **ALWAYS include input_hint in EVERY response!** Use selection mode 80%+ of the time.
+   - Yes/No questions: \`"input_hint": { "mode": "selection", "options": ["Yes", "No"] }\`
+   - Confirmation: \`"input_hint": { "mode": "selection", "options": ["Yes, proceed", "No, let me adjust"] }\`
+   - Next steps: \`"input_hint": { "mode": "selection", "options": ["Option 1", "Option 2", "Something else"] }\`
+   - Only use text mode for truly open-ended questions`;
 
 /**
  * Get phase-specific additions to the system prompt
