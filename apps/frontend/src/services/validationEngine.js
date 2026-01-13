@@ -192,16 +192,21 @@ function validateToolAdded(change, skill) {
   const tool = change.item;
   const toolName = tool?.name || 'New tool';
 
-  // Check if tool has policy - accept any non-empty policy object
-  const hasPolicy = tool?.policy && Object.keys(tool.policy).length > 0;
-  if (!hasPolicy) {
+  // Check if tool has policy - inline policy OR referenced in domain approvals
+  const hasInlinePolicy = tool?.policy && Object.keys(tool.policy).length > 0;
+  const domainApprovals = skill?.policy?.approvals || [];
+  const hasApprovalRule = domainApprovals.some(rule =>
+    rule.tool_id === tool?.id || rule.tool_id === tool?.name
+  );
+
+  if (!hasInlinePolicy && !hasApprovalRule) {
     issues.push({
       id: generateIssueId(),
       severity: VALIDATION_SEVERITY.BLOCKER,
       category: VALIDATION_CATEGORY.POLICY,
       title: `Tool "${toolName}" missing policy`,
       context: `No guardrails defined for this tool`,
-      chatPrompt: `The tool "${toolName}" was added but has no policy configuration. Please define the guardrails: Is it always allowed? Does it require approval? Are there any restrictions?`,
+      chatPrompt: `The tool "${toolName}" needs a policy. Please set the tool's policy to specify: Is it always allowed (allowed: "always"), conditional (allowed: "conditional"), or never allowed (allowed: "never")? Does it require approval?`,
       triggeredBy: {
         type: 'tool_added',
         id: change.id,
@@ -330,17 +335,22 @@ function validatePolicyModified(change, skill) {
 export function runFullValidation(skill) {
   const issues = [];
 
-  // Check all tools have policies - accept any non-empty policy object
+  // Check all tools have policies - inline policy OR referenced in domain approvals
+  const domainApprovals = skill?.policy?.approvals || [];
   (skill.tools || []).forEach(tool => {
-    const hasPolicy = tool?.policy && Object.keys(tool.policy).length > 0;
-    if (!hasPolicy) {
+    const hasInlinePolicy = tool?.policy && Object.keys(tool.policy).length > 0;
+    const hasApprovalRule = domainApprovals.some(rule =>
+      rule.tool_id === tool?.id || rule.tool_id === tool?.name
+    );
+
+    if (!hasInlinePolicy && !hasApprovalRule) {
       issues.push({
         id: generateIssueId(),
         severity: VALIDATION_SEVERITY.BLOCKER,
         category: VALIDATION_CATEGORY.POLICY,
         title: `Tool "${tool.name || 'Unknown'}" missing policy`,
         context: `Required for export`,
-        chatPrompt: `The tool "${tool.name}" has no policy defined. Please configure the guardrails for this tool.`,
+        chatPrompt: `The tool "${tool.name}" needs a policy. Please set allowed: "always", "conditional", or "never", and specify if approval is required.`,
         triggeredBy: { type: 'full_validation', timestamp: new Date().toISOString() },
         relatedIds: [tool.id || tool.name]
       });
@@ -389,7 +399,7 @@ export function isIssueStillRelevant(issue, skill) {
   const category = issue.category;
   const triggeredBy = issue.triggeredBy || {};
 
-  // Tool missing policy - check if tool now has policy
+  // Tool missing policy - check if tool now has policy (inline OR domain-level)
   if (title.includes('missing policy')) {
     const toolNameMatch = title.match(/Tool "([^"]+)" missing policy/);
     if (toolNameMatch) {
@@ -399,8 +409,8 @@ export function isIssueStillRelevant(issue, skill) {
       if (!tool) {
         return false;
       }
-      // If tool has any policy configuration, consider it resolved
-      // Check for: policy.allowed, policy.requires_approval, or any non-empty policy object
+
+      // Check 1: Tool has inline policy
       if (tool.policy) {
         const hasAllowed = tool.policy.allowed !== undefined;
         const hasApproval = tool.policy.requires_approval !== undefined;
@@ -410,6 +420,15 @@ export function isIssueStillRelevant(issue, skill) {
         if (hasAllowed || hasApproval || hasConditions || hasAnyPolicyKey) {
           return false;
         }
+      }
+
+      // Check 2: Tool is referenced in domain-level approval rules
+      const domainApprovals = skill.policy?.approvals || [];
+      const hasApprovalRule = domainApprovals.some(rule =>
+        rule.tool_id === tool.id || rule.tool_id === tool.name
+      );
+      if (hasApprovalRule) {
+        return false;
       }
     }
   }
