@@ -306,6 +306,13 @@ export function generateDomainYaml(domain) {
     lines.push(``);
   }
 
+  // Top-level persona for Core ADAS Reply Polisher
+  if (domain.role?.persona) {
+    lines.push(`# Persona (top-level for Core ADAS)`);
+    lines.push(`persona: ${yamlString(domain.role.persona)}`);
+    lines.push(``);
+  }
+
   // Scenarios
   if (domain.scenarios?.length > 0) {
     lines.push(`# Usage Scenarios`);
@@ -473,6 +480,26 @@ export function generateDomainYaml(domain) {
       lines.push(`      required: ${wf.required || false}`);
     }
   }
+
+  // Approvals (for Core ADAS checkApprovalRequired)
+  if (domain.policy?.approvals?.length > 0) {
+    lines.push(`  approvals:`);
+    for (const approval of domain.policy.approvals) {
+      lines.push(`    - tool_id: ${approval.tool_id || ''}`);
+      // Convert conditions array to "when" string if present
+      if (approval.conditions?.length > 0) {
+        const whenParts = approval.conditions.map(c =>
+          `${c.field || ''} ${c.operator || '>'} ${c.value || ''}`
+        );
+        lines.push(`      when: ${yamlString(whenParts.join(' AND '))}`);
+      } else if (approval.when) {
+        lines.push(`      when: ${yamlString(approval.when)}`);
+      }
+      if (approval.approver) {
+        lines.push(`      approver: ${approval.approver}`);
+      }
+    }
+  }
   lines.push(``);
 
   // Engine settings
@@ -483,6 +510,21 @@ export function generateDomainYaml(domain) {
   lines.push(`  max_tokens: ${domain.engine?.max_tokens || 4096}`);
   if (domain.engine?.response_format) {
     lines.push(`  response_format: ${domain.engine.response_format}`);
+  }
+  // Finalization Gate config (for Core ADAS)
+  lines.push(`  finalization_gate:`);
+  lines.push(`    enabled: ${domain.engine?.finalization_gate?.enabled ?? true}`);
+  lines.push(`    max_retries: ${domain.engine?.finalization_gate?.max_retries ?? 2}`);
+
+  // Output Contract (for Core ADAS Finalization Gate)
+  if (domain.output_contract?.required_fields?.length > 0) {
+    lines.push(``);
+    lines.push(`# Output Contract`);
+    lines.push(`output_contract:`);
+    lines.push(`  required_fields:`);
+    for (const field of domain.output_contract.required_fields) {
+      lines.push(`    - ${yamlString(field)}`);
+    }
   }
 
   return lines.join('\n');
