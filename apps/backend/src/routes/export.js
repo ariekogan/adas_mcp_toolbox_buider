@@ -141,7 +141,7 @@ router.post("/:domainId/adas", async (req, res, next) => {
 
     // If deploy=true, send to ADAS Core
     if (deploy === "true") {
-      const targetUrl = adasUrl || process.env.ADAS_CORE_URL || "http://adas-backend:4000";
+      const targetUrl = adasUrl || process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
       const importUrl = `${targetUrl}/api/skills/import`;
 
       log.info(`Deploying to ADAS Core: ${importUrl}`);
