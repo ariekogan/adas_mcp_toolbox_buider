@@ -37,4 +37,4 @@ services:
       - ./apps/frontend/vite.config.js:/app/vite.config.js
       - ./apps/frontend/index.html:/app/index.html
     ports:
-      - "${VITE_DEV_HOST_PORT:-3311}:3100"
+      - "${VITE_DEV_HOST_PORT:-3310}:3100"
