@@ -148,6 +148,15 @@ export async function validateToolsConsistency(skillId, newTool = null) {
   });
 }
 
+export async function validatePolicyConsistency(skillId) {
+  return request('/validate/policy-consistency', {
+    method: 'POST',
+    body: JSON.stringify({
+      domain_id: skillId
+    })
+  });
+}
+
 // Export
 export async function exportSkill(skillId) {
   return request(`/export/${skillId}`);
@@ -176,6 +185,7 @@ export default {
   applyExtraction,
   runMock,
   validateToolsConsistency,
+  validatePolicyConsistency,
   exportSkill,
   previewExport,
   downloadExport

@@ -4,6 +4,7 @@ import ChatPanel from './components/ChatPanel';
 import SkillPanel from './components/SkillPanel';
 import SettingsModal from './components/SettingsModal';
 import ExtractionReviewModal from './components/ExtractionReviewModal';
+import ExportModal from './components/ExportModal';
 import { useSkill } from './hooks/useSkill';
 import { useSettings } from './hooks/useSettings';
 import * as api from './api/client';
@@ -110,6 +111,11 @@ export default function App() {
   const [extractionFileInfo, setExtractionFileInfo] = useState(null);
   const [applyingExtraction, setApplyingExtraction] = useState(false);
 
+  // Export state
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportResult, setExportResult] = useState(null);
+  const [exportFiles, setExportFiles] = useState(null);
+
   const messages = currentSkill?.conversation || [];
 
   useEffect(() => {
@@ -200,8 +206,16 @@ export default function App() {
   const handleExport = useCallback(async () => {
     if (!currentSkill) return;
     try {
+      // First export to generate files
       const result = await api.exportSkill(currentSkill.id);
-      alert(`Export complete! Version ${result.version}\n\nFiles:\n${result.files.map(f => f.name).join('\n')}`);
+      setExportResult(result);
+
+      // Then download the full file contents
+      const download = await api.downloadExport(currentSkill.id, result.version);
+      setExportFiles(download.files);
+
+      // Open the modal
+      setExportModalOpen(true);
     } catch (err) {
       alert(`Export failed: ${err.message}`);
     }
@@ -358,6 +372,18 @@ export default function App() {
           applying={applyingExtraction}
         />
       )}
+
+      <ExportModal
+        isOpen={exportModalOpen}
+        onClose={() => {
+          setExportModalOpen(false);
+          setExportResult(null);
+          setExportFiles(null);
+        }}
+        exportResult={exportResult}
+        files={exportFiles}
+        domainName={currentSkill?.name}
+      />
     </div>
   );
 }

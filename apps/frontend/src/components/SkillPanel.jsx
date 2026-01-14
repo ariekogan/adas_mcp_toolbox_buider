@@ -18,7 +18,7 @@ import EnginePanel from './EnginePanel';
 import ValidationBanner from './ValidationBanner';
 import ValidationList from './ValidationList';
 import { useValidation } from '../hooks/useValidation';
-import { validateToolsConsistency } from '../api/client';
+import { validateToolsConsistency, validatePolicyConsistency } from '../api/client';
 
 const styles = {
   container: {
@@ -514,9 +514,11 @@ function ValidateButton({ section, skillId, onValidationResults, disabled }) {
       let result;
       if (section === 'tools') {
         result = await validateToolsConsistency(skillId);
-        console.log('Validation result:', result);
+        console.log('Tools validation result:', result);
+      } else if (section === 'policy') {
+        result = await validatePolicyConsistency(skillId);
+        console.log('Policy validation result:', result);
       }
-      // Add more section validators here as needed
 
       if (result) {
         const count = result.issues?.length || 0;
@@ -623,12 +625,14 @@ export default function SkillPanel({
     clearByTriggerType('manual_validation');
 
     if (result.issues && result.issues.length > 0) {
-      // Deduplicate issues by type+tools combination
+      // Deduplicate issues by type + related items combination
+      // Policy uses "items", tools uses "tools"
       const uniqueIssues = [];
       const seenKeys = new Set();
 
       result.issues.forEach(issue => {
-        const key = `${issue.type}:${(issue.tools || []).sort().join(',')}`;
+        const relatedItems = issue.tools || issue.items || [];
+        const key = `${issue.type}:${relatedItems.sort().join(',')}`;
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
           uniqueIssues.push(issue);
@@ -638,12 +642,13 @@ export default function SkillPanel({
       console.log(`Adding ${uniqueIssues.length} unique issues (from ${result.issues.length} total)`);
 
       uniqueIssues.forEach((issue, idx) => {
+        const relatedItems = issue.tools || issue.items || [];
         addIssue({
           id: `manual_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 9)}`,
           severity: issue.severity === 'blocker' ? 'blocker' :
                     issue.severity === 'warning' ? 'warning' : 'suggestion',
           category: section,
-          title: `${issue.type}: ${issue.tools?.join(', ') || 'check'}`,
+          title: `${issue.type}: ${relatedItems.join(', ') || 'check'}`,
           context: issue.description,
           chatPrompt: `There's a ${section} consistency issue: ${issue.description}. ${issue.suggestion}. Please review and fix this.`,
           triggeredBy: {
@@ -651,15 +656,16 @@ export default function SkillPanel({
             section,
             timestamp: new Date().toISOString()
           },
-          relatedIds: issue.tools || []
+          relatedIds: relatedItems
         });
       });
 
       // Send summary to chat
       if (onAskAbout && uniqueIssues.length > 0) {
-        const summary = uniqueIssues.map(i =>
-          `• **${i.type}**: ${i.tools?.join(', ')} - ${i.description}`
-        ).join('\n');
+        const summary = uniqueIssues.map(i => {
+          const items = i.tools || i.items || [];
+          return `• **${i.type}**: ${items.join(', ') || 'general'} - ${i.description}`;
+        }).join('\n');
 
         onAskAbout(
           `I ran a ${section} consistency check and found ${uniqueIssues.length} issue(s):\n\n${summary}\n\nPlease help me fix these issues. You can see them in the validation panel on the right.`,
@@ -992,7 +998,24 @@ export default function SkillPanel({
 
         {/* Policy Tab */}
         {activeTab === 'policy' && (
-          <PolicyPanel policy={skill.policy} focus={focus} onFocusChange={onFocusChange} onAskAbout={onAskAbout} />
+          <PolicyPanel
+            policy={skill.policy}
+            tools={skill.tools || []}
+            focus={focus}
+            onFocusChange={onFocusChange}
+            onAskAbout={onAskAbout}
+            validateButton={
+              <ValidateButton
+                section="policy"
+                skillId={skill?.id}
+                onValidationResults={handleValidationResults}
+                disabled={
+                  ((skill.policy?.guardrails?.never?.length || 0) +
+                   (skill.policy?.guardrails?.always?.length || 0)) < 1
+                }
+              />
+            }
+          />
         )}
 
         {/* Engine Tab */}

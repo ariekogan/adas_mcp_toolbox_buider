@@ -76,13 +76,11 @@ function calculateReadiness(errors, unresolved, completeness) {
   if (unresolved.workflows.length > 0) return false;
 
   // Must meet minimum completeness requirements
-  const required = ['problem', 'role', 'tools'];
+  // Note: role and mocks_tested are optional - users can export without them
+  const required = ['problem', 'tools'];
   for (const field of required) {
     if (!completeness[field]) return false;
   }
-
-  // Mocks must be tested or explicitly skipped
-  if (!completeness.mocks_tested) return false;
 
   return true;
 }

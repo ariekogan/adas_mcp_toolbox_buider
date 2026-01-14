@@ -288,23 +288,101 @@ async function updateState(slug, updates) {
   return domain;
 }
 
+// Protected array fields - these can ONLY be modified via _push/_delete/_update operations
+// Direct replacement is blocked to prevent accidental data loss
+const PROTECTED_ARRAYS = ['tools', 'intents.supported', 'policy.guardrails.always', 'policy.guardrails.never'];
+
 /**
  * Apply state updates to domain (supports dot notation)
+ *
+ * Supported operations for protected arrays:
+ * - tools_push: { name: "X", ... }           - Add new or update existing by name
+ * - tools_delete: "X" or ["X", "Y"]          - Delete by name
+ * - tools_update: { name: "X", ... }         - Update existing (must exist)
+ *
  * @param {DraftDomain} domain
  * @param {Object} updates
  */
 function applyUpdates(domain, updates) {
   for (const [key, value] of Object.entries(updates)) {
-    // Handle array push notation: "tools_push"
+
+    // Handle array DELETE: "tools_delete" -> remove items by name
+    if (key.endsWith('_delete')) {
+      const arrayKey = key.slice(0, -7);
+      const arr = getNestedValue(domain, arrayKey);
+      if (Array.isArray(arr)) {
+        const namesToDelete = Array.isArray(value) ? value : [value];
+        for (const name of namesToDelete) {
+          const idx = arr.findIndex(item => item.name === name || item.description === name || item === name);
+          if (idx !== -1) {
+            arr.splice(idx, 1);
+            console.log(`[Store] Deleted "${name}" from ${arrayKey}`);
+          } else {
+            console.log(`[Store] Delete: "${name}" not found in ${arrayKey}`);
+          }
+        }
+      }
+      continue;
+    }
+
+    // Handle array UPDATE: "tools_update" -> update existing items only (won't add new)
+    if (key.endsWith('_update')) {
+      const arrayKey = key.slice(0, -7);
+      const arr = getNestedValue(domain, arrayKey);
+      if (Array.isArray(arr)) {
+        const items = Array.isArray(value) ? value : [value];
+        for (const item of items) {
+          if (item.name) {
+            const idx = arr.findIndex(existing => existing.name === item.name);
+            if (idx !== -1) {
+              arr[idx] = { ...arr[idx], ...item };
+              console.log(`[Store] Updated "${item.name}" in ${arrayKey}`);
+            } else {
+              console.log(`[Store] Update: "${item.name}" not found in ${arrayKey}, skipping`);
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    // Handle array RENAME: "tools_rename" -> rename item { from: "old", to: "new" }
+    if (key.endsWith('_rename')) {
+      const arrayKey = key.slice(0, -7);
+      const arr = getNestedValue(domain, arrayKey);
+      if (Array.isArray(arr) && value.from && value.to) {
+        const idx = arr.findIndex(item => item.name === value.from);
+        if (idx !== -1) {
+          arr[idx].name = value.to;
+          console.log(`[Store] Renamed "${value.from}" to "${value.to}" in ${arrayKey}`);
+        } else {
+          console.log(`[Store] Rename: "${value.from}" not found in ${arrayKey}`);
+        }
+      }
+      continue;
+    }
+
+    // Handle array PUSH: "tools_push" -> add new or update existing by name
     if (key.endsWith('_push')) {
       const arrayKey = key.slice(0, -5);
       const arr = getNestedValue(domain, arrayKey);
       if (Array.isArray(arr)) {
-        if (value.name && arr.some(item => item.name === value.name)) {
-          const idx = arr.findIndex(item => item.name === value.name);
-          arr[idx] = { ...arr[idx], ...value };
-        } else {
-          arr.push(value);
+        // Support pushing multiple items at once
+        const items = Array.isArray(value) ? value : [value];
+        for (const item of items) {
+          if (item.name && arr.some(existing => existing.name === item.name)) {
+            // Update existing item by name - MERGE fields, don't replace
+            const idx = arr.findIndex(existing => existing.name === item.name);
+            arr[idx] = { ...arr[idx], ...item };
+            console.log(`[Store] Updated existing "${item.name}" in ${arrayKey}`);
+          } else {
+            // New item - must have minimum required fields for tools
+            if (arrayKey === 'tools' && !item.description) {
+              console.log(`[Store] WARNING: Adding tool "${item.name}" without description`);
+            }
+            arr.push(item);
+            console.log(`[Store] Added "${item.name || 'item'}" to ${arrayKey}`);
+          }
         }
       }
       continue;
@@ -318,6 +396,12 @@ function applyUpdates(domain, updates) {
       if (Array.isArray(arr) && arr[parseInt(index)]) {
         setNestedValue(arr[parseInt(index)], property, value);
       }
+      continue;
+    }
+
+    // PROTECTION: Block direct replacement of protected arrays
+    if (PROTECTED_ARRAYS.includes(key)) {
+      console.log(`[Store] BLOCKED: Direct replacement of "${key}" array. Use "${key}_push", "${key}_update", or "${key}_delete" instead.`);
       continue;
     }
 

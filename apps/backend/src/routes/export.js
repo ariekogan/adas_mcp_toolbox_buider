@@ -15,12 +15,20 @@ router.get("/:domainId", async (req, res, next) => {
     // Load domain
     const domain = await domainsStore.load(domainId);
 
-    // Check if ready to export
-    const incompleteTool = domain.tools?.find(t => t.status !== "COMPLETE");
+    // Debug: log tools
+    log.info(`Domain has ${domain.tools?.length || 0} tools`);
+    domain.tools?.forEach((t, i) => {
+      log.info(`Tool ${i}: name=${t.name}, hasDesc=${!!t.description}`);
+    });
+
+    // Check if tools have minimum required fields (name, description)
+    const incompleteTool = domain.tools?.find(t => !t.name || !t.description);
     if (incompleteTool) {
+      log.info(`Incomplete tool found: ${JSON.stringify(incompleteTool)}`);
       return res.status(400).json({
         error: "Not all tools are complete",
-        incomplete_tool: incompleteTool.name
+        incomplete_tool: incompleteTool?.name || "unnamed tool",
+        missing: !incompleteTool?.name ? "name" : "description"
       });
     }
 
@@ -58,7 +66,7 @@ router.get("/:domainId/download/:version", async (req, res, next) => {
   try {
     const { domainId, version } = req.params;
 
-    const files = await domainsStore.getExport(domainId, Number(version));
+    const files = await domainsStore.getExport(domainId, version);
 
     res.json({ files });
 

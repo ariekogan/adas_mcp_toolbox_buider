@@ -4,7 +4,7 @@ import * as api from '../api/client';
 const STORAGE_KEY = 'mcp_toolbox_settings';
 
 const DEFAULT_SETTINGS = {
-  llm_provider: 'anthropic',
+  llm_provider: 'openai', // Default to OpenAI
   anthropic_api_key: '',
   openai_api_key: '',
   anthropic_model: 'claude-sonnet-4-20250514',
@@ -31,8 +31,8 @@ export function useSettings() {
           hasApiKey: health.hasApiKey || false,
           llmProvider: health.llmProvider || 'anthropic'
         });
-        // Sync provider from backend
-        if (health.llmProvider && health.llmProvider !== settings.llm_provider) {
+        // Only sync if local provider not set
+        if (health.llmProvider && !settings.llm_provider) {
           setSettings(prev => ({ ...prev, llm_provider: health.llmProvider }));
         }
       })

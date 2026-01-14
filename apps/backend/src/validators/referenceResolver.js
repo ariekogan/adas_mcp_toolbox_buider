@@ -18,9 +18,9 @@
 export function resolveReferences(domain, unresolved) {
   const issues = [];
 
-  // Build lookup sets
-  const toolIds = new Set(domain.tools.map(t => t.id));
-  const toolNames = new Set(domain.tools.map(t => t.name.toLowerCase()));
+  // Build lookup sets (filter out tools without names)
+  const toolIds = new Set(domain.tools.map(t => t.id).filter(Boolean));
+  const toolNames = new Set(domain.tools.filter(t => t.name).map(t => t.name.toLowerCase()));
   const workflowIds = new Set(domain.policy.workflows.map(w => w.id));
   const intentIds = new Set(domain.intents.supported.map(i => i.id));
 

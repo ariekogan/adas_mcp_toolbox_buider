@@ -11,6 +11,10 @@ import { PHASES } from "../types/DraftDomain.js";
 // STATE UPDATE (supports both legacy toolbox and new DraftDomain)
 // ═══════════════════════════════════════════════════════════════
 
+// Protected array fields - these can ONLY be modified via _push/_delete/_update/_rename operations
+// Direct replacement is blocked to prevent accidental data loss from LLM mistakes
+const PROTECTED_ARRAYS = ['tools', 'intents.supported', 'policy.guardrails.always', 'policy.guardrails.never', 'scenarios'];
+
 /**
  * Apply state updates to toolbox or domain
  * Supports dot notation (e.g., "problem.statement") and array operations
@@ -22,6 +26,57 @@ export function applyStateUpdate(state, updates) {
   const newState = JSON.parse(JSON.stringify(state)); // Deep clone
 
   for (const [key, value] of Object.entries(updates)) {
+
+    // Handle array DELETE: "tools_delete" -> remove items by name
+    if (key.endsWith("_delete")) {
+      const arrayPath = key.slice(0, -7);
+      const array = getNestedValue(newState, arrayPath);
+      if (Array.isArray(array)) {
+        const namesToDelete = Array.isArray(value) ? value : [value];
+        for (const name of namesToDelete) {
+          const idx = array.findIndex(item => item.name === name || item.description === name || item === name);
+          if (idx !== -1) {
+            array.splice(idx, 1);
+            console.log(`[State] Deleted "${name}" from ${arrayPath}`);
+          }
+        }
+      }
+      continue;
+    }
+
+    // Handle array UPDATE: "tools_update" -> update existing items only
+    if (key.endsWith("_update")) {
+      const arrayPath = key.slice(0, -7);
+      const array = getNestedValue(newState, arrayPath);
+      if (Array.isArray(array)) {
+        const items = Array.isArray(value) ? value : [value];
+        for (const item of items) {
+          if (item.name) {
+            const idx = array.findIndex(existing => existing.name === item.name);
+            if (idx !== -1) {
+              array[idx] = { ...array[idx], ...item };
+              console.log(`[State] Updated "${item.name}" in ${arrayPath}`);
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    // Handle array RENAME: "tools_rename" -> { from: "old", to: "new" }
+    if (key.endsWith("_rename")) {
+      const arrayPath = key.slice(0, -7);
+      const array = getNestedValue(newState, arrayPath);
+      if (Array.isArray(array) && value.from && value.to) {
+        const idx = array.findIndex(item => item.name === value.from);
+        if (idx !== -1) {
+          array[idx].name = value.to;
+          console.log(`[State] Renamed "${value.from}" to "${value.to}" in ${arrayPath}`);
+        }
+      }
+      continue;
+    }
+
     // Handle array push operations
     if (key.endsWith("_push")) {
       const arrayPath = key.slice(0, -5); // Remove "_push"
@@ -31,9 +86,20 @@ export function applyStateUpdate(state, updates) {
         const itemsToAdd = Array.isArray(value) ? value : [value];
 
         for (const item of itemsToAdd) {
+          // For simple string arrays (like guardrails), check for exact duplicates
+          if (typeof item === "string") {
+            if (!array.includes(item)) {
+              array.push(item);
+              console.log(`[State] Added "${item}" to ${arrayPath}`);
+            } else {
+              console.log(`[State] Skipped duplicate "${item}" in ${arrayPath}`);
+            }
+            continue;
+          }
+
           // Auto-generate ID if not provided
           if (typeof item === "object" && !item.id) {
-            item.id = `${arrayPath.slice(0, -1)}_${uuidv4().slice(0, 8)}`;
+            item.id = `${arrayPath.split('.').pop()}_${uuidv4().slice(0, 8)}`;
           }
 
           // Check for duplicates by name (for tools, scenarios, etc.)
@@ -41,11 +107,26 @@ export function applyStateUpdate(state, updates) {
             existing.name && item.name && existing.name === item.name
           );
 
+          // Also check by description for intents
+          const existingByDesc = array.findIndex(existing =>
+            existing.description && item.description && existing.description === item.description
+          );
+
           if (existingIndex >= 0) {
-            // Update existing item instead of adding duplicate
+            // Update existing item instead of adding duplicate - MERGE, don't replace
             array[existingIndex] = { ...array[existingIndex], ...item };
+            console.log(`[State] Updated existing "${item.name}" in ${arrayPath}`);
+          } else if (existingByDesc >= 0 && arrayPath.includes('intents')) {
+            // For intents, also dedupe by description
+            array[existingByDesc] = { ...array[existingByDesc], ...item };
+            console.log(`[State] Updated existing intent by description in ${arrayPath}`);
           } else {
+            // Warn if adding tool without description
+            if (arrayPath === 'tools' && !item.description) {
+              console.log(`[State] WARNING: Adding tool "${item.name}" without description`);
+            }
             array.push(item);
+            console.log(`[State] Added "${item.name || item.description || 'item'}" to ${arrayPath}`);
           }
         }
       }
@@ -60,6 +141,12 @@ export function applyStateUpdate(state, updates) {
       if (Array.isArray(array) && array[Number(index)]) {
         setNestedValue(array[Number(index)], prop, value);
       }
+      continue;
+    }
+
+    // PROTECTION: Block direct replacement of protected arrays
+    if (PROTECTED_ARRAYS.includes(key)) {
+      console.log(`[State] BLOCKED: Direct replacement of "${key}" array. Use "${key}_push", "${key}_update", "${key}_rename", or "${key}_delete" instead.`);
       continue;
     }
 
