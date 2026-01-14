@@ -485,14 +485,23 @@ slag = skillSlug  // or skill.namespace from YAML
 - [x] Two-tier cache: core (global) + MCP tools (per-URI)
 - [x] dynamicToolMap = merge(coreTools, mcpTools)
 
-### To Implement
+### Implemented (2026-01-14)
+1. [x] Refactor `projectPaths.js` → `getPaths({ job })` derives slag from skillSlug
+2. [x] Refactor `runtimeMap.js` → two-tier cache + `getToolsForJob(job)`
+3. [x] Update `mainloop.js` to use `getToolsForJob(job)`
+4. [x] Add `skillSlug` to `selectToolsForPlanner` cache key
+5. [x] Update `focusCache.js` for per-slag isolation
+6. [x] Update `store.js` to store jobs in slag directory
+
+### Remaining
 1. [ ] Add `mcp_server` field to skill YAML schema
-2. [ ] Refactor `runtimeMap.js` → two-tier cache + `getToolsForJob(job)`
-3. [ ] Update `mainloop.js` to use `getToolsForJob(job)`
-4. [ ] Add MCP tool execution path in tool runner
-5. [ ] Add `skillSlug` to `selectToolsForPlanner` cache key
-6. [ ] Design focusCache isolation (per-slag subdirs?)
-7. [ ] Decide: remove `projectPath` or keep as optional?
+2. [ ] Implement actual MCP tool fetching (currently placeholder)
+3. [ ] Add MCP tool execution path in tool runner
+4. [ ] Update logging to use per-slag log directories
+5. [ ] Decide: remove `projectPath` or keep as optional?
+
+### Commit
+- Core ADAS: `643a9391` - Implement Multi-Slag Architecture for parallel skill execution
 
 ---
 
