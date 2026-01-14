@@ -113,8 +113,6 @@ export default function App() {
 
   // Export state
   const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [exportResult, setExportResult] = useState(null);
-  const [exportFiles, setExportFiles] = useState(null);
 
   const messages = currentSkill?.conversation || [];
 
@@ -203,22 +201,20 @@ export default function App() {
     }
   }, [currentSkill, uiFocus, addMessage, updateSkill]);
 
-  const handleExport = useCallback(async () => {
+  const handleExport = useCallback(() => {
     if (!currentSkill) return;
-    try {
-      // First export to generate files
-      const result = await api.exportSkill(currentSkill.id);
-      setExportResult(result);
+    setExportModalOpen(true);
+  }, [currentSkill]);
 
-      // Then download the full file contents
-      const download = await api.downloadExport(currentSkill.id, result.version);
-      setExportFiles(download.files);
+  const handleExportFiles = useCallback(async () => {
+    if (!currentSkill) return [];
+    const result = await api.previewAdasExport(currentSkill.id);
+    return result.files;
+  }, [currentSkill]);
 
-      // Open the modal
-      setExportModalOpen(true);
-    } catch (err) {
-      alert(`Export failed: ${err.message}`);
-    }
+  const handleDeployToAdas = useCallback(async () => {
+    if (!currentSkill) return null;
+    return api.deployToAdas(currentSkill.id);
   }, [currentSkill]);
 
   // File upload handlers
@@ -375,14 +371,11 @@ export default function App() {
 
       <ExportModal
         isOpen={exportModalOpen}
-        onClose={() => {
-          setExportModalOpen(false);
-          setExportResult(null);
-          setExportFiles(null);
-        }}
-        exportResult={exportResult}
-        files={exportFiles}
-        domainName={currentSkill?.name}
+        onClose={() => setExportModalOpen(false)}
+        skillId={currentSkill?.id}
+        skillName={currentSkill?.name}
+        onExportFiles={handleExportFiles}
+        onDeployToAdas={handleDeployToAdas}
       />
     </div>
   );

@@ -492,16 +492,546 @@ slag = skillSlug  // or skill.namespace from YAML
 4. [x] Add `skillSlug` to `selectToolsForPlanner` cache key
 5. [x] Update `focusCache.js` for per-slag isolation
 6. [x] Update `store.js` to store jobs in slag directory
+7. [x] Update logging (`callAI.js`) for per-slag log directories
+8. [x] Add `mcp_server` field to DraftDomain type and YAML export
 
 ### Remaining
-1. [ ] Add `mcp_server` field to skill YAML schema
-2. [ ] Implement actual MCP tool fetching (currently placeholder)
-3. [ ] Add MCP tool execution path in tool runner
-4. [ ] Update logging to use per-slag log directories
-5. [ ] Decide: remove `projectPath` or keep as optional?
+1. [ ] Implement actual MCP tool fetching (currently placeholder in `runtimeMap.js`)
+2. [ ] Add MCP tool execution path in tool runner
+3. [x] Decide: remove `projectPath` or keep as optional? → **DECIDED: Resource-Based Architecture**
 
-### Commit
-- Core ADAS: `643a9391` - Implement Multi-Slag Architecture for parallel skill execution
+---
+
+## Resource-Based Architecture (Clean Design)
+
+**Decision:** Remove `projectPath` entirely. Replace with explicit **resource bindings**.
+
+### Core Concept
+
+Instead of a global `projectPath` setting, skills declare what **resources** they need, and job requests **bind** those resources.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        RESOURCE-BASED ARCHITECTURE                          │
+│                                                                              │
+│   Skill YAML declares:           Job Request binds:                         │
+│   ┌─────────────────────┐       ┌─────────────────────────────────┐        │
+│   │ resources:          │       │ resources:                       │        │
+│   │   - name: codebase  │  ──►  │   codebase: "/path/to/project"  │        │
+│   │     type: filesystem│       │   config: "/path/to/config"     │        │
+│   │     required: true  │       └─────────────────────────────────┘        │
+│   └─────────────────────┘                                                   │
+│                                           │                                 │
+│                                           ▼                                 │
+│                              ┌─────────────────────────────────┐           │
+│                              │ job.__resources = {             │           │
+│                              │   codebase: "/path/to/project", │           │
+│                              │   config: "/path/to/config"     │           │
+│                              │ }                                │           │
+│                              └─────────────────────────────────┘           │
+│                                           │                                 │
+│                                           ▼                                 │
+│                              ┌─────────────────────────────────┐           │
+│                              │ Tools access via:               │           │
+│                              │   job.__resources.codebase      │           │
+│                              └─────────────────────────────────┘           │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Why This Is Better
+
+| Aspect | Old (`projectPath`) | New (Resources) |
+|--------|---------------------|-----------------|
+| **Scope** | Global setting | Per-job binding |
+| **Multi-skill** | Breaks with parallel | Each job has own resources |
+| **Clarity** | Implicit assumption | Explicit declaration |
+| **Flexibility** | One path only | Multiple named resources |
+| **Validation** | None | Skill defines requirements |
+
+### Skill YAML with Resources
+
+```yaml
+# /app/skills/sw-dev-tier-1.yaml
+id: sw-dev-tier-1
+name: "SW Dev: Tier 1"
+mcp_server: "http://localhost:4311"
+
+# Resource declarations - what this skill needs
+resources:
+  - name: codebase
+    type: filesystem
+    required: true
+    description: "Project source code directory"
+
+  - name: docs
+    type: filesystem
+    required: false
+    description: "Optional documentation directory"
+
+  - name: database
+    type: connection_string
+    required: false
+    description: "Database for schema inspection"
+
+role:
+  persona: "Senior software developer..."
+
+policy:
+  tools:
+    allowed: ["*"]  # Full tool access for SW dev
+```
+
+### Resource Types
+
+| Type | Description | Example Binding |
+|------|-------------|-----------------|
+| `filesystem` | Path to directory/file | `"/Users/dev/myproject"` |
+| `connection_string` | Database/service URI | `"postgres://localhost/db"` |
+| `api_endpoint` | External API URL | `"https://api.service.com"` |
+| `credential` | Secret reference | `"vault:aws/creds/dev"` |
+
+### Job Request with Resource Binding
+
+```javascript
+// API Request
+POST /api/chat
+{
+  "goal": "Fix the authentication bug in user service",
+  "skillSlug": "sw-dev-tier-1",
+  "resources": {
+    "codebase": "/Users/dev/myproject",
+    "docs": "/Users/dev/myproject/docs"
+  }
+}
+```
+
+### Bootstrap Validation
+
+During skill bootstrap, validate resource bindings:
+
+```javascript
+// In skill bootstrap (jobBootstrap.js or similar)
+function validateResources(skill, requestResources) {
+  const errors = [];
+
+  for (const decl of skill.resources || []) {
+    const bound = requestResources?.[decl.name];
+
+    if (decl.required && !bound) {
+      errors.push(`Required resource '${decl.name}' not provided`);
+      continue;
+    }
+
+    if (bound && decl.type === 'filesystem') {
+      // Validate path exists and is accessible
+      if (!fs.existsSync(bound)) {
+        errors.push(`Resource '${decl.name}': path does not exist: ${bound}`);
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new ResourceValidationError(errors);
+  }
+
+  return true;
+}
+```
+
+### Job Structure with Resources
+
+```javascript
+// Job object structure
+{
+  id: "job_abc123",
+  skillSlug: "sw-dev-tier-1",
+  goal: "Fix the authentication bug",
+
+  // Resources bound for this job
+  __resources: {
+    codebase: "/Users/dev/myproject",
+    docs: "/Users/dev/myproject/docs"
+  },
+
+  // Skill data (from YAML)
+  __skill: {
+    id: "sw-dev-tier-1",
+    mcp_server: "http://localhost:4311",
+    resources: [
+      { name: "codebase", type: "filesystem", required: true },
+      { name: "docs", type: "filesystem", required: false }
+    ],
+    // ...
+  }
+}
+```
+
+### Tool Access Pattern
+
+Tools access resources via the job context:
+
+```javascript
+// In a tool implementation
+async function run({ args, job }) {
+  // Get the codebase path from resources
+  const codebase = job.__resources?.codebase;
+
+  if (!codebase) {
+    return { ok: false, error: "No codebase resource bound to this job" };
+  }
+
+  // Use the codebase path
+  const files = await glob(`${codebase}/**/*.js`);
+  // ...
+}
+```
+
+### System Prompt Injection
+
+The skill's system prompt can reference resources:
+
+```yaml
+# In skill YAML
+role:
+  persona: |
+    You are a senior software developer working on the codebase at {{resources.codebase}}.
+    {{#if resources.docs}}
+    Documentation is available at {{resources.docs}}.
+    {{/if}}
+```
+
+### Skills Without Resources
+
+Skills that don't need external resources (like CS agents) simply don't declare any:
+
+```yaml
+# /app/skills/cs-tier-1.yaml
+id: cs-tier-1
+name: "CS: Tier 1"
+mcp_server: "http://localhost:4310"
+
+# No resources declared - this skill doesn't need filesystem access
+
+role:
+  persona: "Friendly customer service agent..."
+```
+
+### Implementation Steps
+
+#### Phase 1: Skill Templates & Bootstrap (Backward Compatible) ✅ IMPLEMENTED
+
+1. **Create Skill Template Directory** ✅
+   - Created `/apps/backend/skill-templates/sw-dev-agent.yaml`
+   - Template with `codebase` resource (required: true)
+
+2. **Skill Loader Module** ✅
+   - Created `/apps/backend/skills/skillLoader.js`
+   - `loadOrBootstrapSkill(skillSlug)` - main entry point
+   - `bootstrapJobSkill({ skillSlug, resources })` - job bootstrap helper
+   - `validateResources(skill, resources)` - resource validation
+   - Auto-creates slag directory structure on first use
+
+3. **Job Bootstrap Update** ✅
+   - Updated `jobRunner.js` - `startJob()` accepts `{ goal, skillSlug, resources }`
+   - Job object now includes: `skillSlug`, `__skill`, `__resources`
+   - Auto-binds `projectPath` → `codebase` for sw-dev-agent (backward compat)
+
+4. **API Update** ✅
+   - Updated `server.js` - `/api/chat` accepts `skillSlug` and `resources`
+
+5. **Tool Access Pattern**
+   - Tools check `job.__resources.codebase` first
+   - Fall back to `getPaths().projectPath` for legacy (temporary)
+
+#### Phase 2: Full Resource-Based (Future)
+
+5. **Skill Schema Update**
+   - Add `resources` array to skill YAML schema
+   - Define resource types: `filesystem`, `connection_string`, `api_endpoint`, `credential`
+
+6. **API Update**
+   - Add `resources` object to `/api/chat` request body
+   - Validate against skill's resource declarations
+
+7. **System Prompt Templating**
+   - Template engine to inject resource values
+   - Conditional sections for optional resources
+
+8. **Remove Legacy** (Eventually)
+   - Remove `projectPath` from settings
+   - Remove auto-binding logic
+   - All resources must be explicit in request
+
+### Skill Templates vs Operational Skills
+
+**Key Distinction:**
+- **Skill Templates** (in repo) - NOT operational, just starting points
+- **Operational Skills** (in `/memory/<slag>/`) - Actually used by the system
+
+#### Directory Structure
+
+```
+REPO (templates - not operational)          MEMORY (operational skills)
+/app/skill-templates/                       /memory/
+    └── sw-dev-agent.yaml                       ├── sw-dev-agent/
+                                                │   ├── skill.yaml    ← operational
+                                                │   ├── jobs/
+                                                │   ├── logs/
+                                                │   └── focus-cache/
+                                                │
+                                                └── cs-tier-1/        ← another slag
+                                                    ├── skill.yaml
+                                                    ├── jobs/
+                                                    └── ...
+```
+
+#### Skill Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           SKILL LIFECYCLE                                    │
+│                                                                              │
+│   1. Request comes in (with or without skillSlug)                           │
+│                                                                              │
+│   2. Resolve slag:                                                          │
+│      - If skillSlug provided → use it                                       │
+│      - If not → default to "sw-dev-agent"                                   │
+│                                                                              │
+│   3. Check if slag exists in /memory/:                                      │
+│      - /memory/<slag>/skill.yaml exists? → Load operational skill           │
+│      - Doesn't exist? → Bootstrap from template                             │
+│                                                                              │
+│   4. Bootstrap (first time only):                                           │
+│      - Create /memory/<slag>/                                               │
+│      - Copy template → /memory/<slag>/skill.yaml                           │
+│      - Create jobs/, logs/, focus-cache/                                    │
+│      - Auto-bind projectPath → codebase resource                           │
+│                                                                              │
+│   5. Load operational skill from /memory/<slag>/skill.yaml                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Default Skill Template
+
+```yaml
+# /app/skill-templates/sw-dev-agent.yaml
+# This is a TEMPLATE - copied to /memory/sw-dev-agent/skill.yaml on first use
+
+id: sw-dev-agent
+name: "SW Dev Agent"
+version: 1
+
+# Resource declarations
+resources:
+  - name: codebase
+    type: filesystem
+    required: true
+    description: "Project source code directory"
+
+role:
+  persona: |
+    You are an expert software developer assistant.
+    You're working on the codebase at {{resources.codebase}}.
+
+policy:
+  tools:
+    allowed: ["*"]
+```
+
+#### Bootstrap Logic
+
+```javascript
+// In skill loader
+async function loadOrBootstrapSkill(skillSlug) {
+  const slag = skillSlug || "sw-dev-agent";  // Default skill
+  const memoryRoot = resolveMemoryRoot();
+  const slagDir = path.join(memoryRoot, slag);
+  const skillFile = path.join(slagDir, "skill.yaml");
+
+  // Check if operational skill exists
+  if (await exists(skillFile)) {
+    return loadSkillYaml(skillFile);
+  }
+
+  // Bootstrap from template
+  const templateFile = path.join(
+    resolveAssistantRoot(),
+    "skill-templates",
+    `${slag}.yaml`
+  );
+
+  // Create slag directory structure
+  await fs.mkdir(slagDir, { recursive: true });
+  await fs.mkdir(path.join(slagDir, "jobs"), { recursive: true });
+  await fs.mkdir(path.join(slagDir, "logs"), { recursive: true });
+  await fs.mkdir(path.join(slagDir, "focus-cache"), { recursive: true });
+
+  // Copy template or create default
+  if (await exists(templateFile)) {
+    await fs.copyFile(templateFile, skillFile);
+  } else {
+    // Create minimal default skill
+    await fs.writeFile(skillFile, defaultSkillYaml(slag), "utf8");
+  }
+
+  return loadSkillYaml(skillFile);
+}
+```
+
+#### Backward Compatibility
+
+```javascript
+// In job bootstrap
+function bootstrapJob(request) {
+  const skillSlug = request.skillSlug || "sw-dev-agent";
+  const resources = request.resources || {};
+
+  // Auto-bind projectPath as codebase for sw-dev-agent (legacy compat)
+  if (skillSlug === "sw-dev-agent" && !resources.codebase) {
+    const settings = getAllSettings();
+    if (settings.projectPath) {
+      resources.codebase = settings.projectPath;
+    }
+  }
+
+  const skill = await loadOrBootstrapSkill(skillSlug);
+  validateResources(skill, resources);
+
+  return {
+    id: generateJobId(),
+    skillSlug,
+    __skill: skill,
+    __resources: resources,
+    // ...
+  };
+}
+```
+
+#### What This Achieves
+
+| Scenario | Behavior |
+|----------|----------|
+| **Legacy request** (no skill, has projectPath) | Uses `sw-dev-agent`, bootstraps if needed, auto-binds `codebase` |
+| **New request** (explicit skill + resources) | Uses specified skill, bootstraps if needed |
+| **Custom skill** (user-created in /memory/) | Loads directly, no template needed |
+
+#### Benefits
+
+1. **Templates are just starting points** - not mixed with operational code
+2. **Operational skills live in /memory/** - per-tenant, per-slag
+3. **Users can customize** - edit `/memory/<slag>/skill.yaml` directly
+4. **Bootstrap is automatic** - first request creates the slag
+5. **Backward compatible** - existing deployments just work
+
+### Example: Full SW Dev Skill
+
+```yaml
+# /app/skills/sw-dev-senior.yaml
+id: sw-dev-senior
+name: "SW Dev: Senior Engineer"
+mcp_server: "http://localhost:4311"
+
+resources:
+  - name: codebase
+    type: filesystem
+    required: true
+    description: "Project source code"
+
+  - name: tests
+    type: filesystem
+    required: false
+    description: "Test directory (defaults to codebase/tests)"
+
+  - name: ci_api
+    type: api_endpoint
+    required: false
+    description: "CI/CD API for build status"
+
+role:
+  persona: |
+    You are a senior software engineer with 10+ years of experience.
+    You're working on the codebase at {{resources.codebase}}.
+    Always write clean, tested, maintainable code.
+
+context:
+  project_structure: true
+  recent_changes: true
+
+policy:
+  tools:
+    allowed: ["*"]
+  guardrails:
+    - "Never commit directly to main branch"
+    - "Always run tests before suggesting changes are complete"
+```
+
+### Example: Job Request
+
+```javascript
+// Client request to start SW dev job
+fetch('/api/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    goal: "Implement user authentication with JWT",
+    skillSlug: "sw-dev-senior",
+    resources: {
+      codebase: "/home/dev/myapp",
+      tests: "/home/dev/myapp/tests",
+      ci_api: "https://ci.company.com/api"
+    }
+  })
+});
+```
+
+### Commits
+- Core ADAS: Multi-Slag Architecture implementation (pending commit)
+- Toolbox Builder: Added `mcp_server` to DraftDomain type and export
+
+---
+
+## Summary: Clean ADAS Architecture
+
+The Multi-Slag Architecture with Resource-Based design creates a clean, scalable system:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           CLEAN ADAS ARCHITECTURE                            │
+│                                                                              │
+│   /memory/ (TENANT)                                                         │
+│       │                                                                      │
+│       ├── cs-tier-1/          ← CS skill jobs, logs, cache                  │
+│       ├── sw-dev-senior/      ← SW Dev skill jobs, logs, cache              │
+│       └── devops-tier-1/      ← DevOps skill jobs, logs, cache              │
+│                                                                              │
+│   Job Request:                                                               │
+│   {                                                                          │
+│     skillSlug: "sw-dev-senior",                                             │
+│     goal: "...",                                                             │
+│     resources: { codebase: "/path/to/project" }   ← Resource binding        │
+│   }                                                                          │
+│                                                                              │
+│   Job Object:                                                                │
+│   {                                                                          │
+│     id, skillSlug, goal,                                                    │
+│     __skill: { ... },                              ← From YAML              │
+│     __resources: { codebase: "/path/to/project" } ← Bound resources         │
+│   }                                                                          │
+│                                                                              │
+│   Tools:                                                                     │
+│   - Core tools (global cache, 5min TTL)                                     │
+│   - MCP tools (per-skill URI, 1min TTL)                                     │
+│   - Access resources via job.__resources                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Benefits:**
+- **Parallel-safe:** Multiple skills run simultaneously without interference
+- **Explicit:** Resources declared by skill, bound by request
+- **Scalable:** Per-skill isolation for jobs, logs, cache
+- **Clean:** No global state, everything flows from job context
 
 ---
 

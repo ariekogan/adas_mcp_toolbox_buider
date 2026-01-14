@@ -170,6 +170,17 @@ export async function downloadExport(skillId, version) {
   return request(`/export/${skillId}/download/${version}`);
 }
 
+// ADAS Core export
+export async function deployToAdas(skillId, adasUrl = null) {
+  const params = new URLSearchParams({ deploy: 'true' });
+  if (adasUrl) params.append('adasUrl', adasUrl);
+  return request(`/export/${skillId}/adas?${params}`, { method: 'POST' });
+}
+
+export async function previewAdasExport(skillId) {
+  return request(`/export/${skillId}/adas/preview`);
+}
+
 export default {
   checkHealth,
   listSkills,
@@ -188,5 +199,7 @@ export default {
   validatePolicyConsistency,
   exportSkill,
   previewExport,
-  downloadExport
+  downloadExport,
+  deployToAdas,
+  previewAdasExport
 };

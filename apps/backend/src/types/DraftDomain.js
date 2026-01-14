@@ -349,6 +349,7 @@
  * @property {string} description
  * @property {string} version
  * @property {Phase} phase
+ * @property {string} [mcp_server] - MCP server URI for skill-specific tools (Multi-Slag Architecture)
  * @property {string} created_at
  * @property {string} updated_at
  * @property {Problem} problem
