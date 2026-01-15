@@ -598,6 +598,7 @@ export default function SkillPanel({
   });
   const [expandedItems, setExpandedItems] = useState({});
   const [testingTool, setTestingTool] = useState(null);
+  const [focusedTool, setFocusedTool] = useState(null); // Full-screen tool view
 
   // Cascading validation - pass onIssuesChange for persistence
   const {
@@ -696,10 +697,40 @@ export default function SkillPanel({
   };
 
   const toggleItem = (type, id) => {
-    setExpandedItems(prev => ({ ...prev, [`${type}_${id}`]: !prev[`${type}_${id}`] }));
+    const key = `${type}_${id}`;
+    const isCurrentlyExpanded = expandedItems[key];
+    if (isCurrentlyExpanded) {
+      // Collapsing - just toggle this one
+      setExpandedItems(prev => ({ ...prev, [key]: false }));
+    } else {
+      // Expanding - collapse all others of same type first, then expand this one
+      setExpandedItems(prev => {
+        const newState = {};
+        // Keep non-matching types, collapse matching types
+        Object.keys(prev).forEach(k => {
+          if (k.startsWith(`${type}_`)) {
+            newState[k] = false;
+          } else {
+            newState[k] = prev[k];
+          }
+        });
+        newState[key] = true;
+        return newState;
+      });
+    }
   };
 
   const isItemExpanded = (type, id) => expandedItems[`${type}_${id}`];
+
+  // Check if any tool is expanded (for full-area view)
+  const getExpandedToolId = () => {
+    for (const key of Object.keys(expandedItems)) {
+      if (key.startsWith('tool_') && expandedItems[key]) {
+        return key.replace('tool_', '');
+      }
+    }
+    return null;
+  };
 
   if (!skill) {
     return (
@@ -899,99 +930,188 @@ export default function SkillPanel({
 
         {/* Tools Tab */}
         {activeTab === 'tools' && (
-          <div style={styles.section}>
-            <div style={styles.sectionHeader}>
-              <div style={styles.sectionTitle}>Tools ({skill.tools?.length || 0})</div>
-              <div style={styles.sectionHeaderButtons}>
-                <InfoButton topic="tools" onAskAbout={onAskAbout} />
-                <ValidateButton
-                  section="tools"
-                  skillId={skill?.id}
-                  onValidationResults={handleValidationResults}
-                  disabled={(skill.tools?.length || 0) < 2}
-                />
-              </div>
-            </div>
-            {skill.tools?.length > 0 ? (
-              skill.tools.map((tool, i) => {
-                const mockColor = getMockStatusColor(tool.mock_status);
-                const isFocused = focus?.type === 'TOOL' && focus?.id === tool.id;
-                const isExpanded = isItemExpanded('tool', tool.id || i);
-
-                return (
-                  <div key={tool.id || i} style={{ ...styles.card, ...(isFocused ? styles.cardFocused : {}) }}>
-                    <div style={styles.cardTitle} onClick={() => toggleItem('tool', tool.id || i)}>
-                      <span style={{ ...styles.expandIcon, transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
-                      {tool.name || `Tool ${i + 1}`}
-                      <span style={{ ...styles.status, background: mockColor.bg, color: mockColor.color }}>
-                        {tool.mock_status || 'untested'}
+          <div style={{ ...styles.section, height: '100%', display: 'flex', flexDirection: 'column' }}>
+            {/* Full-screen focused tool view */}
+            {focusedTool ? (
+              <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                {/* Header with close button */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '16px',
+                  paddingBottom: '12px',
+                  borderBottom: '1px solid var(--border)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>
+                      {focusedTool.name}
+                    </h3>
+                    <span style={{
+                      ...styles.status,
+                      background: getMockStatusColor(focusedTool.mock_status).bg,
+                      color: getMockStatusColor(focusedTool.mock_status).color
+                    }}>
+                      {focusedTool.mock_status || 'untested'}
+                    </span>
+                    {focusedTool.policy?.requires_approval !== 'never' && (
+                      <span style={{ ...styles.policyBadge, background: '#f59e0b20', color: '#fbbf24' }}>
+                        approval
                       </span>
-                      {tool.policy?.requires_approval !== 'never' && (
-                        <span style={{ ...styles.policyBadge, background: '#f59e0b20', color: '#fbbf24' }}>
-                          approval
-                        </span>
-                      )}
-                    </div>
-                    <div style={styles.cardMeta}>{tool.description || 'No description'}</div>
-
-                    {isExpanded && (
-                      <div style={styles.toolDetails}>
-                        {/* Inputs */}
-                        {tool.inputs?.length > 0 && (
-                          <div style={{ marginBottom: '8px' }}>
-                            <div style={styles.mockLabel}>Inputs</div>
-                            {tool.inputs.map((input, j) => (
-                              <div key={j} style={styles.inputItem}>
-                                <span style={styles.inputName}>{input.name}</span>
-                                <span style={styles.inputType}>{input.type || 'string'}</span>
-                                {input.required && <span style={styles.inputRequired}>required</span>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {/* Output */}
-                        {tool.output && (
-                          <div style={{ marginBottom: '8px' }}>
-                            <div style={styles.mockLabel}>Output</div>
-                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                              {tool.output.description || tool.output.type}
-                            </div>
-                          </div>
-                        )}
-                        {/* Tool Policy */}
-                        {tool.policy && (
-                          <div style={{ marginBottom: '8px' }}>
-                            <div style={styles.mockLabel}>Policy</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                              Allowed: {tool.policy.allowed} | Approval: {tool.policy.requires_approval || 'never'}
-                            </div>
-                          </div>
-                        )}
-                        {/* Mock Examples */}
-                        {tool.mock?.examples?.length > 0 && (
-                          <div>
-                            <div style={styles.mockLabel}>Mock Examples ({tool.mock.examples.length})</div>
-                            {tool.mock.examples.slice(0, 2).map((ex, j) => (
-                              <div key={j} style={styles.mockExample}>
-                                <div style={{ color: 'var(--text-muted)' }}>In: {JSON.stringify(ex.input)}</div>
-                                <div style={{ color: 'var(--success)' }}>Out: {JSON.stringify(ex.output).substring(0, 80)}...</div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {/* Test Button */}
-                        {tool.inputs?.length > 0 && (
-                          <button style={styles.testBtn} onClick={(e) => { e.stopPropagation(); setTestingTool(tool); }}>
-                            Test Tool
-                          </button>
-                        )}
-                      </div>
                     )}
                   </div>
-                );
-              })
+                  <button
+                    onClick={() => setFocusedTool(null)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      fontSize: '20px',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      lineHeight: 1
+                    }}
+                    title="Close"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {/* Scrollable content */}
+                <div style={{ flex: 1, overflow: 'auto' }}>
+                  <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: '1.5' }}>
+                    {focusedTool.description || 'No description'}
+                  </div>
+
+                  {/* Inputs */}
+                  {focusedTool.inputs?.length > 0 && (
+                    <div style={{ marginBottom: '20px' }}>
+                      <div style={{ ...styles.mockLabel, fontSize: '12px', marginBottom: '10px' }}>
+                        Inputs ({focusedTool.inputs.length})
+                      </div>
+                      <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '12px' }}>
+                        {focusedTool.inputs.map((input, j) => (
+                          <div key={j} style={{
+                            ...styles.inputItem,
+                            padding: '8px 0',
+                            borderBottom: j < focusedTool.inputs.length - 1 ? '1px solid var(--border)' : 'none'
+                          }}>
+                            <span style={{ ...styles.inputName, fontSize: '14px' }}>{input.name}</span>
+                            <span style={{ ...styles.inputType, fontSize: '11px' }}>{input.type || 'string'}</span>
+                            {input.required && <span style={{ ...styles.inputRequired, fontSize: '11px' }}>required</span>}
+                            {input.description && (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '12px', marginLeft: '8px' }}>
+                                — {input.description}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Output */}
+                  {focusedTool.output && (
+                    <div style={{ marginBottom: '20px' }}>
+                      <div style={{ ...styles.mockLabel, fontSize: '12px', marginBottom: '10px' }}>Output</div>
+                      <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '12px' }}>
+                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                          {focusedTool.output.description || focusedTool.output.type || JSON.stringify(focusedTool.output)}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Policy */}
+                  {focusedTool.policy && (
+                    <div style={{ marginBottom: '20px' }}>
+                      <div style={{ ...styles.mockLabel, fontSize: '12px', marginBottom: '10px' }}>Policy</div>
+                      <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '12px' }}>
+                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                          <div style={{ marginBottom: '6px' }}><strong>Allowed:</strong> {focusedTool.policy.allowed || 'always'}</div>
+                          <div><strong>Requires Approval:</strong> {focusedTool.policy.requires_approval || 'never'}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Mock Examples */}
+                  {focusedTool.mock?.examples?.length > 0 && (
+                    <div style={{ marginBottom: '20px' }}>
+                      <div style={{ ...styles.mockLabel, fontSize: '12px', marginBottom: '10px' }}>
+                        Mock Examples ({focusedTool.mock.examples.length})
+                      </div>
+                      {focusedTool.mock.examples.map((ex, j) => (
+                        <div key={j} style={{ ...styles.mockExample, marginBottom: '8px' }}>
+                          <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>
+                            <strong>Input:</strong> {JSON.stringify(ex.input, null, 2)}
+                          </div>
+                          <div style={{ color: 'var(--success)' }}>
+                            <strong>Output:</strong> {JSON.stringify(ex.output, null, 2)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Test Button */}
+                  {focusedTool.inputs?.length > 0 && (
+                    <button
+                      style={{ ...styles.testBtn, padding: '10px 20px', fontSize: '14px' }}
+                      onClick={() => setTestingTool(focusedTool)}
+                    >
+                      ▶ Test Tool
+                    </button>
+                  )}
+                </div>
+              </div>
             ) : (
-              <div style={styles.empty}>No tools defined yet</div>
+              /* Normal tools list view */
+              <>
+                <div style={styles.sectionHeader}>
+                  <div style={styles.sectionTitle}>Tools ({skill.tools?.length || 0})</div>
+                  <div style={styles.sectionHeaderButtons}>
+                    <InfoButton topic="tools" onAskAbout={onAskAbout} />
+                    <ValidateButton
+                      section="tools"
+                      skillId={skill?.id}
+                      onValidationResults={handleValidationResults}
+                      disabled={(skill.tools?.length || 0) < 2}
+                    />
+                  </div>
+                </div>
+                {skill.tools?.length > 0 ? (
+                  skill.tools.map((tool, i) => {
+                    const mockColor = getMockStatusColor(tool.mock_status);
+                    const isFocused = focus?.type === 'TOOL' && focus?.id === tool.id;
+
+                    return (
+                      <div
+                        key={tool.id || i}
+                        style={{ ...styles.card, ...(isFocused ? styles.cardFocused : {}), cursor: 'pointer' }}
+                        onClick={() => setFocusedTool(tool)}
+                      >
+                        <div style={styles.cardTitle}>
+                          <span style={styles.expandIcon}>›</span>
+                          {tool.name || `Tool ${i + 1}`}
+                          <span style={{ ...styles.status, background: mockColor.bg, color: mockColor.color }}>
+                            {tool.mock_status || 'untested'}
+                          </span>
+                          {tool.policy?.requires_approval !== 'never' && (
+                            <span style={{ ...styles.policyBadge, background: '#f59e0b20', color: '#fbbf24' }}>
+                              approval
+                            </span>
+                          )}
+                        </div>
+                        <div style={styles.cardMeta}>{tool.description || 'No description'}</div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div style={styles.empty}>No tools defined yet</div>
+                )}
+              </>
             )}
           </div>
         )}
