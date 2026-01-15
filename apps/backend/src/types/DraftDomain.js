@@ -274,6 +274,12 @@
  */
 
 /**
+ * @typedef {Object} FinalizationGate
+ * @property {boolean} enabled - Whether to validate responses before sending (default: true)
+ * @property {number} max_retries - How many times to retry if validation fails (default: 2)
+ */
+
+/**
  * @typedef {Object} RV2Config
  * @property {number} max_iterations - Default: 10
  * @property {number} iteration_timeout_ms - Default: 30000
@@ -315,9 +321,12 @@
 
 /**
  * @typedef {Object} EngineConfig
+ * @property {string} [model] - LLM model to use (e.g., "claude-3-sonnet")
+ * @property {number} [temperature] - LLM temperature (0.0-1.0)
  * @property {RV2Config} rv2
  * @property {HLRConfig} hlr
  * @property {AutonomyConfig} autonomy
+ * @property {FinalizationGate} [finalization_gate] - Response validation before sending to user
  */
 
 /**

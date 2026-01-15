@@ -77,6 +77,10 @@ export function createEmptyDraftDomain(id, name) {
       autonomy: {
         level: 'supervised',
       },
+      finalization_gate: {
+        enabled: true,
+        max_retries: 2,
+      },
     },
 
     toolbox_imports: [],

@@ -413,6 +413,29 @@ function validateEngine(engine) {
     }
   }
 
+  // Validate finalization_gate
+  if (engine.finalization_gate) {
+    const gate = engine.finalization_gate;
+    if (gate.enabled !== undefined && typeof gate.enabled !== 'boolean') {
+      issues.push({
+        code: 'INVALID_FINALIZATION_GATE_ENABLED',
+        severity: 'error',
+        path: 'engine.finalization_gate.enabled',
+        message: 'finalization_gate.enabled must be a boolean',
+      });
+    }
+    if (gate.max_retries !== undefined) {
+      if (typeof gate.max_retries !== 'number' || gate.max_retries < 0 || gate.max_retries > 10) {
+        issues.push({
+          code: 'INVALID_FINALIZATION_GATE_RETRIES',
+          severity: 'error',
+          path: 'engine.finalization_gate.max_retries',
+          message: 'finalization_gate.max_retries must be a number between 0 and 10',
+        });
+      }
+    }
+  }
+
   return issues;
 }
 

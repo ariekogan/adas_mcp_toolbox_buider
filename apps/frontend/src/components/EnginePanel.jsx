@@ -209,8 +209,9 @@ export default function EnginePanel({ engine, onAskAbout }) {
     );
   }
 
-  const { rv2 = {}, hlr = {}, autonomy = {} } = engine;
+  const { rv2 = {}, hlr = {}, autonomy = {}, finalization_gate = {} } = engine;
   const autonomyColor = getAutonomyColor(autonomy.level);
+  const gateEnabled = finalization_gate.enabled !== false; // Default true
 
   return (
     <div style={styles.section}>
@@ -366,6 +367,35 @@ export default function EnginePanel({ engine, onAskAbout }) {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Finalization Gate */}
+          <div style={styles.subsection}>
+            <div style={{ ...styles.subsectionTitle, justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>Finalization Gate</span>
+                <span style={{
+                  ...styles.badge,
+                  ...(gateEnabled ? styles.enabledBadge : styles.disabledBadge)
+                }}>
+                  {gateEnabled ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
+              <ExplainButton topic="finalization gate" onAskAbout={onAskAbout} />
+            </div>
+            <div style={styles.settingRow}>
+              <span style={styles.settingLabel}>Status</span>
+              <span style={{
+                ...styles.badge,
+                ...(gateEnabled ? styles.enabledBadge : styles.disabledBadge)
+              }}>
+                {gateEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </div>
+            <div style={{ ...styles.settingRow, borderBottom: 'none' }}>
+              <span style={styles.settingLabel}>Max Retries</span>
+              <span style={styles.settingValue}>{finalization_gate.max_retries ?? 2}</span>
+            </div>
           </div>
         </>
       )}
