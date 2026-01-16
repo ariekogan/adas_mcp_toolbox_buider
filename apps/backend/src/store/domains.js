@@ -365,7 +365,13 @@ function applyUpdates(domain, updates) {
     // Handle array PUSH: "tools_push" -> add new or update existing by name
     if (key.endsWith('_push')) {
       const arrayKey = key.slice(0, -5);
-      const arr = getNestedValue(domain, arrayKey);
+      let arr = getNestedValue(domain, arrayKey);
+      // Initialize array if it doesn't exist (for meta_tools, etc.)
+      if (!Array.isArray(arr)) {
+        setNestedValue(domain, arrayKey, []);
+        arr = getNestedValue(domain, arrayKey);
+        console.log(`[Store] Initialized empty array for ${arrayKey}`);
+      }
       if (Array.isArray(arr)) {
         // Support pushing multiple items at once
         const items = Array.isArray(value) ? value : [value];
