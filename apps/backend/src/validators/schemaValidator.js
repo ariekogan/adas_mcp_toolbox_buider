@@ -80,7 +80,8 @@ export const COVERAGE = [
   { section: 'metadata', field: 'phase', check: 'Valid phase enum', type: 'schema' },
 ];
 
-const VALID_DATA_TYPES = ['string', 'number', 'boolean', 'object', 'array'];
+const VALID_DATA_TYPES = ['string', 'number', 'boolean', 'object', 'array', 'text'];
+// Note: 'text' is an alias for 'string' - both are valid
 const VALID_PHASES = [
   'PROBLEM_DISCOVERY',
   'SCENARIO_EXPLORATION',

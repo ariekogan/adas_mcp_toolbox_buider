@@ -27,6 +27,81 @@ const MEMORY_PATH = process.env.MEMORY_PATH || '/memory';
 // HELPERS
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * Normalize domain data - fix missing IDs, invalid types, etc.
+ * Called on load to ensure data consistency.
+ */
+function normalizeDomain(domain) {
+  let modified = false;
+
+  // Fix missing intent IDs
+  if (domain.intents?.supported) {
+    for (const intent of domain.intents.supported) {
+      if (!intent.id) {
+        intent.id = `intent_${uuidv4().slice(0, 8)}`;
+        modified = true;
+        console.log(`[Store] Auto-generated intent ID: ${intent.id}`);
+      }
+    }
+  }
+
+  // Fix missing tool IDs, normalize policy values, and remove duplicates
+  if (domain.tools) {
+    const seenNames = new Map(); // name -> index
+    const toRemove = [];
+
+    for (let i = 0; i < domain.tools.length; i++) {
+      const tool = domain.tools[i];
+
+      if (!tool.id) {
+        tool.id = `tool_${uuidv4().slice(0, 8)}`;
+        modified = true;
+        console.log(`[Store] Auto-generated tool ID: ${tool.id}`);
+      }
+
+      // Normalize invalid policy.allowed values
+      if (tool.policy?.allowed === 'requires_approval') {
+        tool.policy.allowed = 'conditional';
+        tool.policy.requires_approval = 'always';
+        modified = true;
+        console.log(`[Store] Normalized policy for tool ${tool.name}: requires_approval -> conditional`);
+      }
+
+      // Check for duplicates by name (case-insensitive, ignore spaces/underscores)
+      const normalizedName = (tool.name || '').toLowerCase().replace(/[\s_-]/g, '');
+      if (seenNames.has(normalizedName)) {
+        // Mark for removal (keep the first one)
+        toRemove.push(i);
+        console.log(`[Store] Marking duplicate tool for removal: ${tool.name}`);
+      } else {
+        seenNames.set(normalizedName, i);
+      }
+    }
+
+    // Remove duplicates (in reverse order to preserve indices)
+    if (toRemove.length > 0) {
+      for (let i = toRemove.length - 1; i >= 0; i--) {
+        domain.tools.splice(toRemove[i], 1);
+      }
+      modified = true;
+      console.log(`[Store] Removed ${toRemove.length} duplicate tool(s)`);
+    }
+  }
+
+  // Fix missing scenario IDs
+  if (domain.scenarios) {
+    for (const scenario of domain.scenarios) {
+      if (!scenario.id) {
+        scenario.id = `scenario_${uuidv4().slice(0, 8)}`;
+        modified = true;
+        console.log(`[Store] Auto-generated scenario ID: ${scenario.id}`);
+      }
+    }
+  }
+
+  return modified;
+}
+
 async function ensureDir(dir) {
   try {
     await fs.mkdir(dir, { recursive: true });
@@ -178,6 +253,12 @@ async function load(slug) {
   const domainPath = path.join(slugDir, 'domain.json');
   if (await fileExists(domainPath)) {
     const domain = await readJson(domainPath);
+    // Normalize data (fix missing IDs, etc.)
+    const wasModified = normalizeDomain(domain);
+    if (wasModified) {
+      // Save normalized data back
+      await writeJson(domainPath, domain);
+    }
     // Re-validate on load
     domain.validation = validateDraftDomain(domain);
     return domain;

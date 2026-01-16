@@ -105,7 +105,9 @@ export function applyStateUpdate(state, updates) {
 
           // Auto-generate ID if not provided
           if (typeof item === "object" && !item.id) {
-            item.id = `${arrayPath.split('.').pop()}_${uuidv4().slice(0, 8)}`;
+            // Use better prefix for intents
+            const prefix = arrayPath.includes('intents') ? 'intent' : arrayPath.split('.').pop();
+            item.id = `${prefix}_${uuidv4().slice(0, 8)}`;
           }
 
           // Check for duplicates by name (for tools, scenarios, etc.)
