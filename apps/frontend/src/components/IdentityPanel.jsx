@@ -129,7 +129,7 @@ function ExplainButton({ topic, onAskAbout }) {
   );
 }
 
-export default function IdentityPanel({ skill, onAskAbout }) {
+export default function IdentityPanel({ skill, onAskAbout, validateButton }) {
   const [expanded, setExpanded] = useState({
     problem: true,
     role: true,
@@ -151,6 +151,24 @@ export default function IdentityPanel({ skill, onAskAbout }) {
 
   return (
     <>
+      {/* Section header with validate button */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '16px',
+        paddingBottom: '8px',
+        borderBottom: '1px solid var(--border)'
+      }}>
+        <span style={{
+          fontSize: '12px',
+          fontWeight: '600',
+          color: 'var(--text-muted)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px'
+        }}>Identity</span>
+        {validateButton}
+      </div>
       {/* Problem */}
       <div style={styles.section}>
         <div style={styles.sectionHeader}>

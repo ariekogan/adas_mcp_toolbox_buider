@@ -166,6 +166,15 @@ export async function validateIntentsConsistency(skillId) {
   });
 }
 
+export async function validateIdentityConsistency(skillId) {
+  return request('/validate/identity-consistency', {
+    method: 'POST',
+    body: JSON.stringify({
+      domain_id: skillId
+    })
+  });
+}
+
 // Export
 export async function exportSkill(skillId) {
   return request(`/export/${skillId}`);
@@ -207,6 +216,7 @@ export default {
   validateToolsConsistency,
   validatePolicyConsistency,
   validateIntentsConsistency,
+  validateIdentityConsistency,
   exportSkill,
   previewExport,
   downloadExport,

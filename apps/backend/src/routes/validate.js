@@ -44,6 +44,15 @@ export const COVERAGE_GAPS = [
   { section: 'engine', check: 'Settings compatibility', priority: 'low', suggestedMethod: 'deterministic' },
 ];
 
+// Add identity consistency coverage
+COVERAGE.push(
+  { section: 'identity', field: 'problem.statement', check: 'Problem statement quality', type: 'consistency', method: 'llm' },
+  { section: 'identity', field: 'problem.goals', check: 'Goals alignment with statement', type: 'consistency', method: 'llm' },
+  { section: 'identity', field: 'role', check: 'Role/persona clarity', type: 'consistency', method: 'llm' },
+  { section: 'identity', field: 'scenarios', check: 'Scenarios completeness', type: 'consistency', method: 'llm' },
+  { section: 'identity', field: 'scenarios', check: 'Scenarios alignment with problem', type: 'consistency', method: 'llm' }
+);
+
 const router = Router();
 
 /**
@@ -655,6 +664,179 @@ Return ONLY the JSON response.`;
     }
 
     log.debug(`Found ${result.issues?.length || 0} policy issues`);
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Identity consistency check
+ * POST /api/validate/identity-consistency
+ *
+ * Uses LLM to analyze identity (problem, role, scenarios) for:
+ * - Problem statement quality and clarity
+ * - Goals alignment with the problem statement
+ * - Role/persona clarity and relevance
+ * - Scenarios completeness and alignment
+ *
+ * Body: { domain_id: string }
+ */
+router.post('/identity-consistency', async (req, res, next) => {
+  try {
+    const { domain_id } = req.body;
+    const log = req.app.locals.log;
+
+    if (!domain_id) {
+      return res.status(400).json({ error: 'domain_id is required' });
+    }
+
+    log.debug(`Identity consistency check for domain ${domain_id}`);
+
+    // Load domain
+    let domain;
+    try {
+      domain = await domainsStore.load(domain_id);
+    } catch (err) {
+      if (err.message?.includes('not found') || err.code === 'ENOENT') {
+        return res.status(404).json({ error: 'Domain not found' });
+      }
+      throw err;
+    }
+
+    const problem = domain.problem || {};
+    const role = domain.role || {};
+    const scenarios = domain.scenarios || [];
+
+    // Need at least a problem statement to check
+    if (!problem.statement && !role.name && scenarios.length === 0) {
+      return res.json({
+        issues: [],
+        message: 'No identity content to validate (add problem, role, or scenarios first)'
+      });
+    }
+
+    // Build summary for LLM
+    const identitySummary = {
+      problem: {
+        statement: problem.statement || '',
+        context: problem.context || '',
+        goals: problem.goals || []
+      },
+      role: {
+        name: role.name || '',
+        persona: role.persona || ''
+      },
+      scenarios: scenarios.map(s => ({
+        title: s.title,
+        description: s.description || '',
+        steps: (s.steps || []).length
+      }))
+    };
+
+    const systemPrompt = `You are an AI agent identity analyzer. Your job is to review the "identity" section of an AI agent skill definition:
+- Problem: The core problem this agent solves
+- Role/Persona: Who the agent is and how it behaves
+- Scenarios: User scenarios the agent handles
+
+Analyze the identity for quality issues. Return a JSON response with the following structure:
+{
+  "issues": [
+    {
+      "type": "vague_problem" | "missing_goals" | "goals_misaligned" | "unclear_role" | "missing_persona" | "incomplete_scenario" | "scenario_misaligned" | "missing_scenarios",
+      "severity": "blocker" | "warning" | "suggestion",
+      "items": [<affected_items>],
+      "description": "Brief description of the issue",
+      "suggestion": "How to fix this"
+    }
+  ]
+}
+
+Issue types:
+- "vague_problem": Problem statement is too vague or generic to guide the agent
+- "missing_goals": No goals defined for the problem
+- "goals_misaligned": Goals don't clearly relate to the problem statement
+- "unclear_role": Role name is unclear or too generic
+- "missing_persona": No persona defined for the role
+- "incomplete_scenario": Scenario lacks description or steps
+- "scenario_misaligned": Scenario doesn't clearly relate to the problem
+- "missing_scenarios": No scenarios defined
+
+Severity levels:
+- "blocker": Must be fixed (e.g., no problem statement at all)
+- "warning": Should be fixed (e.g., vague problem that needs clarification)
+- "suggestion": Consider fixing (e.g., adding more scenarios)
+
+Be helpful but not overly strict. Focus on issues that would genuinely hurt the agent's effectiveness.
+
+If no significant issues are found, return: { "issues": [] }
+
+IMPORTANT: Only return the JSON object, no other text.`;
+
+    const userPrompt = `Analyze this AI agent identity for quality issues:
+
+${JSON.stringify(identitySummary, null, 2)}
+
+Check for:
+1. Is the problem statement clear and specific enough to guide the agent?
+2. Are the goals aligned with solving the stated problem?
+3. Is the role/persona clear and appropriate?
+4. Do the scenarios cover realistic use cases for this problem?
+5. Are there any gaps or misalignments?
+
+Return ONLY the JSON response.`;
+
+    // Get LLM adapter
+    const settings = domain._settings || {};
+    const provider = settings.llm_provider || process.env.LLM_PROVIDER || 'anthropic';
+    const adapter = createAdapter(provider, {
+      apiKey: settings.api_key,
+      model: settings.llm_model
+    });
+
+    // Call LLM
+    const response = await adapter.chat({
+      systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+      maxTokens: 2048,
+      temperature: 0.3
+    });
+
+    // Parse response
+    let result;
+    try {
+      let content = response.content.trim();
+      // Strip markdown code blocks if present
+      if (content.startsWith('```json')) {
+        content = content.slice(7);
+      }
+      if (content.startsWith('```')) {
+        content = content.slice(3);
+      }
+      if (content.endsWith('```')) {
+        content = content.slice(0, -3);
+      }
+      content = content.trim();
+
+      // Find JSON object
+      const jsonStart = content.indexOf('{');
+      const jsonEnd = content.lastIndexOf('}');
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        content = content.slice(jsonStart, jsonEnd + 1);
+      }
+
+      result = JSON.parse(content);
+    } catch (parseErr) {
+      log.error('Failed to parse LLM response:', parseErr);
+      log.debug('Raw response:', response.content);
+      return res.json({
+        issues: [],
+        error: 'Failed to parse validation response'
+      });
+    }
+
+    log.debug(`Found ${result.issues?.length || 0} identity issues`);
 
     res.json(result);
   } catch (err) {

@@ -20,7 +20,7 @@ import ValidationBanner from './ValidationBanner';
 import ValidationList from './ValidationList';
 import ValidationMicroDashboard from './ValidationMicroDashboard';
 import { useValidation } from '../hooks/useValidation';
-import { validateToolsConsistency, validatePolicyConsistency, validateIntentsConsistency } from '../api/client';
+import { validateToolsConsistency, validatePolicyConsistency, validateIntentsConsistency, validateIdentityConsistency } from '../api/client';
 
 const styles = {
   container: {
@@ -523,6 +523,9 @@ function ValidateButton({ section, skillId, onValidationResults, disabled }) {
       } else if (section === 'intents') {
         result = await validateIntentsConsistency(skillId);
         console.log('Intents validation result:', result);
+      } else if (section === 'identity') {
+        result = await validateIdentityConsistency(skillId);
+        console.log('Identity validation result:', result);
       }
 
       if (result) {
@@ -815,7 +818,18 @@ export default function SkillPanel({
               </div>
             </div>
 
-            <IdentityPanel skill={skill} onAskAbout={onAskAbout} />
+            <IdentityPanel
+              skill={skill}
+              onAskAbout={onAskAbout}
+              validateButton={
+                <ValidateButton
+                  section="identity"
+                  skillId={skill?.id}
+                  onValidationResults={handleValidationResults}
+                  disabled={!skill.problem?.statement}
+                />
+              }
+            />
           </>
         )}
 
