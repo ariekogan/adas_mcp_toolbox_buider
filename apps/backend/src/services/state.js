@@ -80,7 +80,13 @@ export function applyStateUpdate(state, updates) {
     // Handle array push operations
     if (key.endsWith("_push")) {
       const arrayPath = key.slice(0, -5); // Remove "_push"
-      const array = getNestedValue(newState, arrayPath);
+      let array = getNestedValue(newState, arrayPath);
+      // Initialize array if it doesn't exist (for meta_tools, etc.)
+      if (!Array.isArray(array)) {
+        setNestedValue(newState, arrayPath, []);
+        array = getNestedValue(newState, arrayPath);
+        console.log(`[State] Initialized empty array for ${arrayPath}`);
+      }
       if (Array.isArray(array)) {
         // Handle both single item and array of items
         const itemsToAdd = Array.isArray(value) ? value : [value];
