@@ -15,8 +15,10 @@ import TestToolModal from './TestToolModal';
 import IntentsPanel from './IntentsPanel';
 import PolicyPanel from './PolicyPanel';
 import EnginePanel from './EnginePanel';
+import IdentityPanel from './IdentityPanel';
 import ValidationBanner from './ValidationBanner';
 import ValidationList from './ValidationList';
+import ValidationMicroDashboard from './ValidationMicroDashboard';
 import { useValidation } from '../hooks/useValidation';
 import { validateToolsConsistency, validatePolicyConsistency, validateIntentsConsistency } from '../api/client';
 
@@ -348,7 +350,7 @@ const styles = {
 };
 
 const TABS = [
-  { id: 'overview', label: 'Overview' },
+  { id: 'identity', label: 'Identity' },
   { id: 'intents', label: 'Intents' },
   { id: 'tools', label: 'Tools' },
   { id: 'policy', label: 'Policy' },
@@ -399,8 +401,8 @@ function getTabBadge(tabId, skill) {
   if (!skill) return null;
 
   switch (tabId) {
-    case 'overview': {
-      // Overview: problem (1), scenarios (need 2+), role (1)
+    case 'identity': {
+      // Identity: problem (1), scenarios (need 1+), role (1)
       let count = 0;
       const total = 3;
       if (skill.problem?.statement?.length >= 10) count++;
@@ -591,7 +593,8 @@ export default function SkillPanel({
   onIssuesChange,
   skillId
 }) {
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('identity');
+  const [showValidationPanel, setShowValidationPanel] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [expanded, setExpanded] = useState({
     problem: true,
@@ -764,7 +767,13 @@ export default function SkillPanel({
     <div style={styles.container}>
       <div style={styles.header}>
         <span style={styles.title}>Skill: {skill.name}</span>
-        <span style={styles.version}>v{skill.version || '0.1.0'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <ValidationMicroDashboard
+            validation={skill.validation}
+            onClick={() => setShowValidationPanel(true)}
+          />
+          <span style={styles.version}>v{skill.version || '0.1.0'}</span>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -792,15 +801,10 @@ export default function SkillPanel({
       </div>
 
       <div style={styles.content}>
-        {/* Overview Tab */}
-        {activeTab === 'overview' && (
+        {/* Identity Tab - Problem, Role, Scenarios */}
+        {activeTab === 'identity' && (
           <>
-            {/* Validation Banner - only in Overview */}
-            {skill.validation && (
-              <ValidationBanner validation={skill.validation} showDetails={true} />
-            )}
-
-            {/* Progress */}
+            {/* Progress bar at top of identity */}
             <div style={styles.progress}>
               <div style={styles.progressLabel}>
                 <span>{skill.phase?.replace(/_/g, ' ')}</span>
@@ -811,118 +815,7 @@ export default function SkillPanel({
               </div>
             </div>
 
-            {/* Cascading Validation List */}
-            {issues.length > 0 && (
-              <ValidationList
-                issues={issues}
-                onReviewClick={handleValidationReview}
-                onDismiss={dismissIssue}
-                onClearResolved={clearResolved}
-              />
-            )}
-
-            {/* Problem */}
-            <div style={styles.section}>
-              <div style={styles.sectionHeader}>
-                <div style={styles.sectionHeaderWithInfo}>
-                  <div style={styles.sectionTitle} onClick={() => toggleSection('problem')}>
-                    <span style={{ ...styles.expandIcon, transform: expanded.problem ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
-                    Problem
-                  </div>
-                  <InfoButton topic="problem statement" onAskAbout={onAskAbout} />
-                </div>
-              </div>
-              {expanded.problem && (
-                skill.problem?.statement ? (
-                  <div style={styles.problem}>
-                    <div style={styles.problemField}>
-                      <div style={styles.problemFieldLabel}>Statement</div>
-                      <div style={styles.problemFieldValue}>{skill.problem.statement}</div>
-                    </div>
-                    {skill.problem.context && (
-                      <div style={styles.problemField}>
-                        <div style={styles.problemFieldLabel}>Context</div>
-                        <div style={styles.problemFieldValue}>{skill.problem.context}</div>
-                      </div>
-                    )}
-                    {skill.problem.goals?.length > 0 && (
-                      <div style={styles.problemField}>
-                        <div style={styles.problemFieldLabel}>Goals</div>
-                        <div style={styles.tagList}>
-                          {skill.problem.goals.map((g, i) => (
-                            <span key={i} style={styles.tag}>{g}</span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div style={styles.empty}>Not yet defined</div>
-                )
-              )}
-            </div>
-
-            {/* Role */}
-            <div style={styles.section}>
-              <div style={styles.sectionHeader}>
-                <div style={styles.sectionHeaderWithInfo}>
-                  <div style={styles.sectionTitle} onClick={() => toggleSection('role')}>
-                    <span style={{ ...styles.expandIcon, transform: expanded.role ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
-                    Role / Persona
-                  </div>
-                  <InfoButton topic="role and persona" onAskAbout={onAskAbout} />
-                </div>
-              </div>
-              {expanded.role && (
-                skill.role?.name ? (
-                  <div style={styles.problem}>
-                    <div style={styles.problemField}>
-                      <div style={styles.problemFieldLabel}>Name</div>
-                      <div style={styles.problemFieldValue}>{skill.role.name}</div>
-                    </div>
-                    {skill.role.persona && (
-                      <div style={styles.problemField}>
-                        <div style={styles.problemFieldLabel}>Persona</div>
-                        <div style={styles.problemFieldValue}>{skill.role.persona}</div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div style={styles.empty}>Not yet defined</div>
-                )
-              )}
-            </div>
-
-            {/* Scenarios */}
-            <div style={styles.section}>
-              <div style={styles.sectionHeader}>
-                <div style={styles.sectionHeaderWithInfo}>
-                  <div style={styles.sectionTitle} onClick={() => toggleSection('scenarios')}>
-                    <span style={{ ...styles.expandIcon, transform: expanded.scenarios ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
-                    Scenarios ({skill.scenarios?.length || 0})
-                  </div>
-                  <InfoButton topic="scenarios" onAskAbout={onAskAbout} />
-                </div>
-              </div>
-              {expanded.scenarios && (
-                skill.scenarios?.length > 0 ? (
-                  skill.scenarios.map((scenario, i) => (
-                    <div key={scenario.id || i} style={styles.card}>
-                      <div style={styles.cardTitle} onClick={() => toggleItem('scenario', scenario.id || i)}>
-                        <span style={{ ...styles.expandIcon, transform: isItemExpanded('scenario', scenario.id || i) ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
-                        {scenario.title || `Scenario ${i + 1}`}
-                      </div>
-                      <div style={styles.cardMeta}>{scenario.steps?.length || 0} steps</div>
-                      {isItemExpanded('scenario', scenario.id || i) && scenario.description && (
-                        <div style={styles.toolDetails}>{scenario.description}</div>
-                      )}
-                    </div>
-                  ))
-                ) : (
-                  <div style={styles.empty}>No scenarios yet</div>
-                )
-              )}
-            </div>
+            <IdentityPanel skill={skill} onAskAbout={onAskAbout} />
           </>
         )}
 
@@ -1174,6 +1067,95 @@ export default function SkillPanel({
       {/* Test Tool Modal */}
       {testingTool && (
         <TestToolModal tool={testingTool} projectId={skillId} onClose={() => setTestingTool(null)} />
+      )}
+
+      {/* Validation Panel Modal */}
+      {showValidationPanel && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}
+          onClick={() => setShowValidationPanel(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-primary)',
+              borderRadius: '12px',
+              width: '90%',
+              maxWidth: '700px',
+              maxHeight: '80vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Validation Status</h3>
+              <button
+                onClick={() => setShowValidationPanel(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  fontSize: '20px',
+                  padding: '4px 8px'
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '20px', overflow: 'auto', flex: 1 }}>
+              {/* Validation Banner */}
+              {skill.validation && (
+                <ValidationBanner validation={skill.validation} showDetails={true} />
+              )}
+
+              {/* Cascading Validation List */}
+              {issues.length > 0 && (
+                <div style={{ marginTop: '16px' }}>
+                  <ValidationList
+                    issues={issues}
+                    onReviewClick={(issue) => {
+                      handleValidationReview(issue);
+                      setShowValidationPanel(false);
+                    }}
+                    onDismiss={dismissIssue}
+                    onClearResolved={clearResolved}
+                  />
+                </div>
+              )}
+
+              {/* No issues message */}
+              {!skill.validation?.errors?.length && !skill.validation?.warnings?.length && issues.length === 0 && (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '40px 20px',
+                  color: 'var(--text-muted)'
+                }}>
+                  <div style={{ fontSize: '32px', marginBottom: '12px' }}>✓</div>
+                  <div>No validation issues found</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

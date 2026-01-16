@@ -15,7 +15,24 @@ services:
       - ${MEMORY_PATH:-./memory}:/memory
     ports:
       - "${BACKEND_HOST_PORT:-4300}:4000"
-    restart: unless-stopped
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 2048
 
   frontend:
     build:
@@ -26,4 +43,17 @@ services:
       - backend
     ports:
       - "${FRONTEND_HOST_PORT:-3300}:80"
-    restart: unless-stopped
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
