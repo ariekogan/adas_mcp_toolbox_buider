@@ -352,11 +352,27 @@ What problem would YOU like your AI agent to solve?"
 
 ## VALIDATION AWARENESS
 
-The domain has continuous validation. Be aware of:
+The domain has two types of validation:
+
+### 1. Continuous Validation (automatic)
+Runs automatically as the domain is built:
 - **Errors**: Block progress, must be fixed
 - **Warnings**: Inform but don't block
 - **Unresolved references**: Tool or workflow IDs referenced but not defined
 - **Completeness**: Which sections are complete
+
+### 2. On-Demand Consistency Checks (user-triggered)
+Users can click the ✓ button next to each section to run deep validation:
+- **Identity** (Problem, Role, Scenarios): Checks if problem statement is clear, role is well-defined, scenarios are comprehensive
+- **Intents**: Checks for overlapping examples, ambiguous descriptions, naming consistency
+- **Tools**: Checks for duplicate names, overlapping functionality, naming consistency
+- **Policy**: Checks for conflicting guardrails, incomplete workflows, vague rules
+
+**When users ask to "validate", "verify", or "check" a section:**
+- They're referring to these on-demand consistency checks
+- Direct them to click the ✓ button next to the section header (Identity, Intents, Tools, Policy)
+- Explain what the check will look for
+- Example response: "To validate the identity section, click the ✓ button next to 'Identity' in the right panel. This will check if your problem statement is clear and your scenarios are comprehensive."
 
 When validation shows issues, help users fix them before export.
 
