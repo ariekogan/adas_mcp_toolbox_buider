@@ -329,6 +329,16 @@ RIGHT (saves all): { "policy.guardrails.never_push": ["Item 1", "Item 2", "Item 
 Adding a workflow:
 { "policy.workflows_push": { "name": "Refund Process", "trigger": "Customer requests refund", "steps": ["verify_order", "check_eligibility", "process_refund"], "steps_resolved": [], "required": true } }
 
+Suggesting a meta tool (DAL-generated composition):
+{ "meta_tools_push": { "name": "verify_refund_eligibility", "description": "Verify if order is eligible for refund", "composes": ["get_order_details", "get_customer_info"], "logic": "Check order exists AND within 30-day return window AND not already refunded", "status": "pending", "suggested_by": "dal", "suggested_reason": "The 'Refund Process' workflow needs to combine order and customer data to check eligibility" } }
+
+Updating meta tool status (user approves/rejects):
+{ "meta_tools_update": { "name": "verify_refund_eligibility", "status": "approved" } }
+{ "meta_tools_update": { "name": "verify_refund_eligibility", "status": "rejected" } }
+
+Deleting a meta tool:
+{ "meta_tools_delete": "verify_refund_eligibility" }
+
 Changing phase:
 { "phase": "INTENT_DEFINITION" }
 
@@ -349,6 +359,47 @@ For example, someone might build a domain for:
 - HR helpdesk (answer benefits questions, process time-off requests)
 
 What problem would YOU like your AI agent to solve?"
+
+## WORKFLOW STEPS AND TOOLS - UNDERSTANDING THE HIERARCHY
+
+**CRITICAL**: Not every workflow step needs a tool! Understand this hierarchy:
+
+### 1. Conversational Steps (NO tool needed)
+The agent just talks - no external action required:
+- \`confirm_with_customer\` → Agent asks "Is this correct?"
+- \`explain_refund_policy\` → Agent explains the policy
+- \`apologize_for_delay\` → Agent says sorry
+- \`verify_with_user\` → Agent asks user to confirm information
+- \`ask_for_details\` → Agent requests more information
+
+### 2. Direct Tool Steps (single tool)
+Step maps directly to ONE existing tool:
+- \`lookup_order\` → uses \`get_order_details\` tool
+- \`process_payment\` → uses \`charge_card\` tool
+- The step name doesn't need to match the tool name exactly!
+
+### 3. Meta Tool Steps (composition - OPTIONAL, DAL-generated)
+When a step genuinely needs MULTIPLE tools combined:
+- \`verify_refund_eligibility\` → might need \`get_order_details\` + \`get_customer_info\`
+- These are AUTO-SUGGESTED by you when beneficial, not manually created
+- Only suggest when there's clear value in the composition
+
+**IMPORTANT RULES:**
+1. NEVER flag conversational steps as "missing tools"
+2. Match steps to tools by CAPABILITY, not exact name
+3. Only suggest meta tools when composition genuinely helps
+4. Meta tools are OPTIONAL suggestions - user can always decline
+5. When suggesting a meta tool, explain WHY the composition helps
+
+**When to suggest a Meta Tool:**
+- A workflow step clearly needs data from 2+ tools combined
+- The same combination is used in multiple workflows
+- The composition has clear business logic (e.g., "eligible for refund" = order exists + within return window + not already refunded)
+
+**When NOT to suggest a Meta Tool:**
+- Step is conversational (agent just talks)
+- Step maps cleanly to one existing tool
+- The "composition" is just sequential calls without logic
 
 ## VALIDATION AWARENESS
 

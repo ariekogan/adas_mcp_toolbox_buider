@@ -85,6 +85,7 @@ export function createEmptyDraftDomain(id, name) {
 
     toolbox_imports: [],
     tools: [],
+    meta_tools: [], // DAL-generated tool compositions
 
     policy: {
       guardrails: {
@@ -225,6 +226,26 @@ export function createEmptyMockExample(overrides = {}) {
     input: {},
     output: null,
     description: '',
+    ...overrides,
+  };
+}
+
+/**
+ * Create a new meta tool (DAL-generated composition)
+ * @param {Partial<import('../types/DraftDomain.js').MetaTool>} [overrides]
+ * @returns {import('../types/DraftDomain.js').MetaTool}
+ */
+export function createEmptyMetaTool(overrides = {}) {
+  return {
+    id: uuidv4(),
+    name: '',
+    description: '',
+    composes: [],
+    logic: '',
+    status: 'pending',
+    suggested_by: 'dal',
+    suggested_reason: '',
+    created_at: new Date().toISOString(),
     ...overrides,
   };
 }

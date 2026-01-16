@@ -290,7 +290,7 @@ async function updateState(slug, updates) {
 
 // Protected array fields - these can ONLY be modified via _push/_delete/_update operations
 // Direct replacement is blocked to prevent accidental data loss
-const PROTECTED_ARRAYS = ['tools', 'intents.supported', 'policy.guardrails.always', 'policy.guardrails.never'];
+const PROTECTED_ARRAYS = ['tools', 'meta_tools', 'intents.supported', 'policy.guardrails.always', 'policy.guardrails.never'];
 
 /**
  * Apply state updates to domain (supports dot notation)

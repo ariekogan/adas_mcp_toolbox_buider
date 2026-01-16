@@ -175,6 +175,27 @@ export async function validateIdentityConsistency(skillId) {
   });
 }
 
+export async function validateAll(skillId) {
+  // Run all validations in parallel
+  const [identity, intents, tools, policy] = await Promise.all([
+    validateIdentityConsistency(skillId).catch(e => ({ error: e.message, issues: [] })),
+    validateIntentsConsistency(skillId).catch(e => ({ error: e.message, issues: [] })),
+    validateToolsConsistency(skillId).catch(e => ({ error: e.message, issues: [] })),
+    validatePolicyConsistency(skillId).catch(e => ({ error: e.message, issues: [] }))
+  ]);
+
+  return {
+    identity,
+    intents,
+    tools,
+    policy,
+    totalIssues: (identity.issues?.length || 0) +
+                 (intents.issues?.length || 0) +
+                 (tools.issues?.length || 0) +
+                 (policy.issues?.length || 0)
+  };
+}
+
 // Export
 export async function exportSkill(skillId) {
   return request(`/export/${skillId}`);
@@ -217,6 +238,7 @@ export default {
   validatePolicyConsistency,
   validateIntentsConsistency,
   validateIdentityConsistency,
+  validateAll,
   exportSkill,
   previewExport,
   downloadExport,

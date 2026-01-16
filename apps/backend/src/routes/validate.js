@@ -566,13 +566,20 @@ router.post('/policy-consistency', async (req, res, next) => {
 
     const toolNames = tools.map(t => t.name);
 
+    // Build tool descriptions for intelligent matching
+    const toolDescriptions = tools.map(t => ({
+      name: t.name,
+      description: t.description || '',
+      inputs: (t.inputs || []).map(i => i.name)
+    }));
+
     const systemPrompt = `You are a policy consistency analyzer for AI agent configuration. Your job is to detect issues with policy definitions.
 
 Analyze the policy and report any issues found. Return a JSON response with the following structure:
 {
   "issues": [
     {
-      "type": "conflict" | "duplicate" | "missing_tool" | "vague" | "incomplete",
+      "type": "conflict" | "duplicate" | "missing_capability" | "vague" | "incomplete",
       "severity": "blocker" | "warning" | "suggestion",
       "items": [<affected_items>],
       "description": "Brief description of the issue",
@@ -584,16 +591,25 @@ Analyze the policy and report any issues found. Return a JSON response with the 
 Issue types:
 - "conflict": A "never" rule conflicts with an "always" rule (e.g., "never share personal data" vs "always include customer name")
 - "duplicate": Same or nearly identical rules appear multiple times
-- "missing_tool": A workflow step references a tool that doesn't exist
+- "missing_capability": A workflow step requires a capability that NO existing tool can provide (see IMPORTANT notes below)
 - "vague": A guardrail is too vague to be actionable (e.g., "be helpful")
 - "incomplete": A workflow is missing required steps or configuration
 
+IMPORTANT - About workflow steps and tools:
+- Workflow steps do NOT need to have matching tool names
+- Many workflow steps are CONVERSATIONAL (e.g., "confirm_with_customer", "explain_policy") - these don't need tools, the agent just talks
+- Only flag "missing_capability" if a step requires data/action that NO existing tool can provide
+- Example: "lookup_order" step can be achieved with a "get_order_details" tool - different name, same capability
+- Example: "verify_customer" step might be achievable with "get_customer_info" tool
+- Example: "confirm_with_customer" is conversational - no tool needed
+
+AVAILABLE TOOLS AND THEIR CAPABILITIES:
+${JSON.stringify(toolDescriptions, null, 2)}
+
 Severity levels:
 - "blocker": Must be fixed (e.g., conflicting rules)
-- "warning": Should be fixed (e.g., vague rules that need clarification)
-- "suggestion": Consider fixing (e.g., duplicate rules)
-
-Available tools in this domain: ${JSON.stringify(toolNames)}
+- "warning": Should be fixed (e.g., step needs capability no tool provides)
+- "suggestion": Consider fixing (e.g., duplicate rules, vague rules)
 
 If no issues are found, return: { "issues": [] }
 
@@ -603,14 +619,20 @@ IMPORTANT: Only return the JSON object, no other text.`;
 
 ${JSON.stringify(policySummary, null, 2)}
 
-Available tools: ${JSON.stringify(toolNames)}
+AVAILABLE TOOLS (consider what capabilities these provide):
+${JSON.stringify(toolDescriptions, null, 2)}
 
 Check for:
 1. Conflicting guardrails (a "never" that contradicts an "always")
 2. Duplicate or near-duplicate rules
-3. Workflow steps that reference non-existent tools
+3. Workflow steps that need capabilities NO existing tool can provide (be intelligent - match by capability, not name)
 4. Vague or unactionable rules
 5. Incomplete workflows
+
+REMEMBER:
+- Conversational steps (confirm, explain, ask, verify with user) DON'T need tools
+- Match steps to tools by CAPABILITY, not exact name
+- Only flag missing_capability if there's genuinely no way to achieve the step with existing tools
 
 Return ONLY the JSON response.`;
 

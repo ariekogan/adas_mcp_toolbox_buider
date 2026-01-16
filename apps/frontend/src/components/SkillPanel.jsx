@@ -20,7 +20,7 @@ import ValidationBanner from './ValidationBanner';
 import ValidationList from './ValidationList';
 import ValidationMicroDashboard from './ValidationMicroDashboard';
 import { useValidation } from '../hooks/useValidation';
-import { validateToolsConsistency, validatePolicyConsistency, validateIntentsConsistency, validateIdentityConsistency } from '../api/client';
+import { validateToolsConsistency, validatePolicyConsistency, validateIntentsConsistency, validateIdentityConsistency, validateAll } from '../api/client';
 
 const styles = {
   container: {
@@ -599,6 +599,7 @@ export default function SkillPanel({
   const [activeTab, setActiveTab] = useState('identity');
   const [showValidationPanel, setShowValidationPanel] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [validatingAll, setValidatingAll] = useState(false);
   const [expanded, setExpanded] = useState({
     problem: true,
     role: false,
@@ -690,6 +691,81 @@ export default function SkillPanel({
     }
   };
 
+  // Handle "Validate All" - runs all consistency checks
+  const handleValidateAll = async () => {
+    if (!skill?.id || validatingAll) return;
+
+    setValidatingAll(true);
+    try {
+      const results = await validateAll(skill.id);
+
+      // Clear previous manual validation issues
+      clearByTriggerType('manual_validation');
+
+      // Collect all issues from all sections
+      const allIssues = [];
+      const sections = ['identity', 'intents', 'tools', 'policy'];
+
+      sections.forEach(section => {
+        const sectionResult = results[section];
+        if (sectionResult?.issues?.length > 0) {
+          sectionResult.issues.forEach(issue => {
+            allIssues.push({ ...issue, section });
+          });
+        }
+      });
+
+      // Add issues to validation panel
+      if (allIssues.length > 0) {
+        allIssues.forEach((issue, idx) => {
+          const relatedItems = issue.tools || issue.items || [];
+          addIssue({
+            id: `validate_all_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 9)}`,
+            severity: issue.severity === 'blocker' ? 'blocker' :
+                      issue.severity === 'warning' ? 'warning' : 'suggestion',
+            category: issue.section,
+            title: `${issue.type}: ${relatedItems.join(', ') || 'check'}`,
+            context: issue.description,
+            chatPrompt: `There's a ${issue.section} consistency issue: ${issue.description}. ${issue.suggestion}. Please review and fix this.`,
+            triggeredBy: {
+              type: 'manual_validation',
+              section: issue.section,
+              timestamp: new Date().toISOString()
+            },
+            relatedIds: relatedItems
+          });
+        });
+
+        // Send summary to chat
+        if (onAskAbout) {
+          const summary = allIssues.slice(0, 5).map(i => {
+            const items = i.tools || i.items || [];
+            return `• **${i.section}/${i.type}**: ${items.join(', ') || 'general'}`;
+          }).join('\n');
+
+          const moreText = allIssues.length > 5 ? `\n...and ${allIssues.length - 5} more` : '';
+
+          onAskAbout(
+            `I ran all consistency checks and found ${allIssues.length} issue(s):\n\n${summary}${moreText}\n\nSee the validation panel for details.`,
+            true
+          );
+        }
+      } else {
+        // All checks passed
+        if (onAskAbout) {
+          onAskAbout(`All consistency checks passed! ✓ Identity, Intents, Tools, and Policy are all consistent.`, true);
+        }
+      }
+    } catch (error) {
+      console.error('Validate all failed:', error);
+      if (onAskAbout) {
+        onAskAbout(`Validation check failed: ${error.message}`, true);
+      }
+    } finally {
+      setValidatingAll(false);
+    }
+  };
+
   // Handle focus changes to switch tabs and expand sections
   useEffect(() => {
     if (focus?.tab) {
@@ -774,6 +850,8 @@ export default function SkillPanel({
           <ValidationMicroDashboard
             validation={skill.validation}
             onClick={() => setShowValidationPanel(true)}
+            onValidateAll={handleValidateAll}
+            validatingAll={validatingAll}
           />
           <span style={styles.version}>v{skill.version || '0.1.0'}</span>
         </div>
@@ -1033,6 +1111,139 @@ export default function SkillPanel({
                   })
                 ) : (
                   <div style={styles.empty}>No tools defined yet</div>
+                )}
+
+                {/* Meta Tools Section - DAL-generated compositions */}
+                {skill.meta_tools?.length > 0 && (
+                  <>
+                    <div style={{ ...styles.sectionHeader, marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                      <div style={styles.sectionTitle}>
+                        Meta Tools ({skill.meta_tools.length})
+                        <span style={{
+                          fontSize: '10px',
+                          color: 'var(--text-muted)',
+                          fontWeight: 'normal',
+                          marginLeft: '8px'
+                        }}>
+                          DAL-generated
+                        </span>
+                      </div>
+                      <InfoButton topic="meta_tools" onAskAbout={onAskAbout} />
+                    </div>
+                    {skill.meta_tools.map((metaTool, i) => {
+                      const statusColors = {
+                        pending: { bg: '#f59e0b20', color: '#fbbf24' },
+                        approved: { bg: '#22c55e20', color: '#4ade80' },
+                        rejected: { bg: '#ef444420', color: '#f87171' }
+                      };
+                      const statusColor = statusColors[metaTool.status] || statusColors.pending;
+
+                      return (
+                        <div
+                          key={metaTool.id || i}
+                          style={{ ...styles.card, borderLeft: `3px solid ${statusColor.color}` }}
+                        >
+                          <div style={styles.cardTitle}>
+                            <span style={{ fontSize: '14px', marginRight: '6px' }}>◈</span>
+                            {metaTool.name || `Meta Tool ${i + 1}`}
+                            <span style={{ ...styles.status, background: statusColor.bg, color: statusColor.color }}>
+                              {metaTool.status || 'pending'}
+                            </span>
+                          </div>
+                          <div style={styles.cardMeta}>{metaTool.description || 'No description'}</div>
+
+                          {/* Composed tools */}
+                          <div style={{
+                            marginTop: '8px',
+                            fontSize: '11px',
+                            color: 'var(--text-muted)',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '4px'
+                          }}>
+                            <span style={{ marginRight: '4px' }}>Composes:</span>
+                            {metaTool.composes?.map((toolName, j) => (
+                              <span
+                                key={j}
+                                style={{
+                                  background: 'var(--bg-tertiary)',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '10px'
+                                }}
+                              >
+                                {toolName}
+                              </span>
+                            ))}
+                          </div>
+
+                          {/* Logic description */}
+                          {metaTool.logic && (
+                            <div style={{
+                              marginTop: '6px',
+                              fontSize: '11px',
+                              color: 'var(--text-secondary)',
+                              fontStyle: 'italic'
+                            }}>
+                              Logic: {metaTool.logic}
+                            </div>
+                          )}
+
+                          {/* Approval buttons for pending meta tools */}
+                          {metaTool.status === 'pending' && (
+                            <div style={{
+                              marginTop: '10px',
+                              display: 'flex',
+                              gap: '8px'
+                            }}>
+                              <button
+                                style={{
+                                  background: '#22c55e20',
+                                  color: '#4ade80',
+                                  border: '1px solid #22c55e40',
+                                  borderRadius: '4px',
+                                  padding: '4px 12px',
+                                  fontSize: '11px',
+                                  cursor: 'pointer'
+                                }}
+                                onClick={() => onAskAbout(`Approve the meta tool "${metaTool.name}". Update its status to approved.`)}
+                              >
+                                Approve
+                              </button>
+                              <button
+                                style={{
+                                  background: '#ef444420',
+                                  color: '#f87171',
+                                  border: '1px solid #ef444440',
+                                  borderRadius: '4px',
+                                  padding: '4px 12px',
+                                  fontSize: '11px',
+                                  cursor: 'pointer'
+                                }}
+                                onClick={() => onAskAbout(`Reject the meta tool "${metaTool.name}". Update its status to rejected and explain why it might not be needed.`)}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Suggested reason */}
+                          {metaTool.suggested_reason && (
+                            <div style={{
+                              marginTop: '8px',
+                              fontSize: '10px',
+                              color: 'var(--text-muted)',
+                              background: 'var(--bg-tertiary)',
+                              padding: '6px 8px',
+                              borderRadius: '4px'
+                            }}>
+                              Why suggested: {metaTool.suggested_reason}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </>
                 )}
               </>
             )}

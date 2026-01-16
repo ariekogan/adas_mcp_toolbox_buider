@@ -14,7 +14,7 @@ services:
     volumes:
       - ${MEMORY_PATH:-./memory}:/memory
     ports:
-      - "${BACKEND_HOST_PORT:-4300}:4000"
+      - "${BACKEND_PORT:-4311}:4000"
     restart: "no"
     deploy:
       resources:
@@ -38,11 +38,11 @@ services:
     build:
       context: ./apps/frontend
       args:
-        - VITE_API_URL=http://localhost:${BACKEND_HOST_PORT:-4300}
+        - VITE_API_URL=http://localhost:${BACKEND_PORT:-4311}
     depends_on:
       - backend
     ports:
-      - "${FRONTEND_HOST_PORT:-3300}:80"
+      - "${FRONTEND_PORT:-3311}:80"
     restart: "no"
     deploy:
       resources:
