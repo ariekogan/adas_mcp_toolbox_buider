@@ -49,11 +49,13 @@ export function resolveReferences(domain, unresolved) {
     }
   }
 
-  const workflowIds = new Set(domain.policy.workflows.map(w => w.id));
-  const intentIds = new Set(domain.intents.supported.map(i => i.id));
+  const workflows = domain.policy?.workflows || [];
+  const approvals = domain.policy?.approvals || [];
+  const workflowIds = new Set(workflows.map(w => w.id));
+  const intentIds = new Set(domain.intents?.supported?.map(i => i.id) || []);
 
   // Check workflow steps reference valid tools
-  domain.policy.workflows.forEach((workflow, wi) => {
+  workflows.forEach((workflow, wi) => {
     // Initialize steps_resolved array if needed
     if (!workflow.steps_resolved || workflow.steps_resolved.length !== workflow.steps.length) {
       workflow.steps_resolved = workflow.steps.map(() => false);
@@ -80,7 +82,7 @@ export function resolveReferences(domain, unresolved) {
   });
 
   // Check intent maps_to_workflow references valid workflow
-  domain.intents.supported.forEach((intent, ii) => {
+  (domain.intents?.supported || []).forEach((intent, ii) => {
     if (intent.maps_to_workflow) {
       const resolved = workflowIds.has(intent.maps_to_workflow);
       intent.maps_to_workflow_resolved = resolved;
@@ -104,7 +106,7 @@ export function resolveReferences(domain, unresolved) {
   });
 
   // Check approval rules reference valid tools
-  domain.policy.approvals.forEach((rule, ri) => {
+  approvals.forEach((rule, ri) => {
     const resolved = toolIds.has(rule.tool_id) || toolNames.has(rule.tool_id.toLowerCase());
     rule.tool_id_resolved = resolved;
 
@@ -124,7 +126,7 @@ export function resolveReferences(domain, unresolved) {
 
   // Check for duplicate tool IDs
   const seenToolIds = new Set();
-  domain.tools.forEach((tool, ti) => {
+  (domain.tools || []).forEach((tool, ti) => {
     if (seenToolIds.has(tool.id)) {
       issues.push({
         code: 'DUPLICATE_TOOL_ID',
@@ -139,8 +141,8 @@ export function resolveReferences(domain, unresolved) {
 
   // Check for duplicate tool names
   const seenToolNames = new Set();
-  domain.tools.forEach((tool, ti) => {
-    const lowerName = tool.name.toLowerCase();
+  (domain.tools || []).forEach((tool, ti) => {
+    const lowerName = (tool.name || '').toLowerCase();
     if (seenToolNames.has(lowerName)) {
       issues.push({
         code: 'DUPLICATE_TOOL_NAME',
@@ -155,7 +157,7 @@ export function resolveReferences(domain, unresolved) {
 
   // Check for duplicate workflow IDs
   const seenWorkflowIds = new Set();
-  domain.policy.workflows.forEach((workflow, wi) => {
+  workflows.forEach((workflow, wi) => {
     if (seenWorkflowIds.has(workflow.id)) {
       issues.push({
         code: 'DUPLICATE_WORKFLOW_ID',
@@ -170,7 +172,7 @@ export function resolveReferences(domain, unresolved) {
 
   // Check for duplicate intent IDs
   const seenIntentIds = new Set();
-  domain.intents.supported.forEach((intent, ii) => {
+  (domain.intents?.supported || []).forEach((intent, ii) => {
     if (seenIntentIds.has(intent.id)) {
       issues.push({
         code: 'DUPLICATE_INTENT_ID',
@@ -185,7 +187,7 @@ export function resolveReferences(domain, unresolved) {
 
   // Check for duplicate scenario IDs
   const seenScenarioIds = new Set();
-  domain.scenarios.forEach((scenario, si) => {
+  (domain.scenarios || []).forEach((scenario, si) => {
     if (seenScenarioIds.has(scenario.id)) {
       issues.push({
         code: 'DUPLICATE_SCENARIO_ID',
@@ -208,21 +210,21 @@ export function resolveReferences(domain, unresolved) {
  */
 export function areAllReferencesResolved(domain) {
   // Check workflow steps
-  for (const workflow of domain.policy.workflows) {
+  for (const workflow of (domain.policy?.workflows || [])) {
     if (workflow.steps_resolved?.some(r => !r)) {
       return false;
     }
   }
 
   // Check intent workflow mappings
-  for (const intent of domain.intents.supported) {
+  for (const intent of (domain.intents?.supported || [])) {
     if (intent.maps_to_workflow && !intent.maps_to_workflow_resolved) {
       return false;
     }
   }
 
   // Check approval rules
-  for (const approval of domain.policy.approvals) {
+  for (const approval of (domain.policy?.approvals || [])) {
     if (approval.tool_id && !approval.tool_id_resolved) {
       return false;
     }
@@ -237,8 +239,8 @@ export function areAllReferencesResolved(domain) {
  * @returns {string[]}
  */
 export function getUnresolvedToolRefs(domain) {
-  const toolIds = new Set(domain.tools.map(t => t.id));
-  const toolNames = new Set(domain.tools.map(t => t.name.toLowerCase()));
+  const toolIds = new Set((domain.tools || []).map(t => t.id));
+  const toolNames = new Set((domain.tools || []).map(t => (t.name || '').toLowerCase()));
 
   // Also include meta_tools in the lookup
   if (Array.isArray(domain.meta_tools)) {
@@ -251,8 +253,8 @@ export function getUnresolvedToolRefs(domain) {
   const unresolved = new Set();
 
   // From workflows
-  for (const workflow of domain.policy.workflows) {
-    for (const stepId of workflow.steps) {
+  for (const workflow of (domain.policy?.workflows || [])) {
+    for (const stepId of (workflow.steps || [])) {
       if (!toolIds.has(stepId) && !toolNames.has(stepId.toLowerCase())) {
         unresolved.add(stepId);
       }
@@ -260,7 +262,7 @@ export function getUnresolvedToolRefs(domain) {
   }
 
   // From approval rules
-  for (const approval of domain.policy.approvals) {
+  for (const approval of (domain.policy?.approvals || [])) {
     if (approval.tool_id && !toolIds.has(approval.tool_id) && !toolNames.has(approval.tool_id.toLowerCase())) {
       unresolved.add(approval.tool_id);
     }
@@ -275,11 +277,11 @@ export function getUnresolvedToolRefs(domain) {
  * @returns {string[]}
  */
 export function getUnresolvedWorkflowRefs(domain) {
-  const workflowIds = new Set(domain.policy.workflows.map(w => w.id));
+  const workflowIds = new Set((domain.policy?.workflows || []).map(w => w.id));
   const unresolved = new Set();
 
   // From intents
-  for (const intent of domain.intents.supported) {
+  for (const intent of (domain.intents?.supported || [])) {
     if (intent.maps_to_workflow && !workflowIds.has(intent.maps_to_workflow)) {
       unresolved.add(intent.maps_to_workflow);
     }
