@@ -203,7 +203,7 @@ function getResolvedColor(resolved) {
     : { bg: '#f59e0b20', color: '#fbbf24' };
 }
 
-export default function IntentsPanel({ intents, focus, onFocusChange, onAskAbout }) {
+export default function IntentsPanel({ intents, focus, onFocusChange, onAskAbout, validateButton }) {
   const [expanded, setExpanded] = useState(true);
   const [expandedItems, setExpandedItems] = useState({});
 
@@ -229,7 +229,10 @@ export default function IntentsPanel({ intents, focus, onFocusChange, onAskAbout
           <span style={{ ...styles.expandIcon, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
           Intents ({supported.length})
         </div>
-        <ExplainButton topic="intents" onAskAbout={onAskAbout} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <ExplainButton topic="intents" onAskAbout={onAskAbout} />
+          {validateButton}
+        </div>
       </div>
 
       {expanded && (

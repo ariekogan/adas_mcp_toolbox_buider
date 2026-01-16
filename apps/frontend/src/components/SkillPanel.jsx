@@ -18,7 +18,7 @@ import EnginePanel from './EnginePanel';
 import ValidationBanner from './ValidationBanner';
 import ValidationList from './ValidationList';
 import { useValidation } from '../hooks/useValidation';
-import { validateToolsConsistency, validatePolicyConsistency } from '../api/client';
+import { validateToolsConsistency, validatePolicyConsistency, validateIntentsConsistency } from '../api/client';
 
 const styles = {
   container: {
@@ -518,6 +518,9 @@ function ValidateButton({ section, skillId, onValidationResults, disabled }) {
       } else if (section === 'policy') {
         result = await validatePolicyConsistency(skillId);
         console.log('Policy validation result:', result);
+      } else if (section === 'intents') {
+        result = await validateIntentsConsistency(skillId);
+        console.log('Intents validation result:', result);
       }
 
       if (result) {
@@ -925,7 +928,20 @@ export default function SkillPanel({
 
         {/* Intents Tab */}
         {activeTab === 'intents' && (
-          <IntentsPanel intents={skill.intents} focus={focus} onFocusChange={onFocusChange} onAskAbout={onAskAbout} />
+          <IntentsPanel
+            intents={skill.intents}
+            focus={focus}
+            onFocusChange={onFocusChange}
+            onAskAbout={onAskAbout}
+            validateButton={
+              <ValidateButton
+                section="intents"
+                skillId={skill?.id}
+                onValidationResults={handleValidationResults}
+                disabled={(skill.intents?.supported?.length || 0) < 2}
+              />
+            }
+          />
         )}
 
         {/* Tools Tab */}
