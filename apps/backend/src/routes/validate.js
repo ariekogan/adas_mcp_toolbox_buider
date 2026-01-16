@@ -744,7 +744,7 @@ Analyze the identity for quality issues. Return a JSON response with the followi
 {
   "issues": [
     {
-      "type": "vague_problem" | "missing_goals" | "goals_misaligned" | "unclear_role" | "missing_persona" | "incomplete_scenario" | "scenario_misaligned" | "missing_scenarios",
+      "type": "vague_problem" | "missing_goals" | "goals_misaligned" | "unclear_role" | "missing_persona" | "incomplete_scenario" | "scenario_misaligned" | "limited_scenarios",
       "severity": "blocker" | "warning" | "suggestion",
       "items": [<affected_items>],
       "description": "Brief description of the issue",
@@ -755,20 +755,24 @@ Analyze the identity for quality issues. Return a JSON response with the followi
 
 Issue types:
 - "vague_problem": Problem statement is too vague or generic to guide the agent
-- "missing_goals": No goals defined for the problem
+- "missing_goals": No explicit goals defined (OPTIONAL - only suggest if it would genuinely help)
 - "goals_misaligned": Goals don't clearly relate to the problem statement
 - "unclear_role": Role name is unclear or too generic
 - "missing_persona": No persona defined for the role
 - "incomplete_scenario": Scenario lacks description or steps
 - "scenario_misaligned": Scenario doesn't clearly relate to the problem
-- "missing_scenarios": No scenarios defined
+- "limited_scenarios": Only 1-2 scenarios defined, could benefit from more coverage
 
 Severity levels:
 - "blocker": Must be fixed (e.g., no problem statement at all)
 - "warning": Should be fixed (e.g., vague problem that needs clarification)
-- "suggestion": Consider fixing (e.g., adding more scenarios)
+- "suggestion": Optional enhancement (e.g., adding goals, more scenarios)
 
-Be helpful but not overly strict. Focus on issues that would genuinely hurt the agent's effectiveness.
+IMPORTANT GUIDELINES:
+- Goals are OPTIONAL. Only flag "missing_goals" as a SUGGESTION if explicit goals would genuinely help guide the agent's priorities. Many agents work fine without explicit goals.
+- Be helpful but not overly strict. Focus on issues that would genuinely hurt the agent's effectiveness.
+- Don't flag missing scenarios if at least one good scenario exists - instead suggest "limited_scenarios" as a suggestion.
+- A clear problem statement + role + 1 scenario is a valid minimal identity.
 
 If no significant issues are found, return: { "issues": [] }
 
@@ -780,10 +784,11 @@ ${JSON.stringify(identitySummary, null, 2)}
 
 Check for:
 1. Is the problem statement clear and specific enough to guide the agent?
-2. Are the goals aligned with solving the stated problem?
-3. Is the role/persona clear and appropriate?
-4. Do the scenarios cover realistic use cases for this problem?
-5. Are there any gaps or misalignments?
+2. Is the role/persona clear and appropriate?
+3. Do the scenarios cover realistic use cases for this problem?
+4. Are there any significant gaps or misalignments?
+
+Note: Goals are optional. Only suggest adding them if explicit goals would genuinely help prioritize the agent's behavior.
 
 Return ONLY the JSON response.`;
 
