@@ -2,32 +2,24 @@
 /**
  * Validation Coverage Documentation Generator
  *
- * Reads COVERAGE metadata from validator files and generates
+ * Reads COVERAGE metadata from validators/coverage.js and generates
  * the VALIDATION_COVERAGE.md documentation file.
  *
- * Usage: node scripts/generate-validation-coverage.js
+ * Usage: npm run generate:coverage
  */
 
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { writeFileSync } from 'fs';
 
-// Import coverage metadata from all validator sources
-import { COVERAGE as SCHEMA_COVERAGE } from '../src/validators/schemaValidator.js';
-import { COVERAGE as REFERENCE_COVERAGE } from '../src/validators/referenceResolver.js';
-import { COVERAGE as COMPLETENESS_COVERAGE } from '../src/validators/completenessChecker.js';
-import { COVERAGE as CONSISTENCY_COVERAGE, COVERAGE_GAPS } from '../src/routes/validate.js';
+// Import from centralized coverage file (no external dependencies)
+import {
+  ALL_COVERAGE,
+  COVERAGE_GAPS,
+} from '../src/validators/coverage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-// Combine all coverage data
-const allCoverage = [
-  ...SCHEMA_COVERAGE,
-  ...REFERENCE_COVERAGE,
-  ...COMPLETENESS_COVERAGE,
-  ...CONSISTENCY_COVERAGE,
-];
 
 // Group by section
 function groupBySection(coverage) {
@@ -84,7 +76,6 @@ function generateGapsTable(gaps) {
 // Generate coverage matrix
 function generateCoverageMatrix(grouped) {
   const sections = ['problem', 'scenarios', 'role', 'intents', 'tools', 'policy', 'engine', 'mocks', 'metadata'];
-  const types = ['schema', 'reference', 'completeness', 'consistency'];
 
   const lines = [
     '## Coverage Matrix',
@@ -124,8 +115,9 @@ function generateStats(coverage, gaps) {
     byType[c.type] = (byType[c.type] || 0) + 1;
   }
 
-  const deterministicCount = coverage.filter(c => c.method === 'deterministic' || !c.method).length;
   const llmCount = coverage.filter(c => c.method === 'llm').length;
+  const deterministicCount = coverage.filter(c => c.method === 'deterministic').length;
+  const coreCount = totalChecks - llmCount - deterministicCount;
 
   const lines = [
     '## Statistics',
@@ -136,7 +128,7 @@ function generateStats(coverage, gaps) {
     `- **Completeness checks:** ${byType.completeness || 0}`,
     `- **Consistency checks:** ${byType.consistency || 0}`,
     '',
-    `- **Deterministic:** ${deterministicCount - llmCount} checks`,
+    `- **Core (deterministic):** ${coreCount + deterministicCount} checks`,
     `- **LLM-based:** ${llmCount} checks`,
     '',
     `- **Known gaps:** ${gaps.length}`,
@@ -155,7 +147,7 @@ function capitalizeFirst(str) {
 
 // Generate full document
 function generateDocument() {
-  const grouped = groupBySection(allCoverage);
+  const grouped = groupBySection(ALL_COVERAGE);
   const timestamp = new Date().toISOString().split('T')[0];
 
   const sections = [
@@ -170,7 +162,7 @@ function generateDocument() {
     '---',
     '',
     generateCoverageMatrix(grouped),
-    generateStats(allCoverage, COVERAGE_GAPS),
+    generateStats(ALL_COVERAGE, COVERAGE_GAPS),
     '---',
     '',
     '## Detailed Coverage by Section',
@@ -197,6 +189,10 @@ function generateDocument() {
   sections.push('');
   sections.push('Coverage metadata is defined in:');
   sections.push('');
+  sections.push('- `src/validators/coverage.js` - Centralized coverage metadata');
+  sections.push('');
+  sections.push('Validator implementations:');
+  sections.push('');
   sections.push('| File | Type |');
   sections.push('|------|------|');
   sections.push('| `validators/schemaValidator.js` | Schema checks |');
@@ -214,5 +210,5 @@ const content = generateDocument();
 writeFileSync(outputPath, content);
 
 console.log(`✅ Generated ${outputPath}`);
-console.log(`   - ${allCoverage.length} checks documented`);
+console.log(`   - ${ALL_COVERAGE.length} checks documented`);
 console.log(`   - ${COVERAGE_GAPS.length} gaps identified`);
