@@ -10,6 +10,24 @@
  */
 
 /**
+ * Coverage metadata for auto-generating documentation
+ * @type {Array<{section: string, field: string, check: string, type: string}>}
+ */
+export const COVERAGE = [
+  // Cross-references
+  { section: 'policy', field: 'policy.workflows[].steps', check: 'Steps reference existing tools', type: 'reference' },
+  { section: 'intents', field: 'intents.supported[].maps_to_workflow', check: 'Workflow exists', type: 'reference' },
+  { section: 'policy', field: 'policy.approvals[].tool_id', check: 'Tool exists', type: 'reference' },
+
+  // Duplicate detection
+  { section: 'tools', field: 'tools[].id', check: 'No duplicate IDs', type: 'reference' },
+  { section: 'tools', field: 'tools[].name', check: 'No duplicate names', type: 'reference' },
+  { section: 'policy', field: 'policy.workflows[].id', check: 'No duplicate IDs', type: 'reference' },
+  { section: 'intents', field: 'intents.supported[].id', check: 'No duplicate IDs', type: 'reference' },
+  { section: 'scenarios', field: 'scenarios[].id', check: 'No duplicate IDs', type: 'reference' },
+];
+
+/**
  * Resolve and validate all cross-references in the domain
  * @param {DraftDomain} domain
  * @param {ValidationUnresolved} unresolved - Object to populate with unresolved refs

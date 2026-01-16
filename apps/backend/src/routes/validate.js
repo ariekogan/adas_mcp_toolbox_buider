@@ -1,23 +1,150 @@
 /**
  * Validation API Routes
  *
- * LLM-based validation endpoints for cross-tool consistency checks.
+ * Hybrid validation: deterministic checks + LLM-based analysis.
+ * - Naming convention: deterministic (no false positives)
+ * - Duplicates, ambiguity, overlap: LLM-based
  */
 
 import { Router } from 'express';
 import { createAdapter } from '../services/llm/adapter.js';
 import domainsStore from '../store/domains.js';
 
+/**
+ * Coverage metadata for auto-generating documentation
+ * @type {Array<{section: string, field: string, check: string, type: string, method: string}>}
+ */
+export const COVERAGE = [
+  // Tools consistency (on-demand)
+  { section: 'tools', field: 'tools[].name', check: 'Naming convention consistency', type: 'consistency', method: 'deterministic' },
+  { section: 'tools', field: 'tools[].name', check: 'Similar/duplicate names', type: 'consistency', method: 'llm' },
+  { section: 'tools', field: 'tools[].description', check: 'Ambiguous descriptions', type: 'consistency', method: 'llm' },
+  { section: 'tools', field: 'tools', check: 'Overlapping functionality', type: 'consistency', method: 'llm' },
+
+  // Policy consistency (on-demand)
+  { section: 'policy', field: 'policy.guardrails', check: 'Conflicting never/always rules', type: 'consistency', method: 'llm' },
+  { section: 'policy', field: 'policy.guardrails', check: 'Duplicate rules', type: 'consistency', method: 'llm' },
+  { section: 'policy', field: 'policy.guardrails', check: 'Vague guardrails', type: 'consistency', method: 'llm' },
+  { section: 'policy', field: 'policy.workflows', check: 'Incomplete workflows', type: 'consistency', method: 'llm' },
+  { section: 'policy', field: 'policy.workflows[].steps', check: 'Steps reference non-existent tools', type: 'consistency', method: 'llm' },
+];
+
+/**
+ * Known gaps - checks that should be implemented
+ * @type {Array<{section: string, check: string, priority: string, suggestedMethod: string}>}
+ */
+export const COVERAGE_GAPS = [
+  { section: 'intents', check: 'Overlapping intent examples', priority: 'high', suggestedMethod: 'llm' },
+  { section: 'intents', check: 'Duplicate intent descriptions', priority: 'medium', suggestedMethod: 'llm' },
+  { section: 'intents', check: 'Intent naming consistency', priority: 'medium', suggestedMethod: 'deterministic' },
+  { section: 'cross-section', check: 'Intent → Tool mapping (can intent be fulfilled?)', priority: 'high', suggestedMethod: 'llm' },
+  { section: 'cross-section', check: 'Scenario → Intent coverage', priority: 'medium', suggestedMethod: 'llm' },
+  { section: 'cross-section', check: 'Guardrails vs Tool capabilities conflict', priority: 'high', suggestedMethod: 'llm' },
+  { section: 'policy', check: 'Workflow circular references', priority: 'medium', suggestedMethod: 'deterministic' },
+  { section: 'engine', check: 'Settings compatibility', priority: 'low', suggestedMethod: 'deterministic' },
+];
+
 const router = Router();
+
+/**
+ * Detect naming convention of a string
+ * @param {string} name - Tool name to analyze
+ * @returns {'snake_case' | 'camelCase' | 'PascalCase' | 'kebab-case' | 'SCREAMING_SNAKE' | 'mixed' | 'unknown'}
+ */
+function detectNamingConvention(name) {
+  if (!name || typeof name !== 'string') return 'unknown';
+
+  // SCREAMING_SNAKE_CASE: all uppercase with underscores
+  if (/^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/.test(name)) {
+    return 'SCREAMING_SNAKE';
+  }
+
+  // snake_case: lowercase with underscores
+  if (/^[a-z][a-z0-9]*(_[a-z0-9]+)*$/.test(name)) {
+    return 'snake_case';
+  }
+
+  // kebab-case: lowercase with hyphens
+  if (/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(name)) {
+    return 'kebab-case';
+  }
+
+  // PascalCase: starts with uppercase, no separators
+  if (/^[A-Z][a-zA-Z0-9]*$/.test(name) && /[a-z]/.test(name)) {
+    return 'PascalCase';
+  }
+
+  // camelCase: starts with lowercase, has uppercase letters, no separators
+  if (/^[a-z][a-zA-Z0-9]*$/.test(name) && /[A-Z]/.test(name)) {
+    return 'camelCase';
+  }
+
+  // Single word lowercase (could be snake_case without underscores)
+  if (/^[a-z][a-z0-9]*$/.test(name)) {
+    return 'snake_case'; // Treat single lowercase words as snake_case
+  }
+
+  // Mixed or unrecognized
+  return 'mixed';
+}
+
+/**
+ * Check tools for naming convention consistency (deterministic)
+ * @param {Array} tools - Array of tool objects with 'name' property
+ * @returns {Object|null} - Issue object if inconsistency found, null otherwise
+ */
+function checkNamingConsistency(tools) {
+  if (!tools || tools.length < 2) return null;
+
+  // Detect convention for each tool
+  const conventions = tools.map(t => ({
+    name: t.name,
+    convention: detectNamingConvention(t.name)
+  }));
+
+  // Filter out unknown/mixed (we can't judge those)
+  const knownConventions = conventions.filter(c =>
+    c.convention !== 'unknown' && c.convention !== 'mixed'
+  );
+
+  if (knownConventions.length < 2) return null;
+
+  // Get unique conventions
+  const uniqueConventions = [...new Set(knownConventions.map(c => c.convention))];
+
+  // If all tools use the same convention, no issue
+  if (uniqueConventions.length === 1) return null;
+
+  // Group tools by convention
+  const byConvention = {};
+  for (const c of knownConventions) {
+    if (!byConvention[c.convention]) {
+      byConvention[c.convention] = [];
+    }
+    byConvention[c.convention].push(c.name);
+  }
+
+  // Build description
+  const conventionDescriptions = Object.entries(byConvention)
+    .map(([conv, names]) => `${conv}: ${names.join(', ')}`)
+    .join('; ');
+
+  return {
+    type: 'naming_inconsistency',
+    severity: 'suggestion',
+    tools: knownConventions.map(c => c.name),
+    description: `Tools use different naming conventions: ${conventionDescriptions}`,
+    suggestion: `Standardize all tool names to use the same convention (${uniqueConventions[0]} is most common)`
+  };
+}
 
 /**
  * Cross-tool consistency check
  * POST /api/validate/tools-consistency
  *
- * Uses LLM to analyze tools for:
- * - Duplications (same/similar names)
- * - Ambiguity (overlapping purposes)
- * - Naming inconsistencies
+ * Hybrid validation:
+ * - Naming convention: DETERMINISTIC (no false positives)
+ * - Duplicates, ambiguity, overlap: LLM-based
  *
  * Body: { domain_id: string, new_tool?: object }
  */
@@ -45,15 +172,27 @@ router.post('/tools-consistency', async (req, res, next) => {
 
     const tools = domain.tools || [];
 
-    // Need at least 2 tools to check consistency
+    // Collect all issues
+    const allIssues = [];
+
+    // 1. DETERMINISTIC: Check naming convention consistency
+    const toolsToCheck = new_tool ? [...tools, new_tool] : tools;
+    const namingIssue = checkNamingConsistency(toolsToCheck);
+    if (namingIssue) {
+      allIssues.push(namingIssue);
+      log.debug('Naming inconsistency detected (deterministic):', namingIssue.description);
+    }
+
+    // Need at least 2 tools to check other consistency issues
     if (tools.length < 2) {
       return res.json({
-        issues: [],
-        message: 'Not enough tools to check consistency'
+        issues: allIssues,
+        message: allIssues.length === 0 ? 'Not enough tools to check consistency' : undefined
       });
     }
 
-    // Build prompt for LLM
+    // 2. LLM-BASED: Check for duplicates, ambiguity, overlap
+    // Build prompt for LLM (excluding naming check - we do that deterministically)
     const toolsSummary = tools.map((t, idx) => ({
       index: idx,
       name: t.name,
@@ -67,7 +206,7 @@ Analyze the tools and report any issues found. Return a JSON response with the f
 {
   "issues": [
     {
-      "type": "duplicate" | "ambiguous" | "naming_inconsistency" | "overlap",
+      "type": "duplicate" | "ambiguous" | "overlap",
       "severity": "blocker" | "warning" | "suggestion",
       "tools": [<tool_names_involved>],
       "description": "Brief description of the issue",
@@ -79,13 +218,14 @@ Analyze the tools and report any issues found. Return a JSON response with the f
 Issue types:
 - "duplicate": Two or more tools have the same or nearly identical names
 - "ambiguous": Tool descriptions are too similar, unclear which to use when
-- "naming_inconsistency": Tools use different naming conventions (snake_case vs CamelCase)
 - "overlap": Tools have overlapping functionality that could cause confusion
 
 Severity levels:
 - "blocker": Must be fixed (e.g., exact duplicate names)
 - "warning": Should be fixed (e.g., very similar names/purposes)
-- "suggestion": Consider fixing (e.g., naming convention differences)
+- "suggestion": Consider fixing (e.g., minor overlap)
+
+IMPORTANT: Do NOT check for naming convention issues (snake_case vs CamelCase) - that is handled separately.
 
 If no issues are found, return: { "issues": [] }
 
@@ -100,8 +240,9 @@ ${new_tool ? `\nA new tool is being added: ${JSON.stringify(new_tool)}` : ''}
 Check for:
 1. Duplicate or near-duplicate tool names
 2. Ambiguous tool descriptions that overlap
-3. Naming convention inconsistencies (some snake_case, some CamelCase, some with spaces)
-4. Tools with overlapping functionality
+3. Tools with overlapping functionality
+
+Do NOT check for naming convention (snake_case vs CamelCase) - that is handled separately.
 
 Return ONLY the JSON response.`;
 
@@ -122,7 +263,7 @@ Return ONLY the JSON response.`;
     });
 
     // Parse response
-    let result;
+    let llmResult;
     try {
       let content = response.content.trim();
       // Strip markdown code blocks if present
@@ -144,19 +285,28 @@ Return ONLY the JSON response.`;
         content = content.slice(jsonStart, jsonEnd + 1);
       }
 
-      result = JSON.parse(content);
+      llmResult = JSON.parse(content);
     } catch (parseErr) {
       log.error('Failed to parse LLM response:', parseErr);
       log.debug('Raw response:', response.content);
+      // Return just the deterministic issues if LLM fails
       return res.json({
-        issues: [],
-        error: 'Failed to parse validation response'
+        issues: allIssues,
+        error: 'Failed to parse LLM validation response'
       });
     }
 
-    log.debug(`Found ${result.issues?.length || 0} consistency issues`);
+    // Filter out any naming_inconsistency from LLM (in case it still returns one)
+    const llmIssues = (llmResult.issues || []).filter(
+      issue => issue.type !== 'naming_inconsistency'
+    );
 
-    res.json(result);
+    // Combine deterministic and LLM issues
+    allIssues.push(...llmIssues);
+
+    log.debug(`Found ${allIssues.length} total consistency issues (${namingIssue ? 1 : 0} deterministic, ${llmIssues.length} LLM)`);
+
+    res.json({ issues: allIssues });
   } catch (err) {
     next(err);
   }

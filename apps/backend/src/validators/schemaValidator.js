@@ -11,6 +11,75 @@
  * @typedef {import('../types/DraftDomain.js').Scenario} Scenario
  */
 
+/**
+ * Coverage metadata for auto-generating documentation
+ * @type {Array<{section: string, field: string, check: string, type: string}>}
+ */
+export const COVERAGE = [
+  // Problem
+  { section: 'problem', field: 'problem', check: 'Section exists', type: 'schema' },
+  { section: 'problem', field: 'problem.statement', check: 'Is string', type: 'schema' },
+  { section: 'problem', field: 'problem.goals', check: 'Is array', type: 'schema' },
+
+  // Scenarios
+  { section: 'scenarios', field: 'scenarios[].id', check: 'Has ID', type: 'schema' },
+  { section: 'scenarios', field: 'scenarios[].title', check: 'Has title (string)', type: 'schema' },
+  { section: 'scenarios', field: 'scenarios[].steps', check: 'Is array', type: 'schema' },
+
+  // Role
+  { section: 'role', field: 'role', check: 'Section exists', type: 'schema' },
+  { section: 'role', field: 'role.communication_style.tone', check: 'Valid enum (formal/casual/technical)', type: 'schema' },
+  { section: 'role', field: 'role.communication_style.verbosity', check: 'Valid enum (concise/balanced/detailed)', type: 'schema' },
+
+  // Intents
+  { section: 'intents', field: 'intents', check: 'Section exists', type: 'schema' },
+  { section: 'intents', field: 'intents.thresholds.accept', check: 'Between 0-1', type: 'schema' },
+  { section: 'intents', field: 'intents.thresholds.clarify', check: 'Between 0-1', type: 'schema' },
+  { section: 'intents', field: 'intents.supported[].id', check: 'Has ID', type: 'schema' },
+  { section: 'intents', field: 'intents.supported[].description', check: 'Has description', type: 'schema' },
+  { section: 'intents', field: 'intents.supported[].examples', check: 'Has examples array', type: 'schema' },
+  { section: 'intents', field: 'intents.supported[].entities[].name', check: 'Has name', type: 'schema' },
+  { section: 'intents', field: 'intents.supported[].entities[].type', check: 'Valid data type', type: 'schema' },
+  { section: 'intents', field: 'intents.out_of_domain.action', check: 'Valid enum (redirect/reject/escalate)', type: 'schema' },
+
+  // Tools
+  { section: 'tools', field: 'tools[].id', check: 'Has ID', type: 'schema' },
+  { section: 'tools', field: 'tools[].name', check: 'Has name (string)', type: 'schema' },
+  { section: 'tools', field: 'tools[].description', check: 'Has description', type: 'schema' },
+  { section: 'tools', field: 'tools[].inputs', check: 'Is array', type: 'schema' },
+  { section: 'tools', field: 'tools[].inputs[].name', check: 'Has name', type: 'schema' },
+  { section: 'tools', field: 'tools[].inputs[].type', check: 'Valid data type', type: 'schema' },
+  { section: 'tools', field: 'tools[].output', check: 'Has output', type: 'schema' },
+  { section: 'tools', field: 'tools[].output.type', check: 'Valid data type', type: 'schema' },
+  { section: 'tools', field: 'tools[].policy.allowed', check: 'Valid enum (always/conditional/never)', type: 'schema' },
+  { section: 'tools', field: 'tools[].mock.mode', check: 'Valid enum (examples/llm/hybrid)', type: 'schema' },
+  { section: 'tools', field: 'tools[].mock_status', check: 'Valid enum (untested/tested/skipped)', type: 'schema' },
+
+  // Policy
+  { section: 'policy', field: 'policy', check: 'Section exists', type: 'schema' },
+  { section: 'policy', field: 'policy.guardrails.never', check: 'Is array', type: 'schema' },
+  { section: 'policy', field: 'policy.guardrails.always', check: 'Is array', type: 'schema' },
+  { section: 'policy', field: 'policy.workflows[].id', check: 'Has ID', type: 'schema' },
+  { section: 'policy', field: 'policy.workflows[].name', check: 'Has name', type: 'schema' },
+  { section: 'policy', field: 'policy.workflows[].steps', check: 'Is array', type: 'schema' },
+  { section: 'policy', field: 'policy.approvals[].id', check: 'Has ID', type: 'schema' },
+  { section: 'policy', field: 'policy.approvals[].tool_id', check: 'Has tool_id', type: 'schema' },
+
+  // Engine
+  { section: 'engine', field: 'engine', check: 'Section exists', type: 'schema' },
+  { section: 'engine', field: 'engine.rv2.max_iterations', check: 'At least 1', type: 'schema' },
+  { section: 'engine', field: 'engine.rv2.on_max_iterations', check: 'Valid enum (escalate/fail/ask_user)', type: 'schema' },
+  { section: 'engine', field: 'engine.hlr.critic.strictness', check: 'Valid enum (low/medium/high)', type: 'schema' },
+  { section: 'engine', field: 'engine.autonomy.level', check: 'Valid enum (autonomous/supervised/restricted)', type: 'schema' },
+  { section: 'engine', field: 'engine.finalization_gate.enabled', check: 'Is boolean', type: 'schema' },
+  { section: 'engine', field: 'engine.finalization_gate.max_retries', check: 'Number 0-10', type: 'schema' },
+
+  // Metadata
+  { section: 'metadata', field: 'id', check: 'Has ID (string)', type: 'schema' },
+  { section: 'metadata', field: 'name', check: 'Has name (string)', type: 'schema' },
+  { section: 'metadata', field: 'phase', check: 'Valid phase enum', type: 'schema' },
+];
+
 const VALID_DATA_TYPES = ['string', 'number', 'boolean', 'object', 'array'];
 const VALID_PHASES = [
   'PROBLEM_DISCOVERY',

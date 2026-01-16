@@ -9,6 +9,20 @@
  */
 
 /**
+ * Coverage metadata for auto-generating documentation
+ * @type {Array<{section: string, field: string, check: string, type: string}>}
+ */
+export const COVERAGE = [
+  { section: 'problem', field: 'problem.statement', check: 'Has statement (≥10 chars)', type: 'completeness' },
+  { section: 'scenarios', field: 'scenarios', check: 'At least 1 scenario with title', type: 'completeness' },
+  { section: 'role', field: 'role', check: 'Has name and persona', type: 'completeness' },
+  { section: 'intents', field: 'intents.supported', check: 'At least 1 intent with description + examples', type: 'completeness' },
+  { section: 'tools', field: 'tools', check: 'At least 1 tool with name, description, output', type: 'completeness' },
+  { section: 'policy', field: 'policy.guardrails', check: 'At least 1 guardrail (never or always)', type: 'completeness' },
+  { section: 'mocks', field: 'tools[].mock_status', check: 'All tools tested or skipped', type: 'completeness' },
+];
+
+/**
  * Check completeness of all domain sections
  * @param {DraftDomain} domain
  * @returns {ValidationCompleteness}

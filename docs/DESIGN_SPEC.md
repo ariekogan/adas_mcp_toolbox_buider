@@ -1,8 +1,9 @@
 # MCP Toolbox Builder - Design Specification
 
-**Version:** 1.0  
-**Date:** January 2025  
-**Status:** Draft  
+**Version:** 1.1
+**Date:** January 2025
+**Status:** Active
+**Last Updated:** 2025-01-16 - Added Prompts Architecture section (5.0)  
 
 ---
 
@@ -562,7 +563,96 @@ To prevent scope creep:
 
 ## 5. System Prompt Specification
 
-### 5.1 Core System Prompt
+### 5.0 Prompts Architecture Overview
+
+The system uses multiple prompts for different purposes. Understanding this architecture is important for maintenance and debugging.
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                    CENTRAL PROMPTS                             │
+│                                                                │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │              DAL System Prompt (ACTIVE)                  │  │
+│  │              prompts/dalSystem.js (~1,587 lines)         │  │
+│  │                                                          │  │
+│  │  Powers the main chat conversation. Phase-aware,         │  │
+│  │  handles state updates, guides users through domain      │  │
+│  │  building (intents, tools, policy, role).                │  │
+│  │                                                          │  │
+│  │  Entry point: buildDALSystemPrompt(domain)               │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │              Legacy System Prompt (REMOVED)              │  │
+│  │                                                          │  │
+│  │  Original toolbox format was removed on 2025-01-16.      │  │
+│  │  Old projects are auto-migrated via migrate.js           │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────┐
+│              SPECIALIZED PROMPTS (Isolated)                    │
+│                                                                │
+│  These are small, focused prompts for specific tasks.          │
+│  They do NOT affect the main chat system.                      │
+│                                                                │
+│  ┌─────────────────────┐  ┌─────────────────────┐              │
+│  │ Tools Consistency   │  │ Policy Consistency  │              │
+│  │ Check               │  │ Check               │              │
+│  │                     │  │                     │              │
+│  │ routes/validate.js  │  │ routes/validate.js  │              │
+│  │ lines 64-106        │  │ lines 232-278       │              │
+│  │                     │  │                     │              │
+│  │ POST /api/validate/ │  │ POST /api/validate/ │              │
+│  │ tools-consistency   │  │ policy-consistency  │              │
+│  │                     │  │                     │              │
+│  │ Analyzes tools for: │  │ Analyzes policy:    │              │
+│  │ - Duplicates (LLM)  │  │ - Conflicting rules │              │
+│  │ - Naming (determ.)  │  │ - Missing tools     │              │
+│  │ - Overlaps (LLM)    │  │ - Vague guardrails  │              │
+│  └─────────────────────┘  └─────────────────────┘              │
+│                                                                │
+│  ┌─────────────────────┐                                       │
+│  │ Mock Simulator      │                                       │
+│  │ (LLM mode)          │                                       │
+│  │                     │                                       │
+│  │ routes/mock.js      │                                       │
+│  │ lines 92-115        │                                       │
+│  │                     │                                       │
+│  │ POST /api/mock/     │                                       │
+│  │ :domainId/:toolId   │                                       │
+│  │ (mode=llm)          │                                       │
+│  │                     │                                       │
+│  │ Generates realistic │                                       │
+│  │ tool outputs for    │                                       │
+│  │ testing             │                                       │
+│  └─────────────────────┘                                       │
+└────────────────────────────────────────────────────────────────┘
+```
+
+#### Prompt Inventory
+
+| # | Name | File | Purpose | Type | Active |
+|---|------|------|---------|------|--------|
+| 1 | DAL System Prompt | `prompts/dalSystem.js` | Main conversation for building domains | Central | ✅ Yes |
+| 2 | Tools Consistency | `routes/validate.js:64-106` | Check tools for duplicates/naming | Specialized | ✅ Yes |
+| 3 | Policy Consistency | `routes/validate.js:232-278` | Check policy for conflicts | Specialized | ✅ Yes |
+| 4 | Mock Simulator | `routes/mock.js:92-115` | Generate test outputs | Specialized | ✅ Yes |
+
+#### Key Points for Maintainers
+
+1. **Specialized prompts are isolated** - Changes to validation prompts don't affect main chat
+2. **Legacy projects auto-migrate** - Old projects convert to DraftDomain format on load (via `migrate.js`)
+3. **Tools Consistency uses hybrid approach** - Naming check is deterministic (no false positives), duplicates/overlap use LLM
+4. **Mock simulator has two modes** - `example` (deterministic) and `llm` (generated)
+
+> **See Also:** [VALIDATION_COVERAGE.md](./VALIDATION_COVERAGE.md) for detailed validation coverage matrix and gap analysis.
+
+---
+
+### 5.1 Core System Prompt (Legacy - REMOVED)
+
+> **Note:** The legacy prompt was removed on 2025-01-16. This section is kept for historical reference only. The code below no longer exists in the codebase. All new development uses the DAL System Prompt in `prompts/dalSystem.js`.
 
 ```
 You are a Toolbox Builder assistant. Your job is to help non-technical users create a custom set of AI tools (an MCP server) through conversation.

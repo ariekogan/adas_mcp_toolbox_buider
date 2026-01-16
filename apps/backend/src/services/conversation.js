@@ -1,4 +1,4 @@
-import { buildSystemPrompt, buildPromptForState } from "../prompts/system.js";
+import { buildDALSystemPrompt } from "../prompts/dalSystem.js";
 import { createAdapter } from "./llm/adapter.js";
 
 /**
@@ -69,46 +69,42 @@ function compressConversation(messages) {
 /**
  * Process a chat message and get LLM response
  *
- * Supports both:
- * - Legacy format: { project, toolbox, conversation }
- * - DraftDomain format: { domain }
+ * @param {Object} params
+ * @param {Object} params.domain - DraftDomain object
+ * @param {string} params.userMessage - User's message
+ * @param {Object} params.uiFocus - Optional UI focus context
  */
-export async function processMessage({ project, toolbox, conversation, domain, userMessage, uiFocus }) {
-  // Determine if we're using legacy or new format
-  const isNewFormat = domain !== undefined;
-  const state = isNewFormat ? domain : toolbox;
-  const messages_history = isNewFormat ? domain.conversation : conversation.messages;
-
+export async function processMessage({ domain, userMessage, uiFocus }) {
   // Compress conversation if too long
-  const compressedHistory = compressConversation(messages_history);
+  const compressedHistory = compressConversation(domain.conversation);
 
   // Build messages array for LLM
   const messages = compressedHistory.map(m => ({
     role: m.role,
     content: m.content
   }));
-  
+
   // Add UI focus context to user message
-  const contextualMessage = uiFocus 
+  const contextualMessage = uiFocus
     ? `[UI Focus: ${uiFocus.type}${uiFocus.id ? ` - ${uiFocus.id}` : ""}]\n\n${userMessage}`
     : userMessage;
-  
+
   messages.push({
     role: "user",
     content: contextualMessage
   });
-  
-  // Build system prompt with current state (auto-detects format)
-  const systemPrompt = isNewFormat ? buildPromptForState(domain) : buildSystemPrompt(toolbox);
 
-  // Get LLM adapter - settings can come from project (legacy) or domain._settings (new)
-  const settings = isNewFormat ? domain._settings : project?.settings;
+  // Build system prompt with current state
+  const systemPrompt = buildDALSystemPrompt(domain);
+
+  // Get LLM adapter
+  const settings = domain._settings;
   const provider = settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
   const adapter = createAdapter(provider, {
     apiKey: settings?.api_key,
     model: settings?.llm_model
   });
-  
+
   // Send to LLM
   const response = await adapter.chat({
     systemPrompt,
@@ -132,7 +128,7 @@ export async function processMessage({ project, toolbox, conversation, domain, u
       toolsUsed: null
     };
   }
-  
+
   // Parse response
   let parsed;
   try {
@@ -192,7 +188,7 @@ export async function processMessage({ project, toolbox, conversation, domain, u
       };
     }
   }
-  
+
   return {
     message: parsed.message || "",
     stateUpdate: parsed.state_update || {},
