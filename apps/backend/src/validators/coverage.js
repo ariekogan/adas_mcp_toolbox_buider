@@ -111,6 +111,12 @@ export const COMPLETENESS_COVERAGE = [
  * These are on-demand checks triggered by user
  */
 export const CONSISTENCY_COVERAGE = [
+  // Intents consistency (on-demand)
+  { section: 'intents', field: 'intents[].id', check: 'Naming convention consistency', type: 'consistency', method: 'deterministic' },
+  { section: 'intents', field: 'intents[].examples', check: 'Overlapping examples between intents', type: 'consistency', method: 'llm' },
+  { section: 'intents', field: 'intents[].description', check: 'Duplicate/similar descriptions', type: 'consistency', method: 'llm' },
+  { section: 'intents', field: 'intents', check: 'Ambiguous intents', type: 'consistency', method: 'llm' },
+
   // Tools consistency (on-demand)
   { section: 'tools', field: 'tools[].name', check: 'Naming convention consistency', type: 'consistency', method: 'deterministic' },
   { section: 'tools', field: 'tools[].name', check: 'Similar/duplicate names', type: 'consistency', method: 'llm' },
@@ -129,9 +135,6 @@ export const CONSISTENCY_COVERAGE = [
  * Known gaps - checks that should be implemented
  */
 export const COVERAGE_GAPS = [
-  { section: 'intents', check: 'Overlapping intent examples', priority: 'high', suggestedMethod: 'llm' },
-  { section: 'intents', check: 'Duplicate intent descriptions', priority: 'medium', suggestedMethod: 'llm' },
-  { section: 'intents', check: 'Intent naming consistency', priority: 'medium', suggestedMethod: 'deterministic' },
   { section: 'cross-section', check: 'Intent → Tool mapping (can intent be fulfilled?)', priority: 'high', suggestedMethod: 'llm' },
   { section: 'cross-section', check: 'Scenario → Intent coverage', priority: 'medium', suggestedMethod: 'llm' },
   { section: 'cross-section', check: 'Guardrails vs Tool capabilities conflict', priority: 'high', suggestedMethod: 'llm' },

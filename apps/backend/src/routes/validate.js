@@ -313,6 +313,184 @@ Return ONLY the JSON response.`;
 });
 
 /**
+ * Intents consistency check
+ * POST /api/validate/intents-consistency
+ *
+ * Hybrid validation:
+ * - Naming convention: DETERMINISTIC (no false positives)
+ * - Overlapping examples, duplicate descriptions: LLM-based
+ *
+ * Body: { domain_id: string }
+ */
+router.post('/intents-consistency', async (req, res, next) => {
+  try {
+    const { domain_id } = req.body;
+    const log = req.app.locals.log;
+
+    if (!domain_id) {
+      return res.status(400).json({ error: 'domain_id is required' });
+    }
+
+    log.debug(`Intents consistency check for domain ${domain_id}`);
+
+    // Load domain
+    let domain;
+    try {
+      domain = await domainsStore.load(domain_id);
+    } catch (err) {
+      if (err.message?.includes('not found') || err.code === 'ENOENT') {
+        return res.status(404).json({ error: 'Domain not found' });
+      }
+      throw err;
+    }
+
+    const intents = domain.intents?.supported || [];
+
+    // Collect all issues
+    const allIssues = [];
+
+    // 1. DETERMINISTIC: Check naming convention consistency
+    const namingIssue = checkNamingConsistency(
+      intents.map(i => ({ name: i.id })) // Use intent ID as "name" for consistency check
+    );
+    if (namingIssue) {
+      // Reformat for intents context
+      allIssues.push({
+        ...namingIssue,
+        type: 'naming_inconsistency',
+        description: namingIssue.description.replace('Tools', 'Intents').replace('tool names', 'intent IDs'),
+        suggestion: namingIssue.suggestion.replace('tool names', 'intent IDs')
+      });
+      log.debug('Intent naming inconsistency detected (deterministic):', namingIssue.description);
+    }
+
+    // Need at least 2 intents to check other consistency issues
+    if (intents.length < 2) {
+      return res.json({
+        issues: allIssues,
+        message: allIssues.length === 0 ? 'Not enough intents to check consistency' : undefined
+      });
+    }
+
+    // 2. LLM-BASED: Check for overlapping examples, duplicate descriptions
+    const intentsSummary = intents.map((intent, idx) => ({
+      index: idx,
+      id: intent.id,
+      description: intent.description,
+      examples: intent.examples || []
+    }));
+
+    const systemPrompt = `You are an intent consistency analyzer. Your job is to detect issues with intents defined for an AI agent.
+
+Analyze the intents and report any issues found. Return a JSON response with the following structure:
+{
+  "issues": [
+    {
+      "type": "overlapping_examples" | "duplicate_description" | "ambiguous",
+      "severity": "blocker" | "warning" | "suggestion",
+      "intents": [<intent_ids_involved>],
+      "description": "Brief description of the issue",
+      "suggestion": "How to fix this"
+    }
+  ]
+}
+
+Issue types:
+- "overlapping_examples": Two or more intents have examples that could trigger either one (e.g., "check my order" could be "order_status" or "order_tracking")
+- "duplicate_description": Intents have nearly identical descriptions
+- "ambiguous": Intent descriptions are too similar, making it unclear which should handle a given user input
+
+Severity levels:
+- "blocker": Must be fixed (e.g., exact duplicate descriptions or highly overlapping examples)
+- "warning": Should be fixed (e.g., very similar examples that could cause confusion)
+- "suggestion": Consider fixing (e.g., minor overlap)
+
+IMPORTANT: Do NOT check for naming convention issues (snake_case vs CamelCase) - that is handled separately.
+
+If no issues are found, return: { "issues": [] }
+
+IMPORTANT: Only return the JSON object, no other text.`;
+
+    const userPrompt = `Analyze these intents for consistency issues:
+
+${JSON.stringify(intentsSummary, null, 2)}
+
+Check for:
+1. Overlapping examples between intents (examples that could match multiple intents)
+2. Duplicate or near-duplicate intent descriptions
+3. Ambiguous intents that would be hard to distinguish
+
+Do NOT check for naming convention (snake_case vs CamelCase) - that is handled separately.
+
+Return ONLY the JSON response.`;
+
+    // Get LLM adapter
+    const settings = domain._settings || {};
+    const provider = settings.llm_provider || process.env.LLM_PROVIDER || 'anthropic';
+    const adapter = createAdapter(provider, {
+      apiKey: settings.api_key,
+      model: settings.llm_model
+    });
+
+    // Call LLM
+    const response = await adapter.chat({
+      systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+      maxTokens: 2048,
+      temperature: 0.3 // Lower temperature for more consistent analysis
+    });
+
+    // Parse response
+    let llmResult;
+    try {
+      let content = response.content.trim();
+      // Strip markdown code blocks if present
+      if (content.startsWith('```json')) {
+        content = content.slice(7);
+      }
+      if (content.startsWith('```')) {
+        content = content.slice(3);
+      }
+      if (content.endsWith('```')) {
+        content = content.slice(0, -3);
+      }
+      content = content.trim();
+
+      // Find JSON object
+      const jsonStart = content.indexOf('{');
+      const jsonEnd = content.lastIndexOf('}');
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        content = content.slice(jsonStart, jsonEnd + 1);
+      }
+
+      llmResult = JSON.parse(content);
+    } catch (parseErr) {
+      log.error('Failed to parse LLM response:', parseErr);
+      log.debug('Raw response:', response.content);
+      // Return just the deterministic issues if LLM fails
+      return res.json({
+        issues: allIssues,
+        error: 'Failed to parse LLM validation response'
+      });
+    }
+
+    // Filter out any naming_inconsistency from LLM (in case it still returns one)
+    const llmIssues = (llmResult.issues || []).filter(
+      issue => issue.type !== 'naming_inconsistency'
+    );
+
+    // Combine deterministic and LLM issues
+    allIssues.push(...llmIssues);
+
+    log.debug(`Found ${allIssues.length} total intent consistency issues (${namingIssue ? 1 : 0} deterministic, ${llmIssues.length} LLM)`);
+
+    res.json({ issues: allIssues });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * Policy consistency check
  * POST /api/validate/policy-consistency
  *
