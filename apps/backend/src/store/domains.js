@@ -99,6 +99,35 @@ function normalizeDomain(domain) {
     }
   }
 
+  // Fix missing workflow IDs
+  if (domain.policy?.workflows) {
+    for (const workflow of domain.policy.workflows) {
+      if (!workflow.id) {
+        // Generate ID from name if available, otherwise random
+        const base = workflow.name
+          ? workflow.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+          : 'workflow';
+        workflow.id = `${base}_${uuidv4().slice(0, 8)}`;
+        modified = true;
+        console.log(`[Store] Auto-generated workflow ID: ${workflow.id}`);
+      }
+    }
+  }
+
+  // Fix missing meta_tool IDs
+  if (domain.meta_tools) {
+    for (const metaTool of domain.meta_tools) {
+      if (!metaTool.id) {
+        const base = metaTool.name
+          ? metaTool.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+          : 'meta_tool';
+        metaTool.id = `${base}_${uuidv4().slice(0, 8)}`;
+        modified = true;
+        console.log(`[Store] Auto-generated meta_tool ID: ${metaTool.id}`);
+      }
+    }
+  }
+
   return modified;
 }
 

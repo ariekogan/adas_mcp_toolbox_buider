@@ -37,8 +37,18 @@ export function resolveReferences(domain, unresolved) {
   const issues = [];
 
   // Build lookup sets (filter out tools without names)
+  // Include both regular tools AND meta_tools in the lookup
   const toolIds = new Set(domain.tools.map(t => t.id).filter(Boolean));
   const toolNames = new Set(domain.tools.filter(t => t.name).map(t => t.name.toLowerCase()));
+
+  // Also include meta_tools in the lookup (they are valid tool references)
+  if (Array.isArray(domain.meta_tools)) {
+    for (const mt of domain.meta_tools) {
+      if (mt.id) toolIds.add(mt.id);
+      if (mt.name) toolNames.add(mt.name.toLowerCase());
+    }
+  }
+
   const workflowIds = new Set(domain.policy.workflows.map(w => w.id));
   const intentIds = new Set(domain.intents.supported.map(i => i.id));
 
@@ -229,6 +239,15 @@ export function areAllReferencesResolved(domain) {
 export function getUnresolvedToolRefs(domain) {
   const toolIds = new Set(domain.tools.map(t => t.id));
   const toolNames = new Set(domain.tools.map(t => t.name.toLowerCase()));
+
+  // Also include meta_tools in the lookup
+  if (Array.isArray(domain.meta_tools)) {
+    for (const mt of domain.meta_tools) {
+      if (mt.id) toolIds.add(mt.id);
+      if (mt.name) toolNames.add(mt.name.toLowerCase());
+    }
+  }
+
   const unresolved = new Set();
 
   // From workflows
