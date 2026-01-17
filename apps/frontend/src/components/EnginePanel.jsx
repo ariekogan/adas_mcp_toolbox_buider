@@ -209,7 +209,7 @@ export default function EnginePanel({ engine, onAskAbout }) {
     );
   }
 
-  const { rv2 = {}, hlr = {}, autonomy = {}, finalization_gate = {} } = engine;
+  const { rv2 = {}, hlr = {}, autonomy = {}, finalization_gate = {}, internal_error = {} } = engine;
   const autonomyColor = getAutonomyColor(autonomy.level);
   const gateEnabled = finalization_gate.enabled !== false; // Default true
 
@@ -396,6 +396,76 @@ export default function EnginePanel({ engine, onAskAbout }) {
               <span style={styles.settingLabel}>Max Retries</span>
               <span style={styles.settingValue}>{finalization_gate.max_retries ?? 2}</span>
             </div>
+          </div>
+
+          {/* Internal Error Handling (RV2 Sprint) */}
+          <div style={styles.subsection}>
+            <div style={{ ...styles.subsectionTitle, justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>Internal Error Handling</span>
+                <span style={{
+                  ...styles.badge,
+                  ...(internal_error.enabled !== false ? styles.enabledBadge : styles.disabledBadge)
+                }}>
+                  {internal_error.enabled !== false ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
+              <ExplainButton topic="internal error handling" onAskAbout={onAskAbout} />
+            </div>
+
+            {internal_error.enabled !== false && (
+              <>
+                {/* Tool Not Found Settings */}
+                <div style={styles.hlrItem}>
+                  <div style={styles.hlrItemLeft}>
+                    <span style={styles.hlrItemLabel}>Tool Not Found</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={styles.hlrItemValue}>
+                      Resolution after {internal_error.tool_not_found?.enter_resolution_after ?? 1} failure(s)
+                    </span>
+                    <span style={{
+                      ...styles.badge,
+                      ...(internal_error.tool_not_found?.retryable ? styles.enabledBadge : styles.disabledBadge)
+                    }}>
+                      {internal_error.tool_not_found?.retryable ? 'Retryable' : 'Non-retryable'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Resolution Mode Settings */}
+                <div style={styles.hlrItem}>
+                  <div style={styles.hlrItemLeft}>
+                    <span style={styles.hlrItemLabel}>Resolution Mode</span>
+                  </div>
+                  <div>
+                    <span style={styles.hlrItemValue}>
+                      Max {internal_error.resolution?.max_iterations ?? 1} iteration(s)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Loop Detection */}
+                <div style={styles.hlrItem}>
+                  <div style={styles.hlrItemLeft}>
+                    <span style={{
+                      ...styles.badge,
+                      ...(internal_error.loop_detection?.enabled !== false ? styles.enabledBadge : styles.disabledBadge)
+                    }}>
+                      {internal_error.loop_detection?.enabled !== false ? 'ON' : 'OFF'}
+                    </span>
+                    <span style={styles.hlrItemLabel}>Loop Detection</span>
+                  </div>
+                  <div>
+                    {internal_error.loop_detection?.enabled !== false && (
+                      <span style={styles.hlrItemValue}>
+                        Threshold: {internal_error.loop_detection?.identical_call_threshold ?? 2} identical calls
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </>
       )}

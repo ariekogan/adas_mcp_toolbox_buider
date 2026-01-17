@@ -81,6 +81,21 @@ export function createEmptyDraftDomain(id, name) {
         enabled: true,
         max_retries: 2,
       },
+      internal_error: {
+        enabled: true,
+        tool_not_found: {
+          enter_resolution_after: 1,
+          retryable: false,
+        },
+        resolution: {
+          max_iterations: 1,
+          allowed_capabilities: ['read', 'search', 'document_output'],
+        },
+        loop_detection: {
+          enabled: true,
+          identical_call_threshold: 2,
+        },
+      },
     },
 
     toolbox_imports: [],

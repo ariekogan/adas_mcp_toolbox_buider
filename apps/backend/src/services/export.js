@@ -581,6 +581,20 @@ export function generateDomainYaml(domain) {
   lines.push(`    enabled: ${domain.engine?.finalization_gate?.enabled ?? true}`);
   lines.push(`    max_retries: ${domain.engine?.finalization_gate?.max_retries ?? 2}`);
 
+  // Internal Error Handling (RV2 Sprint)
+  lines.push(`  internal_error:`);
+  lines.push(`    enabled: ${domain.engine?.internal_error?.enabled ?? true}`);
+  lines.push(`    tool_not_found:`);
+  lines.push(`      enter_resolution_after: ${domain.engine?.internal_error?.tool_not_found?.enter_resolution_after ?? 1}`);
+  lines.push(`      retryable: ${domain.engine?.internal_error?.tool_not_found?.retryable ?? false}`);
+  lines.push(`    resolution:`);
+  lines.push(`      max_iterations: ${domain.engine?.internal_error?.resolution?.max_iterations ?? 1}`);
+  const allowedCaps = domain.engine?.internal_error?.resolution?.allowed_capabilities || ['read', 'search', 'document_output'];
+  lines.push(`      allowed_capabilities: [${allowedCaps.map(c => `"${c}"`).join(', ')}]`);
+  lines.push(`    loop_detection:`);
+  lines.push(`      enabled: ${domain.engine?.internal_error?.loop_detection?.enabled ?? true}`);
+  lines.push(`      identical_call_threshold: ${domain.engine?.internal_error?.loop_detection?.identical_call_threshold ?? 2}`);
+
   // Output Contract (for Core ADAS Finalization Gate)
   if (domain.output_contract?.required_fields?.length > 0) {
     lines.push(``);

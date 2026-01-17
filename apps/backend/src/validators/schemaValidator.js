@@ -73,6 +73,12 @@ export const COVERAGE = [
   { section: 'engine', field: 'engine.autonomy.level', check: 'Valid enum (autonomous/supervised/restricted)', type: 'schema' },
   { section: 'engine', field: 'engine.finalization_gate.enabled', check: 'Is boolean', type: 'schema' },
   { section: 'engine', field: 'engine.finalization_gate.max_retries', check: 'Number 0-10', type: 'schema' },
+  { section: 'engine', field: 'engine.internal_error.enabled', check: 'Is boolean', type: 'schema' },
+  { section: 'engine', field: 'engine.internal_error.tool_not_found.enter_resolution_after', check: 'Number >= 1', type: 'schema' },
+  { section: 'engine', field: 'engine.internal_error.tool_not_found.retryable', check: 'Is boolean', type: 'schema' },
+  { section: 'engine', field: 'engine.internal_error.resolution.max_iterations', check: 'Number >= 1', type: 'schema' },
+  { section: 'engine', field: 'engine.internal_error.loop_detection.enabled', check: 'Is boolean', type: 'schema' },
+  { section: 'engine', field: 'engine.internal_error.loop_detection.identical_call_threshold', check: 'Number >= 1', type: 'schema' },
 
   // Metadata
   { section: 'metadata', field: 'id', check: 'Has ID (string)', type: 'schema' },
@@ -502,6 +508,87 @@ function validateEngine(engine) {
           path: 'engine.finalization_gate.max_retries',
           message: 'finalization_gate.max_retries must be a number between 0 and 10',
         });
+      }
+    }
+  }
+
+  // Validate internal_error (RV2 Sprint)
+  if (engine.internal_error) {
+    const ie = engine.internal_error;
+
+    // Validate enabled
+    if (ie.enabled !== undefined && typeof ie.enabled !== 'boolean') {
+      issues.push({
+        code: 'INVALID_INTERNAL_ERROR_ENABLED',
+        severity: 'error',
+        path: 'engine.internal_error.enabled',
+        message: 'internal_error.enabled must be a boolean',
+      });
+    }
+
+    // Validate tool_not_found
+    if (ie.tool_not_found) {
+      if (ie.tool_not_found.enter_resolution_after !== undefined) {
+        if (typeof ie.tool_not_found.enter_resolution_after !== 'number' || ie.tool_not_found.enter_resolution_after < 1) {
+          issues.push({
+            code: 'INVALID_ENTER_RESOLUTION_AFTER',
+            severity: 'error',
+            path: 'engine.internal_error.tool_not_found.enter_resolution_after',
+            message: 'enter_resolution_after must be a number >= 1',
+          });
+        }
+      }
+      if (ie.tool_not_found.retryable !== undefined && typeof ie.tool_not_found.retryable !== 'boolean') {
+        issues.push({
+          code: 'INVALID_TOOL_NOT_FOUND_RETRYABLE',
+          severity: 'error',
+          path: 'engine.internal_error.tool_not_found.retryable',
+          message: 'tool_not_found.retryable must be a boolean',
+        });
+      }
+    }
+
+    // Validate resolution
+    if (ie.resolution) {
+      if (ie.resolution.max_iterations !== undefined) {
+        if (typeof ie.resolution.max_iterations !== 'number' || ie.resolution.max_iterations < 1) {
+          issues.push({
+            code: 'INVALID_RESOLUTION_MAX_ITERATIONS',
+            severity: 'error',
+            path: 'engine.internal_error.resolution.max_iterations',
+            message: 'resolution.max_iterations must be a number >= 1',
+          });
+        }
+      }
+      if (ie.resolution.allowed_capabilities !== undefined && !Array.isArray(ie.resolution.allowed_capabilities)) {
+        issues.push({
+          code: 'INVALID_ALLOWED_CAPABILITIES',
+          severity: 'error',
+          path: 'engine.internal_error.resolution.allowed_capabilities',
+          message: 'resolution.allowed_capabilities must be an array',
+        });
+      }
+    }
+
+    // Validate loop_detection
+    if (ie.loop_detection) {
+      if (ie.loop_detection.enabled !== undefined && typeof ie.loop_detection.enabled !== 'boolean') {
+        issues.push({
+          code: 'INVALID_LOOP_DETECTION_ENABLED',
+          severity: 'error',
+          path: 'engine.internal_error.loop_detection.enabled',
+          message: 'loop_detection.enabled must be a boolean',
+        });
+      }
+      if (ie.loop_detection.identical_call_threshold !== undefined) {
+        if (typeof ie.loop_detection.identical_call_threshold !== 'number' || ie.loop_detection.identical_call_threshold < 1) {
+          issues.push({
+            code: 'INVALID_IDENTICAL_CALL_THRESHOLD',
+            severity: 'error',
+            path: 'engine.internal_error.loop_detection.identical_call_threshold',
+            message: 'loop_detection.identical_call_threshold must be a number >= 1',
+          });
+        }
       }
     }
   }

@@ -335,6 +335,32 @@
  */
 
 /**
+ * @typedef {Object} ToolNotFoundConfig
+ * @property {number} enter_resolution_after - Failures before entering RESOLUTION mode (default: 1)
+ * @property {boolean} retryable - Whether this error type allows retry
+ */
+
+/**
+ * @typedef {Object} ResolutionConfig
+ * @property {number} max_iterations - Max iterations allowed in RESOLUTION mode (default: 1)
+ * @property {string[]} allowed_capabilities - Capabilities allowed in RESOLUTION mode
+ */
+
+/**
+ * @typedef {Object} LoopDetectionConfig
+ * @property {boolean} enabled - Whether loop detection is active
+ * @property {number} identical_call_threshold - Identical tool calls before flagging loop (default: 2)
+ */
+
+/**
+ * @typedef {Object} InternalErrorConfig
+ * @property {boolean} enabled - Whether internal error handling is active (default: true)
+ * @property {ToolNotFoundConfig} tool_not_found - Tool-not-found error settings
+ * @property {ResolutionConfig} resolution - RESOLUTION mode settings
+ * @property {LoopDetectionConfig} loop_detection - Loop detection settings
+ */
+
+/**
  * @typedef {Object} EngineConfig
  * @property {string} [model] - LLM model to use (e.g., "claude-3-sonnet")
  * @property {number} [temperature] - LLM temperature (0.0-1.0)
@@ -342,6 +368,7 @@
  * @property {HLRConfig} hlr
  * @property {AutonomyConfig} autonomy
  * @property {FinalizationGate} [finalization_gate] - Response validation before sending to user
+ * @property {InternalErrorConfig} [internal_error] - Internal error handling and RESOLUTION mode
  */
 
 /**

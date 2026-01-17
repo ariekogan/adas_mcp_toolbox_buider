@@ -311,6 +311,58 @@ export const HELP_DOCS = {
       'Critical operations': 'Enable with high strictness, deep reflection',
       'High-volume/low-latency': 'Consider disabling to reduce processing time'
     }
+  },
+
+  'finalization gate': {
+    title: 'Finalization Gate',
+    description: `The finalization gate validates agent responses before they are sent to the user.`,
+    purpose: `It ensures response quality by checking that outputs meet defined contracts and standards.`,
+    settings: {
+      enabled: 'Whether to validate responses before sending (default: true)',
+      max_retries: 'How many times to retry if validation fails (default: 2)'
+    },
+    bestPractices: [
+      'Enable for customer-facing skills to ensure quality',
+      'Set max_retries based on acceptable latency',
+      'Define output contracts for structured responses',
+      'Disable for internal/development skills if speed is critical'
+    ],
+    recommendations: {
+      'Customer support': 'Enable with 2 retries for quality assurance',
+      'Internal tools': 'Disable or set 1 retry for faster responses',
+      'High-stakes operations': 'Enable with 3 retries for maximum reliability'
+    }
+  },
+
+  'internal error handling': {
+    title: 'Internal Error Handling',
+    description: `Internal error handling manages situations where the agent cannot complete a task due to missing tools, loops, or other system issues.`,
+    purpose: `It ensures graceful degradation when automation fails, providing users with clear explanations, manual workarounds, and escalation paths instead of cryptic errors.`,
+    components: {
+      tool_not_found: 'Handles cases where a required tool is not available or registered',
+      resolution_mode: 'A restricted execution mode that generates human guidance instead of continuing automation',
+      loop_detection: 'Detects when the agent is stuck in an infinite loop calling the same tools'
+    },
+    settings: {
+      enabled: 'Master switch for internal error handling (default: true)',
+      'tool_not_found.enter_resolution_after': 'Number of failures before entering RESOLUTION mode (default: 1)',
+      'tool_not_found.retryable': 'Whether tool-not-found errors can be retried (default: false)',
+      'resolution.max_iterations': 'Max iterations allowed in RESOLUTION mode (default: 1)',
+      'resolution.allowed_capabilities': 'Capabilities allowed during resolution (default: read, search, document_output)',
+      'loop_detection.enabled': 'Whether to detect infinite loops (default: true)',
+      'loop_detection.identical_call_threshold': 'Identical tool calls before flagging as loop (default: 2)'
+    },
+    bestPractices: [
+      'Keep enabled to ensure graceful failure handling',
+      'Use low enter_resolution_after (1) for fast detection of missing tools',
+      'Enable loop detection to prevent runaway iterations',
+      'Review resolution artifacts to identify missing capabilities'
+    ],
+    recommendations: {
+      'Production skills': 'Enable all features with default settings',
+      'Development/testing': 'May increase thresholds to allow more experimentation',
+      'Critical operations': 'Keep strict settings (threshold: 1) for immediate error handling'
+    }
   }
 };
 
