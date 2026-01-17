@@ -1,6 +1,17 @@
 /**
- * System prompt for the DAL Builder conversation
- * Supports the new DraftDomain format with intents, policy, engine settings
+ * DAL-Agent System Prompt
+ *
+ * This file defines the "DAL-Agent" - the LLM-powered conversation system that guides
+ * users through building skill definitions. The DAL-Agent is NOT a separate service;
+ * it IS this prompt combined with the conversation service.
+ *
+ * Architecture (see docs/DESIGN_SPEC.md section 2.3):
+ * - DAL-Agent = this prompt + services/conversation.js
+ * - Detects missing information and asks the user
+ * - Enforces phase transitions and validation
+ * - Never lets skill builders reason about platform concerns
+ *
+ * Contract: docs/wip/DAL-Agent_Skill_Builder_Contract_2026-01-17.md
  */
 
 import { PHASES, PHASE_LABELS } from '../types/DraftDomain.js';

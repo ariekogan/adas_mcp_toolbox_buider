@@ -1,9 +1,9 @@
 # MCP Toolbox Builder - Design Specification
 
-**Version:** 1.1
+**Version:** 1.2
 **Date:** January 2025
 **Status:** Active
-**Last Updated:** 2025-01-16 - Added Prompts Architecture section (5.0)  
+**Last Updated:** 2026-01-18 - Added DAL-Agent Architecture section (2.3)
 
 ---
 
@@ -11,6 +11,9 @@
 
 1. [Overview](#1-overview)
 2. [Architecture](#2-architecture)
+   - 2.1 [High-Level Architecture](#21-high-level-architecture)
+   - 2.2 [Request Flow](#22-request-flow)
+   - 2.3 [DAL-Agent Architecture](#23-dal-agent-architecture) ← **NEW**
 3. [Data Models](#3-data-models)
 4. [Conversation Flow](#4-conversation-flow)
 5. [System Prompt Specification](#5-system-prompt-specification)
@@ -149,6 +152,104 @@ Backend saves to /memory
 Frontend receives response
 Updates chat + visual panel
 ```
+
+### 2.3 DAL-Agent Architecture
+
+> **Important:** The "DAL-Agent" is not a separate service - it IS the existing conversation system powered by `dalSystem.js`. This section clarifies the architectural boundaries.
+
+#### What is the DAL-Agent?
+
+The **DAL-Agent** is the LLM-powered conversation system that guides users through building skill definitions. It consists of:
+
+- **`prompts/dalSystem.js`** - The system prompt that defines DAL-Agent behavior
+- **`services/conversation.js`** - Processes messages and manages LLM interactions
+- **`services/state.js`** - Applies state updates and manages phase transitions
+
+#### Responsibility Boundaries (Contract)
+
+The architecture enforces a clear separation of concerns:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    RESPONSIBILITY MATRIX                             │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  SKILL BUILDER (Human User)                                          │
+│  ├── Declares what the skill needs (intents, tools, policy)          │
+│  ├── Provides domain knowledge and examples                          │
+│  ├── Reviews and confirms suggestions                                │
+│  └── NEVER reasons about: phases, validation, state management       │
+│                                                                      │
+│  DAL-AGENT (dalSystem.js + conversation.js)                          │
+│  ├── Detects missing information in skill definition                 │
+│  ├── Asks the user for missing details                               │
+│  ├── Guides through phases (PROBLEM → SCENARIO → INTENT → etc.)      │
+│  ├── Validates completeness before phase transitions                 │
+│  ├── Deduplicates repeated asks                                      │
+│  └── Enforces policy (never proceed without confirmation)            │
+│                                                                      │
+│  ORCHESTRATION (state.js + phases)                                   │
+│  ├── Phase management and transitions                                │
+│  ├── State persistence                                               │
+│  ├── Validation pipeline                                             │
+│  └── Progress calculation                                            │
+│                                                                      │
+│  UI (React Frontend)                                                 │
+│  ├── Renders conversation and skill panel                            │
+│  ├── Handles input_hint for guided responses                         │
+│  ├── Shows validation status and progress                            │
+│  └── Manages ui_focus for conversation context                       │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Core Invariant
+
+> **Skill builders must never reason about phases, validation states, or iteration control.**
+>
+> Those are platform concerns, owned by the DAL-Agent and orchestration layer.
+
+This means:
+- Users just describe what they need
+- DAL-Agent decides HOW to get the information
+- Orchestration decides WHEN to transition phases
+- UI decides HOW to render
+
+#### DAL-Agent Detection Flow
+
+```
+User sends message
+        │
+        ▼
+┌───────────────────────────────────┐
+│ DAL-Agent (dalSystem.js)          │
+│                                   │
+│ 1. Check current phase            │
+│ 2. Check what's missing           │
+│ 3. Check ui_focus context         │
+│ 4. Decide what to ask             │
+└───────────────────────────────────┘
+        │
+        ├── Missing info? → Ask user (with examples!)
+        │
+        ├── Info complete? → Confirm and suggest next step
+        │
+        └── Phase complete? → Suggest phase transition
+```
+
+#### Key Behaviors
+
+1. **Never ask without examples** - Every question includes concrete examples
+2. **Never proceed without confirmation** - Always summarize and verify
+3. **Detect stuck users** - Offer multiple choice when user seems lost
+4. **Respect ui_focus** - Stay on focused item unless explicitly asked to switch
+5. **Phase enforcement** - Don't skip ahead; complete each phase fully
+
+#### Related Documents
+
+- **Contract:** `docs/wip/DAL-Agent_Skill_Builder_Contract_2026-01-17.md`
+- **System Prompt:** `apps/backend/src/prompts/dalSystem.js`
+- **State Management:** `apps/backend/src/services/state.js`
 
 ---
 
