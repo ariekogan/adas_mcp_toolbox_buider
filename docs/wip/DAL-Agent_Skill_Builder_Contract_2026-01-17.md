@@ -206,6 +206,115 @@ This design is correct if:
 
 ---
 
+## Skill Author Guide
+
+### The One Rule
+
+> **"Define what you need; the platform asks for it."**
+
+Skill authors never call `askUser`. They declare requirements, and the platform handles the rest.
+
+### Mental Model
+
+When building a skill, think:
+
+| Think This | NOT This |
+|------------|----------|
+| "My tool requires `order_id`" | "I need to ask the user for the order ID" |
+| "Identity must be verified first" | "I need to pause and wait for identity" |
+| "Refund requires reason + photos" | "I need to handle missing photos gracefully" |
+
+The platform will:
+1. Detect missing required inputs
+2. Pause the job
+3. Show the user an input UI
+4. Collect structured input
+5. Resume with fields populated
+
+You never worry about iteration loops, budgets, or UI rendering.
+
+### Example: Order Status Check
+
+**What the skill author defines:**
+
+```yaml
+tools:
+  - name: check_order_status
+    inputs:
+      - name: order_id
+        type: string
+        required: true
+        description: "Order number to look up"
+
+policy:
+  guardrails:
+    always:
+      - "Verify customer identity before accessing order details"
+```
+
+**What happens at runtime:**
+
+1. User: "What's my order status?"
+2. Platform detects: `order_id` is required but missing
+3. Platform pauses job, shows input UI: "Please provide your order number"
+4. User enters: "ORD-12345"
+5. Platform resumes job with `order_id = "ORD-12345"`
+6. Skill executes `check_order_status` with populated input
+
+The skill author never wrote any pause/resume logic.
+
+### Example: Identity Verification
+
+**What the skill author defines:**
+
+```yaml
+policy:
+  guardrails:
+    always:
+      - "Always verify customer identity before accessing account details"
+
+# Optional: hint for better UX (platform can use this)
+required_inputs:
+  - path: identity.email_or_phone
+    prompt: "Please provide your email or phone number for verification"
+```
+
+**What happens at runtime:**
+
+1. User: "Can you check my account balance?"
+2. Platform detects: guardrail requires identity verification
+3. Platform pauses, asks for email/phone
+4. User provides: "john@example.com"
+5. Platform resumes with identity populated
+6. Skill proceeds with verified identity
+
+### What If I Want Custom Prompt Text?
+
+You can provide **declarative hints** (optional):
+
+```yaml
+required_inputs:
+  - path: order_id
+    prompt: "What's your order number? You can find it in your confirmation email."
+  - path: refund_reason
+    prompt: "Please describe why you'd like a refund"
+    input_type: text  # vs "choice" for multiple choice
+```
+
+But you still don't control WHEN or HOW the platform asks. You just provide the copy.
+
+### Summary for Skill Authors
+
+| Do | Don't |
+|----|-------|
+| Define tool inputs with `required: true` | Call `askUser` or `sys.askUser` |
+| Define guardrails (always/never) | Write pause/resume logic |
+| Define approval rules | Check job status |
+| Optionally hint prompt text | Manage iteration budgets |
+| Trust the platform | Reason about DAL state |
+
+---
+
 ## Summary
 
 Skill builders describe what they need.
