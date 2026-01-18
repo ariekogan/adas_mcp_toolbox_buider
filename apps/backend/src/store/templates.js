@@ -237,17 +237,15 @@ function regenerateIds(domain) {
     }
   }
 
-  // Regenerate intent IDs
-  if (domain.intents?.supported) {
-    for (const intent of domain.intents.supported) {
-      intent.id = `intent_${uuidv4().slice(0, 8)}`;
-    }
-  }
+  // Build workflow ID mapping (old -> new) for reference updates
+  const workflowIdMap = new Map();
 
   // Regenerate workflow IDs and update tool references
   if (domain.policy?.workflows) {
     for (const workflow of domain.policy.workflows) {
+      const oldId = workflow.id;
       workflow.id = `workflow_${uuidv4().slice(0, 8)}`;
+      workflowIdMap.set(oldId, workflow.id);
 
       // Update tool references in steps (if they use IDs)
       // Note: steps typically use tool names, not IDs, so this is a safeguard
@@ -258,6 +256,18 @@ function regenerateIds(domain) {
           }
           return step;
         });
+      }
+    }
+  }
+
+  // Regenerate intent IDs and update workflow references
+  if (domain.intents?.supported) {
+    for (const intent of domain.intents.supported) {
+      intent.id = `intent_${uuidv4().slice(0, 8)}`;
+
+      // Update maps_to_workflow reference if it was an old ID
+      if (intent.maps_to_workflow && workflowIdMap.has(intent.maps_to_workflow)) {
+        intent.maps_to_workflow = workflowIdMap.get(intent.maps_to_workflow);
       }
     }
   }
