@@ -20,7 +20,7 @@ services:
       - ${MEMORY_PATH:-./memory}:/memory
       - ./docs/templates:/app/templates
     ports:
-      - "${BACKEND_HOST_PORT:-4300}:4000"
+      - "${BACKEND_PORT:-4300}:4000"
     command: sh -c "pnpm install --silent && pnpm dev"
 
   frontend:
@@ -39,4 +39,4 @@ services:
       - ./apps/frontend/vite.config.js:/app/vite.config.js
       - ./apps/frontend/index.html:/app/index.html
     ports:
-      - "${VITE_DEV_HOST_PORT:-3310}:3100"
+      - "${FRONTEND_PORT:-3310}:3100"
