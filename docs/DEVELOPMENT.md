@@ -260,3 +260,24 @@ ssh mac1 '/usr/local/bin/docker logs adas_mcp_toolbox_builder-frontend-1'
 ssh mac1 '/usr/local/bin/docker compose down'
 ssh mac1 'lsof -i :4300'  # Check what's using the port
 ```
+
+**Docker "port already allocated" but nothing using it (Docker Desktop bug):**
+```bash
+# This is a known Docker Desktop bug where ports remain "allocated" after container stops
+# Solution 1: Change the port in .env
+ssh mac1 "sed -i '' 's/VITE_DEV_HOST_PORT=3311/VITE_DEV_HOST_PORT=3312/' ~/Projects/adas_mcp_toolbox_builder/.env"
+
+# Solution 2: Full Docker cleanup and restart
+ssh mac1 '/usr/local/bin/docker compose -f ~/Projects/adas_mcp_toolbox_builder/docker-compose.yml -f ~/Projects/adas_mcp_toolbox_builder/docker-compose.dev.yml down --volumes --remove-orphans'
+ssh mac1 '/usr/local/bin/docker network prune -f'
+ssh mac1 '/usr/local/bin/docker system prune -f'
+
+# Solution 3: Restart Docker Desktop (last resort)
+ssh mac1 "osascript -e 'tell app \"Docker\" to quit' && sleep 5 && open -a Docker && sleep 60"
+```
+
+**Docker credential error (docker-credential-desktop not found):**
+```bash
+# Remove credsStore from docker config
+ssh mac1 "sed -i '' 's/\"credsStore\": \"desktop\"/\"credsStore\": \"\"/' ~/.docker/config.json"
+```
