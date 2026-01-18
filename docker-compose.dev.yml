@@ -14,8 +14,13 @@ services:
       - SEARCH_PROVIDER=${SEARCH_PROVIDER:-duckduckgo}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
       - TEMPLATES_PATH=/app/templates
-      # ADAS Core URL for deployment (host.docker.internal resolves to host machine)
-      - ADAS_CORE_URL=${ADAS_CORE_URL:-http://host.docker.internal:4100}
+      # ADAS Core URL for deployment (uses ADAS network for direct container access)
+      - ADAS_CORE_URL=${ADAS_CORE_URL:-http://ai-dev-assistant-backend-1:4000}
+    networks:
+      - default
+      - adas_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./apps/backend/src:/app/src
       - ./apps/backend/package.json:/app/package.json
@@ -42,3 +47,9 @@ services:
       - ./apps/frontend/index.html:/app/index.html
     ports:
       - "${VITE_DEV_HOST_PORT:-3310}:3100"
+
+# External network to communicate with ADAS Core
+networks:
+  adas_network:
+    external: true
+    name: ai-dev-assistant_default
