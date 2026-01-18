@@ -231,6 +231,55 @@ export async function previewAdasExport(skillId) {
   return request(`/export/${skillId}/adas/preview`);
 }
 
+// Connectors
+export async function listConnectors() {
+  return request('/connectors');
+}
+
+export async function listPrebuiltConnectors() {
+  return request('/connectors/prebuilt');
+}
+
+export async function connectMCP(config) {
+  return request('/connectors/connect', {
+    method: 'POST',
+    body: JSON.stringify(config)
+  });
+}
+
+export async function connectPrebuilt(connectorId, options = {}) {
+  return request(`/connectors/prebuilt/${connectorId}/connect`, {
+    method: 'POST',
+    body: JSON.stringify(options)
+  });
+}
+
+export async function disconnectMCP(id) {
+  return request(`/connectors/disconnect/${id}`, { method: 'POST' });
+}
+
+export async function getConnectorStatus(id) {
+  return request(`/connectors/${id}/status`);
+}
+
+export async function getConnectorTools(id) {
+  return request(`/connectors/${id}/tools`);
+}
+
+export async function callConnectorTool(connectionId, tool, args = {}) {
+  return request(`/connectors/${connectionId}/call`, {
+    method: 'POST',
+    body: JSON.stringify({ tool, args })
+  });
+}
+
+export async function importConnectorTools(connectionId, domainId, tools = [], policies = {}) {
+  return request(`/connectors/${connectionId}/import-to-domain`, {
+    method: 'POST',
+    body: JSON.stringify({ domainId, tools, policies })
+  });
+}
+
 export default {
   checkHealth,
   listTemplates,
@@ -256,5 +305,15 @@ export default {
   previewExport,
   downloadExport,
   deployToAdas,
-  previewAdasExport
+  previewAdasExport,
+  // Connectors
+  listConnectors,
+  listPrebuiltConnectors,
+  connectMCP,
+  connectPrebuilt,
+  disconnectMCP,
+  getConnectorStatus,
+  getConnectorTools,
+  callConnectorTool,
+  importConnectorTools
 };

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import domainsStore from "../store/domains.js";
 import { createAdapter } from "../services/llm/adapter.js";
+import mcpManager from "../services/mcpConnector.js";
 
 const router = Router();
 
@@ -24,7 +25,11 @@ router.post("/:domainId/:toolId", async (req, res, next) => {
 
     let output;
 
-    if (mode === "example") {
+    // Check if this is an MCP bridge tool
+    if (tool.source?.type === 'mcp_bridge') {
+      log.debug(`MCP bridge tool detected: ${tool.name} -> ${tool.source.connection_id}`);
+      output = await callMCPBridgeTool(tool, input, log);
+    } else if (mode === "example") {
       // Example-based mock: find matching example
       output = findMatchingExample(tool, input);
     } else if (mode === "llm") {
@@ -49,6 +54,49 @@ router.post("/:domainId/:toolId", async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * Call an MCP bridge tool through the connected MCP server
+ */
+async function callMCPBridgeTool(tool, input, log) {
+  const { connection_id, mcp_tool } = tool.source;
+
+  // Check if MCP connection is active
+  const status = mcpManager.getStatus(connection_id);
+
+  if (!status.exists) {
+    return {
+      error: `MCP connection not found: ${connection_id}`,
+      _bridge: true,
+      _hint: 'Connect to the MCP server first via the Connectors tab'
+    };
+  }
+
+  if (!status.connected) {
+    return {
+      error: `MCP connection not active: ${connection_id}`,
+      _bridge: true,
+      _hint: 'The MCP server has disconnected. Reconnect via the Connectors tab'
+    };
+  }
+
+  try {
+    log.debug(`Calling MCP tool: ${mcp_tool} on connection ${connection_id}`);
+    const result = await mcpManager.callTool(connection_id, mcp_tool, input);
+    return {
+      ...result,
+      _bridge: true,
+      _source: `mcp://${connection_id}/${mcp_tool}`
+    };
+  } catch (err) {
+    log.error(`MCP bridge call failed: ${err.message}`);
+    return {
+      error: err.message,
+      _bridge: true,
+      _source: `mcp://${connection_id}/${mcp_tool}`
+    };
+  }
+}
 
 /**
  * Find matching example from mock data

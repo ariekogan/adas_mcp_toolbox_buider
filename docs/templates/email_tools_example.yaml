@@ -1,0 +1,611 @@
+# =============================================================================
+# EXAMPLE: Email Tools for ADAS MCP Toolbox
+# =============================================================================
+# This file demonstrates how to add custom email tools (send_email, read_emails)
+# to your skill definition. These tools follow the standard tool structure
+# and can be integrated with any email provider (Gmail, Outlook, SMTP, etc.)
+# =============================================================================
+
+# These tools would be added to the 'tools' section of your skill definition
+
+tools:
+  # ---------------------------------------------------------------------------
+  # EMAIL TOOLS
+  # ---------------------------------------------------------------------------
+
+  - id: "tool-email-send"
+    id_status: permanent
+    name: "send_email"
+    description: |
+      Send an email to one or more recipients. Supports plain text and HTML
+      content, attachments, CC/BCC, and reply-to headers. The email is sent
+      through the configured email provider (Gmail, Outlook, SMTP, etc.).
+    inputs:
+      - name: "to"
+        type: array
+        required: true
+        description: "Array of recipient email addresses"
+      - name: "subject"
+        type: string
+        required: true
+        description: "Email subject line"
+      - name: "body"
+        type: string
+        required: true
+        description: "Email body content (plain text or HTML)"
+      - name: "body_type"
+        type: string
+        required: false
+        description: "Content type of the body"
+        enum: ["text", "html"]
+        default: "text"
+      - name: "cc"
+        type: array
+        required: false
+        description: "Array of CC recipient email addresses"
+      - name: "bcc"
+        type: array
+        required: false
+        description: "Array of BCC recipient email addresses"
+      - name: "reply_to"
+        type: string
+        required: false
+        description: "Reply-to email address"
+      - name: "attachments"
+        type: array
+        required: false
+        description: "Array of attachment objects with 'filename' and 'path' or 'content'"
+    output:
+      type: object
+      description: "Send operation result"
+      schema:
+        success: "boolean - Whether the email was sent successfully"
+        message_id: "string - Unique identifier of the sent message"
+        timestamp: "string - ISO timestamp when the email was sent"
+        recipients_count: "number - Total number of recipients (to + cc + bcc)"
+    policy:
+      allowed: always
+      requires_approval: always  # Always require approval before sending emails
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "send-simple-email"
+          input:
+            to: ["user@example.com"]
+            subject: "Hello from ADAS"
+            body: "This is a test email sent from the ADAS system."
+          output:
+            success: true
+            message_id: "msg-12345-abcde"
+            timestamp: "2026-01-19T10:30:00Z"
+            recipients_count: 1
+          description: "Send a simple text email to one recipient"
+        - id: "send-html-email-with-cc"
+          input:
+            to: ["primary@example.com"]
+            cc: ["manager@example.com"]
+            subject: "Weekly Report"
+            body: "<h1>Weekly Report</h1><p>Here is the summary...</p>"
+            body_type: "html"
+          output:
+            success: true
+            message_id: "msg-67890-fghij"
+            timestamp: "2026-01-19T11:00:00Z"
+            recipients_count: 2
+          description: "Send an HTML email with CC recipient"
+        - id: "send-email-with-attachment"
+          input:
+            to: ["recipient@example.com"]
+            subject: "Document Attached"
+            body: "Please find the requested document attached."
+            attachments:
+              - filename: "report.pdf"
+                path: "/tmp/reports/report.pdf"
+          output:
+            success: true
+            message_id: "msg-11111-klmno"
+            timestamp: "2026-01-19T12:00:00Z"
+            recipients_count: 1
+          description: "Send an email with a file attachment"
+    mock_status: untested
+
+  - id: "tool-email-read"
+    id_status: permanent
+    name: "read_emails"
+    description: |
+      Read emails from the inbox or a specific folder. Supports filtering by
+      sender, subject, date range, read/unread status, and labels/folders.
+      Returns a list of email summaries with the option to get full content.
+    inputs:
+      - name: "folder"
+        type: string
+        required: false
+        description: "Email folder to read from"
+        enum: ["inbox", "sent", "drafts", "trash", "spam", "archive"]
+        default: "inbox"
+      - name: "limit"
+        type: number
+        required: false
+        description: "Maximum number of emails to return"
+        default: 20
+      - name: "offset"
+        type: number
+        required: false
+        description: "Number of emails to skip (for pagination)"
+        default: 0
+      - name: "unread_only"
+        type: boolean
+        required: false
+        description: "Only return unread emails"
+        default: false
+      - name: "from_filter"
+        type: string
+        required: false
+        description: "Filter by sender email address (partial match)"
+      - name: "subject_filter"
+        type: string
+        required: false
+        description: "Filter by subject (partial match)"
+      - name: "after_date"
+        type: string
+        required: false
+        description: "Only return emails after this date (ISO format)"
+      - name: "before_date"
+        type: string
+        required: false
+        description: "Only return emails before this date (ISO format)"
+      - name: "include_body"
+        type: boolean
+        required: false
+        description: "Include full email body in response"
+        default: false
+      - name: "labels"
+        type: array
+        required: false
+        description: "Filter by labels/categories (provider-specific)"
+    output:
+      type: object
+      description: "List of emails matching the criteria"
+      schema:
+        emails: "array - List of email objects"
+        total_count: "number - Total number of emails matching criteria"
+        has_more: "boolean - Whether there are more emails to fetch"
+        folder: "string - Folder that was searched"
+    policy:
+      allowed: always
+      requires_approval: never  # Reading emails is safe, no approval needed
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "read-inbox"
+          input:
+            folder: "inbox"
+            limit: 10
+          output:
+            emails:
+              - id: "email-001"
+                from: "sender@example.com"
+                to: ["me@example.com"]
+                subject: "Meeting Tomorrow"
+                snippet: "Hi, just a reminder about our meeting..."
+                date: "2026-01-19T09:00:00Z"
+                is_read: false
+                has_attachments: false
+              - id: "email-002"
+                from: "newsletter@company.com"
+                to: ["me@example.com"]
+                subject: "Weekly Newsletter"
+                snippet: "This week's top stories..."
+                date: "2026-01-18T14:30:00Z"
+                is_read: true
+                has_attachments: false
+            total_count: 45
+            has_more: true
+            folder: "inbox"
+          description: "Read first 10 emails from inbox"
+        - id: "read-unread-from-boss"
+          input:
+            folder: "inbox"
+            unread_only: true
+            from_filter: "boss@company.com"
+            include_body: true
+          output:
+            emails:
+              - id: "email-003"
+                from: "boss@company.com"
+                to: ["me@example.com"]
+                subject: "Urgent: Project Update"
+                snippet: "Please provide an update on..."
+                body: "Hi,\n\nPlease provide an update on the current project status by EOD.\n\nThanks"
+                date: "2026-01-19T08:45:00Z"
+                is_read: false
+                has_attachments: false
+            total_count: 1
+            has_more: false
+            folder: "inbox"
+          description: "Read unread emails from a specific sender with full body"
+        - id: "read-recent-with-attachments"
+          input:
+            folder: "inbox"
+            after_date: "2026-01-15T00:00:00Z"
+            include_body: false
+          output:
+            emails:
+              - id: "email-004"
+                from: "hr@company.com"
+                to: ["me@example.com"]
+                subject: "Benefits Document"
+                snippet: "Please review the attached..."
+                date: "2026-01-17T11:00:00Z"
+                is_read: true
+                has_attachments: true
+                attachments:
+                  - filename: "benefits_2026.pdf"
+                    size: 245000
+                    content_type: "application/pdf"
+            total_count: 12
+            has_more: true
+            folder: "inbox"
+          description: "Read recent emails to check for attachments"
+    mock_status: untested
+
+  - id: "tool-email-get-details"
+    id_status: permanent
+    name: "get_email_details"
+    description: |
+      Get the full details of a specific email by its ID. Returns complete
+      email content including body, headers, attachments, and thread information.
+    inputs:
+      - name: "email_id"
+        type: string
+        required: true
+        description: "Unique identifier of the email to retrieve"
+      - name: "include_attachments"
+        type: boolean
+        required: false
+        description: "Include attachment content (base64 encoded)"
+        default: false
+      - name: "mark_as_read"
+        type: boolean
+        required: false
+        description: "Mark the email as read when retrieving"
+        default: true
+    output:
+      type: object
+      description: "Full email details"
+      schema:
+        id: "string - Email unique identifier"
+        from: "string - Sender email address"
+        to: "array - Recipient email addresses"
+        cc: "array - CC recipients"
+        bcc: "array - BCC recipients (if visible)"
+        subject: "string - Email subject"
+        body_text: "string - Plain text body"
+        body_html: "string - HTML body (if available)"
+        date: "string - ISO timestamp when received"
+        is_read: "boolean - Read status"
+        labels: "array - Applied labels/categories"
+        thread_id: "string - Thread/conversation ID"
+        attachments: "array - Attachment details"
+        headers: "object - Email headers"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "get-email-full"
+          input:
+            email_id: "email-001"
+            include_attachments: false
+          output:
+            id: "email-001"
+            from: "sender@example.com"
+            to: ["me@example.com"]
+            cc: []
+            subject: "Meeting Tomorrow"
+            body_text: "Hi,\n\nJust a reminder about our meeting tomorrow at 10am.\n\nBest,\nJohn"
+            body_html: "<p>Hi,</p><p>Just a reminder about our meeting tomorrow at 10am.</p><p>Best,<br>John</p>"
+            date: "2026-01-19T09:00:00Z"
+            is_read: true
+            labels: ["important"]
+            thread_id: "thread-abc123"
+            attachments: []
+            headers:
+              message_id: "<abc123@example.com>"
+              in_reply_to: null
+          description: "Get full details of an email"
+    mock_status: untested
+
+  - id: "tool-email-mark-read"
+    id_status: permanent
+    name: "mark_email_read"
+    description: |
+      Mark one or more emails as read or unread. Useful for managing
+      inbox state and tracking which emails have been processed.
+    inputs:
+      - name: "email_ids"
+        type: array
+        required: true
+        description: "Array of email IDs to update"
+      - name: "is_read"
+        type: boolean
+        required: true
+        description: "Set to true to mark as read, false to mark as unread"
+    output:
+      type: object
+      description: "Update result"
+      schema:
+        success: "boolean - Whether the operation succeeded"
+        updated_count: "number - Number of emails updated"
+        failed_ids: "array - IDs of emails that failed to update"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "mark-as-read"
+          input:
+            email_ids: ["email-001", "email-002"]
+            is_read: true
+          output:
+            success: true
+            updated_count: 2
+            failed_ids: []
+          description: "Mark multiple emails as read"
+    mock_status: untested
+
+  - id: "tool-email-search"
+    id_status: permanent
+    name: "search_emails"
+    description: |
+      Search emails using a query string. Supports full-text search across
+      subject, body, and sender. More powerful than basic filtering for
+      finding specific emails.
+    inputs:
+      - name: "query"
+        type: string
+        required: true
+        description: "Search query (supports provider-specific syntax)"
+      - name: "limit"
+        type: number
+        required: false
+        description: "Maximum number of results"
+        default: 20
+      - name: "folder"
+        type: string
+        required: false
+        description: "Limit search to specific folder (omit for all)"
+    output:
+      type: object
+      description: "Search results"
+      schema:
+        emails: "array - List of matching emails"
+        total_count: "number - Total number of matches"
+        query: "string - The query that was executed"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "search-project"
+          input:
+            query: "project alpha deadline"
+            limit: 10
+          output:
+            emails:
+              - id: "email-010"
+                from: "pm@company.com"
+                subject: "Project Alpha - Deadline Update"
+                snippet: "The deadline for Project Alpha has been..."
+                date: "2026-01-15T10:00:00Z"
+                is_read: true
+              - id: "email-011"
+                from: "team@company.com"
+                subject: "Re: Project Alpha Timeline"
+                snippet: "Regarding the deadline discussion..."
+                date: "2026-01-14T16:30:00Z"
+                is_read: true
+            total_count: 2
+            query: "project alpha deadline"
+          description: "Search for emails about a project deadline"
+    mock_status: untested
+
+  - id: "tool-email-reply"
+    id_status: permanent
+    name: "reply_to_email"
+    description: |
+      Reply to an existing email. Automatically includes the original message
+      in the reply and sets proper headers for threading. Can reply to sender
+      only or reply-all.
+    inputs:
+      - name: "email_id"
+        type: string
+        required: true
+        description: "ID of the email to reply to"
+      - name: "body"
+        type: string
+        required: true
+        description: "Reply body content"
+      - name: "body_type"
+        type: string
+        required: false
+        description: "Content type of the body"
+        enum: ["text", "html"]
+        default: "text"
+      - name: "reply_all"
+        type: boolean
+        required: false
+        description: "Reply to all recipients (not just sender)"
+        default: false
+      - name: "include_original"
+        type: boolean
+        required: false
+        description: "Include original message in reply"
+        default: true
+    output:
+      type: object
+      description: "Reply result"
+      schema:
+        success: "boolean - Whether the reply was sent"
+        message_id: "string - ID of the sent reply"
+        thread_id: "string - Thread ID for the conversation"
+        timestamp: "string - When the reply was sent"
+    policy:
+      allowed: always
+      requires_approval: always  # Sending any email requires approval
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "reply-simple"
+          input:
+            email_id: "email-001"
+            body: "Thanks for the reminder! I'll be there."
+          output:
+            success: true
+            message_id: "msg-reply-001"
+            thread_id: "thread-abc123"
+            timestamp: "2026-01-19T10:15:00Z"
+          description: "Send a simple reply to an email"
+        - id: "reply-all-html"
+          input:
+            email_id: "email-005"
+            body: "<p>Thank you all for your input.</p><p>I'll compile the feedback.</p>"
+            body_type: "html"
+            reply_all: true
+          output:
+            success: true
+            message_id: "msg-reply-002"
+            thread_id: "thread-xyz789"
+            timestamp: "2026-01-19T11:30:00Z"
+          description: "Reply-all with HTML content"
+    mock_status: untested
+
+  - id: "tool-email-forward"
+    id_status: permanent
+    name: "forward_email"
+    description: |
+      Forward an email to new recipients. Preserves the original message
+      content and attachments. Can add a custom message before the forwarded
+      content.
+    inputs:
+      - name: "email_id"
+        type: string
+        required: true
+        description: "ID of the email to forward"
+      - name: "to"
+        type: array
+        required: true
+        description: "Array of recipient email addresses"
+      - name: "message"
+        type: string
+        required: false
+        description: "Optional message to include before forwarded content"
+      - name: "include_attachments"
+        type: boolean
+        required: false
+        description: "Include original attachments"
+        default: true
+    output:
+      type: object
+      description: "Forward result"
+      schema:
+        success: "boolean - Whether the forward was sent"
+        message_id: "string - ID of the forwarded message"
+        timestamp: "string - When the forward was sent"
+    policy:
+      allowed: always
+      requires_approval: always  # Forwarding emails requires approval
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "forward-with-note"
+          input:
+            email_id: "email-004"
+            to: ["colleague@company.com"]
+            message: "FYI - This might be relevant to your project."
+          output:
+            success: true
+            message_id: "msg-fwd-001"
+            timestamp: "2026-01-19T12:00:00Z"
+          description: "Forward an email with a note"
+    mock_status: untested
+
+# =============================================================================
+# INTEGRATION NOTES
+# =============================================================================
+#
+# To use these email tools in your skill:
+#
+# 1. Add these tool definitions to your skill's 'tools' section
+#
+# 2. Configure the email provider in your MCP server implementation:
+#    - Gmail: Use Gmail API with OAuth2
+#    - Outlook: Use Microsoft Graph API
+#    - SMTP: Use nodemailer or similar library
+#
+# 3. The actual implementation would be in your MCP server code, not here.
+#    This YAML defines the tool interface that ADAS will use.
+#
+# 4. Consider adding these intents to your skill:
+#
+#    intents:
+#      supported:
+#        - id: "intent_send_email"
+#          description: "User wants to send an email"
+#          examples:
+#            - "Send an email to john@example.com"
+#            - "Email the team about the meeting"
+#            - "Compose a message to the client"
+#          maps_to_workflow: "workflow_send_email"
+#
+#        - id: "intent_check_email"
+#          description: "User wants to check or read emails"
+#          examples:
+#            - "Check my inbox"
+#            - "Do I have any new emails?"
+#            - "Read my unread messages"
+#            - "What emails did I get today?"
+#
+#        - id: "intent_find_email"
+#          description: "User wants to find a specific email"
+#          examples:
+#            - "Find the email from John about the project"
+#            - "Search for emails about invoices"
+#            - "Look for the meeting invite"
+#
+# 5. Consider adding these workflows:
+#
+#    workflows:
+#      - id: "workflow_send_email"
+#        name: "Send Email"
+#        description: "Compose and send an email"
+#        trigger: "intent_send_email"
+#        steps:
+#          - "send_email"
+#        required: false
+#
+#      - id: "workflow_check_inbox"
+#        name: "Check Inbox"
+#        description: "Check for new emails"
+#        trigger: "intent_check_email"
+#        steps:
+#          - "read_emails"
+#        required: false
+#
+# 6. Security considerations:
+#    - Always require approval for sending/forwarding emails
+#    - Consider rate limiting to prevent spam
+#    - Store OAuth tokens securely
+#    - Log all email operations for audit
+#
+# =============================================================================

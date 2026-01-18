@@ -16,6 +16,7 @@ import IntentsPanel from './IntentsPanel';
 import PolicyPanel from './PolicyPanel';
 import EnginePanel from './EnginePanel';
 import IdentityPanel from './IdentityPanel';
+import ConnectorPanel from './ConnectorPanel';
 import ValidationBanner from './ValidationBanner';
 import ValidationList from './ValidationList';
 import ValidationMicroDashboard from './ValidationMicroDashboard';
@@ -353,6 +354,7 @@ const TABS = [
   { id: 'identity', label: 'Identity' },
   { id: 'intents', label: 'Intents' },
   { id: 'tools', label: 'Tools' },
+  { id: 'connectors', label: 'Connectors' },
   { id: 'policy', label: 'Policy' },
   { id: 'engine', label: 'Engine' }
 ];
@@ -1024,6 +1026,35 @@ export default function SkillPanel({
                     </div>
                   )}
 
+                  {/* MCP Bridge Source */}
+                  {focusedTool.source?.type === 'mcp_bridge' && (
+                    <div style={{ marginBottom: '20px' }}>
+                      <div style={{ ...styles.mockLabel, fontSize: '12px', marginBottom: '10px' }}>MCP Bridge</div>
+                      <div style={{
+                        background: 'rgba(99, 102, 241, 0.1)',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        border: '1px solid rgba(99, 102, 241, 0.2)'
+                      }}>
+                        <div style={{ fontSize: '13px', color: '#a5b4fc' }}>
+                          <div style={{ marginBottom: '6px' }}>
+                            <strong>Connection:</strong> {focusedTool.source.connection_id}
+                          </div>
+                          <div>
+                            <strong>MCP Tool:</strong> {focusedTool.source.mcp_tool}
+                          </div>
+                        </div>
+                        <div style={{
+                          marginTop: '8px',
+                          fontSize: '11px',
+                          color: 'var(--text-muted)'
+                        }}>
+                          This tool calls an external MCP server. Ensure the connector is active before testing.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Policy */}
                   {focusedTool.policy && (
                     <div style={{ marginBottom: '20px' }}>
@@ -1096,6 +1127,11 @@ export default function SkillPanel({
                         <div style={styles.cardTitle}>
                           <span style={styles.expandIcon}>›</span>
                           {tool.name || `Tool ${i + 1}`}
+                          {tool.source?.type === 'mcp_bridge' && (
+                            <span style={{ ...styles.policyBadge, background: '#6366f120', color: '#a5b4fc' }}>
+                              MCP
+                            </span>
+                          )}
                           <span style={{ ...styles.status, background: mockColor.bg, color: mockColor.color }}>
                             {tool.mock_status || 'untested'}
                           </span>
@@ -1248,6 +1284,58 @@ export default function SkillPanel({
               </>
             )}
           </div>
+        )}
+
+        {/* Connectors Tab */}
+        {activeTab === 'connectors' && (
+          <ConnectorPanel
+            skillId={skill?.id}
+            onToolsImported={async (tools) => {
+              // Add imported tools to the skill
+              if (!skill || !tools?.length) return;
+
+              try {
+                // Get existing tools and merge with new ones
+                const existingTools = skill.tools || [];
+                const existingIds = new Set(existingTools.map(t => t.id));
+
+                // Filter out tools that already exist (by ID)
+                const newTools = tools.filter(t => !existingIds.has(t.id));
+
+                if (newTools.length === 0) {
+                  if (onAskAbout) {
+                    onAskAbout(`All ${tools.length} selected tools are already in this skill.`, true);
+                  }
+                  return;
+                }
+
+                // Merge and update
+                const updatedTools = [...existingTools, ...newTools];
+
+                // Import through the API client
+                const { updateSkill: updateSkillApi } = await import('../api/client');
+                await updateSkillApi(skill.id, { tools: updatedTools });
+
+                // Notify user through chat
+                if (onAskAbout) {
+                  const toolNames = newTools.map(t => t.name).join(', ');
+                  onAskAbout(
+                    `Successfully imported ${newTools.length} tool(s) from the connector: ${toolNames}. ` +
+                    `These tools use the MCP bridge source type and will call the connected MCP server when invoked.`,
+                    true
+                  );
+                }
+
+                // Switch to tools tab to show the new tools
+                setActiveTab('tools');
+              } catch (err) {
+                console.error('Failed to import tools:', err);
+                if (onAskAbout) {
+                  onAskAbout(`Failed to import tools: ${err.message}`, true);
+                }
+              }
+            }}
+          />
         )}
 
         {/* Policy Tab */}
