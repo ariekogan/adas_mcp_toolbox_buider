@@ -336,6 +336,7 @@ export default function App() {
                   console.error('Failed to persist validation issues:', err);
                 });
               }}
+              onSkillUpdate={updateSkill}
               skillId={currentSkill.id}
             />
           </div>

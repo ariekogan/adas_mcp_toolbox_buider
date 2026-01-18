@@ -596,6 +596,7 @@ export default function SkillPanel({
   onExport,
   onAskAbout,
   onIssuesChange,
+  onSkillUpdate,
   skillId
 }) {
   const [activeTab, setActiveTab] = useState('identity');
@@ -1314,7 +1315,12 @@ export default function SkillPanel({
 
                 // Import through the API client
                 const { updateSkill: updateSkillApi } = await import('../api/client');
-                await updateSkillApi(skill.id, { tools: updatedTools });
+                const updatedSkill = await updateSkillApi(skill.id, { tools: updatedTools });
+
+                // Update local state through parent callback
+                if (onSkillUpdate && updatedSkill) {
+                  onSkillUpdate(updatedSkill);
+                }
 
                 // Notify user through chat
                 if (onAskAbout) {
