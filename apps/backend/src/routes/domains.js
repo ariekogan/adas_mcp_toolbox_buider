@@ -7,6 +7,7 @@
 
 import { Router } from 'express';
 import domainsStore from '../store/domains.js';
+import templatesStore from '../store/templates.js';
 import { getValidationSummary } from '../validators/index.js';
 
 const router = Router();
@@ -30,17 +31,31 @@ router.get('/', async (req, res, next) => {
  * Create new domain
  * POST /api/domains
  *
- * Body: { name: string, settings?: { llm_provider, llm_model } }
+ * Body: {
+ *   name: string,
+ *   settings?: { llm_provider, llm_model },
+ *   templateId?: string  // Optional: template to use as starting point
+ * }
  */
 router.post('/', async (req, res, next) => {
   try {
-    const { name, settings } = req.body;
+    const { name, settings, templateId } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Domain name is required' });
     }
 
-    const domain = await domainsStore.create(name, settings);
+    // Load template if specified
+    let template = null;
+    if (templateId) {
+      try {
+        template = await templatesStore.load(templateId);
+      } catch (err) {
+        return res.status(400).json({ error: `Template "${templateId}" not found` });
+      }
+    }
+
+    const domain = await domainsStore.create(name, settings, template);
     res.status(201).json({ domain });
   } catch (err) {
     next(err);

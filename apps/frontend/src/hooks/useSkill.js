@@ -26,11 +26,11 @@ export function useSkill() {
     }
   }, []);
 
-  const createSkill = useCallback(async (name, settings) => {
+  const createSkill = useCallback(async (name, settings, templateId = null) => {
     setLoading(true);
     setError(null);
     try {
-      const skill = await api.createSkill(name, settings);
+      const skill = await api.createSkill(name, settings, templateId);
       setCurrentSkill(skill);
       await loadSkills();
       return skill;

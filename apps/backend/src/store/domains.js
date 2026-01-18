@@ -15,6 +15,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { createEmptyDraftDomain } from '../utils/defaults.js';
 import { validateDraftDomain } from '../validators/index.js';
 import { migrateToV2 } from '../services/migrate.js';
+import templatesStore from './templates.js';
 
 // /memory is mounted per-tenant, slugs are direct children
 const MEMORY_PATH = process.env.MEMORY_PATH || '/memory';
@@ -241,9 +242,10 @@ async function list() {
  * Create a new domain
  * @param {string} name
  * @param {Object} [settings]
+ * @param {Object} [template] - Optional template to apply ({ id, content })
  * @returns {Promise<DraftDomain>}
  */
-async function create(name, settings = {}) {
+async function create(name, settings = {}, template = null) {
   await init();
 
   const slug = `dom_${uuidv4().slice(0, 8)}`;
@@ -252,7 +254,14 @@ async function create(name, settings = {}) {
   await ensureDir(slugDir);
   await ensureDir(path.join(slugDir, 'exports'));
 
-  const domain = createEmptyDraftDomain(slug, name);
+  // Create base domain
+  let domain = createEmptyDraftDomain(slug, name);
+
+  // Apply template if provided
+  if (template && template.content) {
+    domain = templatesStore.applyTemplate(domain, template.content);
+    console.log(`[Store] Applied template "${template.id}" to new domain "${name}"`);
+  }
 
   // Store settings
   if (settings.llm_provider || settings.llm_model) {
@@ -260,6 +269,11 @@ async function create(name, settings = {}) {
       llm_provider: settings.llm_provider || process.env.LLM_PROVIDER || 'anthropic',
       llm_model: settings.llm_model || null,
     };
+  }
+
+  // Track which template was used (for reference)
+  if (template) {
+    domain._fromTemplate = template.id;
   }
 
   // Initial validation

@@ -4,6 +4,7 @@ import multer from "multer";
 
 import chatRouter from "./routes/chat.js";
 import domainsRouter from "./routes/domains.js";
+import templatesRouter from "./routes/templates.js";
 import mockRouter from "./routes/mock.js";
 import exportRouter from "./routes/export.js";
 import validateRouter from "./routes/validate.js";
@@ -66,6 +67,7 @@ app.get("/api/health", (_req, res) => {
 
 // Routes
 app.use("/api/domains", domainsRouter);
+app.use("/api/templates", templatesRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/mock", mockRouter);
 app.use("/api/export", exportRouter);

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { listTemplates } from '../api/client';
 
 const styles = {
   container: {
@@ -108,7 +109,9 @@ const styles = {
     background: 'var(--bg-card)',
     padding: '24px',
     borderRadius: '12px',
-    width: '400px',
+    width: '480px',
+    maxHeight: '80vh',
+    overflow: 'auto',
     boxShadow: 'var(--shadow)'
   },
   modalTitle: {
@@ -123,12 +126,79 @@ const styles = {
     border: '1px solid var(--border)',
     borderRadius: '6px',
     color: 'var(--text-primary)',
-    marginBottom: '16px'
+    marginBottom: '16px',
+    boxSizing: 'border-box'
+  },
+  label: {
+    display: 'block',
+    fontSize: '13px',
+    fontWeight: '500',
+    color: 'var(--text-secondary)',
+    marginBottom: '8px'
+  },
+  templateSection: {
+    marginBottom: '20px'
+  },
+  templateGrid: {
+    display: 'grid',
+    gap: '8px',
+    maxHeight: '240px',
+    overflow: 'auto'
+  },
+  templateCard: {
+    padding: '12px',
+    background: 'var(--bg-secondary)',
+    border: '2px solid var(--border)',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    transition: 'border-color 0.2s, background 0.2s'
+  },
+  templateCardSelected: {
+    borderColor: 'var(--accent)',
+    background: 'var(--accent)10'
+  },
+  templateCardHover: {
+    borderColor: 'var(--text-muted)'
+  },
+  templateName: {
+    fontSize: '14px',
+    fontWeight: '500',
+    marginBottom: '4px'
+  },
+  templateDesc: {
+    fontSize: '12px',
+    color: 'var(--text-muted)',
+    lineHeight: '1.4',
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden'
+  },
+  templateMeta: {
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+    marginTop: '8px'
+  },
+  blankOption: {
+    padding: '12px',
+    background: 'var(--bg-tertiary)',
+    border: '2px dashed var(--border)',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    textAlign: 'center',
+    color: 'var(--text-secondary)',
+    fontSize: '13px',
+    transition: 'border-color 0.2s'
+  },
+  blankOptionSelected: {
+    borderColor: 'var(--accent)',
+    background: 'var(--accent)10'
   },
   modalActions: {
     display: 'flex',
     justifyContent: 'flex-end',
-    gap: '8px'
+    gap: '8px',
+    marginTop: '8px'
   },
   cancelBtn: {
     background: 'transparent',
@@ -145,6 +215,16 @@ const styles = {
     borderRadius: '6px',
     padding: '8px 16px',
     cursor: 'pointer'
+  },
+  createBtnDisabled: {
+    opacity: 0.5,
+    cursor: 'not-allowed'
+  },
+  loadingTemplates: {
+    padding: '16px',
+    textAlign: 'center',
+    color: 'var(--text-muted)',
+    fontSize: '13px'
   }
 };
 
@@ -177,13 +257,38 @@ export default function SkillList({
 }) {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
+  const [selectedTemplate, setSelectedTemplate] = useState(null); // null = blank
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
   const [hoveredSkill, setHoveredSkill] = useState(null);
   const [hoveredDelete, setHoveredDelete] = useState(false);
+  const [hoveredTemplate, setHoveredTemplate] = useState(null);
+
+  // Load templates when modal opens
+  useEffect(() => {
+    if (showNew) {
+      setTemplatesLoading(true);
+      listTemplates()
+        .then(setTemplates)
+        .catch(err => {
+          console.error('Failed to load templates:', err);
+          setTemplates([]);
+        })
+        .finally(() => setTemplatesLoading(false));
+    }
+  }, [showNew]);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
-    await onCreate(newName.trim());
+    await onCreate(newName.trim(), selectedTemplate);
     setNewName('');
+    setSelectedTemplate(null);
+    setShowNew(false);
+  };
+
+  const handleClose = () => {
+    setNewName('');
+    setSelectedTemplate(null);
     setShowNew(false);
   };
 
@@ -260,22 +365,88 @@ export default function SkillList({
       </div>
 
       {showNew && (
-        <div style={styles.modal} onClick={() => setShowNew(false)}>
+        <div style={styles.modal} onClick={handleClose}>
           <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div style={styles.modalTitle}>New Skill</div>
-            <input
-              style={styles.input}
-              placeholder="Skill name..."
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleCreate()}
-              autoFocus
-            />
+
+            {/* Skill Name */}
+            <div>
+              <label style={styles.label}>Skill Name</label>
+              <input
+                style={styles.input}
+                placeholder="e.g., Customer Support Agent"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && newName.trim() && handleCreate()}
+                autoFocus
+              />
+            </div>
+
+            {/* Template Selection */}
+            <div style={styles.templateSection}>
+              <label style={styles.label}>Start From</label>
+
+              {templatesLoading ? (
+                <div style={styles.loadingTemplates}>Loading templates...</div>
+              ) : (
+                <div style={styles.templateGrid}>
+                  {/* Blank option */}
+                  <div
+                    style={{
+                      ...styles.blankOption,
+                      ...(selectedTemplate === null ? styles.blankOptionSelected : {})
+                    }}
+                    onClick={() => setSelectedTemplate(null)}
+                  >
+                    Start from scratch
+                  </div>
+
+                  {/* Template options */}
+                  {templates.map(template => (
+                    <div
+                      key={template.id}
+                      style={{
+                        ...styles.templateCard,
+                        ...(selectedTemplate === template.id ? styles.templateCardSelected : {}),
+                        ...(hoveredTemplate === template.id && selectedTemplate !== template.id
+                          ? styles.templateCardHover
+                          : {})
+                      }}
+                      onClick={() => setSelectedTemplate(template.id)}
+                      onMouseEnter={() => setHoveredTemplate(template.id)}
+                      onMouseLeave={() => setHoveredTemplate(null)}
+                    >
+                      <div style={styles.templateName}>{template.name}</div>
+                      <div style={styles.templateDesc}>
+                        {template.description || 'No description'}
+                      </div>
+                      <div style={styles.templateMeta}>
+                        {template.tools_count} tools · {template.scenarios_count} scenarios · {template.intents_count || 0} intents
+                      </div>
+                    </div>
+                  ))}
+
+                  {templates.length === 0 && (
+                    <div style={{ ...styles.loadingTemplates, gridColumn: '1 / -1' }}>
+                      No templates available yet
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div style={styles.modalActions}>
-              <button style={styles.cancelBtn} onClick={() => setShowNew(false)}>
+              <button style={styles.cancelBtn} onClick={handleClose}>
                 Cancel
               </button>
-              <button style={styles.createBtn} onClick={handleCreate}>
+              <button
+                style={{
+                  ...styles.createBtn,
+                  ...(!newName.trim() ? styles.createBtnDisabled : {})
+                }}
+                onClick={handleCreate}
+                disabled={!newName.trim()}
+              >
                 Create
               </button>
             </div>

@@ -153,9 +153,9 @@ export default function App() {
     await loadSkill(id);
   }, [loadSkill]);
 
-  const handleCreate = useCallback(async (name) => {
+  const handleCreate = useCallback(async (name, templateId = null) => {
     setUiFocus(null);
-    await createSkill(name, { llm_provider: settings.llm_provider });
+    await createSkill(name, { llm_provider: settings.llm_provider }, templateId);
   }, [createSkill, settings.llm_provider]);
 
   const handleSendMessage = useCallback(async (message) => {

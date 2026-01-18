@@ -13,10 +13,12 @@ services:
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
       - SEARCH_PROVIDER=${SEARCH_PROVIDER:-duckduckgo}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - TEMPLATES_PATH=/app/templates
     volumes:
       - ./apps/backend/src:/app/src
       - ./apps/backend/package.json:/app/package.json
       - ${MEMORY_PATH:-./memory}:/memory
+      - ./docs/templates:/app/templates
     ports:
       - "${BACKEND_HOST_PORT:-4300}:4000"
     command: sh -c "pnpm install --silent && pnpm dev"

@@ -23,16 +23,27 @@ export async function checkHealth() {
   return request('/health');
 }
 
+// Templates
+export async function listTemplates() {
+  const data = await request('/templates');
+  return data.templates;
+}
+
+export async function getTemplate(id) {
+  const data = await request(`/templates/${id}`);
+  return data.template;
+}
+
 // Skills (mapped to domains backend)
 export async function listSkills() {
   const data = await request('/domains');
   return data.domains;
 }
 
-export async function createSkill(name, settings = {}) {
+export async function createSkill(name, settings = {}, templateId = null) {
   const data = await request('/domains', {
     method: 'POST',
-    body: JSON.stringify({ name, settings })
+    body: JSON.stringify({ name, settings, templateId })
   });
   return data.domain;
 }
@@ -222,6 +233,8 @@ export async function previewAdasExport(skillId) {
 
 export default {
   checkHealth,
+  listTemplates,
+  getTemplate,
   listSkills,
   createSkill,
   getSkill,

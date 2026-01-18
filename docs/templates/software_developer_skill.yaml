@@ -1,0 +1,2443 @@
+# =============================================================================
+# ADAS SKILL DEFINITION: Software Developer Agent
+# =============================================================================
+# Purpose: Transform ADAS core into a professional Software Developer capable
+#          of working on a multi-repository project (Frontend + Backend)
+# Version: 1.0.0
+#
+# This is a TEMPLATE / REFERENCE EXAMPLE showing the complete structure of
+# a skill definition. It demonstrates all sections, fields, and patterns
+# that can be used when building skills through the DAL Builder.
+# =============================================================================
+
+id: "skill-sw-dev-multi-repo-001"
+name: "Software Developer - Multi-Repo Project"
+description: "A specialized software developer agent that can work across frontend and backend repositories, implementing features, fixing bugs, reviewing code, and maintaining project quality."
+version: "1.0.0"
+phase: TOOL_DEFINITION
+
+created_at: "2026-01-18T00:00:00Z"
+updated_at: "2026-01-18T00:00:00Z"
+
+# MCP Server providing the development tools
+mcp_server: "mcp://localhost:3100/sw-developer-tools"
+
+# =============================================================================
+# SECTION 1: PROBLEM DEFINITION
+# =============================================================================
+# Defines the core problem this skill solves and the goals it achieves.
+#
+# Fields:
+#   - statement (required): The core problem being solved (min 10 chars)
+#   - context: Background information about the problem domain
+#   - goals: Array of outcomes this skill should achieve
+# =============================================================================
+
+problem:
+  statement: |
+    Software development teams need an AI-powered developer agent that can
+    autonomously work across multiple repositories (frontend and backend),
+    understand the codebase architecture, implement features according to
+    specifications, fix bugs, write tests, and maintain code quality standards
+    while following established patterns and best practices specific to each repo.
+
+  context: |
+    Modern software projects typically consist of multiple repositories with
+    different technology stacks. The frontend repository uses React/TypeScript
+    with modern tooling (Vite, TailwindCSS), while the backend uses Node.js
+    with Express/Fastify and PostgreSQL. The developer agent must understand:
+    - Repository structure and conventions for each repo
+    - API contracts between frontend and backend
+    - Testing strategies appropriate for each layer
+    - Git workflow and branching strategies
+    - CI/CD pipeline requirements
+    - Code review standards and documentation practices
+
+  goals:
+    - "Implement new features across frontend and backend with full integration"
+    - "Debug and fix issues with root cause analysis"
+    - "Write comprehensive tests (unit, integration, e2e)"
+    - "Maintain code quality through refactoring and optimization"
+    - "Document code changes and update relevant documentation"
+    - "Follow established coding patterns and project conventions"
+    - "Coordinate changes between repositories to maintain consistency"
+    - "Perform code reviews with actionable feedback"
+
+# =============================================================================
+# SECTION 2: SCENARIOS
+# =============================================================================
+# Real-world use cases and workflows the skill handles.
+# Minimum 1 scenario required for validation.
+#
+# Fields per scenario:
+#   - id: Unique identifier
+#   - title: Descriptive title
+#   - description: Detailed scenario description
+#   - steps: Sequential steps the user takes
+#   - expected_outcome: What should happen
+# =============================================================================
+
+scenarios:
+  - id: "scenario_implement_feature"
+    title: "Implement a New Feature End-to-End"
+    description: |
+      User requests a new feature that requires changes in both frontend and
+      backend. The agent analyzes requirements, plans implementation across
+      repos, implements backend API first, then frontend integration, writes
+      tests, and creates a pull request.
+    steps:
+      - "Analyze feature requirements and identify affected components"
+      - "Check existing codebase for similar patterns and conventions"
+      - "Design API contract if backend changes are needed"
+      - "Implement backend changes with tests"
+      - "Implement frontend integration with the new API"
+      - "Write integration tests for the full feature"
+      - "Run full test suite to ensure no regressions"
+      - "Create descriptive pull request with implementation notes"
+    expected_outcome: |
+      Feature is fully implemented with passing tests, proper documentation,
+      and a clean pull request ready for human review.
+
+  - id: "scenario_debug_issue"
+    title: "Debug and Fix a Production Issue"
+    description: |
+      User reports a bug observed in production. The agent investigates logs,
+      traces the issue through frontend and backend, identifies root cause,
+      implements fix with regression test, and prepares hotfix.
+    steps:
+      - "Gather information about the reported issue"
+      - "Search for relevant error logs and stack traces"
+      - "Reproduce the issue in development environment"
+      - "Trace execution flow from frontend to backend"
+      - "Identify root cause and affected components"
+      - "Implement fix with minimal code changes"
+      - "Write regression test to prevent recurrence"
+      - "Validate fix doesn't introduce side effects"
+      - "Prepare hotfix branch for review"
+    expected_outcome: |
+      Bug is fixed with a regression test, root cause documented,
+      and hotfix ready for deployment.
+
+  - id: "scenario_code_review"
+    title: "Review Pull Request"
+    description: |
+      User asks for a code review on a pull request. The agent analyzes
+      changes, checks for code quality issues, security vulnerabilities,
+      performance concerns, and provides constructive feedback.
+    steps:
+      - "Fetch and analyze pull request diff"
+      - "Understand the intent and scope of changes"
+      - "Check code against project style guide"
+      - "Identify potential bugs or edge cases"
+      - "Check for security vulnerabilities"
+      - "Assess performance implications"
+      - "Verify test coverage"
+      - "Provide detailed review with suggestions"
+    expected_outcome: |
+      Comprehensive code review with actionable feedback, highlighting
+      both issues and positive aspects of the changes.
+
+  - id: "scenario_refactor_code"
+    title: "Refactor Legacy Code"
+    description: |
+      User identifies a component that needs refactoring. The agent analyzes
+      current implementation, proposes improvements, implements refactoring
+      with test coverage, and ensures backward compatibility.
+    steps:
+      - "Analyze current implementation and its dependencies"
+      - "Identify code smells and improvement opportunities"
+      - "Propose refactoring approach with rationale"
+      - "Ensure adequate test coverage before changes"
+      - "Implement refactoring in small, reviewable steps"
+      - "Maintain backward compatibility or migrate dependents"
+      - "Update documentation to reflect changes"
+      - "Validate all tests pass after refactoring"
+    expected_outcome: |
+      Code is refactored with improved quality, maintained functionality,
+      proper test coverage, and documented changes.
+
+  - id: "scenario_write_tests"
+    title: "Increase Test Coverage"
+    description: |
+      User requests improved test coverage for a specific module or feature.
+      The agent analyzes existing coverage, identifies gaps, and writes
+      comprehensive tests.
+    steps:
+      - "Analyze existing test coverage for target area"
+      - "Identify untested code paths and edge cases"
+      - "Design test cases for comprehensive coverage"
+      - "Write unit tests for individual functions"
+      - "Write integration tests for component interactions"
+      - "Add e2e tests for critical user flows"
+      - "Ensure tests are deterministic and fast"
+      - "Document test scenarios and rationale"
+    expected_outcome: |
+      Test coverage is significantly improved with meaningful tests
+      that catch real bugs and document expected behavior.
+
+  - id: "scenario_setup_new_component"
+    title: "Create New Component/Module"
+    description: |
+      User requests a new component or module following project conventions.
+      The agent scaffolds the component with proper structure, tests, and
+      documentation.
+    steps:
+      - "Understand component requirements and responsibilities"
+      - "Check project conventions for component structure"
+      - "Create component files with proper structure"
+      - "Implement component logic with error handling"
+      - "Write unit tests for the component"
+      - "Add JSDoc/TypeScript documentation"
+      - "Export from appropriate index files"
+      - "Integrate with existing navigation/routing if needed"
+    expected_outcome: |
+      New component is created following project conventions,
+      fully tested, documented, and integrated.
+
+# =============================================================================
+# SECTION 3: ROLE DEFINITION
+# =============================================================================
+# Defines how the agent should behave and communicate.
+#
+# Fields:
+#   - name: Role name displayed to users
+#   - persona: Detailed behavior description (personality, approach)
+#   - goals: What the agent should accomplish
+#   - limitations: What the agent should NOT do
+#   - communication_style:
+#       - tone: formal | casual | technical
+#       - verbosity: concise | balanced | detailed
+# =============================================================================
+
+role:
+  name: "Senior Software Developer"
+
+  persona: |
+    You are an experienced Senior Software Developer with deep expertise in
+    full-stack web development. You have a methodical approach to problem-solving,
+    always understanding the context before making changes. You write clean,
+    maintainable code that follows established patterns. You believe in:
+
+    - Understanding before acting: Read and comprehend existing code first
+    - Minimal changes: Make the smallest change that solves the problem
+    - Test-driven mindset: Write tests that document and verify behavior
+    - Clear communication: Explain your reasoning and decisions
+    - Continuous improvement: Leave code better than you found it
+    - Collaboration: Write code that others can easily understand and modify
+
+    You are comfortable working across the full stack but always respect the
+    boundaries and conventions of each repository. You proactively identify
+    potential issues and suggest improvements, but avoid over-engineering.
+
+  goals:
+    - "Deliver high-quality, working code that meets requirements"
+    - "Maintain consistency with existing codebase patterns"
+    - "Write comprehensive tests for all changes"
+    - "Communicate clearly about approach, trade-offs, and decisions"
+    - "Identify and escalate blockers or concerns early"
+    - "Leave helpful documentation for future developers"
+
+  limitations:
+    - "Never deploy to production without explicit approval"
+    - "Never delete files or data without confirmation"
+    - "Never commit directly to main/master branch"
+    - "Never expose secrets or credentials in code"
+    - "Never make breaking API changes without migration plan"
+    - "Never skip tests to save time"
+    - "Never modify code outside the assigned task scope without discussion"
+
+  communication_style:
+    tone: technical
+    verbosity: balanced
+
+# Glossary of project-specific terms
+glossary:
+  PR: "Pull Request - a request to merge code changes"
+  FE: "Frontend - the client-side React application"
+  BE: "Backend - the server-side Node.js application"
+  API: "Application Programming Interface - contracts between FE and BE"
+  DTO: "Data Transfer Object - structured data passed between layers"
+  ORM: "Object-Relational Mapping - database abstraction layer"
+  E2E: "End-to-End testing - full system integration tests"
+  CI: "Continuous Integration - automated build and test pipeline"
+  CD: "Continuous Deployment - automated deployment pipeline"
+
+# =============================================================================
+# SECTION 4: INTENTS
+# =============================================================================
+# What user requests this skill handles and how they're classified.
+#
+# Structure:
+#   supported: Array of intent definitions
+#     - id: Unique intent identifier
+#     - description: What this intent represents
+#     - examples: Array of example phrases (min 1 required)
+#     - maps_to_workflow: Optional workflow ID to trigger
+#     - entities: Data the intent captures
+#     - guardrails: Intent-specific rules
+#
+#   thresholds: Confidence thresholds for classification
+#     - accept: Confidence to accept (default 0.8)
+#     - clarify: Confidence to ask for clarification (default 0.5)
+#     - reject: Confidence to reject (default 0.5)
+#
+#   out_of_domain: How to handle requests outside skill's domain
+#     - action: redirect | reject | escalate
+#     - message: Response to user
+#     - suggest_domains: Other skills to suggest
+# =============================================================================
+
+intents:
+  supported:
+    # --- Feature Implementation ---
+    - id: "intent_implement_feature"
+      description: "User wants to implement a new feature or functionality"
+      examples:
+        - "Implement user profile editing"
+        - "Add a new endpoint for order history"
+        - "Create a dashboard component"
+        - "Build the payment integration"
+        - "Add filtering to the products list"
+      maps_to_workflow: "workflow_feature_implementation"
+      entities:
+        - name: "feature_description"
+          type: string
+          required: true
+          description: "Description of the feature to implement"
+          extract_from: message
+        - name: "target_repo"
+          type: string
+          required: false
+          description: "Which repository (frontend/backend/both)"
+          extract_from: message
+
+    # --- Bug Fixing ---
+    - id: "intent_fix_bug"
+      description: "User wants to fix a bug or issue"
+      examples:
+        - "Fix the login redirect issue"
+        - "Debug why users can't upload images"
+        - "The API returns 500 on large requests"
+        - "There's a race condition in the cart"
+        - "Users report slow loading on dashboard"
+      maps_to_workflow: "workflow_bug_fix"
+      entities:
+        - name: "issue_description"
+          type: string
+          required: true
+          description: "Description of the bug or issue"
+          extract_from: message
+        - name: "error_message"
+          type: string
+          required: false
+          description: "Any error messages or logs"
+          extract_from: message
+
+    # --- Code Review ---
+    - id: "intent_review_code"
+      description: "User wants a code review or feedback"
+      examples:
+        - "Review PR #42"
+        - "Can you check my changes in feature/auth"
+        - "Review the code I just pushed"
+        - "What do you think about this implementation"
+        - "Is this approach correct?"
+      maps_to_workflow: "workflow_code_review"
+      entities:
+        - name: "pr_number"
+          type: number
+          required: false
+          description: "Pull request number if specified"
+          extract_from: message
+        - name: "branch_name"
+          type: string
+          required: false
+          description: "Branch to review"
+          extract_from: message
+
+    # --- Testing ---
+    - id: "intent_write_tests"
+      description: "User wants tests written or improved"
+      examples:
+        - "Write tests for the auth module"
+        - "Add unit tests for OrderService"
+        - "We need e2e tests for checkout"
+        - "Increase test coverage for utils"
+        - "Add integration tests for the API"
+      maps_to_workflow: "workflow_write_tests"
+      entities:
+        - name: "test_target"
+          type: string
+          required: true
+          description: "What module/component to test"
+          extract_from: message
+        - name: "test_type"
+          type: string
+          required: false
+          description: "Type of tests (unit/integration/e2e)"
+          extract_from: message
+
+    # --- Refactoring ---
+    - id: "intent_refactor"
+      description: "User wants code refactored or improved"
+      examples:
+        - "Refactor the UserService class"
+        - "Clean up the dashboard component"
+        - "Optimize the database queries"
+        - "Extract common logic into utilities"
+        - "Improve the error handling"
+      maps_to_workflow: "workflow_refactoring"
+      entities:
+        - name: "refactor_target"
+          type: string
+          required: true
+          description: "What to refactor"
+          extract_from: message
+        - name: "refactor_goal"
+          type: string
+          required: false
+          description: "Goal of the refactoring"
+          extract_from: message
+
+    # --- Documentation ---
+    - id: "intent_document"
+      description: "User wants documentation written or updated"
+      examples:
+        - "Document the API endpoints"
+        - "Add JSDoc to the helpers"
+        - "Update the README"
+        - "Write documentation for the auth flow"
+        - "Document the component props"
+
+    # --- Codebase Exploration ---
+    - id: "intent_explore_code"
+      description: "User wants to understand the codebase"
+      examples:
+        - "How does authentication work?"
+        - "Where is the order logic handled?"
+        - "Explain the data flow for payments"
+        - "What components use the cart context?"
+        - "Show me the database schema"
+
+    # --- Git Operations ---
+    - id: "intent_git_operations"
+      description: "User wants help with Git operations"
+      examples:
+        - "Create a branch for this feature"
+        - "Commit my changes"
+        - "Create a pull request"
+        - "Merge the feature branch"
+        - "What's the commit history for this file?"
+      guardrails:
+        pre_conditions:
+          - "Must have uncommitted changes or valid branch context"
+
+    # --- Environment/Setup ---
+    - id: "intent_setup"
+      description: "User needs help with project setup or configuration"
+      examples:
+        - "How do I set up the development environment?"
+        - "Configure the database connection"
+        - "Set up the test environment"
+        - "Install the project dependencies"
+
+  thresholds:
+    accept: 0.85
+    clarify: 0.60
+    reject: 0.40
+
+  out_of_domain:
+    action: redirect
+    message: |
+      This request seems to be outside my area as a software developer.
+      I can help with:
+      - Implementing features (frontend/backend)
+      - Fixing bugs and debugging
+      - Writing and improving tests
+      - Code reviews and refactoring
+      - Documentation
+      - Git operations
+
+      Could you rephrase your request in terms of software development tasks?
+    suggest_domains:
+      - "devops-engineer"
+      - "project-manager"
+      - "security-analyst"
+
+# =============================================================================
+# SECTION 5: TOOLS
+# =============================================================================
+# The actual capabilities/functions available to this skill.
+# Minimum 1 tool required for validation.
+#
+# Fields per tool:
+#   - id: Unique identifier (UUID format)
+#   - id_status: temporary | permanent
+#   - name: Tool name (required)
+#   - description: What the tool does (required)
+#   - inputs: Array of input parameters
+#       - name, type, required, description, default, enum
+#   - output: What the tool returns (required)
+#       - type, description, schema
+#   - policy: Inline tool-level policy
+#       - allowed: always | conditional | never
+#       - conditions: Array of {when, action, message}
+#       - requires_approval: always | conditional | never
+#       - rate_limit: "100/minute" format
+#   - mock: Mock configuration for testing
+#       - enabled, mode (examples|llm|hybrid), examples
+#   - mock_status: untested | tested | skipped
+# =============================================================================
+
+tools:
+  # ---------------------------------------------------------------------------
+  # FILE SYSTEM TOOLS
+  # ---------------------------------------------------------------------------
+  - id: "tool-fs-read-file"
+    id_status: permanent
+    name: "read_file"
+    description: |
+      Read the contents of a file from either the frontend or backend repository.
+      Returns the file content as a string. Supports any text-based file format.
+      Use this to understand existing code before making changes.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to read from"
+        enum: ["frontend", "backend"]
+      - name: "file_path"
+        type: string
+        required: true
+        description: "Relative path to the file from repo root (e.g., 'src/components/Button.tsx')"
+    output:
+      type: object
+      description: "File content and metadata"
+      schema:
+        content: "string - The file contents"
+        path: "string - Full file path"
+        size: "number - File size in bytes"
+        encoding: "string - File encoding"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "read-component"
+          input:
+            repo: "frontend"
+            file_path: "src/components/Button.tsx"
+          output:
+            content: "export const Button = ({ children, onClick }) => {\n  return <button onClick={onClick}>{children}</button>\n}"
+            path: "frontend/src/components/Button.tsx"
+            size: 124
+            encoding: "utf-8"
+          description: "Read a React component file"
+    mock_status: untested
+
+  - id: "tool-fs-write-file"
+    id_status: permanent
+    name: "write_file"
+    description: |
+      Write content to a file in the repository. Creates the file if it doesn't exist,
+      or overwrites if it does. Use this for creating new files or completely
+      replacing file contents. For partial edits, use edit_file instead.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to write to"
+        enum: ["frontend", "backend"]
+      - name: "file_path"
+        type: string
+        required: true
+        description: "Relative path to the file from repo root"
+      - name: "content"
+        type: string
+        required: true
+        description: "The content to write to the file"
+      - name: "create_dirs"
+        type: boolean
+        required: false
+        description: "Create parent directories if they don't exist"
+        default: true
+    output:
+      type: object
+      description: "Write operation result"
+      schema:
+        success: "boolean - Whether write succeeded"
+        path: "string - Full file path"
+        bytes_written: "number - Number of bytes written"
+    policy:
+      allowed: conditional
+      conditions:
+        - when: "file_path contains '.env' or file_path contains 'secret'"
+          action: deny
+          message: "Cannot write to files that may contain secrets"
+        - when: "file_path ends with '.lock'"
+          action: deny
+          message: "Cannot modify lock files directly"
+      requires_approval: conditional
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "write-new-component"
+          input:
+            repo: "frontend"
+            file_path: "src/components/Card.tsx"
+            content: "export const Card = ({ title }) => <div className='card'>{title}</div>"
+          output:
+            success: true
+            path: "frontend/src/components/Card.tsx"
+            bytes_written: 67
+          description: "Write a new React component"
+    mock_status: untested
+
+  - id: "tool-fs-edit-file"
+    id_status: permanent
+    name: "edit_file"
+    description: |
+      Make targeted edits to a file by specifying the exact text to replace.
+      More precise than write_file for making changes to existing code.
+      Supports multiple replacements in a single call.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository containing the file"
+        enum: ["frontend", "backend"]
+      - name: "file_path"
+        type: string
+        required: true
+        description: "Relative path to the file"
+      - name: "edits"
+        type: array
+        required: true
+        description: "Array of edit operations"
+    output:
+      type: object
+      description: "Edit operation result"
+      schema:
+        success: "boolean - Whether all edits succeeded"
+        edits_applied: "number - Number of edits applied"
+        new_content: "string - The updated file content"
+    policy:
+      allowed: conditional
+      conditions:
+        - when: "file_path contains '.env'"
+          action: deny
+          message: "Cannot edit files that may contain secrets"
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "edit-import"
+          input:
+            repo: "frontend"
+            file_path: "src/App.tsx"
+            edits:
+              - old_text: "import { Button } from './components'"
+                new_text: "import { Button, Card } from './components'"
+          output:
+            success: true
+            edits_applied: 1
+            new_content: "import { Button, Card } from './components'\n..."
+          description: "Add a new import to a file"
+    mock_status: untested
+
+  - id: "tool-fs-list-directory"
+    id_status: permanent
+    name: "list_directory"
+    description: |
+      List files and directories in a given path. Useful for understanding
+      project structure and finding files. Can optionally show recursive
+      listing with filtering.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to list"
+        enum: ["frontend", "backend"]
+      - name: "path"
+        type: string
+        required: false
+        description: "Directory path relative to repo root"
+        default: "."
+      - name: "recursive"
+        type: boolean
+        required: false
+        description: "List subdirectories recursively"
+        default: false
+      - name: "pattern"
+        type: string
+        required: false
+        description: "Glob pattern to filter results (e.g., '*.tsx')"
+    output:
+      type: object
+      description: "Directory listing"
+      schema:
+        path: "string - Directory path"
+        entries: "array - List of files and directories"
+        total_files: "number - Total file count"
+        total_dirs: "number - Total directory count"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "list-src"
+          input:
+            repo: "frontend"
+            path: "src"
+            recursive: false
+          output:
+            path: "frontend/src"
+            entries:
+              - { name: "components", type: "directory" }
+              - { name: "hooks", type: "directory" }
+              - { name: "App.tsx", type: "file", size: 1024 }
+              - { name: "index.tsx", type: "file", size: 256 }
+            total_files: 2
+            total_dirs: 2
+          description: "List the src directory"
+    mock_status: untested
+
+  - id: "tool-fs-delete-file"
+    id_status: permanent
+    name: "delete_file"
+    description: |
+      Delete a file from the repository. This is a destructive operation
+      and should be used carefully. Deleted files can be recovered via git.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository containing the file"
+        enum: ["frontend", "backend"]
+      - name: "file_path"
+        type: string
+        required: true
+        description: "Relative path to the file to delete"
+    output:
+      type: object
+      description: "Delete operation result"
+      schema:
+        success: "boolean - Whether delete succeeded"
+        path: "string - Path of deleted file"
+    policy:
+      allowed: conditional
+      conditions:
+        - when: "always"
+          action: require_approval
+          message: "File deletion requires explicit user approval"
+      requires_approval: always
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "delete-temp"
+          input:
+            repo: "frontend"
+            file_path: "src/temp.tsx"
+          output:
+            success: true
+            path: "frontend/src/temp.tsx"
+          description: "Delete a temporary file"
+    mock_status: untested
+
+  # ---------------------------------------------------------------------------
+  # CODE SEARCH TOOLS
+  # ---------------------------------------------------------------------------
+  - id: "tool-search-grep"
+    id_status: permanent
+    name: "search_code"
+    description: |
+      Search for text or patterns across the codebase using regex.
+      Returns matching lines with context. Essential for finding
+      usages, definitions, and understanding code flow.
+    inputs:
+      - name: "repo"
+        type: string
+        required: false
+        description: "Repository to search (omit for both)"
+        enum: ["frontend", "backend"]
+      - name: "pattern"
+        type: string
+        required: true
+        description: "Search pattern (regex supported)"
+      - name: "file_pattern"
+        type: string
+        required: false
+        description: "Glob pattern to filter files (e.g., '*.tsx')"
+      - name: "context_lines"
+        type: number
+        required: false
+        description: "Number of context lines before/after match"
+        default: 2
+      - name: "max_results"
+        type: number
+        required: false
+        description: "Maximum number of results to return"
+        default: 50
+    output:
+      type: object
+      description: "Search results"
+      schema:
+        matches: "array - List of matching locations with context"
+        total_matches: "number - Total matches found"
+        files_searched: "number - Number of files searched"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "search-function"
+          input:
+            repo: "frontend"
+            pattern: "useAuth"
+            file_pattern: "*.tsx"
+          output:
+            matches:
+              - file: "src/hooks/useAuth.ts"
+                line: 5
+                content: "export function useAuth() {"
+                context: ["import { useState } from 'react'", "", "export function useAuth() {"]
+              - file: "src/App.tsx"
+                line: 12
+                content: "  const { user } = useAuth()"
+                context: ["function App() {", "  const { user } = useAuth()"]
+            total_matches: 2
+            files_searched: 45
+          description: "Search for useAuth usage"
+    mock_status: untested
+
+  - id: "tool-search-find-definition"
+    id_status: permanent
+    name: "find_definition"
+    description: |
+      Find the definition of a function, class, type, or variable.
+      Uses language-aware parsing to find the actual definition,
+      not just text matches.
+    inputs:
+      - name: "repo"
+        type: string
+        required: false
+        description: "Repository to search (omit for both)"
+        enum: ["frontend", "backend"]
+      - name: "symbol"
+        type: string
+        required: true
+        description: "Name of the symbol to find"
+      - name: "kind"
+        type: string
+        required: false
+        description: "Type of symbol"
+        enum: ["function", "class", "type", "interface", "variable", "any"]
+        default: "any"
+    output:
+      type: object
+      description: "Definition location"
+      schema:
+        found: "boolean - Whether definition was found"
+        file: "string - File containing definition"
+        line: "number - Line number of definition"
+        content: "string - The definition code"
+        kind: "string - Type of the symbol"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "find-type"
+          input:
+            repo: "backend"
+            symbol: "User"
+            kind: "interface"
+          output:
+            found: true
+            file: "src/types/User.ts"
+            line: 3
+            content: "interface User {\n  id: string;\n  email: string;\n  name: string;\n}"
+            kind: "interface"
+          description: "Find User interface definition"
+    mock_status: untested
+
+  - id: "tool-search-find-references"
+    id_status: permanent
+    name: "find_references"
+    description: |
+      Find all references to a symbol across the codebase.
+      Helps understand how a function, type, or variable is used.
+    inputs:
+      - name: "repo"
+        type: string
+        required: false
+        description: "Repository to search (omit for both)"
+        enum: ["frontend", "backend"]
+      - name: "symbol"
+        type: string
+        required: true
+        description: "Name of the symbol to find references for"
+      - name: "include_definition"
+        type: boolean
+        required: false
+        description: "Include the definition in results"
+        default: false
+    output:
+      type: object
+      description: "Reference locations"
+      schema:
+        references: "array - List of reference locations"
+        total_count: "number - Total number of references"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "find-refs-hook"
+          input:
+            repo: "frontend"
+            symbol: "useAuth"
+          output:
+            references:
+              - { file: "src/pages/Login.tsx", line: 8, context: "const { login } = useAuth()" }
+              - { file: "src/pages/Profile.tsx", line: 6, context: "const { user, logout } = useAuth()" }
+              - { file: "src/components/Header.tsx", line: 12, context: "const { user } = useAuth()" }
+            total_count: 3
+          description: "Find all usages of useAuth hook"
+    mock_status: untested
+
+  # ---------------------------------------------------------------------------
+  # GIT TOOLS
+  # ---------------------------------------------------------------------------
+  - id: "tool-git-status"
+    id_status: permanent
+    name: "git_status"
+    description: |
+      Get the current git status for a repository. Shows modified,
+      staged, untracked, and deleted files.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to check"
+        enum: ["frontend", "backend"]
+    output:
+      type: object
+      description: "Git status information"
+      schema:
+        branch: "string - Current branch name"
+        staged: "array - Staged files"
+        modified: "array - Modified but unstaged files"
+        untracked: "array - Untracked files"
+        deleted: "array - Deleted files"
+        ahead: "number - Commits ahead of remote"
+        behind: "number - Commits behind remote"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "status-clean"
+          input:
+            repo: "frontend"
+          output:
+            branch: "feature/user-profile"
+            staged: []
+            modified: ["src/components/Profile.tsx"]
+            untracked: ["src/components/Avatar.tsx"]
+            deleted: []
+            ahead: 2
+            behind: 0
+          description: "Check status with pending changes"
+    mock_status: untested
+
+  - id: "tool-git-diff"
+    id_status: permanent
+    name: "git_diff"
+    description: |
+      Show the diff for changed files. Can show staged, unstaged,
+      or diff between branches/commits.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to check"
+        enum: ["frontend", "backend"]
+      - name: "file_path"
+        type: string
+        required: false
+        description: "Specific file to diff (omit for all changes)"
+      - name: "staged"
+        type: boolean
+        required: false
+        description: "Show staged changes only"
+        default: false
+      - name: "base"
+        type: string
+        required: false
+        description: "Base branch or commit to diff against"
+    output:
+      type: object
+      description: "Diff output"
+      schema:
+        files: "array - List of changed files with diffs"
+        stats: "object - Summary statistics (insertions, deletions)"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "diff-file"
+          input:
+            repo: "frontend"
+            file_path: "src/App.tsx"
+          output:
+            files:
+              - path: "src/App.tsx"
+                status: "modified"
+                diff: "@@ -5,3 +5,4 @@\n import { Home } from './pages'\n+import { Profile } from './pages'"
+            stats:
+              insertions: 1
+              deletions: 0
+          description: "Show diff for a specific file"
+    mock_status: untested
+
+  - id: "tool-git-log"
+    id_status: permanent
+    name: "git_log"
+    description: |
+      Show commit history for the repository or a specific file.
+      Useful for understanding changes over time.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to check"
+        enum: ["frontend", "backend"]
+      - name: "file_path"
+        type: string
+        required: false
+        description: "Show history for specific file"
+      - name: "limit"
+        type: number
+        required: false
+        description: "Maximum number of commits to show"
+        default: 10
+      - name: "branch"
+        type: string
+        required: false
+        description: "Branch to show history for"
+    output:
+      type: object
+      description: "Commit history"
+      schema:
+        commits: "array - List of commits with hash, author, date, message"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "log-recent"
+          input:
+            repo: "frontend"
+            limit: 3
+          output:
+            commits:
+              - hash: "a1b2c3d"
+                author: "developer@example.com"
+                date: "2026-01-17T10:30:00Z"
+                message: "feat: add user profile page"
+              - hash: "e4f5g6h"
+                author: "developer@example.com"
+                date: "2026-01-16T15:45:00Z"
+                message: "fix: correct auth redirect"
+          description: "Show recent commits"
+    mock_status: untested
+
+  - id: "tool-git-branch"
+    id_status: permanent
+    name: "git_branch"
+    description: |
+      Create, list, or switch branches. Essential for feature
+      development workflow.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to operate on"
+        enum: ["frontend", "backend"]
+      - name: "action"
+        type: string
+        required: true
+        description: "Branch action to perform"
+        enum: ["list", "create", "switch", "delete"]
+      - name: "branch_name"
+        type: string
+        required: false
+        description: "Branch name (required for create/switch/delete)"
+      - name: "base"
+        type: string
+        required: false
+        description: "Base branch for create action"
+        default: "main"
+    output:
+      type: object
+      description: "Branch operation result"
+      schema:
+        success: "boolean - Whether operation succeeded"
+        branches: "array - List of branches (for list action)"
+        current: "string - Current branch name"
+    policy:
+      allowed: conditional
+      conditions:
+        - when: "action == 'delete' and branch_name == 'main'"
+          action: deny
+          message: "Cannot delete main branch"
+        - when: "action == 'delete'"
+          action: require_approval
+          message: "Branch deletion requires approval"
+      requires_approval: conditional
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "create-feature-branch"
+          input:
+            repo: "frontend"
+            action: "create"
+            branch_name: "feature/new-dashboard"
+          output:
+            success: true
+            current: "feature/new-dashboard"
+          description: "Create and switch to new feature branch"
+    mock_status: untested
+
+  - id: "tool-git-commit"
+    id_status: permanent
+    name: "git_commit"
+    description: |
+      Stage files and create a commit with a message. Follows
+      conventional commit format.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to commit in"
+        enum: ["frontend", "backend"]
+      - name: "files"
+        type: array
+        required: false
+        description: "Files to stage (omit for all changes)"
+      - name: "message"
+        type: string
+        required: true
+        description: "Commit message (use conventional commit format)"
+    output:
+      type: object
+      description: "Commit result"
+      schema:
+        success: "boolean - Whether commit succeeded"
+        hash: "string - Commit hash"
+        files_committed: "number - Number of files in commit"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "commit-feature"
+          input:
+            repo: "frontend"
+            message: "feat(profile): add user avatar component"
+          output:
+            success: true
+            hash: "x1y2z3w"
+            files_committed: 2
+          description: "Commit with conventional message"
+    mock_status: untested
+
+  - id: "tool-git-push"
+    id_status: permanent
+    name: "git_push"
+    description: |
+      Push commits to remote repository. Can set upstream for
+      new branches.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to push"
+        enum: ["frontend", "backend"]
+      - name: "set_upstream"
+        type: boolean
+        required: false
+        description: "Set upstream for new branch"
+        default: true
+      - name: "force"
+        type: boolean
+        required: false
+        description: "Force push (dangerous)"
+        default: false
+    output:
+      type: object
+      description: "Push result"
+      schema:
+        success: "boolean - Whether push succeeded"
+        remote: "string - Remote name"
+        branch: "string - Branch pushed"
+    policy:
+      allowed: conditional
+      conditions:
+        - when: "force == true"
+          action: deny
+          message: "Force push is not allowed for safety"
+      requires_approval: always
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "push-feature"
+          input:
+            repo: "frontend"
+            set_upstream: true
+          output:
+            success: true
+            remote: "origin"
+            branch: "feature/user-profile"
+          description: "Push feature branch"
+    mock_status: untested
+
+  - id: "tool-git-pull"
+    id_status: permanent
+    name: "git_pull"
+    description: |
+      Pull latest changes from remote. Useful to sync before
+      starting work or resolving conflicts.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to pull"
+        enum: ["frontend", "backend"]
+      - name: "rebase"
+        type: boolean
+        required: false
+        description: "Use rebase instead of merge"
+        default: false
+    output:
+      type: object
+      description: "Pull result"
+      schema:
+        success: "boolean - Whether pull succeeded"
+        commits_pulled: "number - Number of new commits"
+        conflicts: "array - List of conflicting files (if any)"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "pull-clean"
+          input:
+            repo: "frontend"
+          output:
+            success: true
+            commits_pulled: 3
+            conflicts: []
+          description: "Pull with no conflicts"
+    mock_status: untested
+
+  - id: "tool-git-create-pr"
+    id_status: permanent
+    name: "create_pull_request"
+    description: |
+      Create a pull request on GitHub/GitLab. Includes title,
+      description, and can set reviewers.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to create PR in"
+        enum: ["frontend", "backend"]
+      - name: "title"
+        type: string
+        required: true
+        description: "PR title"
+      - name: "description"
+        type: string
+        required: true
+        description: "PR description (markdown supported)"
+      - name: "base_branch"
+        type: string
+        required: false
+        description: "Base branch to merge into"
+        default: "main"
+      - name: "draft"
+        type: boolean
+        required: false
+        description: "Create as draft PR"
+        default: false
+      - name: "reviewers"
+        type: array
+        required: false
+        description: "GitHub usernames to request review from"
+    output:
+      type: object
+      description: "PR creation result"
+      schema:
+        success: "boolean - Whether PR was created"
+        pr_number: "number - Pull request number"
+        url: "string - URL to the pull request"
+    policy:
+      allowed: always
+      requires_approval: always
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "create-feature-pr"
+          input:
+            repo: "frontend"
+            title: "feat: add user profile page"
+            description: "## Summary\n- Added profile page\n- Added avatar component\n\n## Testing\n- Unit tests added\n- Manual testing done"
+          output:
+            success: true
+            pr_number: 42
+            url: "https://github.com/org/frontend/pull/42"
+          description: "Create a feature PR"
+    mock_status: untested
+
+  # ---------------------------------------------------------------------------
+  # TESTING TOOLS
+  # ---------------------------------------------------------------------------
+  - id: "tool-test-run"
+    id_status: permanent
+    name: "run_tests"
+    description: |
+      Run test suite for the repository. Can run all tests or
+      filter by pattern, file, or test name.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to test"
+        enum: ["frontend", "backend"]
+      - name: "pattern"
+        type: string
+        required: false
+        description: "Pattern to filter tests (e.g., 'auth' or 'auth.test.ts')"
+      - name: "coverage"
+        type: boolean
+        required: false
+        description: "Generate coverage report"
+        default: false
+      - name: "watch"
+        type: boolean
+        required: false
+        description: "Run in watch mode"
+        default: false
+    output:
+      type: object
+      description: "Test results"
+      schema:
+        success: "boolean - Whether all tests passed"
+        total: "number - Total tests run"
+        passed: "number - Tests passed"
+        failed: "number - Tests failed"
+        skipped: "number - Tests skipped"
+        coverage: "object - Coverage percentages (if enabled)"
+        failures: "array - Details of failed tests"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "run-all-tests"
+          input:
+            repo: "frontend"
+            coverage: true
+          output:
+            success: true
+            total: 150
+            passed: 150
+            failed: 0
+            skipped: 3
+            coverage:
+              lines: 85.5
+              branches: 78.2
+              functions: 90.1
+            failures: []
+          description: "Run all tests with coverage"
+    mock_status: untested
+
+  - id: "tool-test-coverage"
+    id_status: permanent
+    name: "get_coverage"
+    description: |
+      Get detailed code coverage report. Shows which lines,
+      branches, and functions are covered or uncovered.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to check"
+        enum: ["frontend", "backend"]
+      - name: "file_path"
+        type: string
+        required: false
+        description: "Specific file to get coverage for"
+    output:
+      type: object
+      description: "Coverage report"
+      schema:
+        summary: "object - Overall coverage percentages"
+        files: "array - Per-file coverage details"
+        uncovered_lines: "array - Lines not covered by tests"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "coverage-file"
+          input:
+            repo: "frontend"
+            file_path: "src/components/Button.tsx"
+          output:
+            summary:
+              lines: 75.0
+              branches: 60.0
+              functions: 100.0
+            files:
+              - path: "src/components/Button.tsx"
+                lines: 75.0
+                uncovered: [15, 16, 22]
+            uncovered_lines: [15, 16, 22]
+          description: "Get coverage for specific file"
+    mock_status: untested
+
+  # ---------------------------------------------------------------------------
+  # BUILD TOOLS
+  # ---------------------------------------------------------------------------
+  - id: "tool-build-run"
+    id_status: permanent
+    name: "run_build"
+    description: |
+      Run the build process for a repository. Compiles TypeScript,
+      bundles assets, etc.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to build"
+        enum: ["frontend", "backend"]
+      - name: "mode"
+        type: string
+        required: false
+        description: "Build mode"
+        enum: ["development", "production"]
+        default: "development"
+    output:
+      type: object
+      description: "Build result"
+      schema:
+        success: "boolean - Whether build succeeded"
+        duration_ms: "number - Build duration in milliseconds"
+        warnings: "array - Build warnings"
+        errors: "array - Build errors"
+        output_path: "string - Path to build output"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "build-frontend"
+          input:
+            repo: "frontend"
+            mode: "production"
+          output:
+            success: true
+            duration_ms: 12500
+            warnings: ["React key prop warning in UserList.tsx"]
+            errors: []
+            output_path: "dist/"
+          description: "Production build of frontend"
+    mock_status: untested
+
+  - id: "tool-build-lint"
+    id_status: permanent
+    name: "run_lint"
+    description: |
+      Run linter to check code quality. Reports style issues,
+      potential bugs, and best practice violations.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to lint"
+        enum: ["frontend", "backend"]
+      - name: "fix"
+        type: boolean
+        required: false
+        description: "Automatically fix fixable issues"
+        default: false
+      - name: "file_path"
+        type: string
+        required: false
+        description: "Specific file or directory to lint"
+    output:
+      type: object
+      description: "Lint results"
+      schema:
+        success: "boolean - Whether lint passed (no errors)"
+        errors: "number - Error count"
+        warnings: "number - Warning count"
+        issues: "array - List of lint issues"
+        fixed: "number - Issues auto-fixed (if fix=true)"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "lint-with-fix"
+          input:
+            repo: "frontend"
+            fix: true
+          output:
+            success: true
+            errors: 0
+            warnings: 2
+            issues:
+              - file: "src/utils.ts"
+                line: 15
+                severity: "warning"
+                message: "Prefer const over let"
+            fixed: 3
+          description: "Lint with auto-fix"
+    mock_status: untested
+
+  - id: "tool-build-typecheck"
+    id_status: permanent
+    name: "run_typecheck"
+    description: |
+      Run TypeScript type checking without emitting code.
+      Catches type errors before runtime.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to type-check"
+        enum: ["frontend", "backend"]
+    output:
+      type: object
+      description: "Type-check results"
+      schema:
+        success: "boolean - Whether type-check passed"
+        errors: "array - List of type errors"
+        error_count: "number - Total errors"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "typecheck-clean"
+          input:
+            repo: "frontend"
+          output:
+            success: true
+            errors: []
+            error_count: 0
+          description: "Clean type check"
+    mock_status: untested
+
+  # ---------------------------------------------------------------------------
+  # DEPENDENCY TOOLS
+  # ---------------------------------------------------------------------------
+  - id: "tool-deps-list"
+    id_status: permanent
+    name: "list_dependencies"
+    description: |
+      List project dependencies from package.json. Shows
+      production and dev dependencies with versions.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to check"
+        enum: ["frontend", "backend"]
+      - name: "include_dev"
+        type: boolean
+        required: false
+        description: "Include dev dependencies"
+        default: true
+    output:
+      type: object
+      description: "Dependencies list"
+      schema:
+        dependencies: "object - Production dependencies"
+        devDependencies: "object - Dev dependencies (if included)"
+        total: "number - Total package count"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "list-deps"
+          input:
+            repo: "frontend"
+            include_dev: true
+          output:
+            dependencies:
+              react: "^18.2.0"
+              "react-dom": "^18.2.0"
+            devDependencies:
+              typescript: "^5.0.0"
+              vite: "^5.0.0"
+            total: 4
+          description: "List all dependencies"
+    mock_status: untested
+
+  - id: "tool-deps-install"
+    id_status: permanent
+    name: "install_dependency"
+    description: |
+      Install a new dependency or update existing one.
+      Can install as dev dependency.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to install in"
+        enum: ["frontend", "backend"]
+      - name: "package"
+        type: string
+        required: true
+        description: "Package name (optionally with version: 'lodash@4.17.21')"
+      - name: "dev"
+        type: boolean
+        required: false
+        description: "Install as dev dependency"
+        default: false
+    output:
+      type: object
+      description: "Install result"
+      schema:
+        success: "boolean - Whether install succeeded"
+        package: "string - Installed package name"
+        version: "string - Installed version"
+    policy:
+      allowed: always
+      requires_approval: always
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "install-lodash"
+          input:
+            repo: "frontend"
+            package: "lodash"
+          output:
+            success: true
+            package: "lodash"
+            version: "4.17.21"
+          description: "Install lodash"
+    mock_status: untested
+
+  # ---------------------------------------------------------------------------
+  # CODE ANALYSIS TOOLS
+  # ---------------------------------------------------------------------------
+  - id: "tool-analyze-complexity"
+    id_status: permanent
+    name: "analyze_complexity"
+    description: |
+      Analyze code complexity for a file or module. Reports
+      cyclomatic complexity, cognitive complexity, and
+      suggests refactoring opportunities.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to analyze"
+        enum: ["frontend", "backend"]
+      - name: "file_path"
+        type: string
+        required: true
+        description: "File or directory to analyze"
+    output:
+      type: object
+      description: "Complexity analysis"
+      schema:
+        file: "string - File analyzed"
+        cyclomatic_complexity: "number - Cyclomatic complexity score"
+        cognitive_complexity: "number - Cognitive complexity score"
+        functions: "array - Per-function complexity"
+        recommendations: "array - Refactoring suggestions"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "analyze-service"
+          input:
+            repo: "backend"
+            file_path: "src/services/OrderService.ts"
+          output:
+            file: "src/services/OrderService.ts"
+            cyclomatic_complexity: 15
+            cognitive_complexity: 22
+            functions:
+              - name: "processOrder"
+                cyclomatic: 8
+                cognitive: 12
+                lines: 45
+            recommendations:
+              - "Consider extracting validation logic from processOrder"
+          description: "Analyze service complexity"
+    mock_status: untested
+
+  - id: "tool-analyze-imports"
+    id_status: permanent
+    name: "analyze_imports"
+    description: |
+      Analyze import/export relationships. Shows what a file
+      imports and what imports it. Useful for understanding
+      coupling and planning refactoring.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to analyze"
+        enum: ["frontend", "backend"]
+      - name: "file_path"
+        type: string
+        required: true
+        description: "File to analyze"
+    output:
+      type: object
+      description: "Import analysis"
+      schema:
+        file: "string - File analyzed"
+        imports: "array - What this file imports"
+        imported_by: "array - Files that import this file"
+        circular: "boolean - Part of circular dependency"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "analyze-component"
+          input:
+            repo: "frontend"
+            file_path: "src/components/Button.tsx"
+          output:
+            file: "src/components/Button.tsx"
+            imports:
+              - { from: "react", items: ["FC", "useState"] }
+              - { from: "./Button.module.css", items: ["default"] }
+            imported_by:
+              - "src/components/Form.tsx"
+              - "src/pages/Login.tsx"
+            circular: false
+          description: "Analyze component imports"
+    mock_status: untested
+
+  # ---------------------------------------------------------------------------
+  # API TOOLS (for Backend)
+  # ---------------------------------------------------------------------------
+  - id: "tool-api-list-endpoints"
+    id_status: permanent
+    name: "list_api_endpoints"
+    description: |
+      List all API endpoints defined in the backend.
+      Shows routes, methods, and handler information.
+    inputs:
+      - name: "filter"
+        type: string
+        required: false
+        description: "Filter by path pattern (e.g., '/users')"
+    output:
+      type: object
+      description: "API endpoint list"
+      schema:
+        endpoints: "array - List of endpoints with method, path, handler"
+        total: "number - Total endpoint count"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "list-user-endpoints"
+          input:
+            filter: "/users"
+          output:
+            endpoints:
+              - method: "GET"
+                path: "/users"
+                handler: "UsersController.list"
+                middleware: ["auth"]
+              - method: "GET"
+                path: "/users/:id"
+                handler: "UsersController.getById"
+                middleware: ["auth"]
+              - method: "POST"
+                path: "/users"
+                handler: "UsersController.create"
+                middleware: ["auth", "admin"]
+            total: 3
+          description: "List user-related endpoints"
+    mock_status: untested
+
+  - id: "tool-api-test-endpoint"
+    id_status: permanent
+    name: "test_api_endpoint"
+    description: |
+      Make a test request to an API endpoint during development.
+      Useful for verifying API behavior.
+    inputs:
+      - name: "method"
+        type: string
+        required: true
+        description: "HTTP method"
+        enum: ["GET", "POST", "PUT", "PATCH", "DELETE"]
+      - name: "path"
+        type: string
+        required: true
+        description: "API path (e.g., '/api/users/1')"
+      - name: "body"
+        type: object
+        required: false
+        description: "Request body for POST/PUT/PATCH"
+      - name: "headers"
+        type: object
+        required: false
+        description: "Additional headers"
+    output:
+      type: object
+      description: "API response"
+      schema:
+        status: "number - HTTP status code"
+        headers: "object - Response headers"
+        body: "any - Response body"
+        duration_ms: "number - Request duration"
+    policy:
+      allowed: always
+      requires_approval: conditional
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "test-get-user"
+          input:
+            method: "GET"
+            path: "/api/users/1"
+          output:
+            status: 200
+            headers:
+              content-type: "application/json"
+            body:
+              id: 1
+              name: "John Doe"
+              email: "john@example.com"
+            duration_ms: 45
+          description: "Test GET user endpoint"
+    mock_status: untested
+
+  # ---------------------------------------------------------------------------
+  # DATABASE TOOLS (for Backend)
+  # ---------------------------------------------------------------------------
+  - id: "tool-db-show-schema"
+    id_status: permanent
+    name: "show_database_schema"
+    description: |
+      Show the database schema including tables, columns,
+      types, and relationships.
+    inputs:
+      - name: "table"
+        type: string
+        required: false
+        description: "Specific table to show (omit for all)"
+    output:
+      type: object
+      description: "Database schema"
+      schema:
+        tables: "array - List of tables with columns and types"
+        relationships: "array - Foreign key relationships"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "show-users-table"
+          input:
+            table: "users"
+          output:
+            tables:
+              - name: "users"
+                columns:
+                  - { name: "id", type: "uuid", nullable: false, primary: true }
+                  - { name: "email", type: "varchar(255)", nullable: false, unique: true }
+                  - { name: "name", type: "varchar(100)", nullable: false }
+                  - { name: "created_at", type: "timestamp", nullable: false }
+            relationships:
+              - { from: "orders.user_id", to: "users.id", type: "many-to-one" }
+          description: "Show users table schema"
+    mock_status: untested
+
+  - id: "tool-db-run-migration"
+    id_status: permanent
+    name: "run_migration"
+    description: |
+      Run database migrations. Can run pending migrations
+      or rollback recent ones.
+    inputs:
+      - name: "action"
+        type: string
+        required: true
+        description: "Migration action"
+        enum: ["up", "down", "status"]
+      - name: "count"
+        type: number
+        required: false
+        description: "Number of migrations to run (for down)"
+        default: 1
+    output:
+      type: object
+      description: "Migration result"
+      schema:
+        success: "boolean - Whether migration succeeded"
+        migrations_run: "array - Migrations executed"
+        pending: "array - Pending migrations (for status)"
+    policy:
+      allowed: conditional
+      conditions:
+        - when: "action == 'down'"
+          action: require_approval
+          message: "Rolling back migrations requires confirmation"
+      requires_approval: conditional
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "run-pending"
+          input:
+            action: "up"
+          output:
+            success: true
+            migrations_run:
+              - "20260118_add_user_avatar"
+            pending: []
+          description: "Run pending migrations"
+    mock_status: untested
+
+  # ---------------------------------------------------------------------------
+  # DOCUMENTATION TOOLS
+  # ---------------------------------------------------------------------------
+  - id: "tool-docs-generate"
+    id_status: permanent
+    name: "generate_docs"
+    description: |
+      Generate documentation from code comments. Creates
+      API docs, component docs, or module docs.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to document"
+        enum: ["frontend", "backend"]
+      - name: "target"
+        type: string
+        required: false
+        description: "Specific file or directory"
+      - name: "format"
+        type: string
+        required: false
+        description: "Output format"
+        enum: ["markdown", "html", "json"]
+        default: "markdown"
+    output:
+      type: object
+      description: "Generated documentation"
+      schema:
+        output: "string - Generated documentation content"
+        files_processed: "number - Number of files processed"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "generate-api-docs"
+          input:
+            repo: "backend"
+            target: "src/controllers"
+            format: "markdown"
+          output:
+            output: "# API Controllers\n\n## UsersController\n\n### Methods\n..."
+            files_processed: 5
+          description: "Generate controller documentation"
+    mock_status: untested
+
+  # ---------------------------------------------------------------------------
+  # ENVIRONMENT TOOLS
+  # ---------------------------------------------------------------------------
+  - id: "tool-env-check"
+    id_status: permanent
+    name: "check_environment"
+    description: |
+      Check development environment status. Verifies Node
+      version, dependencies installed, services running, etc.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to check"
+        enum: ["frontend", "backend"]
+    output:
+      type: object
+      description: "Environment status"
+      schema:
+        node_version: "string - Node.js version"
+        npm_version: "string - npm version"
+        dependencies_installed: "boolean - Whether deps are installed"
+        env_file_exists: "boolean - Whether .env file exists"
+        required_services: "array - Status of required services"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "check-backend-env"
+          input:
+            repo: "backend"
+          output:
+            node_version: "20.10.0"
+            npm_version: "10.2.3"
+            dependencies_installed: true
+            env_file_exists: true
+            required_services:
+              - { name: "PostgreSQL", status: "running", port: 5432 }
+              - { name: "Redis", status: "running", port: 6379 }
+          description: "Check backend environment"
+    mock_status: untested
+
+  - id: "tool-env-start-dev"
+    id_status: permanent
+    name: "start_dev_server"
+    description: |
+      Start the development server for a repository.
+      Runs the app in development mode with hot reload.
+    inputs:
+      - name: "repo"
+        type: string
+        required: true
+        description: "Repository to start"
+        enum: ["frontend", "backend"]
+      - name: "port"
+        type: number
+        required: false
+        description: "Port to run on"
+    output:
+      type: object
+      description: "Server status"
+      schema:
+        success: "boolean - Whether server started"
+        url: "string - Server URL"
+        pid: "number - Process ID"
+    policy:
+      allowed: always
+      requires_approval: never
+    mock:
+      enabled: true
+      mode: examples
+      examples:
+        - id: "start-frontend"
+          input:
+            repo: "frontend"
+            port: 3000
+          output:
+            success: true
+            url: "http://localhost:3000"
+            pid: 12345
+          description: "Start frontend dev server"
+    mock_status: untested
+
+# =============================================================================
+# SECTION 6: META TOOLS (Auto-generated by DAL)
+# =============================================================================
+# Tool compositions suggested by the DAL system. These combine multiple
+# tools into logical sequences for common operations.
+#
+# Fields:
+#   - id: Unique identifier
+#   - name: Display name
+#   - description: What this meta tool achieves
+#   - composes: Array of tool IDs/names this combines
+#   - logic: How tools are combined (sequential, parallel, conditional)
+#   - status: pending | approved | rejected
+#   - suggested_by: Always 'dal'
+#   - suggested_reason: Why DAL suggested this
+# =============================================================================
+
+meta_tools:
+  - id: "meta-tool-full-test-suite"
+    name: "Run Full Validation"
+    description: "Run lint, typecheck, and tests together to validate changes"
+    composes:
+      - "run_lint"
+      - "run_typecheck"
+      - "run_tests"
+    logic: "sequential - run each in order, stop on first failure"
+    status: approved
+    suggested_by: dal
+    suggested_reason: "Common validation workflow before committing"
+    created_at: "2026-01-18T00:00:00Z"
+
+  - id: "meta-tool-pr-ready-check"
+    name: "Check PR Readiness"
+    description: "Validate code is ready for pull request"
+    composes:
+      - "run_lint"
+      - "run_typecheck"
+      - "run_tests"
+      - "git_status"
+    logic: "sequential - all must pass for PR readiness"
+    status: approved
+    suggested_by: dal
+    suggested_reason: "Ensures code quality before PR creation"
+    created_at: "2026-01-18T00:00:00Z"
+
+# =============================================================================
+# SECTION 7: ENGINE CONFIGURATION
+# =============================================================================
+# Configures how the execution engine behaves.
+#
+# Structure:
+#   model: LLM model to use
+#   temperature: LLM temperature (0.0-1.0)
+#
+#   rv2: RV2 iteration engine
+#     - max_iterations: Maximum tool call iterations
+#     - iteration_timeout_ms: Timeout per iteration
+#     - allow_parallel_tools: Allow parallel tool execution
+#     - on_max_iterations: escalate | fail | ask_user
+#
+#   hlr: High-Level Reasoning
+#     - critic: Periodic progress checks
+#     - reflection: Self-reflection depth
+#     - replanning: Dynamic plan adjustment
+#
+#   autonomy: autonomous | supervised | restricted
+#
+#   finalization_gate: Response quality validation
+#   internal_error: Error handling and resolution mode
+# =============================================================================
+
+engine:
+  model: "claude-3-5-sonnet"
+  temperature: 0.3  # Lower for more consistent code generation
+
+  rv2:
+    max_iterations: 25  # Higher for complex multi-step tasks
+    iteration_timeout_ms: 60000  # 1 minute per iteration
+    allow_parallel_tools: true  # Allow parallel file reads, searches
+    on_max_iterations: ask_user  # Ask user if hitting limits
+
+  hlr:
+    enabled: true
+    critic:
+      enabled: true
+      check_interval: 5  # Check progress every 5 iterations
+      strictness: medium
+    reflection:
+      enabled: true
+      depth: medium  # Balance between speed and thoroughness
+    replanning:
+      enabled: true
+      max_replans: 3  # Allow up to 3 plan adjustments
+
+  autonomy:
+    level: supervised  # Agent works but confirms major decisions
+
+  finalization_gate:
+    enabled: true
+    max_retries: 3  # Retry if response doesn't meet quality
+
+  internal_error:
+    enabled: true
+    tool_not_found:
+      enter_resolution_after: 2
+      retryable: true
+    resolution:
+      max_iterations: 2
+      allowed_capabilities:
+        - "file_read"
+        - "file_search"
+        - "git_status"
+    loop_detection:
+      enabled: true
+      identical_call_threshold: 3
+
+# =============================================================================
+# SECTION 8: POLICY CONFIGURATION
+# =============================================================================
+# Guardrails, workflows, and approval rules.
+#
+# Structure:
+#   guardrails:
+#     - never: Things agent must NEVER do
+#     - always: Things agent must ALWAYS do
+#
+#   workflows: Multi-step processes
+#     - id, name, description, trigger
+#     - steps: Array of tool IDs to execute
+#     - required: Must follow exact sequence?
+#     - on_deviation: warn | block | ask_user
+#
+#   approvals: Per-tool approval requirements
+#     - tool_id, conditions, approver
+#
+#   escalation: When and where to escalate
+# =============================================================================
+
+policy:
+  guardrails:
+    never:
+      - "Commit or push directly to main/master branch"
+      - "Delete files without explicit user confirmation"
+      - "Force push to any branch"
+      - "Expose secrets, API keys, or credentials in code"
+      - "Modify files outside the project repositories"
+      - "Deploy to production environments"
+      - "Make breaking API changes without migration plan"
+      - "Skip tests to save time"
+      - "Approve own pull requests"
+      - "Merge without passing CI checks"
+
+    always:
+      - "Read and understand existing code before making changes"
+      - "Follow existing code patterns and conventions"
+      - "Write tests for new functionality"
+      - "Use conventional commit message format"
+      - "Create feature branches for all changes"
+      - "Request approval before destructive operations"
+      - "Document complex logic with comments"
+      - "Run lint and typecheck before committing"
+      - "Explain reasoning for significant decisions"
+      - "Check for security vulnerabilities in new code"
+
+  workflows:
+    - id: "workflow_feature_implementation"
+      name: "Feature Implementation"
+      description: "Standard workflow for implementing new features"
+      trigger: "intent_implement_feature"
+      steps:
+        - "search_code"  # Understand existing patterns
+        - "read_file"    # Read relevant files
+        - "git_branch"   # Create feature branch
+        - "write_file"   # Implement changes
+        - "run_lint"     # Check style
+        - "run_typecheck"  # Check types
+        - "run_tests"    # Verify tests pass
+        - "git_commit"   # Commit changes
+        - "create_pull_request"  # Create PR
+      required: false
+      on_deviation: warn
+
+    - id: "workflow_bug_fix"
+      name: "Bug Fix"
+      description: "Workflow for fixing bugs"
+      trigger: "intent_fix_bug"
+      steps:
+        - "search_code"  # Find relevant code
+        - "read_file"    # Understand the issue
+        - "git_branch"   # Create fix branch
+        - "edit_file"    # Apply fix
+        - "run_tests"    # Add regression test
+        - "run_tests"    # Verify all tests pass
+        - "git_commit"   # Commit fix
+      required: false
+      on_deviation: warn
+
+    - id: "workflow_code_review"
+      name: "Code Review"
+      description: "Workflow for reviewing code changes"
+      trigger: "intent_review_code"
+      steps:
+        - "git_diff"     # See what changed
+        - "read_file"    # Read changed files
+        - "analyze_complexity"  # Check complexity
+        - "run_lint"     # Check style issues
+        - "run_typecheck"  # Check type issues
+        - "run_tests"    # Verify tests pass
+      required: true
+      on_deviation: warn
+
+    - id: "workflow_write_tests"
+      name: "Write Tests"
+      description: "Workflow for adding tests"
+      trigger: "intent_write_tests"
+      steps:
+        - "get_coverage"  # Check current coverage
+        - "read_file"     # Understand code to test
+        - "write_file"    # Write test file
+        - "run_tests"     # Run new tests
+        - "get_coverage"  # Verify coverage improved
+      required: false
+      on_deviation: warn
+
+    - id: "workflow_refactoring"
+      name: "Refactoring"
+      description: "Workflow for refactoring code"
+      trigger: "intent_refactor"
+      steps:
+        - "read_file"         # Understand current code
+        - "analyze_complexity"  # Identify issues
+        - "analyze_imports"   # Understand dependencies
+        - "run_tests"         # Ensure tests pass before
+        - "edit_file"         # Apply refactoring
+        - "run_tests"         # Ensure tests still pass
+        - "run_lint"          # Check style
+      required: true
+      on_deviation: block
+
+  approvals:
+    - id: "approval-delete-file"
+      tool_id: "tool-fs-delete-file"
+      conditions:
+        - when: "always"
+          action: require_approval
+          message: "File deletion requires user confirmation"
+      approver: "user"
+
+    - id: "approval-push"
+      tool_id: "tool-git-push"
+      conditions:
+        - when: "always"
+          action: require_approval
+          message: "Pushing to remote requires confirmation"
+      approver: "user"
+
+    - id: "approval-install-dep"
+      tool_id: "tool-deps-install"
+      conditions:
+        - when: "always"
+          action: require_approval
+          message: "Installing new dependencies requires confirmation"
+      approver: "user"
+
+    - id: "approval-create-pr"
+      tool_id: "tool-git-create-pr"
+      conditions:
+        - when: "always"
+          action: require_approval
+          message: "Creating pull request requires confirmation"
+      approver: "user"
+
+    - id: "approval-migration-down"
+      tool_id: "tool-db-run-migration"
+      conditions:
+        - when: "action == 'down'"
+          action: require_approval
+          message: "Rolling back migrations requires confirmation"
+      approver: "user"
+
+  escalation:
+    enabled: true
+    conditions:
+      - "Security vulnerability detected"
+      - "Breaking change to public API"
+      - "Performance regression detected"
+      - "Test failure cannot be resolved"
+      - "Merge conflict requires human judgment"
+    target: "senior-developer-queue"
+
+# =============================================================================
+# SECTION 9: VALIDATION STATE (Auto-calculated)
+# =============================================================================
+# This section is auto-populated by the validation pipeline.
+# Do not edit manually - it will be overwritten.
+#
+# Fields:
+#   valid: No blocking errors?
+#   ready_to_export: All requirements met?
+#   errors/warnings: Validation issues
+#   unresolved: Cross-reference issues
+#   completeness: Section completion status
+# =============================================================================
+
+validation:
+  valid: true
+  ready_to_export: false  # Mocks need testing
+  errors: []
+  warnings: []
+  unresolved:
+    tools: []
+    workflows: []
+    intents: []
+  completeness:
+    problem: true
+    scenarios: true
+    role: true
+    intents: true
+    tools: true
+    policy: true
+    engine: true
+    mocks_tested: false  # Tools need mock testing
+
+# =============================================================================
+# SECTION 10: CHANNELS (Optional)
+# =============================================================================
+# Define how this skill can be accessed.
+#
+# Types: api | slack | email | webhook
+# =============================================================================
+
+channels:
+  - type: api
+    enabled: true
+    config:
+      endpoint: "/api/v1/sw-developer"
+      rate_limit: "100/minute"
