@@ -138,9 +138,10 @@ All Docker commands run on **mac1** via SSH from mac2.
 ### Start Development Environment
 
 ```bash
-# From mac2
+# From mac2 - use ONLY docker-compose.dev.yml for development
+# NOTE: Don't combine with docker-compose.yml - ports will merge and cause conflicts!
 ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && \
-  /usr/local/bin/docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build'
+  /usr/local/bin/docker compose -f docker-compose.dev.yml up --build'
 ```
 
 ### Stop Environment
@@ -162,7 +163,7 @@ ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && \
 ```bash
 # Rebuild backend only
 ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && \
-  /usr/local/bin/docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build backend'
+  /usr/local/bin/docker compose -f docker-compose.dev.yml up --build backend'
 ```
 
 ## Service Ports
@@ -219,7 +220,7 @@ git pull
 
 # 2. Start services (run once, keep running)
 ssh mac1 'cd ~/Projects/adas_mcp_toolbox_builder && \
-  /usr/local/bin/docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build'
+  /usr/local/bin/docker compose -f docker-compose.dev.yml up --build'
 
 # 3. Make code changes locally on mac2
 #    (hot reload will pick up changes for frontend)
