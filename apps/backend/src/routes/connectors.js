@@ -6,6 +6,7 @@
 
 import { Router } from 'express';
 import mcpManager from '../services/mcpConnector.js';
+import { classifyError, formatErrorResponse, getStatusFromError } from '../services/connectorValidator.js';
 
 const router = Router();
 
@@ -51,10 +52,8 @@ router.post('/connect', async (req, res) => {
     });
   } catch (err) {
     console.error('Failed to connect to MCP server:', err);
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
+    const classified = classifyError(err, { connector: name || command });
+    res.status(500).json(formatErrorResponse(classified));
   }
 });
 
@@ -470,18 +469,24 @@ router.post('/prebuilt/:connectorId/connect', async (req, res) => {
   } catch (err) {
     console.error(`Failed to connect to ${connectorId}:`, err);
 
-    // Provide helpful error message
-    let helpMessage = err.message;
-    if (prebuilt.requiresAuth && err.message.includes('auth')) {
-      helpMessage = prebuilt.authInstructions;
+    // Classify the error and provide structured response
+    const classified = classifyError(err, {
+      connector: prebuilt.name,
+      connectorId
+    });
+
+    // Add connector-specific auth info if relevant
+    const response = formatErrorResponse(classified);
+    if (prebuilt.requiresAuth) {
+      response.error.authInstructions = prebuilt.authInstructions;
+      response.error.envRequired = prebuilt.envRequired;
+      response.error.envHelp = prebuilt.envHelp;
     }
 
-    res.status(500).json({
-      success: false,
-      error: helpMessage,
-      requiresAuth: prebuilt.requiresAuth,
-      authInstructions: prebuilt.authInstructions
-    });
+    // Set status based on error type
+    response.status = getStatusFromError(classified);
+
+    res.status(500).json(response);
   }
 });
 

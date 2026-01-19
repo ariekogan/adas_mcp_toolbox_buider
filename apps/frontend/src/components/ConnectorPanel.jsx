@@ -394,12 +394,46 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
         });
       }
     } catch (err) {
-      // Check if this connector requires auth and the error is timeout-related
-      const connector = prebuiltConnectors.find(c => c.id === connectorId);
-      if (connector?.requiresAuth && err.message.includes('timeout')) {
-        setError(`Authentication required. ${connector.authInstructions}`);
+      // Try to parse structured error from API
+      let errorData = null;
+      try {
+        // The error might contain JSON from the API response
+        const match = err.message.match(/\{[\s\S]*\}/);
+        if (match) {
+          errorData = JSON.parse(match[0]);
+        }
+      } catch (e) {
+        // Ignore parsing errors
+      }
+
+      if (errorData?.error) {
+        // Structured error from validation layer
+        const { title, message, recovery, severity } = errorData.error;
+        setError({
+          title,
+          message,
+          recovery,
+          severity,
+          connectorId
+        });
       } else {
-        setError(err.message);
+        // Fallback to simple error message
+        const connector = prebuiltConnectors.find(c => c.id === connectorId);
+        if (connector?.requiresAuth && err.message.includes('timeout')) {
+          setError({
+            title: 'Authentication required',
+            message: connector.authInstructions,
+            severity: 'warning',
+            connectorId
+          });
+        } else {
+          setError({
+            title: 'Connection failed',
+            message: err.message,
+            severity: 'error',
+            connectorId
+          });
+        }
       }
     } finally {
       setConnectingId(null);
@@ -699,8 +733,13 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
 
         {/* Error banner */}
         {error && (
-          <div style={styles.error}>
-            <span>{error}</span>
+          <div style={{
+            ...styles.error,
+            background: error.severity === 'warning' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+            borderColor: error.severity === 'warning' ? 'rgba(245, 158, 11, 0.3)' : 'rgba(239, 68, 68, 0.3)',
+            color: error.severity === 'warning' ? '#fbbf24' : '#f87171'
+          }}>
+            <span>{typeof error === 'string' ? error : error.message}</span>
             <button onClick={() => setError(null)} style={{ ...styles.iconButton, padding: '2px' }}>
               <XIcon />
             </button>
@@ -889,13 +928,44 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
         Connect to external services and import their tools
       </p>
 
-      {/* Error banner */}
+      {/* Error banner - supports both string and structured errors */}
       {error && (
-        <div style={styles.error}>
-          <span>{error}</span>
-          <button onClick={() => setError(null)} style={{ ...styles.iconButton, padding: '2px' }}>
-            <XIcon />
-          </button>
+        <div style={{
+          ...styles.error,
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          background: error.severity === 'warning' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+          borderColor: error.severity === 'warning' ? 'rgba(245, 158, 11, 0.3)' : 'rgba(239, 68, 68, 0.3)',
+          color: error.severity === 'warning' ? '#fbbf24' : '#f87171'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ flex: 1 }}>
+              {/* Title */}
+              <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                {typeof error === 'string' ? 'Error' : error.title || 'Error'}
+              </div>
+              {/* Message */}
+              <div style={{ fontSize: '11px', opacity: 0.9 }}>
+                {typeof error === 'string' ? error : error.message}
+              </div>
+              {/* Recovery steps */}
+              {error.recovery && error.recovery.length > 0 && (
+                <ul style={{
+                  margin: '8px 0 0 0',
+                  paddingLeft: '16px',
+                  fontSize: '11px',
+                  opacity: 0.8
+                }}>
+                  {error.recovery.map((step, i) => (
+                    <li key={i} style={{ marginBottom: '2px' }}>{step}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <button onClick={() => setError(null)} style={{ ...styles.iconButton, padding: '2px', flexShrink: 0 }}>
+              <XIcon />
+            </button>
+          </div>
         </div>
       )}
 
