@@ -228,11 +228,11 @@ const PREBUILT_CONNECTORS = {
   gmail_docker: {
     name: 'Gmail (App Password)',
     description: 'Read and send emails via Gmail using IMAP/SMTP',
-    command: 'docker',
-    args: ['run', '-i', '--rm', 'yashtekwani/gmail-mcp'],
+    command: 'npx',
+    args: ['-y', '@gongrzhe/server-gmail-mcp'],
     requiresAuth: true,
-    authInstructions: 'Set EMAIL_ADDRESS and EMAIL_PASSWORD (Gmail app password) environment variables. Generate app password at Google Account > Security > App Passwords',
-    envRequired: ['EMAIL_ADDRESS', 'EMAIL_PASSWORD'],
+    authInstructions: 'Set EMAIL_ADDRESS and APP_PASSWORD (Gmail app password, not your regular password). Generate app password at Google Account > Security > 2-Step Verification > App Passwords',
+    envRequired: ['EMAIL_ADDRESS', 'APP_PASSWORD'],
     category: 'communication'
   },
   gmail: {
