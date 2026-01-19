@@ -294,7 +294,8 @@ const RefreshIcon = () => (
 export default function ConnectorPanel({ skillId, onToolsImported }) {
   const [activeConnections, setActiveConnections] = useState([]);
   const [prebuiltConnectors, setPrebuiltConnectors] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [connectingId, setConnectingId] = useState(null); // Track which connector is connecting
+  const [loading, setLoading] = useState(false); // For general loading (import, custom connect)
   const [error, setError] = useState(null);
   const [selectedConnection, setSelectedConnection] = useState(null);
   const [discoveredTools, setDiscoveredTools] = useState([]);
@@ -338,7 +339,7 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
   }
 
   async function handleConnectPrebuilt(connectorId) {
-    setLoading(true);
+    setConnectingId(connectorId);
     setError(null);
     try {
       const result = await connectPrebuilt(connectorId);
@@ -356,7 +357,7 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      setConnectingId(null);
     }
   }
 
@@ -639,15 +640,15 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
                           ) : (
                             <button
                               onClick={() => handleConnectPrebuilt(connector.id)}
-                              disabled={loading}
+                              disabled={connectingId === connector.id}
                               style={{
                                 ...styles.button,
                                 ...styles.primaryButton,
                                 marginLeft: '8px',
-                                opacity: loading ? 0.6 : 1
+                                opacity: connectingId === connector.id ? 0.6 : 1
                               }}
                             >
-                              {loading ? '...' : 'Connect'}
+                              {connectingId === connector.id ? '...' : 'Connect'}
                             </button>
                           )}
                         </div>
