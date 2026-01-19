@@ -661,26 +661,15 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
                 }}
                 onClick={() => toggleToolSelection(tool.name)}
               >
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedTools.has(tool.name)}
-                        onChange={() => toggleToolSelection(tool.name)}
-                        style={styles.checkbox}
-                      />
-                      <code style={styles.toolName}>{tool.name}</code>
-                    </div>
-                    <p style={{ ...styles.toolDescription, marginLeft: '22px' }}>
-                      {tool.description || 'No description'}
-                    </p>
-                    {tool.inputSchema?.properties && (
-                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '22px' }}>
-                        Inputs: {Object.keys(tool.inputSchema.properties).join(', ')}
-                      </div>
-                    )}
-                  </div>
+                {/* Tool header row with checkbox, name, and test button */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedTools.has(tool.name)}
+                    onChange={() => toggleToolSelection(tool.name)}
+                    style={styles.checkbox}
+                  />
+                  <code style={{ ...styles.toolName, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tool.name}</code>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleTestTool(tool); }}
                     disabled={testingTool === tool.name}
@@ -689,12 +678,23 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
                       ...styles.secondaryButton,
                       padding: '3px 8px',
                       fontSize: '10px',
-                      opacity: testingTool === tool.name ? 0.6 : 1
+                      opacity: testingTool === tool.name ? 0.6 : 1,
+                      flexShrink: 0
                     }}
                   >
-                    {testingTool === tool.name ? 'Testing...' : 'Test'}
+                    {testingTool === tool.name ? '...' : 'Test'}
                   </button>
                 </div>
+                {/* Tool description */}
+                <p style={{ ...styles.toolDescription, marginLeft: '22px', marginBottom: '2px' }}>
+                  {tool.description || 'No description'}
+                </p>
+                {/* Tool inputs */}
+                {tool.inputSchema?.properties && (
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '22px' }}>
+                    Inputs: {Object.keys(tool.inputSchema.properties).join(', ')}
+                  </div>
+                )}
               </div>
             ))
           )}
