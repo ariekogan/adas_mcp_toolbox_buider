@@ -107,8 +107,9 @@ const styles = {
     transition: 'all 0.15s ease'
   },
   primaryButton: {
-    background: 'var(--accent)',
-    color: 'white'
+    background: 'transparent',
+    color: 'var(--text-secondary)',
+    border: '1px solid var(--border)'
   },
   secondaryButton: {
     background: 'var(--bg-tertiary)',
