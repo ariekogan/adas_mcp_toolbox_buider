@@ -348,6 +348,10 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
     env: ''
   });
 
+  // Environment variables form for prebuilt connectors
+  const [expandedEnvForm, setExpandedEnvForm] = useState(null); // connector id
+  const [envFormValues, setEnvFormValues] = useState({}); // { connectorId: { VAR_NAME: value } }
+
   // Load connectors on mount
   useEffect(() => {
     loadConnectors();
@@ -366,11 +370,11 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
     }
   }
 
-  async function handleConnectPrebuilt(connectorId) {
+  async function handleConnectPrebuilt(connectorId, envValues = {}) {
     setConnectingId(connectorId);
     setError(null);
     try {
-      const result = await connectPrebuilt(connectorId);
+      const result = await connectPrebuilt(connectorId, { extraEnv: envValues });
       if (result.success) {
         setActiveConnections(prev => [...prev, {
           id: result.connection.id,
@@ -381,6 +385,13 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
         // Auto-select and show tools
         setSelectedConnection(result.connection.id);
         setDiscoveredTools(result.connection.tools || []);
+        // Clear the env form
+        setExpandedEnvForm(null);
+        setEnvFormValues(prev => {
+          const next = { ...prev };
+          delete next[connectorId];
+          return next;
+        });
       }
     } catch (err) {
       // Check if this connector requires auth and the error is timeout-related
@@ -393,6 +404,56 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
     } finally {
       setConnectingId(null);
     }
+  }
+
+  // Handle clicking Connect on a connector that requires env vars
+  function handleConnectClick(connector) {
+    console.log('[ENV_FORM] handleConnectClick', connector.id, 'envRequired:', connector.envRequired);
+    if (connector.envRequired?.length > 0) {
+      // Show env form
+      setExpandedEnvForm(connector.id);
+      // Initialize form values if not set
+      if (!envFormValues[connector.id]) {
+        const initialValues = {};
+        connector.envRequired.forEach(varName => {
+          initialValues[varName] = '';
+        });
+        setEnvFormValues(prev => ({ ...prev, [connector.id]: initialValues }));
+      }
+    } else {
+      // Connect directly
+      handleConnectPrebuilt(connector.id);
+    }
+  }
+
+  function updateEnvValue(connectorId, varName, value) {
+    setEnvFormValues(prev => ({
+      ...prev,
+      [connectorId]: {
+        ...(prev[connectorId] || {}),
+        [varName]: value
+      }
+    }));
+  }
+
+  function handleEnvFormSubmit(connector) {
+    const envValues = envFormValues[connector.id] || {};
+    // Check all required values are filled
+    const missingVars = (connector.envRequired || []).filter(v => !envValues[v]?.trim());
+    if (missingVars.length > 0) {
+      setError(`Please fill in: ${missingVars.join(', ')}`);
+      return;
+    }
+    handleConnectPrebuilt(connector.id, envValues);
+  }
+
+  function cancelEnvForm(connectorId) {
+    setExpandedEnvForm(null);
+    setEnvFormValues(prev => {
+      const next = { ...prev };
+      delete next[connectorId];
+      return next;
+    });
   }
 
   async function handleConnectCustom() {
@@ -492,7 +553,11 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
     try {
       // For testing, we'll call with empty args or minimal args
       const result = await callConnectorTool(selectedConnection, tool.name, {});
-      setTestResult({ success: true, data: result });
+      // Check if MCP returned an error in the response
+      const hasError = result?.isError === true ||
+                       result?.result?.isError === true ||
+                       (result?.result?.content?.[0]?.text?.includes?.('error') && result?.result?.content?.[0]?.text?.includes?.('Invalid'));
+      setTestResult({ success: !hasError, data: result });
     } catch (err) {
       setTestResult({ success: false, error: err.message });
     } finally {
@@ -893,6 +958,9 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
                   </div>
                   {groupedConnectors[cat].map(connector => {
                     const isConnected = activeConnections.some(c => c.id === connector.id);
+                    const isEnvFormExpanded = expandedEnvForm === connector.id;
+                    const connectorEnvValues = envFormValues[connector.id] || {};
+
                     return (
                       <div key={connector.id} style={styles.card}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -911,9 +979,9 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
                               <span style={styles.spinner}></span>
                               Connecting...
                             </span>
-                          ) : (
+                          ) : isEnvFormExpanded ? null : (
                             <button
-                              onClick={() => handleConnectPrebuilt(connector.id)}
+                              onClick={() => handleConnectClick(connector)}
                               style={{
                                 ...styles.button,
                                 ...styles.primaryButton,
@@ -924,7 +992,47 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
                             </button>
                           )}
                         </div>
-                        {connector.requiresAuth && !isConnected && (
+
+                        {/* Environment variables form */}
+                        {isEnvFormExpanded && !isConnected && (
+                          <div style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-primary)', borderRadius: '6px' }}>
+                            {connector.envRequired?.map(varName => (
+                              <div key={varName} style={{ marginBottom: '10px' }}>
+                                <label style={{ ...styles.label, marginBottom: '4px' }}>{varName}</label>
+                                <input
+                                  type={varName.toLowerCase().includes('password') || varName.toLowerCase().includes('token') || varName.toLowerCase().includes('key') || varName.toLowerCase().includes('secret') ? 'password' : 'text'}
+                                  value={connectorEnvValues[varName] || ''}
+                                  onChange={(e) => updateEnvValue(connector.id, varName, e.target.value)}
+                                  placeholder={`Enter ${varName}`}
+                                  style={styles.input}
+                                  autoComplete="off"
+                                />
+                              </div>
+                            ))}
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                              <button
+                                onClick={() => handleEnvFormSubmit(connector)}
+                                disabled={connectingId === connector.id}
+                                style={{
+                                  ...styles.button,
+                                  ...styles.successButton,
+                                  opacity: connectingId === connector.id ? 0.6 : 1
+                                }}
+                              >
+                                {connectingId === connector.id ? 'Connecting...' : 'Connect'}
+                              </button>
+                              <button
+                                onClick={() => cancelEnvForm(connector.id)}
+                                style={{ ...styles.button, ...styles.secondaryButton }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Auth hint - show only when form is not expanded */}
+                        {connector.requiresAuth && !isConnected && !isEnvFormExpanded && (
                           <p style={styles.authHint}>
                             {connector.authInstructions || 'Requires authentication setup'}
                           </p>
