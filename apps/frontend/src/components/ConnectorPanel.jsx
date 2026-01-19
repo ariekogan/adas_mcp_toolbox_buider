@@ -661,7 +661,7 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
                 }}
                 onClick={() => toggleToolSelection(tool.name)}
               >
-                {/* Tool header row with checkbox, name, and test button */}
+                {/* Tool header row with checkbox and name */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                   <input
                     type="checkbox"
@@ -669,32 +669,31 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
                     onChange={() => toggleToolSelection(tool.name)}
                     style={styles.checkbox}
                   />
-                  <code style={{ ...styles.toolName, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tool.name}</code>
+                  <code style={{ ...styles.toolName, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tool.name}</code>
+                </div>
+                {/* Tool description */}
+                <p style={{ ...styles.toolDescription, marginLeft: '22px', marginBottom: '2px' }}>
+                  {tool.description || 'No description'}
+                </p>
+                {/* Tool inputs and test button row */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginLeft: '22px', marginTop: '4px' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                    {tool.inputSchema?.properties ? `Inputs: ${Object.keys(tool.inputSchema.properties).join(', ')}` : ''}
+                  </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleTestTool(tool); }}
                     disabled={testingTool === tool.name}
                     style={{
                       ...styles.button,
                       ...styles.secondaryButton,
-                      padding: '3px 8px',
-                      fontSize: '10px',
-                      opacity: testingTool === tool.name ? 0.6 : 1,
-                      flexShrink: 0
+                      padding: '2px 6px',
+                      fontSize: '9px',
+                      opacity: testingTool === tool.name ? 0.6 : 1
                     }}
                   >
                     {testingTool === tool.name ? '...' : 'Test'}
                   </button>
                 </div>
-                {/* Tool description */}
-                <p style={{ ...styles.toolDescription, marginLeft: '22px', marginBottom: '2px' }}>
-                  {tool.description || 'No description'}
-                </p>
-                {/* Tool inputs */}
-                {tool.inputSchema?.properties && (
-                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '22px' }}>
-                    Inputs: {Object.keys(tool.inputSchema.properties).join(', ')}
-                  </div>
-                )}
               </div>
             ))
           )}
