@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import {
   listConnectors,
   listPrebuiltConnectors,
@@ -331,9 +331,6 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
   const [testResult, setTestResult] = useState(null);
   const [loadingTools, setLoadingTools] = useState(false);
 
-  // Ref for auto-scrolling to tools section
-  const toolsSectionRef = useRef(null);
-
   // Section expansion state
   const [expanded, setExpanded] = useState({
     active: true,
@@ -454,13 +451,6 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
     setDiscoveredTools([]); // Clear while loading
     setSelectedTools(new Set());
     setLoadingTools(true);
-    // Auto-expand tools section immediately
-    setExpanded(prev => ({ ...prev, tools: true }));
-
-    // Scroll to tools section after a short delay to allow render
-    setTimeout(() => {
-      toolsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 100);
 
     try {
       console.log('[ConnectorPanel] Fetching tools for:', id);
@@ -570,6 +560,191 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
 
   const categoryOrder = ['communication', 'development', 'data', 'utilities', 'search', 'automation', 'storage', 'location', 'media', 'reasoning', 'other'];
 
+  // Get selected connection name
+  const selectedConnectionName = activeConnections.find(c => c.id === selectedConnection)?.name || selectedConnection;
+
+  // Close tools view and go back to connectors list
+  const handleCloseToolsView = () => {
+    setSelectedConnection(null);
+    setDiscoveredTools([]);
+    setSelectedTools(new Set());
+    setTestResult(null);
+  };
+
+  // If a connection is selected, show full-screen tools view
+  if (selectedConnection) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        {/* Header with back/close button */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '16px',
+          paddingBottom: '8px',
+          borderBottom: '1px solid var(--border)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={handleCloseToolsView}
+              style={{
+                ...styles.iconButton,
+                padding: '6px',
+                background: 'var(--bg-tertiary)',
+                borderRadius: '6px'
+              }}
+              title="Back to connectors"
+            >
+              <XIcon />
+            </button>
+            <div>
+              <div style={{
+                fontSize: '14px',
+                fontWeight: '600',
+                color: 'var(--text-primary)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <span style={{ ...styles.statusDot, ...styles.connectedDot }}></span>
+                {selectedConnectionName}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                {loadingTools ? 'Loading tools...' : `${discoveredTools.length} tools available`}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
+            <button
+              onClick={selectAllTools}
+              style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '11px' }}
+              disabled={loadingTools}
+            >
+              Select All
+            </button>
+            <button
+              onClick={deselectAllTools}
+              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '11px' }}
+              disabled={loadingTools}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+
+        {/* Error banner */}
+        {error && (
+          <div style={styles.error}>
+            <span>{error}</span>
+            <button onClick={() => setError(null)} style={{ ...styles.iconButton, padding: '2px' }}>
+              <XIcon />
+            </button>
+          </div>
+        )}
+
+        {/* Tools list - takes remaining space */}
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          {loadingTools ? (
+            <div style={{ ...styles.empty, display: 'flex', alignItems: 'center', gap: '8px', padding: '20px' }}>
+              <span style={styles.spinner}></span>
+              Fetching tools from connector...
+            </div>
+          ) : discoveredTools.length === 0 ? (
+            <div style={styles.empty}>No tools found or connection lost</div>
+          ) : (
+            discoveredTools.map(tool => (
+              <div
+                key={tool.name}
+                style={{
+                  ...styles.toolCard,
+                  ...(selectedTools.has(tool.name) ? styles.toolCardSelected : {})
+                }}
+                onClick={() => toggleToolSelection(tool.name)}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedTools.has(tool.name)}
+                        onChange={() => toggleToolSelection(tool.name)}
+                        style={styles.checkbox}
+                      />
+                      <code style={styles.toolName}>{tool.name}</code>
+                    </div>
+                    <p style={{ ...styles.toolDescription, marginLeft: '22px' }}>
+                      {tool.description || 'No description'}
+                    </p>
+                    {tool.inputSchema?.properties && (
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '22px' }}>
+                        Inputs: {Object.keys(tool.inputSchema.properties).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleTestTool(tool); }}
+                    disabled={testingTool === tool.name}
+                    style={{
+                      ...styles.button,
+                      ...styles.secondaryButton,
+                      padding: '3px 8px',
+                      fontSize: '10px',
+                      opacity: testingTool === tool.name ? 0.6 : 1
+                    }}
+                  >
+                    {testingTool === tool.name ? 'Testing...' : 'Test'}
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+
+          {/* Test Result */}
+          {testResult && (
+            <div style={{
+              ...styles.testResult,
+              ...(testResult.success ? styles.testSuccess : styles.testError),
+              margin: '8px 0'
+            }}>
+              <div style={{ fontWeight: '600', marginBottom: '4px', color: testResult.success ? '#34d399' : '#f87171' }}>
+                {testResult.success ? 'Success' : 'Error'}
+              </div>
+              <pre style={{ overflow: 'auto', maxHeight: '100px', margin: 0 }}>
+                {JSON.stringify(testResult.success ? testResult.data : testResult.error, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+
+        {/* Import Button - fixed at bottom */}
+        {selectedTools.size > 0 && (
+          <div style={{ ...styles.importBar, marginTop: '12px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+              {selectedTools.size} tool{selectedTools.size > 1 ? 's' : ''} selected
+            </span>
+            <button
+              onClick={handleImportTools}
+              disabled={loading || !skillId}
+              style={{
+                ...styles.button,
+                ...styles.successButton,
+                opacity: (loading || !skillId) ? 0.6 : 1
+              }}
+            >
+              {loading ? 'Importing...' : 'Import to Skill'}
+            </button>
+          </div>
+        )}
+        {!skillId && selectedTools.size > 0 && (
+          <p style={{ ...styles.authHint, marginTop: '8px' }}>
+            Please select a skill first to import tools
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // Main connectors view (no connection selected)
   return (
     <>
       {/* Section header with title and refresh */}
@@ -633,8 +808,7 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
                   key={conn.id}
                   style={{
                     ...styles.card,
-                    cursor: 'pointer',
-                    ...(selectedConnection === conn.id ? styles.cardSelected : {})
+                    cursor: 'pointer'
                   }}
                   onClick={() => handleSelectConnection(conn.id)}
                 >
@@ -807,141 +981,6 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
           </>
         )}
       </div>
-
-      {/* Discovered Tools */}
-      {selectedConnection && (
-        <div ref={toolsSectionRef} style={styles.section}>
-          <div style={styles.sectionHeader} onClick={() => toggleSection('tools')}>
-            <div style={styles.sectionTitle}>
-              <span style={{ ...styles.expandIcon, transform: expanded.tools ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
-              Discovered Tools {loadingTools ? '' : `(${discoveredTools.length})`}
-              {loadingTools && (
-                <span style={styles.connectingBadge}>
-                  <span style={styles.spinner}></span>
-                  Loading...
-                </span>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
-              <button
-                onClick={(e) => { e.stopPropagation(); selectAllTools(); }}
-                style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '11px' }}
-                disabled={loadingTools}
-              >
-                Select All
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); deselectAllTools(); }}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '11px' }}
-                disabled={loadingTools}
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-
-          {expanded.tools && (
-            <>
-              {loadingTools ? (
-                <div style={{ ...styles.empty, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={styles.spinner}></span>
-                  Fetching tools from connector...
-                </div>
-              ) : discoveredTools.length === 0 ? (
-                <div style={styles.empty}>No tools found or connection lost</div>
-              ) : (
-              <div style={styles.scrollArea}>
-                {discoveredTools.map(tool => (
-                  <div
-                    key={tool.name}
-                    style={{
-                      ...styles.toolCard,
-                      ...(selectedTools.has(tool.name) ? styles.toolCardSelected : {})
-                    }}
-                    onClick={() => toggleToolSelection(tool.name)}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <input
-                            type="checkbox"
-                            checked={selectedTools.has(tool.name)}
-                            onChange={() => toggleToolSelection(tool.name)}
-                            style={styles.checkbox}
-                          />
-                          <code style={styles.toolName}>{tool.name}</code>
-                        </div>
-                        <p style={{ ...styles.toolDescription, marginLeft: '22px' }}>
-                          {tool.description || 'No description'}
-                        </p>
-                        {tool.inputSchema?.properties && (
-                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '22px' }}>
-                            Inputs: {Object.keys(tool.inputSchema.properties).join(', ')}
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleTestTool(tool); }}
-                        disabled={testingTool === tool.name}
-                        style={{
-                          ...styles.button,
-                          ...styles.secondaryButton,
-                          padding: '3px 8px',
-                          fontSize: '10px',
-                          opacity: testingTool === tool.name ? 0.6 : 1
-                        }}
-                      >
-                        {testingTool === tool.name ? 'Testing...' : 'Test'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              )}
-
-              {/* Test Result */}
-              {testResult && (
-                <div style={{
-                  ...styles.testResult,
-                  ...(testResult.success ? styles.testSuccess : styles.testError)
-                }}>
-                  <div style={{ fontWeight: '600', marginBottom: '4px', color: testResult.success ? '#34d399' : '#f87171' }}>
-                    {testResult.success ? 'Success' : 'Error'}
-                  </div>
-                  <pre style={{ overflow: 'auto', maxHeight: '100px', margin: 0 }}>
-                    {JSON.stringify(testResult.success ? testResult.data : testResult.error, null, 2)}
-                  </pre>
-                </div>
-              )}
-
-              {/* Import Button */}
-              {selectedTools.size > 0 && (
-                <div style={styles.importBar}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    {selectedTools.size} tool{selectedTools.size > 1 ? 's' : ''} selected
-                  </span>
-                  <button
-                    onClick={handleImportTools}
-                    disabled={loading || !skillId}
-                    style={{
-                      ...styles.button,
-                      ...styles.successButton,
-                      opacity: (loading || !skillId) ? 0.6 : 1
-                    }}
-                  >
-                    {loading ? 'Importing...' : 'Import to Skill'}
-                  </button>
-                </div>
-              )}
-              {!skillId && selectedTools.size > 0 && (
-                <p style={{ ...styles.authHint, marginTop: '8px' }}>
-                  Please select a skill first to import tools
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      )}
     </>
   );
 }
