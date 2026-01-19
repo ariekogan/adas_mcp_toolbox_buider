@@ -995,21 +995,85 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
 
                         {/* Environment variables form */}
                         {isEnvFormExpanded && !isConnected && (
-                          <div style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-primary)', borderRadius: '6px' }}>
-                            {connector.envRequired?.map(varName => (
-                              <div key={varName} style={{ marginBottom: '10px' }}>
-                                <label style={{ ...styles.label, marginBottom: '4px' }}>{varName}</label>
-                                <input
-                                  type={varName.toLowerCase().includes('password') || varName.toLowerCase().includes('token') || varName.toLowerCase().includes('key') || varName.toLowerCase().includes('secret') ? 'password' : 'text'}
-                                  value={connectorEnvValues[varName] || ''}
-                                  onChange={(e) => updateEnvValue(connector.id, varName, e.target.value)}
-                                  placeholder={`Enter ${varName}`}
-                                  style={styles.input}
-                                  autoComplete="off"
-                                />
+                          <div style={{ marginTop: '12px', padding: '16px', background: 'var(--bg-primary)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                            {/* Setup instructions header */}
+                            {connector.authInstructions && (
+                              <div style={{
+                                marginBottom: '16px',
+                                padding: '10px 12px',
+                                background: 'rgba(59, 130, 246, 0.1)',
+                                borderRadius: '6px',
+                                borderLeft: '3px solid #3b82f6',
+                                fontSize: '12px',
+                                color: '#93c5fd'
+                              }}>
+                                {connector.authInstructions}
                               </div>
-                            ))}
-                            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                            )}
+
+                            {connector.envRequired?.map(varName => {
+                              const help = connector.envHelp?.[varName] || {};
+                              const isSecret = varName.toLowerCase().includes('password') ||
+                                              varName.toLowerCase().includes('token') ||
+                                              varName.toLowerCase().includes('key') ||
+                                              varName.toLowerCase().includes('secret');
+
+                              return (
+                                <div key={varName} style={{ marginBottom: '14px' }}>
+                                  <label style={{
+                                    display: 'block',
+                                    fontSize: '12px',
+                                    fontWeight: '500',
+                                    color: 'var(--text-secondary)',
+                                    marginBottom: '6px'
+                                  }}>
+                                    {help.label || varName}
+                                  </label>
+                                  <input
+                                    type={isSecret ? 'password' : 'text'}
+                                    value={connectorEnvValues[varName] || ''}
+                                    onChange={(e) => updateEnvValue(connector.id, varName, e.target.value)}
+                                    placeholder={help.placeholder || `Enter ${varName}`}
+                                    style={{
+                                      ...styles.input,
+                                      fontFamily: isSecret ? 'inherit' : 'monospace',
+                                      fontSize: '13px'
+                                    }}
+                                    autoComplete="off"
+                                  />
+                                  {/* Hint text */}
+                                  {help.hint && (
+                                    <div style={{
+                                      fontSize: '11px',
+                                      color: 'var(--text-muted)',
+                                      marginTop: '4px',
+                                      lineHeight: '1.4'
+                                    }}>
+                                      {help.hint}
+                                    </div>
+                                  )}
+                                  {/* Help link */}
+                                  {help.link && (
+                                    <a
+                                      href={help.link}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{
+                                        fontSize: '11px',
+                                        color: '#60a5fa',
+                                        textDecoration: 'none',
+                                        display: 'inline-block',
+                                        marginTop: '4px'
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {help.linkText || 'Learn more →'}
+                                    </a>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
                               <button
                                 onClick={() => handleEnvFormSubmit(connector)}
                                 disabled={connectingId === connector.id}

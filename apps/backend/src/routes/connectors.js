@@ -226,22 +226,27 @@ function convertMCPToolToDAL(mcpTool, connectionId, defaultPolicies = {}) {
  */
 const PREBUILT_CONNECTORS = {
   gmail_docker: {
-    name: 'Gmail (App Password)',
-    description: 'Read and send emails via Gmail using IMAP/SMTP',
+    name: 'Gmail',
+    description: 'Read and send emails via Gmail',
     command: 'npx',
     args: ['-y', '@gongrzhe/server-gmail-mcp'],
     requiresAuth: true,
-    authInstructions: 'Set EMAIL_ADDRESS and APP_PASSWORD (Gmail app password, not your regular password). Generate app password at Google Account > Security > 2-Step Verification > App Passwords',
+    authInstructions: 'You need a Gmail App Password (not your regular password)',
     envRequired: ['EMAIL_ADDRESS', 'APP_PASSWORD'],
-    category: 'communication'
-  },
-  gmail: {
-    name: 'Gmail (OAuth)',
-    description: 'Read and send emails via Gmail with OAuth',
-    command: 'npx',
-    args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],
-    requiresAuth: true,
-    authInstructions: 'Run `npx @gongrzhe/server-gmail-autoauth-mcp auth` first to authenticate',
+    envHelp: {
+      EMAIL_ADDRESS: {
+        label: 'Gmail Address',
+        placeholder: 'you@gmail.com',
+        hint: 'Your full Gmail email address'
+      },
+      APP_PASSWORD: {
+        label: 'App Password',
+        placeholder: 'xxxx xxxx xxxx xxxx',
+        hint: 'Generate at: Google Account → Security → 2-Step Verification → App Passwords',
+        link: 'https://myaccount.google.com/apppasswords',
+        linkText: 'Get App Password →'
+      }
+    },
     category: 'communication'
   },
   slack: {
@@ -250,8 +255,22 @@ const PREBUILT_CONNECTORS = {
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-slack'],
     requiresAuth: true,
-    authInstructions: 'Set SLACK_BOT_TOKEN and SLACK_TEAM_ID environment variables',
+    authInstructions: 'You need a Slack Bot Token and Team ID',
     envRequired: ['SLACK_BOT_TOKEN', 'SLACK_TEAM_ID'],
+    envHelp: {
+      SLACK_BOT_TOKEN: {
+        label: 'Bot Token',
+        placeholder: 'xoxb-...',
+        hint: 'Create a Slack App and get the Bot User OAuth Token',
+        link: 'https://api.slack.com/apps',
+        linkText: 'Create Slack App →'
+      },
+      SLACK_TEAM_ID: {
+        label: 'Team ID',
+        placeholder: 'T0123456789',
+        hint: 'Found in Slack workspace settings or URL'
+      }
+    },
     category: 'communication'
   },
   github: {
@@ -260,8 +279,17 @@ const PREBUILT_CONNECTORS = {
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-github'],
     requiresAuth: true,
-    authInstructions: 'Set GITHUB_PERSONAL_ACCESS_TOKEN environment variable',
+    authInstructions: 'You need a GitHub Personal Access Token',
     envRequired: ['GITHUB_PERSONAL_ACCESS_TOKEN'],
+    envHelp: {
+      GITHUB_PERSONAL_ACCESS_TOKEN: {
+        label: 'Personal Access Token',
+        placeholder: 'ghp_...',
+        hint: 'Create a token with repo, read:org scopes',
+        link: 'https://github.com/settings/tokens/new',
+        linkText: 'Create Token →'
+      }
+    },
     category: 'development'
   },
   filesystem: {
@@ -286,8 +314,15 @@ const PREBUILT_CONNECTORS = {
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-postgres'],
     requiresAuth: true,
-    authInstructions: 'Provide PostgreSQL connection string in POSTGRES_CONNECTION_STRING',
+    authInstructions: 'You need a PostgreSQL connection string',
     envRequired: ['POSTGRES_CONNECTION_STRING'],
+    envHelp: {
+      POSTGRES_CONNECTION_STRING: {
+        label: 'Connection String',
+        placeholder: 'postgresql://user:pass@host:5432/dbname',
+        hint: 'Format: postgresql://username:password@host:port/database'
+      }
+    },
     category: 'data'
   },
   sqlite: {
@@ -320,8 +355,17 @@ const PREBUILT_CONNECTORS = {
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-brave-search'],
     requiresAuth: true,
-    authInstructions: 'Set BRAVE_API_KEY environment variable',
+    authInstructions: 'You need a Brave Search API key',
     envRequired: ['BRAVE_API_KEY'],
+    envHelp: {
+      BRAVE_API_KEY: {
+        label: 'API Key',
+        placeholder: 'BSA...',
+        hint: 'Get a free API key from Brave Search',
+        link: 'https://brave.com/search/api/',
+        linkText: 'Get API Key →'
+      }
+    },
     category: 'search'
   },
   puppeteer: {
