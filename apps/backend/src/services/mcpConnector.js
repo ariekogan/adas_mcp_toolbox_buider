@@ -62,6 +62,16 @@ class MCPConnection extends EventEmitter {
         this.emit('close', code);
       });
 
+      // Handle stdin errors (EPIPE when process dies)
+      this.process.stdin.on('error', (err) => {
+        console.error(`[MCP ${this.id}] stdin error:`, err.message);
+        // Reject any pending requests
+        for (const [id, { reject }] of this.pendingRequests) {
+          reject(new Error('MCP server process terminated unexpectedly'));
+        }
+        this.pendingRequests.clear();
+      });
+
       // Initialize the connection
       this.initialize()
         .then((result) => {
@@ -120,6 +130,12 @@ class MCPConnection extends EventEmitter {
    */
   async request(method, params = {}) {
     return new Promise((resolve, reject) => {
+      // Check if process is still alive
+      if (!this.process || this.process.killed || !this.process.stdin.writable) {
+        reject(new Error(`MCP server process is not running. The server may have failed to start.`));
+        return;
+      }
+
       const id = randomUUID();
       const message = {
         jsonrpc: '2.0',
@@ -138,7 +154,12 @@ class MCPConnection extends EventEmitter {
         }
       }, 30000);
 
-      this.process.stdin.write(JSON.stringify(message) + '\n');
+      try {
+        this.process.stdin.write(JSON.stringify(message) + '\n');
+      } catch (err) {
+        this.pendingRequests.delete(id);
+        reject(new Error(`Failed to send request: ${err.message}`));
+      }
     });
   }
 
