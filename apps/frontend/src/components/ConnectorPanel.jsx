@@ -382,7 +382,13 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
         setDiscoveredTools(result.connection.tools || []);
       }
     } catch (err) {
-      setError(err.message);
+      // Check if this connector requires auth and the error is timeout-related
+      const connector = prebuiltConnectors.find(c => c.id === connectorId);
+      if (connector?.requiresAuth && err.message.includes('timeout')) {
+        setError(`Authentication required. ${connector.authInstructions}`);
+      } else {
+        setError(err.message);
+      }
     } finally {
       setConnectingId(null);
     }
