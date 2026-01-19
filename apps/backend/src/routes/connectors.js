@@ -225,9 +225,19 @@ function convertMCPToolToDAL(mcpTool, connectionId, defaultPolicies = {}) {
  * Each connector specifies the command to run and any authentication requirements.
  */
 const PREBUILT_CONNECTORS = {
+  gmail_docker: {
+    name: 'Gmail (App Password)',
+    description: 'Read and send emails via Gmail using IMAP/SMTP',
+    command: 'docker',
+    args: ['run', '-i', '--rm', 'yashtekwani/gmail-mcp'],
+    requiresAuth: true,
+    authInstructions: 'Set EMAIL_ADDRESS and EMAIL_PASSWORD (Gmail app password) environment variables. Generate app password at Google Account > Security > App Passwords',
+    envRequired: ['EMAIL_ADDRESS', 'EMAIL_PASSWORD'],
+    category: 'communication'
+  },
   gmail: {
-    name: 'Gmail',
-    description: 'Read and send emails via Gmail',
+    name: 'Gmail (OAuth)',
+    description: 'Read and send emails via Gmail with OAuth',
     command: 'npx',
     args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],
     requiresAuth: true,
