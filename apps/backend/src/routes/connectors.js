@@ -225,21 +225,29 @@ function convertMCPToolToDAL(mcpTool, connectionId, defaultPolicies = {}) {
  * Each connector specifies the command to run and any authentication requirements.
  */
 const PREBUILT_CONNECTORS = {
-  gmail_docker: {
+  gmail: {
     name: 'Gmail',
-    description: 'Read and send emails via Gmail',
+    description: 'Read and send emails via Gmail (IMAP/SMTP)',
     command: 'npx',
-    args: ['-y', '@gongrzhe/server-gmail-mcp'],
+    args: ['-y', 'mcp-mail-server'],
     requiresAuth: true,
     authInstructions: 'You need a Gmail App Password (not your regular password)',
-    envRequired: ['EMAIL_ADDRESS', 'APP_PASSWORD'],
+    envRequired: ['EMAIL_USER', 'EMAIL_PASS'],
+    envDefaults: {
+      IMAP_HOST: 'imap.gmail.com',
+      IMAP_PORT: '993',
+      IMAP_SECURE: 'true',
+      SMTP_HOST: 'smtp.gmail.com',
+      SMTP_PORT: '465',
+      SMTP_SECURE: 'true'
+    },
     envHelp: {
-      EMAIL_ADDRESS: {
+      EMAIL_USER: {
         label: 'Gmail Address',
         placeholder: 'you@gmail.com',
         hint: 'Your full Gmail email address'
       },
-      APP_PASSWORD: {
+      EMAIL_PASS: {
         label: 'App Password',
         placeholder: 'xxxx xxxx xxxx xxxx',
         hint: 'Generate at: Google Account → Security → 2-Step Verification → App Passwords',
@@ -441,11 +449,17 @@ router.post('/prebuilt/:connectorId/connect', async (req, res) => {
   }
 
   try {
+    // Merge default env vars with user-provided ones
+    const mergedEnv = {
+      ...(prebuilt.envDefaults || {}),
+      ...extraEnv
+    };
+
     const result = await mcpManager.connect({
       id: connectorId,
       command: prebuilt.command,
       args: [...prebuilt.args, ...extraArgs],
-      env: extraEnv,
+      env: mergedEnv,
       name: prebuilt.name
     });
 
