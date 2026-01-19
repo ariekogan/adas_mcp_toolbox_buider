@@ -698,22 +698,65 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
             ))
           )}
 
-          {/* Test Result */}
-          {testResult && (
+        </div>
+
+        {/* Test Result Panel - takes half the area */}
+        {testResult && (
+          <div style={{
+            flex: '0 0 50%',
+            display: 'flex',
+            flexDirection: 'column',
+            borderTop: '1px solid var(--border)',
+            marginTop: '8px'
+          }}>
             <div style={{
-              ...styles.testResult,
-              ...(testResult.success ? styles.testSuccess : styles.testError),
-              margin: '8px 0'
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '8px 0',
+              borderBottom: '1px solid var(--border)'
             }}>
-              <div style={{ fontWeight: '600', marginBottom: '4px', color: testResult.success ? '#34d399' : '#f87171' }}>
-                {testResult.success ? 'Success' : 'Error'}
-              </div>
-              <pre style={{ overflow: 'auto', maxHeight: '100px', margin: 0 }}>
+              <span style={{
+                fontWeight: '600',
+                fontSize: '12px',
+                color: testResult.success ? '#34d399' : '#f87171',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}>
+                {testResult.success ? '✓ Success' : '✗ Error'}
+              </span>
+              <button
+                onClick={() => setTestResult(null)}
+                style={{
+                  ...styles.iconButton,
+                  padding: '4px',
+                  background: 'var(--bg-tertiary)',
+                  borderRadius: '4px'
+                }}
+                title="Close test result"
+              >
+                <XIcon />
+              </button>
+            </div>
+            <div style={{
+              flex: 1,
+              overflow: 'auto',
+              padding: '8px 0'
+            }}>
+              <pre style={{
+                overflow: 'auto',
+                margin: 0,
+                fontSize: '11px',
+                lineHeight: '1.4',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word'
+              }}>
                 {JSON.stringify(testResult.success ? testResult.data : testResult.error, null, 2)}
               </pre>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Import Button - fixed at bottom */}
         {selectedTools.size > 0 && (
