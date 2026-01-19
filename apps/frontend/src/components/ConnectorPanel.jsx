@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   listConnectors,
   listPrebuiltConnectors,
@@ -329,6 +329,10 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
   const [selectedTools, setSelectedTools] = useState(new Set());
   const [testingTool, setTestingTool] = useState(null);
   const [testResult, setTestResult] = useState(null);
+  const [loadingTools, setLoadingTools] = useState(false);
+
+  // Ref for auto-scrolling to tools section
+  const toolsSectionRef = useRef(null);
 
   // Section expansion state
   const [expanded, setExpanded] = useState({
@@ -444,18 +448,31 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
   }
 
   async function handleSelectConnection(id) {
+    console.log('[ConnectorPanel] Selected connection:', id);
     setSelectedConnection(id);
     setError(null);
     setDiscoveredTools([]); // Clear while loading
     setSelectedTools(new Set());
+    setLoadingTools(true);
+    // Auto-expand tools section immediately
+    setExpanded(prev => ({ ...prev, tools: true }));
+
+    // Scroll to tools section after a short delay to allow render
+    setTimeout(() => {
+      toolsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+
     try {
+      console.log('[ConnectorPanel] Fetching tools for:', id);
       const result = await getConnectorTools(id);
+      console.log('[ConnectorPanel] Got tools:', result);
       setDiscoveredTools(result.tools || []);
-      // Auto-expand tools section
-      setExpanded(prev => ({ ...prev, tools: true }));
     } catch (err) {
+      console.error('[ConnectorPanel] Failed to load tools:', err);
       setError(`Failed to load tools: ${err.message}`);
       setDiscoveredTools([]);
+    } finally {
+      setLoadingTools(false);
     }
   }
 
@@ -793,22 +810,30 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
 
       {/* Discovered Tools */}
       {selectedConnection && (
-        <div style={styles.section}>
+        <div ref={toolsSectionRef} style={styles.section}>
           <div style={styles.sectionHeader} onClick={() => toggleSection('tools')}>
             <div style={styles.sectionTitle}>
               <span style={{ ...styles.expandIcon, transform: expanded.tools ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
-              Discovered Tools ({discoveredTools.length})
+              Discovered Tools {loadingTools ? '' : `(${discoveredTools.length})`}
+              {loadingTools && (
+                <span style={styles.connectingBadge}>
+                  <span style={styles.spinner}></span>
+                  Loading...
+                </span>
+              )}
             </div>
             <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
               <button
                 onClick={(e) => { e.stopPropagation(); selectAllTools(); }}
                 style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '11px' }}
+                disabled={loadingTools}
               >
                 Select All
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); deselectAllTools(); }}
                 style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '11px' }}
+                disabled={loadingTools}
               >
                 Clear
               </button>
@@ -817,8 +842,13 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
 
           {expanded.tools && (
             <>
-              {discoveredTools.length === 0 ? (
-                <div style={styles.empty}>Loading tools...</div>
+              {loadingTools ? (
+                <div style={{ ...styles.empty, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={styles.spinner}></span>
+                  Fetching tools from connector...
+                </div>
+              ) : discoveredTools.length === 0 ? (
+                <div style={styles.empty}>No tools found or connection lost</div>
               ) : (
               <div style={styles.scrollArea}>
                 {discoveredTools.map(tool => (
