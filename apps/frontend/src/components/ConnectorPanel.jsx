@@ -171,6 +171,25 @@ const styles = {
     alignItems: 'center',
     gap: '4px'
   },
+  connectingBadge: {
+    fontSize: '11px',
+    padding: '4px 10px',
+    background: 'rgba(59, 130, 246, 0.15)',
+    color: '#60a5fa',
+    borderRadius: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    marginLeft: '8px'
+  },
+  spinner: {
+    width: '12px',
+    height: '12px',
+    border: '2px solid rgba(96, 165, 250, 0.3)',
+    borderTopColor: '#60a5fa',
+    borderRadius: '50%',
+    animation: 'spin 0.8s linear infinite'
+  },
   toolCard: {
     background: 'var(--bg-card)',
     borderRadius: '8px',
@@ -290,6 +309,14 @@ const RefreshIcon = () => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
   </svg>
 );
+
+// Add spinner keyframes to document
+if (typeof document !== 'undefined' && !document.getElementById('connector-spinner-style')) {
+  const style = document.createElement('style');
+  style.id = 'connector-spinner-style';
+  style.textContent = `@keyframes spin { to { transform: rotate(360deg); } }`;
+  document.head.appendChild(style);
+}
 
 export default function ConnectorPanel({ skillId, onToolsImported }) {
   const [activeConnections, setActiveConnections] = useState([]);
@@ -637,18 +664,21 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
                             <span style={styles.connectedBadge}>
                               <CheckIcon /> Connected
                             </span>
+                          ) : connectingId === connector.id ? (
+                            <span style={styles.connectingBadge}>
+                              <span style={styles.spinner}></span>
+                              Connecting...
+                            </span>
                           ) : (
                             <button
                               onClick={() => handleConnectPrebuilt(connector.id)}
-                              disabled={connectingId === connector.id}
                               style={{
                                 ...styles.button,
                                 ...styles.primaryButton,
-                                marginLeft: '8px',
-                                opacity: connectingId === connector.id ? 0.6 : 1
+                                marginLeft: '8px'
                               }}
                             >
-                              {connectingId === connector.id ? '...' : 'Connect'}
+                              Connect
                             </button>
                           )}
                         </div>
