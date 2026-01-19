@@ -446,12 +446,15 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
   async function handleSelectConnection(id) {
     setSelectedConnection(id);
     setError(null);
+    setDiscoveredTools([]); // Clear while loading
+    setSelectedTools(new Set());
     try {
       const result = await getConnectorTools(id);
       setDiscoveredTools(result.tools || []);
-      setSelectedTools(new Set()); // Reset selection
+      // Auto-expand tools section
+      setExpanded(prev => ({ ...prev, tools: true }));
     } catch (err) {
-      setError(err.message);
+      setError(`Failed to load tools: ${err.message}`);
       setDiscoveredTools([]);
     }
   }
@@ -789,7 +792,7 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
       </div>
 
       {/* Discovered Tools */}
-      {selectedConnection && discoveredTools.length > 0 && (
+      {selectedConnection && (
         <div style={styles.section}>
           <div style={styles.sectionHeader} onClick={() => toggleSection('tools')}>
             <div style={styles.sectionTitle}>
@@ -814,6 +817,9 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
 
           {expanded.tools && (
             <>
+              {discoveredTools.length === 0 ? (
+                <div style={styles.empty}>Loading tools...</div>
+              ) : (
               <div style={styles.scrollArea}>
                 {discoveredTools.map(tool => (
                   <div
@@ -861,6 +867,7 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
                   </div>
                 ))}
               </div>
+              )}
 
               {/* Test Result */}
               {testResult && (
