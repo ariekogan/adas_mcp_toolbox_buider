@@ -72,13 +72,16 @@ class MCPConnection extends EventEmitter {
         this.pendingRequests.clear();
       });
 
-      // Initialize the connection
-      this.initialize()
-        .then((result) => {
-          this.connected = true;
-          resolve(result);
-        })
-        .catch(reject);
+      // Give the process a moment to start (especially for npx which downloads packages)
+      // Then initialize the connection
+      setTimeout(() => {
+        this.initialize()
+          .then((result) => {
+            this.connected = true;
+            resolve(result);
+          })
+          .catch(reject);
+      }, 1000);
     });
   }
 
@@ -130,8 +133,9 @@ class MCPConnection extends EventEmitter {
    */
   async request(method, params = {}) {
     return new Promise((resolve, reject) => {
-      // Check if process is still alive and connected
-      if (!this.connected || !this.process || this.process.killed || !this.process.stdin.writable) {
+      // Check if process is still alive
+      // Note: during initialization, this.connected is false but we still need to send
+      if (!this.process || this.process.killed || !this.process.stdin.writable) {
         reject(new Error(`MCP server process is not running. The server may have failed to start or disconnected.`));
         return;
       }
