@@ -1,5 +1,19 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { listConnectors } from '../api/client';
+
+// Debounce helper
+function useDebouncedCallback(callback, delay) {
+  const timeoutRef = useRef(null);
+
+  return useCallback((...args) => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = setTimeout(() => {
+      callback(...args);
+    }, delay);
+  }, [callback, delay]);
+}
 
 const styles = {
   section: {
@@ -200,11 +214,24 @@ export default function SkillConnectorsPanel({
   const [loading, setLoading] = useState(true);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
   const [expandedIdentity, setExpandedIdentity] = useState(null);
+  // Local state for identity inputs (to avoid saving on every keystroke)
+  const [localIdentity, setLocalIdentity] = useState({});
 
   // Load globally connected connectors
   useEffect(() => {
     loadGlobalConnectors();
   }, []);
+
+  // Initialize local identity from props when connectorConfigs changes
+  useEffect(() => {
+    const identityMap = {};
+    for (const config of connectorConfigs) {
+      if (config.identity) {
+        identityMap[config.connector_id] = { ...config.identity };
+      }
+    }
+    setLocalIdentity(identityMap);
+  }, [connectorConfigs]);
 
   async function loadGlobalConnectors() {
     try {
@@ -290,36 +317,27 @@ export default function SkillConnectorsPanel({
     setShowLinkPicker(false);
   }
 
-  // Get config for a specific connector
-  function getConnectorConfig(connectorId) {
-    return connectorConfigs.find(c => c.connector_id === connectorId) || {
-      connector_id: connectorId,
-      identity: {}
-    };
+  // Get local identity for a connector (for input display)
+  function getLocalIdentity(connectorId) {
+    return localIdentity[connectorId] || {};
   }
 
-  // Update identity config for a connector
-  const handleIdentityChange = useCallback((connectorId, field, value) => {
+  // Save identity config to backend (debounced)
+  const saveIdentityConfig = useCallback((connectorId, identity) => {
     if (!onConnectorConfigChange) return;
 
     const existingConfig = connectorConfigs.find(c => c.connector_id === connectorId);
-    const newConfig = existingConfig
-      ? {
-          ...existingConfig,
-          identity: {
-            ...existingConfig.identity,
-            [field]: value
-          }
-        }
-      : {
-          connector_id: connectorId,
-          identity: { [field]: value }
-        };
+    const newConfig = {
+      connector_id: connectorId,
+      identity: { ...identity }
+    };
 
     // Remove empty values
-    if (!value) {
-      delete newConfig.identity[field];
-    }
+    Object.keys(newConfig.identity).forEach(key => {
+      if (!newConfig.identity[key]) {
+        delete newConfig.identity[key];
+      }
+    });
 
     // Build new configs array
     const newConfigs = existingConfig
@@ -333,6 +351,26 @@ export default function SkillConnectorsPanel({
 
     onConnectorConfigChange(filteredConfigs);
   }, [connectorConfigs, onConnectorConfigChange]);
+
+  // Debounced save (800ms delay)
+  const debouncedSave = useDebouncedCallback(saveIdentityConfig, 800);
+
+  // Update local identity and trigger debounced save
+  const handleIdentityChange = useCallback((connectorId, field, value) => {
+    // Update local state immediately for responsive UI
+    setLocalIdentity(prev => {
+      const updated = {
+        ...prev,
+        [connectorId]: {
+          ...(prev[connectorId] || {}),
+          [field]: value
+        }
+      };
+      // Trigger debounced save with the updated identity
+      debouncedSave(connectorId, updated[connectorId]);
+      return updated;
+    });
+  }, [debouncedSave]);
 
   // Check if connector type supports identity (email connectors)
   function supportsIdentity(connectorType) {
@@ -368,7 +406,7 @@ export default function SkillConnectorsPanel({
           </div>
         ) : (
           linkedConnectors.map(connector => {
-            const config = getConnectorConfig(connector.id);
+            const identity = getLocalIdentity(connector.id);
             const isExpanded = expandedIdentity === connector.id;
             const showIdentitySection = supportsIdentity(connector.type);
 
@@ -430,7 +468,7 @@ export default function SkillConnectorsPanel({
                             type="text"
                             style={styles.input}
                             placeholder="e.g., Support Bot"
-                            value={config.identity?.from_name || ''}
+                            value={identity.from_name || ''}
                             onChange={(e) => handleIdentityChange(connector.id, 'from_name', e.target.value)}
                           />
                         </div>
@@ -441,7 +479,7 @@ export default function SkillConnectorsPanel({
                             type="email"
                             style={styles.input}
                             placeholder="e.g., support@example.com"
-                            value={config.identity?.from_email || ''}
+                            value={identity.from_email || ''}
                             onChange={(e) => handleIdentityChange(connector.id, 'from_email', e.target.value)}
                           />
                         </div>
@@ -451,7 +489,7 @@ export default function SkillConnectorsPanel({
                           <textarea
                             style={styles.textarea}
                             placeholder="e.g., -- Sent by ADAS Support"
-                            value={config.identity?.signature || ''}
+                            value={identity.signature || ''}
                             onChange={(e) => handleIdentityChange(connector.id, 'signature', e.target.value)}
                           />
                         </div>
@@ -462,9 +500,9 @@ export default function SkillConnectorsPanel({
                       </>
                     )}
 
-                    {!isExpanded && config.identity?.from_email && (
+                    {!isExpanded && identity.from_email && (
                       <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        ✓ Configured: {config.identity.from_name || ''} &lt;{config.identity.from_email}&gt;
+                        ✓ Configured: {identity.from_name || ''} &lt;{identity.from_email}&gt;
                       </div>
                     )}
                   </div>
