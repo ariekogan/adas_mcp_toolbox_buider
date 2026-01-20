@@ -5,6 +5,7 @@ import SkillPanel from './components/SkillPanel';
 import SettingsModal from './components/SettingsModal';
 import ExtractionReviewModal from './components/ExtractionReviewModal';
 import ExportModal from './components/ExportModal';
+import ConnectorsPage from './components/ConnectorsPage';
 import { useSkill } from './hooks/useSkill';
 import { useSettings } from './hooks/useSettings';
 import * as api from './api/client';
@@ -48,6 +49,23 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '6px'
+  },
+  navBtn: {
+    background: 'transparent',
+    border: '1px solid var(--border)',
+    borderRadius: '6px',
+    padding: '6px 12px',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    fontSize: '13px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px'
+  },
+  navBtnActive: {
+    background: 'var(--accent)',
+    borderColor: 'var(--accent)',
+    color: 'white'
   },
   apiStatus: {
     fontSize: '12px',
@@ -113,6 +131,9 @@ export default function App() {
 
   // Export state
   const [exportModalOpen, setExportModalOpen] = useState(false);
+
+  // Navigation state - 'skills' or 'connectors'
+  const [currentView, setCurrentView] = useState('skills');
 
   const messages = currentSkill?.conversation || [];
 
@@ -281,6 +302,24 @@ export default function App() {
           Skill Builder
         </div>
         <div style={styles.topActions}>
+          <button
+            style={{
+              ...styles.navBtn,
+              ...(currentView === 'skills' ? styles.navBtnActive : {})
+            }}
+            onClick={() => setCurrentView('skills')}
+          >
+            📋 Skills
+          </button>
+          <button
+            style={{
+              ...styles.navBtn,
+              ...(currentView === 'connectors' ? styles.navBtnActive : {})
+            }}
+            onClick={() => setCurrentView('connectors')}
+          >
+            🔌 Connectors
+          </button>
           <span style={{
             ...styles.apiStatus,
             background: apiConfigured ? '#10b98120' : '#ef444420',
@@ -295,59 +334,65 @@ export default function App() {
       </div>
 
       <div style={styles.main}>
-        <SkillList
-          skills={skills}
-          currentId={currentSkill?.id}
-          onSelect={handleSelect}
-          onCreate={handleCreate}
-          onDelete={deleteSkill}
-          loading={loading}
-        />
-
-        {currentSkill ? (
-          <div style={styles.mainContent}>
-            <ChatPanel
-              messages={messages}
-              onSendMessage={handleSendMessage}
-              onFileUpload={handleFileUpload}
-              sending={sending}
-              skillName={currentSkill.name}
-              inputHint={inputHint}
-              domain={currentSkill}
-              onFocusChange={setUiFocus}
-            />
-            <SkillPanel
-              skill={currentSkill}
-              focus={uiFocus}
-              onFocusChange={setUiFocus}
-              onExport={handleExport}
-              onAskAbout={(topicOrPrompt, isRawPrompt) => {
-                if (isRawPrompt) {
-                  // Validation list sends raw prompts directly
-                  handleSendMessage(topicOrPrompt);
-                } else {
-                  // Explain buttons send topics to be wrapped
-                  handleSendMessage(`Tell me about the "${topicOrPrompt}" section - what's the current status, what's missing, and how can I improve it?`);
-                }
-              }}
-              onIssuesChange={(issues) => {
-                // Persist cascading validation issues to backend
-                api.updateSkill(currentSkill.id, { cascading_issues: issues }).catch(err => {
-                  console.error('Failed to persist validation issues:', err);
-                });
-              }}
-              onSkillUpdate={updateSkill}
-              skillId={currentSkill.id}
-            />
-          </div>
+        {currentView === 'connectors' ? (
+          <ConnectorsPage onClose={() => setCurrentView('skills')} />
         ) : (
-          <div style={styles.welcome}>
-            <div style={styles.welcomeTitle}>Welcome to Skill Builder</div>
-            <p style={styles.welcomeText}>
-              Create AI agent skills through guided conversation.
-              Select a skill from the sidebar or create a new one to get started.
-            </p>
-          </div>
+          <>
+            <SkillList
+              skills={skills}
+              currentId={currentSkill?.id}
+              onSelect={handleSelect}
+              onCreate={handleCreate}
+              onDelete={deleteSkill}
+              loading={loading}
+            />
+
+            {currentSkill ? (
+              <div style={styles.mainContent}>
+                <ChatPanel
+                  messages={messages}
+                  onSendMessage={handleSendMessage}
+                  onFileUpload={handleFileUpload}
+                  sending={sending}
+                  skillName={currentSkill.name}
+                  inputHint={inputHint}
+                  domain={currentSkill}
+                  onFocusChange={setUiFocus}
+                />
+                <SkillPanel
+                  skill={currentSkill}
+                  focus={uiFocus}
+                  onFocusChange={setUiFocus}
+                  onExport={handleExport}
+                  onAskAbout={(topicOrPrompt, isRawPrompt) => {
+                    if (isRawPrompt) {
+                      // Validation list sends raw prompts directly
+                      handleSendMessage(topicOrPrompt);
+                    } else {
+                      // Explain buttons send topics to be wrapped
+                      handleSendMessage(`Tell me about the "${topicOrPrompt}" section - what's the current status, what's missing, and how can I improve it?`);
+                    }
+                  }}
+                  onIssuesChange={(issues) => {
+                    // Persist cascading validation issues to backend
+                    api.updateSkill(currentSkill.id, { cascading_issues: issues }).catch(err => {
+                      console.error('Failed to persist validation issues:', err);
+                    });
+                  }}
+                  onSkillUpdate={updateSkill}
+                  skillId={currentSkill.id}
+                />
+              </div>
+            ) : (
+              <div style={styles.welcome}>
+                <div style={styles.welcomeTitle}>Welcome to Skill Builder</div>
+                <p style={styles.welcomeText}>
+                  Create AI agent skills through guided conversation.
+                  Select a skill from the sidebar or create a new one to get started.
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 

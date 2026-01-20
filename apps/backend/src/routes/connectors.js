@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import mcpManager from '../services/mcpConnector.js';
 import { classifyError, formatErrorResponse, getStatusFromError } from '../services/connectorValidator.js';
+import { resolvePort, trackPort, releasePort } from '../utils/portUtils.js';
 
 const router = Router();
 
@@ -222,6 +223,17 @@ function convertMCPToolToDAL(mcpTool, connectionId, defaultPolicies = {}) {
  *
  * These are popular MCP servers that can be connected with minimal setup.
  * Each connector specifies the command to run and any authentication requirements.
+ *
+ * Port Configuration (optional):
+ * Some MCP servers start internal HTTP servers on specific ports.
+ * Add `portConfig` to enable automatic port conflict resolution:
+ *
+ * portConfig: {
+ *   port: 4000,           // Default port the connector uses
+ *   envVar: 'PORT',       // Env var to override port (optional)
+ *   argFlag: '--port',    // CLI flag to override port (optional)
+ *   range: [4000, 4100]   // Allowed port range for auto-assignment (optional)
+ * }
  */
 const PREBUILT_CONNECTORS = {
   gmail: {
@@ -419,6 +431,21 @@ const PREBUILT_CONNECTORS = {
     args: ['-y', '@modelcontextprotocol/server-sequential-thinking'],
     requiresAuth: false,
     category: 'reasoning'
+  },
+  // Test connector with port config - for testing port conflict resolution
+  _test_port_connector: {
+    name: 'Test Port Connector',
+    description: 'Test connector for verifying port conflict resolution (dev only)',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-memory'],
+    requiresAuth: false,
+    category: 'utilities',
+    // Port config enables automatic port conflict resolution
+    portConfig: {
+      port: 4000,           // Default port (likely to conflict)
+      envVar: 'PORT',       // Env var to override port
+      range: [4000, 4100]   // Auto-assign range if conflict
+    }
   }
 };
 
@@ -454,18 +481,46 @@ router.post('/prebuilt/:connectorId/connect', async (req, res) => {
       ...extraEnv
     };
 
+    // Resolve port conflicts if connector has portConfig
+    let finalEnv = mergedEnv;
+    let finalArgs = [...prebuilt.args, ...extraArgs];
+    let portInfo = null;
+
+    if (prebuilt.portConfig) {
+      const resolved = await resolvePort(
+        { portConfig: prebuilt.portConfig },
+        mergedEnv,
+        finalArgs
+      );
+      finalEnv = resolved.env;
+      finalArgs = resolved.args;
+      portInfo = resolved.portInfo;
+
+      // Track the allocated port for cleanup
+      if (portInfo && portInfo.port) {
+        trackPort(portInfo.port);
+      }
+    }
+
     const result = await mcpManager.connect({
       id: connectorId,
       command: prebuilt.command,
-      args: [...prebuilt.args, ...extraArgs],
-      env: mergedEnv,
+      args: finalArgs,
+      env: finalEnv,
       name: prebuilt.name
     });
 
-    res.json({
+    // Include port info in response if auto-assigned
+    const response = {
       success: true,
       connection: result
-    });
+    };
+
+    if (portInfo && portInfo.wasAutoAssigned) {
+      response.portInfo = portInfo;
+    }
+
+    res.json(response);
   } catch (err) {
     console.error(`Failed to connect to ${connectorId}:`, err);
 

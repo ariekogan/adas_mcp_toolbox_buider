@@ -84,10 +84,20 @@ export const COVERAGE = [
   { section: 'metadata', field: 'id', check: 'Has ID (string)', type: 'schema' },
   { section: 'metadata', field: 'name', check: 'Has name (string)', type: 'schema' },
   { section: 'metadata', field: 'phase', check: 'Valid phase enum', type: 'schema' },
+
+  // Triggers
+  { section: 'triggers', field: 'triggers[].id', check: 'Has ID', type: 'schema' },
+  { section: 'triggers', field: 'triggers[].type', check: 'Valid enum (schedule|event)', type: 'schema' },
+  { section: 'triggers', field: 'triggers[].enabled', check: 'Is boolean', type: 'schema' },
+  { section: 'triggers', field: 'triggers[].concurrency', check: 'Number >= 1', type: 'schema' },
+  { section: 'triggers', field: 'triggers[].prompt', check: 'Has prompt (string)', type: 'schema' },
+  { section: 'triggers', field: 'triggers[].every', check: 'Valid ISO8601 duration (schedule)', type: 'schema' },
+  { section: 'triggers', field: 'triggers[].event', check: 'Has event name (event trigger)', type: 'schema' },
 ];
 
 const VALID_DATA_TYPES = ['string', 'number', 'boolean', 'object', 'array', 'text'];
 // Note: 'text' is an alias for 'string' - both are valid
+const VALID_TRIGGER_TYPES = ['schedule', 'event'];
 const VALID_PHASES = [
   'PROBLEM_DISCOVERY',
   'SCENARIO_EXPLORATION',
@@ -136,6 +146,13 @@ export function validateSchema(domain) {
 
   // Validate policy
   issues.push(...validatePolicy(domain.policy));
+
+  // Validate triggers
+  if (domain.triggers && Array.isArray(domain.triggers)) {
+    domain.triggers.forEach((trigger, i) => {
+      issues.push(...validateTrigger(trigger, `triggers[${i}]`));
+    });
+  }
 
   return issues;
 }
@@ -807,6 +824,146 @@ function validatePolicy(policy) {
       });
     }
   });
+
+  return issues;
+}
+
+/**
+ * Validate a single trigger
+ * @param {import('../types/DraftDomain.js').Trigger} trigger
+ * @param {string} path
+ * @returns {ValidationIssue[]}
+ */
+function validateTrigger(trigger, path) {
+  const issues = [];
+
+  // Validate ID
+  if (!trigger.id) {
+    issues.push({
+      code: 'MISSING_TRIGGER_ID',
+      severity: 'error',
+      path: `${path}.id`,
+      message: 'Trigger ID is required',
+    });
+  }
+
+  // Validate type
+  if (!trigger.type || !VALID_TRIGGER_TYPES.includes(trigger.type)) {
+    issues.push({
+      code: 'INVALID_TRIGGER_TYPE',
+      severity: 'error',
+      path: `${path}.type`,
+      message: `Invalid trigger type: ${trigger.type}. Must be one of: ${VALID_TRIGGER_TYPES.join(', ')}`,
+    });
+  }
+
+  // Validate enabled
+  if (trigger.enabled !== undefined && typeof trigger.enabled !== 'boolean') {
+    issues.push({
+      code: 'INVALID_TRIGGER_ENABLED',
+      severity: 'error',
+      path: `${path}.enabled`,
+      message: 'Trigger enabled must be a boolean',
+    });
+  }
+
+  // Validate concurrency
+  if (trigger.concurrency !== undefined) {
+    if (typeof trigger.concurrency !== 'number' || trigger.concurrency < 1) {
+      issues.push({
+        code: 'INVALID_TRIGGER_CONCURRENCY',
+        severity: 'error',
+        path: `${path}.concurrency`,
+        message: 'Trigger concurrency must be a number >= 1',
+      });
+    }
+  }
+
+  // Validate prompt
+  if (!trigger.prompt || typeof trigger.prompt !== 'string') {
+    issues.push({
+      code: 'MISSING_TRIGGER_PROMPT',
+      severity: 'warning',
+      path: `${path}.prompt`,
+      message: 'Trigger should have a prompt string',
+      suggestion: 'Add a goal prompt that describes what the triggered job should do',
+    });
+  }
+
+  // Type-specific validation
+  if (trigger.type === 'schedule') {
+    issues.push(...validateScheduleTrigger(trigger, path));
+  } else if (trigger.type === 'event') {
+    issues.push(...validateEventTrigger(trigger, path));
+  }
+
+  return issues;
+}
+
+/**
+ * Validate schedule-specific trigger fields
+ * @param {import('../types/DraftDomain.js').ScheduleTrigger} trigger
+ * @param {string} path
+ * @returns {ValidationIssue[]}
+ */
+function validateScheduleTrigger(trigger, path) {
+  const issues = [];
+
+  // Validate 'every' field (ISO8601 duration)
+  if (!trigger.every || typeof trigger.every !== 'string') {
+    issues.push({
+      code: 'MISSING_TRIGGER_EVERY',
+      severity: 'error',
+      path: `${path}.every`,
+      message: 'Schedule trigger must have an "every" field (ISO8601 duration)',
+      suggestion: 'Use format like "PT2M" (2 minutes), "PT1H" (1 hour), "P1D" (1 day)',
+    });
+  } else {
+    // Basic ISO8601 duration validation
+    const durationPattern = /^P(?:\d+D)?(?:T(?:\d+H)?(?:\d+M)?(?:\d+S)?)?$/;
+    if (!durationPattern.test(trigger.every)) {
+      issues.push({
+        code: 'INVALID_TRIGGER_DURATION',
+        severity: 'error',
+        path: `${path}.every`,
+        message: `Invalid ISO8601 duration: ${trigger.every}`,
+        suggestion: 'Use format like "PT2M" (2 minutes), "PT1H" (1 hour), "P1D" (1 day)',
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Validate event-specific trigger fields
+ * @param {import('../types/DraftDomain.js').EventTrigger} trigger
+ * @param {string} path
+ * @returns {ValidationIssue[]}
+ */
+function validateEventTrigger(trigger, path) {
+  const issues = [];
+
+  // Validate 'event' field
+  if (!trigger.event || typeof trigger.event !== 'string') {
+    issues.push({
+      code: 'MISSING_TRIGGER_EVENT',
+      severity: 'error',
+      path: `${path}.event`,
+      message: 'Event trigger must have an "event" field specifying the event type',
+      suggestion: 'Use event names like "email.received", "slack.message"',
+    });
+  }
+
+  // Validate filter (optional but must be object if present)
+  if (trigger.filter !== undefined && (typeof trigger.filter !== 'object' || trigger.filter === null)) {
+    issues.push({
+      code: 'INVALID_TRIGGER_FILTER',
+      severity: 'error',
+      path: `${path}.filter`,
+      message: 'Event filter must be an object',
+    });
+  }
 
   return issues;
 }

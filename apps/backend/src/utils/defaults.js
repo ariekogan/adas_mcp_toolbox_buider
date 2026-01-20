@@ -101,6 +101,7 @@ export function createEmptyDraftDomain(id, name) {
     toolbox_imports: [],
     tools: [],
     meta_tools: [], // DAL-generated tool compositions
+    triggers: [], // Automation triggers (schedule, event)
 
     policy: {
       guardrails: {
@@ -318,4 +319,58 @@ export function createEmptyPolicyCondition(overrides = {}) {
  */
 export function generateId() {
   return uuidv4();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TRIGGER HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Create a new schedule trigger
+ * @param {Partial<import('../types/DraftDomain.js').ScheduleTrigger>} [overrides]
+ * @returns {import('../types/DraftDomain.js').ScheduleTrigger}
+ */
+export function createEmptyScheduleTrigger(overrides = {}) {
+  return {
+    id: uuidv4(),
+    type: 'schedule',
+    enabled: true,
+    concurrency: 1,
+    every: 'PT5M', // 5 minutes default
+    prompt: '',
+    input: {},
+    ...overrides,
+  };
+}
+
+/**
+ * Create a new event trigger
+ * @param {Partial<import('../types/DraftDomain.js').EventTrigger>} [overrides]
+ * @returns {import('../types/DraftDomain.js').EventTrigger}
+ */
+export function createEmptyEventTrigger(overrides = {}) {
+  return {
+    id: uuidv4(),
+    type: 'event',
+    enabled: false, // Disabled by default - requires explicit setup
+    concurrency: 1,
+    event: '',
+    filter: {},
+    prompt: '',
+    input: {},
+    ...overrides,
+  };
+}
+
+/**
+ * Create an empty trigger (defaults to schedule type)
+ * @param {'schedule' | 'event'} [type='schedule']
+ * @param {Object} [overrides]
+ * @returns {import('../types/DraftDomain.js').Trigger}
+ */
+export function createEmptyTrigger(type = 'schedule', overrides = {}) {
+  if (type === 'event') {
+    return createEmptyEventTrigger(overrides);
+  }
+  return createEmptyScheduleTrigger(overrides);
 }

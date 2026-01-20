@@ -27,11 +27,12 @@ const ERROR_PATTERNS = [
     patterns: ['EADDRINUSE', 'address already in use', 'port is already allocated'],
     category: 'port_conflict',
     title: 'Port conflict',
-    message: 'The connector tried to use a network port that is already in use. This usually means the MCP server is not designed for stdio transport.',
+    message: 'The connector tried to use a network port that is already in use.',
     recovery: [
-      'This connector may not be compatible with DAL',
-      'Try a different connector for the same service',
-      'Contact support if this connector should work'
+      'The port may be used by another application - check with `lsof -i :PORT`',
+      'If this connector supports it, a different port will be auto-assigned',
+      'Try disconnecting other connectors that might be using the same port',
+      'Restart the application if the issue persists'
     ],
     severity: 'error'
   },
@@ -195,9 +196,16 @@ export function formatErrorResponse(classifiedError) {
  * Check if an error is recoverable (user can retry after fixing something)
  *
  * @param {object} classifiedError - Output from classifyError()
+ * @param {object} options - Additional options
+ * @param {boolean} options.hasPortConfig - Whether the connector has port auto-assignment
  * @returns {boolean}
  */
-export function isRecoverable(classifiedError) {
+export function isRecoverable(classifiedError, options = {}) {
+  // Port conflicts are recoverable if connector supports auto-assignment
+  if (classifiedError.category === 'port_conflict' && options.hasPortConfig) {
+    return true;
+  }
+
   const nonRecoverable = ['port_conflict', 'package_error'];
   return !nonRecoverable.includes(classifiedError.category);
 }

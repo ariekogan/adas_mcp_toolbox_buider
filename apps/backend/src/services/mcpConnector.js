@@ -130,9 +130,9 @@ class MCPConnection extends EventEmitter {
    */
   async request(method, params = {}) {
     return new Promise((resolve, reject) => {
-      // Check if process is still alive
-      if (!this.process || this.process.killed || !this.process.stdin.writable) {
-        reject(new Error(`MCP server process is not running. The server may have failed to start.`));
+      // Check if process is still alive and connected
+      if (!this.connected || !this.process || this.process.killed || !this.process.stdin.writable) {
+        reject(new Error(`MCP server process is not running. The server may have failed to start or disconnected.`));
         return;
       }
 
@@ -334,13 +334,22 @@ class MCPConnectorManager {
   async callTool(connectionId, toolName, args) {
     const connection = this.connections.get(connectionId);
     if (!connection) {
-      throw new Error(`No connection found: ${connectionId}`);
+      throw new Error(`No connection found: ${connectionId}. Available connections: ${Array.from(this.connections.keys()).join(', ') || 'none'}`);
     }
     if (!connection.connected) {
-      throw new Error(`Connection not active: ${connectionId}`);
+      throw new Error(`Connection not active: ${connectionId}. The MCP server may have crashed.`);
     }
 
-    return connection.callTool(toolName, args);
+    console.log(`[MCP] Calling tool ${toolName} on connection ${connectionId} with args:`, JSON.stringify(args));
+
+    try {
+      const result = await connection.callTool(toolName, args);
+      console.log(`[MCP] Tool ${toolName} returned:`, JSON.stringify(result).substring(0, 200));
+      return result;
+    } catch (err) {
+      console.error(`[MCP] Tool ${toolName} failed:`, err.message);
+      throw err;
+    }
   }
 
   /**

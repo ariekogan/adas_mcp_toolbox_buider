@@ -212,6 +212,116 @@ export function createEmptyWorkflow() {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════
+// TRIGGER TYPES (Scheduler & Automation)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Valid trigger types
+ * @type {string[]}
+ */
+export const TRIGGER_TYPES = ['schedule', 'event'];
+
+/**
+ * Trigger type labels for UI
+ * @type {Object<string, string>}
+ */
+export const TRIGGER_TYPE_LABELS = {
+  schedule: 'Schedule (Periodic)',
+  event: 'Event (Webhook)'
+};
+
+/**
+ * Common ISO8601 duration presets for schedule triggers
+ * @type {Array<{value: string, label: string}>}
+ */
+export const SCHEDULE_PRESETS = [
+  { value: 'PT1M', label: 'Every 1 minute' },
+  { value: 'PT2M', label: 'Every 2 minutes' },
+  { value: 'PT5M', label: 'Every 5 minutes' },
+  { value: 'PT15M', label: 'Every 15 minutes' },
+  { value: 'PT30M', label: 'Every 30 minutes' },
+  { value: 'PT1H', label: 'Every 1 hour' },
+  { value: 'PT6H', label: 'Every 6 hours' },
+  { value: 'PT12H', label: 'Every 12 hours' },
+  { value: 'P1D', label: 'Every day' },
+  { value: 'P1W', label: 'Every week' }
+];
+
+/**
+ * Create empty schedule trigger for UI
+ * @param {Object} [overrides]
+ * @returns {Object}
+ */
+export function createEmptyScheduleTrigger(overrides = {}) {
+  return {
+    id: `trigger_${Date.now()}`,
+    type: 'schedule',
+    enabled: true,
+    concurrency: 1,
+    every: 'PT5M',
+    prompt: '',
+    input: {},
+    ...overrides
+  };
+}
+
+/**
+ * Create empty event trigger for UI
+ * @param {Object} [overrides]
+ * @returns {Object}
+ */
+export function createEmptyEventTrigger(overrides = {}) {
+  return {
+    id: `trigger_${Date.now()}`,
+    type: 'event',
+    enabled: false,
+    concurrency: 1,
+    event: '',
+    filter: {},
+    prompt: '',
+    input: {},
+    ...overrides
+  };
+}
+
+/**
+ * Create empty trigger (defaults to schedule)
+ * @param {'schedule' | 'event'} [type='schedule']
+ * @param {Object} [overrides]
+ * @returns {Object}
+ */
+export function createEmptyTrigger(type = 'schedule', overrides = {}) {
+  if (type === 'event') {
+    return createEmptyEventTrigger(overrides);
+  }
+  return createEmptyScheduleTrigger(overrides);
+}
+
+/**
+ * Parse ISO8601 duration to human-readable string
+ * @param {string} duration - e.g., "PT2M", "PT1H", "P1D"
+ * @returns {string}
+ */
+export function formatDuration(duration) {
+  if (!duration) return 'Unknown';
+  const preset = SCHEDULE_PRESETS.find(p => p.value === duration);
+  if (preset) return preset.label;
+
+  // Basic parsing for common patterns
+  const match = duration.match(/^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/);
+  if (!match) return duration;
+
+  const [, days, hours, minutes, seconds] = match;
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (seconds) parts.push(`${seconds}s`);
+
+  return parts.length ? `Every ${parts.join(' ')}` : duration;
+}
+
 export default {
   PHASES,
   PHASE_LABELS,
@@ -226,5 +336,13 @@ export default {
   createEmptyTool,
   createEmptyIntent,
   createEmptyScenario,
-  createEmptyWorkflow
+  createEmptyWorkflow,
+  // Trigger exports
+  TRIGGER_TYPES,
+  TRIGGER_TYPE_LABELS,
+  SCHEDULE_PRESETS,
+  createEmptyScheduleTrigger,
+  createEmptyEventTrigger,
+  createEmptyTrigger,
+  formatDuration
 };

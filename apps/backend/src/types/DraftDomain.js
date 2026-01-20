@@ -185,6 +185,56 @@
  * @property {Object} config
  */
 
+// ═══════════════════════════════════════════════════════════════
+// TRIGGER TYPES (Scheduler & Automation)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Trigger type enumeration
+ * @typedef {'schedule' | 'event'} TriggerType
+ */
+
+/**
+ * Base trigger properties shared by all trigger types
+ * @typedef {Object} BaseTrigger
+ * @property {string} id - Unique identifier within the skill
+ * @property {TriggerType} type - Type of trigger
+ * @property {boolean} enabled - Whether trigger is active (default: true)
+ * @property {number} concurrency - Max parallel jobs for this trigger (default: 1)
+ * @property {string} prompt - Goal prompt passed to the triggered job
+ * @property {Object} [input] - Arbitrary structured data passed to triggerContext.input
+ */
+
+/**
+ * Schedule trigger - runs periodically based on ISO8601 duration
+ * @typedef {Object} ScheduleTrigger
+ * @property {string} id - Unique identifier within the skill
+ * @property {'schedule'} type - Always 'schedule'
+ * @property {boolean} enabled - Whether trigger is active (default: true)
+ * @property {number} concurrency - Max parallel jobs (default: 1)
+ * @property {string} prompt - Goal prompt for the triggered job
+ * @property {Object} [input] - Arbitrary input passed to triggerContext
+ * @property {string} every - ISO8601 duration (e.g., "PT2M" = 2 minutes, "PT1H" = 1 hour, "P1D" = 1 day)
+ */
+
+/**
+ * Event trigger - runs when a matching event is received
+ * @typedef {Object} EventTrigger
+ * @property {string} id - Unique identifier within the skill
+ * @property {'event'} type - Always 'event'
+ * @property {boolean} enabled - Whether trigger is active (default: true)
+ * @property {number} concurrency - Max parallel jobs (default: 1)
+ * @property {string} prompt - Goal prompt for the triggered job
+ * @property {Object} [input] - Arbitrary input passed to triggerContext
+ * @property {string} event - Event type name (e.g., "email.received", "slack.message")
+ * @property {Object} [filter] - Equality filter on event.data fields
+ */
+
+/**
+ * Union type for all trigger types
+ * @typedef {ScheduleTrigger | EventTrigger} Trigger
+ */
+
 /**
  * @typedef {Object} Message
  * @property {string} id
@@ -412,6 +462,7 @@
  * @property {ToolBoxImport[]} toolbox_imports
  * @property {Tool[]} tools
  * @property {MetaTool[]} meta_tools - DAL-generated tool compositions
+ * @property {Trigger[]} triggers - Automation triggers (schedule, event)
  * @property {PolicyConfig} policy
  * @property {Channel[]} channels
  * @property {ValidationResult} validation
