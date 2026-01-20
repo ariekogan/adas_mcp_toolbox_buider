@@ -1435,6 +1435,20 @@ export function generateAdasExportPayload(toolbox) {
     skill.role = { persona: toolbox.role.persona };
   }
 
+  // Add connectors array if skill has linked connectors
+  if (toolbox.connectors && toolbox.connectors.length > 0) {
+    skill.connectors = [...toolbox.connectors];
+  }
+
+  // Add connector_configs if present (per-skill identity)
+  if (toolbox.connector_configs && toolbox.connector_configs.length > 0) {
+    skill.connector_configs = toolbox.connector_configs.map(cfg => ({
+      connector_id: cfg.connector_id,
+      ...(cfg.identity && { identity: { ...cfg.identity } }),
+      ...(cfg.defaults && { defaults: { ...cfg.defaults } })
+    }));
+  }
+
   // Build tools array with name and code (regular tools)
   const toolsPayload = tools.map(tool => ({
     name: tool.name,
