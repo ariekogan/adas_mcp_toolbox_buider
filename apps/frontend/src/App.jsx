@@ -305,15 +305,6 @@ export default function App() {
           <button
             style={{
               ...styles.navBtn,
-              ...(currentView === 'skills' ? styles.navBtnActive : {})
-            }}
-            onClick={() => setCurrentView('skills')}
-          >
-            📋 Skills
-          </button>
-          <button
-            style={{
-              ...styles.navBtn,
               ...(currentView === 'connectors' ? styles.navBtnActive : {})
             }}
             onClick={() => setCurrentView('connectors')}

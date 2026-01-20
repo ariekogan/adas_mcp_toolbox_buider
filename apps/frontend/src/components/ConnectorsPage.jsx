@@ -26,18 +26,18 @@ const styles = {
     color: 'var(--text-muted)',
     marginTop: '4px'
   },
-  addBtn: {
-    background: 'var(--accent)',
-    color: 'white',
-    border: 'none',
+  closeBtn: {
+    background: 'transparent',
+    color: 'var(--text-secondary)',
+    border: '1px solid var(--border)',
     borderRadius: '6px',
-    padding: '8px 16px',
-    fontSize: '13px',
-    fontWeight: '500',
+    padding: '8px 12px',
+    fontSize: '16px',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
-    gap: '6px'
+    justifyContent: 'center',
+    lineHeight: 1
   },
   content: {
     flex: 1,
@@ -252,8 +252,8 @@ export default function ConnectorsPage({ onClose }) {
             <div style={styles.title}>Connectors</div>
             <div style={styles.subtitle}>Manage MCP connections for your skills</div>
           </div>
-          <button style={styles.addBtn} onClick={onClose}>
-            ← Back to Skills
+          <button style={styles.closeBtn} onClick={onClose} title="Close">
+            ✕
           </button>
         </div>
         <div style={styles.loading}>Loading connectors...</div>
@@ -268,8 +268,8 @@ export default function ConnectorsPage({ onClose }) {
           <div style={styles.title}>Connectors</div>
           <div style={styles.subtitle}>Manage MCP connections for your skills</div>
         </div>
-        <button style={styles.addBtn} onClick={onClose}>
-          ← Back to Skills
+        <button style={styles.closeBtn} onClick={onClose} title="Close">
+          ✕
         </button>
       </div>
 
