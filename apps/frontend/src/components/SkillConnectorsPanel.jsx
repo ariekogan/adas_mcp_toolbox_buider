@@ -215,22 +215,36 @@ export default function SkillConnectorsPanel({
   const [showLinkPicker, setShowLinkPicker] = useState(false);
   const [expandedIdentity, setExpandedIdentity] = useState(null);
   // Local state for identity inputs (to avoid saving on every keystroke)
-  const [localIdentity, setLocalIdentity] = useState({});
-
-  // Load globally connected connectors
-  useEffect(() => {
-    loadGlobalConnectors();
-  }, []);
-
-  // Initialize local identity from props when connectorConfigs changes
-  useEffect(() => {
+  const [localIdentity, setLocalIdentity] = useState(() => {
+    // Initialize from props on first render
     const identityMap = {};
     for (const config of connectorConfigs) {
       if (config.identity) {
         identityMap[config.connector_id] = { ...config.identity };
       }
     }
-    setLocalIdentity(identityMap);
+    return identityMap;
+  });
+  // Track if we're currently editing to avoid resetting from props
+  const isEditingRef = useRef(false);
+
+  // Load globally connected connectors
+  useEffect(() => {
+    loadGlobalConnectors();
+  }, []);
+
+  // Only sync from props if we're not currently editing
+  // This handles the case where connectorConfigs changes from outside (e.g., page reload)
+  useEffect(() => {
+    if (!isEditingRef.current) {
+      const identityMap = {};
+      for (const config of connectorConfigs) {
+        if (config.identity) {
+          identityMap[config.connector_id] = { ...config.identity };
+        }
+      }
+      setLocalIdentity(identityMap);
+    }
   }, [connectorConfigs]);
 
   async function loadGlobalConnectors() {
@@ -350,6 +364,11 @@ export default function SkillConnectorsPanel({
     );
 
     onConnectorConfigChange(filteredConfigs);
+
+    // Reset editing flag after save completes
+    setTimeout(() => {
+      isEditingRef.current = false;
+    }, 100);
   }, [connectorConfigs, onConnectorConfigChange]);
 
   // Debounced save (800ms delay)
@@ -357,20 +376,21 @@ export default function SkillConnectorsPanel({
 
   // Update local identity and trigger debounced save
   const handleIdentityChange = useCallback((connectorId, field, value) => {
+    // Mark as editing to prevent props from resetting local state
+    isEditingRef.current = true;
+
     // Update local state immediately for responsive UI
-    setLocalIdentity(prev => {
-      const updated = {
-        ...prev,
-        [connectorId]: {
-          ...(prev[connectorId] || {}),
-          [field]: value
-        }
-      };
-      // Trigger debounced save with the updated identity
-      debouncedSave(connectorId, updated[connectorId]);
-      return updated;
-    });
-  }, [debouncedSave]);
+    setLocalIdentity(prev => ({
+      ...prev,
+      [connectorId]: {
+        ...(prev[connectorId] || {}),
+        [field]: value
+      }
+    }));
+
+    // Trigger debounced save
+    debouncedSave(connectorId, { ...(localIdentity[connectorId] || {}), [field]: value });
+  }, [debouncedSave, localIdentity]);
 
   // Check if connector type supports identity (email connectors)
   function supportsIdentity(connectorType) {
