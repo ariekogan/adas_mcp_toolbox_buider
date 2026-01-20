@@ -2,12 +2,21 @@
  * Connector Routes
  *
  * API endpoints for managing MCP server connections and discovering tools.
+ *
+ * When a connector is created/connected in DAL, it is also synced to ADAS
+ * so that ADAS Core can spawn the connector at runtime via MCPGateway.
  */
 
 import { Router } from 'express';
 import mcpManager from '../services/mcpConnector.js';
 import { classifyError, formatErrorResponse, getStatusFromError } from '../services/connectorValidator.js';
 import { resolvePort, trackPort, releasePort } from '../utils/portUtils.js';
+import {
+  syncConnectorToADAS,
+  startConnectorInADAS,
+  stopConnectorInADAS,
+  isADASAvailable
+} from '../services/adasConnectorSync.js';
 
 const router = Router();
 
@@ -32,7 +41,7 @@ router.get('/', (_req, res) => {
  *   - id: string (optional, auto-generated if not provided)
  */
 router.post('/connect', async (req, res) => {
-  const { command, args, env, name, id } = req.body;
+  const { command, args, env, name, id, type, syncToADAS = true } = req.body;
 
   if (!command) {
     return res.status(400).json({ error: 'Command is required' });
@@ -47,9 +56,41 @@ router.post('/connect', async (req, res) => {
       name: name || command
     });
 
+    // Sync to ADAS if enabled (allows ADAS to run the connector at runtime)
+    let adasSynced = false;
+    if (syncToADAS) {
+      try {
+        const adasAvailable = await isADASAvailable();
+        if (adasAvailable) {
+          await syncConnectorToADAS({
+            id: result.id,
+            name: result.name || name || command,
+            type: type || 'mcp',
+            config: {
+              command,
+              args: args || [],
+              env: {} // Don't include credentials in config, they go separately
+            },
+            credentials: env || {} // Credentials are encrypted by ADAS
+          });
+
+          // Also start it in ADAS
+          await startConnectorInADAS(result.id);
+          adasSynced = true;
+          console.log(`[Connectors] Synced connector ${result.id} to ADAS`);
+        } else {
+          console.log(`[Connectors] ADAS not available, skipping sync for ${result.id}`);
+        }
+      } catch (syncErr) {
+        // Don't fail the request if ADAS sync fails
+        console.error(`[Connectors] Failed to sync to ADAS:`, syncErr.message);
+      }
+    }
+
     res.json({
       success: true,
-      connection: result
+      connection: result,
+      adasSynced
     });
   } catch (err) {
     console.error('Failed to connect to MCP server:', err);
@@ -62,10 +103,24 @@ router.post('/connect', async (req, res) => {
  * POST /api/connectors/disconnect/:id
  * Disconnect from an MCP server
  */
-router.post('/disconnect/:id', (req, res) => {
+router.post('/disconnect/:id', async (req, res) => {
   const { id } = req.params;
+  const { removeFromADAS = false } = req.body || {};
 
   const disconnected = mcpManager.disconnect(id);
+
+  // Optionally also stop/remove from ADAS
+  if (removeFromADAS) {
+    try {
+      const adasAvailable = await isADASAvailable();
+      if (adasAvailable) {
+        await stopConnectorInADAS(id);
+        console.log(`[Connectors] Stopped connector ${id} in ADAS`);
+      }
+    } catch (err) {
+      console.error(`[Connectors] Failed to stop in ADAS:`, err.message);
+    }
+  }
 
   if (disconnected) {
     res.json({ success: true, message: `Disconnected from ${id}` });

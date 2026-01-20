@@ -290,6 +290,22 @@ export function generateDomainYaml(domain) {
     lines.push(``);
   }
 
+  // Connectors - extract unique connector IDs from tools with mcp_bridge source
+  const connectorIds = new Set();
+  for (const tool of (domain.tools || [])) {
+    if (tool.source?.type === 'mcp_bridge' && tool.source.connection_id) {
+      connectorIds.add(tool.source.connection_id);
+    }
+  }
+  if (connectorIds.size > 0) {
+    lines.push(`# Connectors - MCP servers managed by ADAS MCPGateway`);
+    lines.push(`connectors:`);
+    for (const connectorId of connectorIds) {
+      lines.push(`  - ${yamlString(connectorId)}`);
+    }
+    lines.push(``);
+  }
+
 
   // Problem
   lines.push(`# Problem Definition`);
@@ -1052,7 +1068,25 @@ function generateJSTool(tool) {
   // Generate implementation based on type
   let implementation;
 
-  if (impl?.customImpl) {
+  // Check if this is an MCP bridge tool (imported from a connector)
+  if (tool.source?.type === 'mcp_bridge') {
+    const mcpTool = tool.source.mcp_tool || tool.name;
+    implementation = `
+  // MCP Bridge tool - proxies to connector MCP server
+  // Original MCP tool: ${mcpTool}
+  // Connection ID: ${tool.source.connection_id || 'unknown'}
+
+  // The skill.yaml mcp_server field should point to the connector's MCP server
+  // ADAS Core's runtimeMap will load this tool from the MCP server at runtime
+  // This JS file serves as documentation/fallback only
+
+  if (!deps.mcpCall) {
+    return { ok: false, error: "MCP bridge not available - deps.mcpCall is required" };
+  }
+
+  const result = await deps.mcpCall("${mcpTool}", args);
+  return result;`;
+  } else if (impl?.customImpl) {
     // Custom implementation provided
     implementation = impl.customImpl;
   } else if (impl?.type === 'builtin') {
@@ -1175,6 +1209,57 @@ export function generateSkillYaml(toolbox) {
   lines.push(`name: ${yamlString(toolbox.name || "Untitled Skill")}`);
   lines.push(`version: ${toolbox.version || 1}`);
   lines.push(``);
+
+  // MCP Server (if set explicitly on the domain)
+  if (toolbox.mcp_server) {
+    lines.push(`# MCP Server for skill-specific tools`);
+    lines.push(`mcp_server: ${yamlString(toolbox.mcp_server)}`);
+    lines.push(``);
+  }
+
+  // Connectors - extract unique connector IDs from tools with mcp_bridge source
+  const connectorIds = new Set();
+  for (const tool of (toolbox.tools || [])) {
+    if (tool.source?.type === 'mcp_bridge' && tool.source.connection_id) {
+      connectorIds.add(tool.source.connection_id);
+    }
+  }
+  if (connectorIds.size > 0) {
+    lines.push(`# Connectors - MCP servers managed by ADAS MCPGateway`);
+    lines.push(`connectors:`);
+    for (const connectorId of connectorIds) {
+      lines.push(`  - ${yamlString(connectorId)}`);
+    }
+    lines.push(``);
+  }
+
+  // Connector configurations - per-skill identity/config overrides
+  if (toolbox.connector_configs?.length > 0) {
+    lines.push(`# Connector Configurations - Per-skill identity overrides`);
+    lines.push(`connector_configs:`);
+    for (const config of toolbox.connector_configs) {
+      lines.push(`  - connector_id: ${yamlString(config.connector_id)}`);
+      if (config.identity) {
+        lines.push(`    identity:`);
+        if (config.identity.from_name) {
+          lines.push(`      from_name: ${yamlString(config.identity.from_name)}`);
+        }
+        if (config.identity.from_email) {
+          lines.push(`      from_email: ${yamlString(config.identity.from_email)}`);
+        }
+        if (config.identity.signature) {
+          lines.push(`      signature: ${yamlString(config.identity.signature)}`);
+        }
+      }
+      if (config.defaults && Object.keys(config.defaults).length > 0) {
+        lines.push(`    defaults:`);
+        for (const [key, value] of Object.entries(config.defaults)) {
+          lines.push(`      ${key}: ${yamlString(value)}`);
+        }
+      }
+    }
+    lines.push(``);
+  }
 
   // Resources
   lines.push(`resources:`);

@@ -118,6 +118,14 @@
  */
 
 /**
+ * Tool source - describes where this tool comes from
+ * @typedef {Object} ToolSource
+ * @property {'mcp_bridge' | 'builtin' | 'custom'} type - Source type
+ * @property {string} [connection_id] - Connector ID for mcp_bridge tools
+ * @property {string} [mcp_tool] - Original tool name on MCP server
+ */
+
+/**
  * @typedef {Object} Tool
  * @property {string} id
  * @property {'temporary' | 'permanent'} id_status
@@ -129,6 +137,7 @@
  * @property {ToolMock} mock - Mock configuration
  * @property {'untested' | 'tested' | 'skipped'} mock_status
  * @property {MockTestResult[]} [mock_test_results]
+ * @property {ToolSource} [source] - Tool source (MCP bridge, builtin, custom)
  */
 
 /**
@@ -183,6 +192,18 @@
  * @property {'api' | 'slack' | 'email' | 'webhook'} type
  * @property {boolean} enabled
  * @property {Object} config
+ */
+
+/**
+ * Per-skill connector configuration overrides
+ * Allows skills to specify their own identity when using shared connectors
+ * @typedef {Object} ConnectorConfig
+ * @property {string} connector_id - Reference to connector ID (e.g., "gmail", "slack")
+ * @property {Object} [identity] - Identity overrides for this connector
+ * @property {string} [identity.from_name] - Display name for outgoing messages
+ * @property {string} [identity.from_email] - Email address for outgoing emails
+ * @property {string} [identity.signature] - Signature to append to messages
+ * @property {Object} [defaults] - Default values for tool calls on this connector
  */
 
 // ═══════════════════════════════════════════════════════════════
@@ -465,6 +486,7 @@
  * @property {Trigger[]} triggers - Automation triggers (schedule, event)
  * @property {PolicyConfig} policy
  * @property {Channel[]} channels
+ * @property {ConnectorConfig[]} [connector_configs] - Per-skill connector identity/config overrides
  * @property {ValidationResult} validation
  * @property {Message[]} conversation
  */

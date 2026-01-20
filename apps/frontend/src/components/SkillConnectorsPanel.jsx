@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { listConnectors } from '../api/client';
 
 const styles = {
@@ -117,6 +117,64 @@ const styles = {
     alignItems: 'center',
     gap: '6px',
     transition: 'border-color 0.15s'
+  },
+  identitySection: {
+    marginTop: '12px',
+    padding: '12px',
+    background: 'var(--bg-secondary)',
+    borderRadius: '6px',
+    borderTop: '1px solid var(--border)'
+  },
+  identityTitle: {
+    fontSize: '11px',
+    fontWeight: '600',
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    marginBottom: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  identityToggle: {
+    fontSize: '11px',
+    color: 'var(--accent)',
+    cursor: 'pointer',
+    background: 'none',
+    border: 'none',
+    padding: 0
+  },
+  inputGroup: {
+    marginBottom: '8px'
+  },
+  inputLabel: {
+    fontSize: '11px',
+    color: 'var(--text-secondary)',
+    marginBottom: '4px',
+    display: 'block'
+  },
+  input: {
+    width: '100%',
+    padding: '6px 8px',
+    fontSize: '12px',
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border)',
+    borderRadius: '4px',
+    color: 'var(--text-primary)',
+    outline: 'none'
+  },
+  textarea: {
+    width: '100%',
+    padding: '6px 8px',
+    fontSize: '12px',
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border)',
+    borderRadius: '4px',
+    color: 'var(--text-primary)',
+    outline: 'none',
+    resize: 'vertical',
+    minHeight: '60px',
+    fontFamily: 'inherit'
   }
 };
 
@@ -130,10 +188,18 @@ const CONNECTOR_ICONS = {
   default: '🔌'
 };
 
-export default function SkillConnectorsPanel({ skill, tools = [], onLinkConnector, onUnlinkConnector }) {
+export default function SkillConnectorsPanel({
+  skill,
+  tools = [],
+  connectorConfigs = [],
+  onLinkConnector,
+  onUnlinkConnector,
+  onConnectorConfigChange
+}) {
   const [globalConnectors, setGlobalConnectors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [expandedIdentity, setExpandedIdentity] = useState(null);
 
   // Load globally connected connectors
   useEffect(() => {
@@ -224,6 +290,57 @@ export default function SkillConnectorsPanel({ skill, tools = [], onLinkConnecto
     setShowLinkPicker(false);
   }
 
+  // Get config for a specific connector
+  function getConnectorConfig(connectorId) {
+    return connectorConfigs.find(c => c.connector_id === connectorId) || {
+      connector_id: connectorId,
+      identity: {}
+    };
+  }
+
+  // Update identity config for a connector
+  const handleIdentityChange = useCallback((connectorId, field, value) => {
+    if (!onConnectorConfigChange) return;
+
+    const existingConfig = connectorConfigs.find(c => c.connector_id === connectorId);
+    const newConfig = existingConfig
+      ? {
+          ...existingConfig,
+          identity: {
+            ...existingConfig.identity,
+            [field]: value
+          }
+        }
+      : {
+          connector_id: connectorId,
+          identity: { [field]: value }
+        };
+
+    // Remove empty values
+    if (!value) {
+      delete newConfig.identity[field];
+    }
+
+    // Build new configs array
+    const newConfigs = existingConfig
+      ? connectorConfigs.map(c => c.connector_id === connectorId ? newConfig : c)
+      : [...connectorConfigs, newConfig];
+
+    // Remove configs with empty identity
+    const filteredConfigs = newConfigs.filter(c =>
+      c.identity && Object.keys(c.identity).some(k => c.identity[k])
+    );
+
+    onConnectorConfigChange(filteredConfigs);
+  }, [connectorConfigs, onConnectorConfigChange]);
+
+  // Check if connector type supports identity (email connectors)
+  function supportsIdentity(connectorType) {
+    return ['gmail', 'mail', 'email', 'smtp'].some(t =>
+      connectorType.toLowerCase().includes(t)
+    );
+  }
+
   return (
     <div>
       <div style={styles.section}>
@@ -250,44 +367,111 @@ export default function SkillConnectorsPanel({ skill, tools = [], onLinkConnecto
             Link a connector to import tools from it.
           </div>
         ) : (
-          linkedConnectors.map(connector => (
-            <div key={connector.id} style={styles.card}>
-              <div style={styles.cardHeader}>
-                <span style={styles.connectorName}>
-                  {CONNECTOR_ICONS[connector.type] || CONNECTOR_ICONS.default}
-                  {connector.name}
-                </span>
-                <button
-                  style={{
-                    ...styles.button,
-                    ...(canRemove(connector) ? {} : styles.buttonDisabled)
-                  }}
-                  onClick={() => handleRemove(connector)}
-                  disabled={!canRemove(connector)}
-                  title={canRemove(connector) ? 'Remove connector' : 'Cannot remove - tools depend on it'}
-                >
-                  Remove
-                </button>
-              </div>
+          linkedConnectors.map(connector => {
+            const config = getConnectorConfig(connector.id);
+            const isExpanded = expandedIdentity === connector.id;
+            const showIdentitySection = supportsIdentity(connector.type);
 
-              <div style={styles.toolsList}>
-                Tools using: {connector.tools.length > 0
-                  ? connector.tools.join(', ')
-                  : <em>none</em>
-                }
-              </div>
+            return (
+              <div key={connector.id} style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <span style={styles.connectorName}>
+                    {CONNECTOR_ICONS[connector.type] || CONNECTOR_ICONS.default}
+                    {connector.name}
+                  </span>
+                  <button
+                    style={{
+                      ...styles.button,
+                      ...(canRemove(connector) ? {} : styles.buttonDisabled)
+                    }}
+                    onClick={() => handleRemove(connector)}
+                    disabled={!canRemove(connector)}
+                    title={canRemove(connector) ? 'Remove connector' : 'Cannot remove - tools depend on it'}
+                  >
+                    Remove
+                  </button>
+                </div>
 
-              <div style={{
-                ...styles.status,
-                ...(canRemove(connector) ? styles.statusOk : styles.statusBlocked)
-              }}>
-                {canRemove(connector)
-                  ? '✓ Can be removed'
-                  : `⚠️ Cannot remove - ${connector.tools.length} tool${connector.tools.length > 1 ? 's' : ''} depend on it`
-                }
+                <div style={styles.toolsList}>
+                  Tools using: {connector.tools.length > 0
+                    ? connector.tools.join(', ')
+                    : <em>none</em>
+                  }
+                </div>
+
+                <div style={{
+                  ...styles.status,
+                  ...(canRemove(connector) ? styles.statusOk : styles.statusBlocked)
+                }}>
+                  {canRemove(connector)
+                    ? '✓ Can be removed'
+                    : `⚠️ Cannot remove - ${connector.tools.length} tool${connector.tools.length > 1 ? 's' : ''} depend on it`
+                  }
+                </div>
+
+                {/* Identity Configuration Section (for email connectors) */}
+                {showIdentitySection && (
+                  <div style={styles.identitySection}>
+                    <div style={styles.identityTitle}>
+                      <span>📝 Skill Identity</span>
+                      <button
+                        style={styles.identityToggle}
+                        onClick={() => setExpandedIdentity(isExpanded ? null : connector.id)}
+                      >
+                        {isExpanded ? '▼ Hide' : '▶ Configure'}
+                      </button>
+                    </div>
+
+                    {isExpanded && (
+                      <>
+                        <div style={styles.inputGroup}>
+                          <label style={styles.inputLabel}>From Name</label>
+                          <input
+                            type="text"
+                            style={styles.input}
+                            placeholder="e.g., Support Bot"
+                            value={config.identity?.from_name || ''}
+                            onChange={(e) => handleIdentityChange(connector.id, 'from_name', e.target.value)}
+                          />
+                        </div>
+
+                        <div style={styles.inputGroup}>
+                          <label style={styles.inputLabel}>From Email</label>
+                          <input
+                            type="email"
+                            style={styles.input}
+                            placeholder="e.g., support@example.com"
+                            value={config.identity?.from_email || ''}
+                            onChange={(e) => handleIdentityChange(connector.id, 'from_email', e.target.value)}
+                          />
+                        </div>
+
+                        <div style={styles.inputGroup}>
+                          <label style={styles.inputLabel}>Signature</label>
+                          <textarea
+                            style={styles.textarea}
+                            placeholder="e.g., -- Sent by ADAS Support"
+                            value={config.identity?.signature || ''}
+                            onChange={(e) => handleIdentityChange(connector.id, 'signature', e.target.value)}
+                          />
+                        </div>
+
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                          💡 This identity will be used when this skill sends emails via {connector.name}
+                        </div>
+                      </>
+                    )}
+
+                    {!isExpanded && config.identity?.from_email && (
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        ✓ Configured: {config.identity.from_name || ''} &lt;{config.identity.from_email}&gt;
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          ))
+            );
+          })
         )}
 
         {/* Link Connector Picker */}
