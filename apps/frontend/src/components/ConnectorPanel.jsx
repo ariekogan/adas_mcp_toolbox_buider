@@ -318,7 +318,7 @@ if (typeof document !== 'undefined' && !document.getElementById('connector-spinn
   document.head.appendChild(style);
 }
 
-export default function ConnectorPanel({ skillId, onToolsImported }) {
+export default function ConnectorPanel({ skillId, onToolsImported, standalone = false }) {
   const [activeConnections, setActiveConnections] = useState([]);
   const [prebuiltConnectors, setPrebuiltConnectors] = useState([]);
   const [connectingId, setConnectingId] = useState(null); // Track which connector is connecting
@@ -862,8 +862,8 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
           </div>
         )}
 
-        {/* Import Button - fixed at bottom */}
-        {selectedTools.size > 0 && (
+        {/* Import Button - fixed at bottom (hidden in standalone mode) */}
+        {!standalone && selectedTools.size > 0 && (
           <div style={{ ...styles.importBar, marginTop: '12px' }}>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
               {selectedTools.size} tool{selectedTools.size > 1 ? 's' : ''} selected
@@ -881,7 +881,7 @@ export default function ConnectorPanel({ skillId, onToolsImported }) {
             </button>
           </div>
         )}
-        {!skillId && selectedTools.size > 0 && (
+        {!standalone && !skillId && selectedTools.size > 0 && (
           <p style={{ ...styles.authHint, marginTop: '8px' }}>
             Please select a skill first to import tools
           </p>
