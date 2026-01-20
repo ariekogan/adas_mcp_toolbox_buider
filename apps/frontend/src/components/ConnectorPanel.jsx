@@ -1047,7 +1047,7 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
                           ) : connectingId === connector.id ? (
                             <span style={styles.connectingBadge}>
                               <span style={styles.spinner}></span>
-                              Connecting...
+                              Installing...
                             </span>
                           ) : isEnvFormExpanded ? null : (
                             <button
@@ -1058,7 +1058,7 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
                                 marginLeft: '8px'
                               }}
                             >
-                              Connect
+                              Install & Connect
                             </button>
                           )}
                         </div>
@@ -1153,7 +1153,7 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
                                   opacity: connectingId === connector.id ? 0.6 : 1
                                 }}
                               >
-                                {connectingId === connector.id ? 'Connecting...' : 'Connect'}
+                                {connectingId === connector.id ? 'Installing...' : 'Install & Connect'}
                               </button>
                               <button
                                 onClick={() => cancelEnvForm(connector.id)}
@@ -1251,7 +1251,7 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
                       opacity: loading ? 0.6 : 1
                     }}
                   >
-                    {loading ? 'Connecting...' : 'Connect'}
+                    {loading ? 'Installing...' : 'Install & Connect'}
                   </button>
                   <button
                     onClick={() => setShowCustomForm(false)}
