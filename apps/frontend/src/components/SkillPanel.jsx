@@ -16,7 +16,7 @@ import IntentsPanel from './IntentsPanel';
 import PolicyPanel from './PolicyPanel';
 import EnginePanel from './EnginePanel';
 import IdentityPanel from './IdentityPanel';
-import ConnectorPanel from './ConnectorPanel';
+import SkillConnectorsPanel from './SkillConnectorsPanel';
 import ValidationBanner from './ValidationBanner';
 import ValidationList from './ValidationList';
 import ValidationMicroDashboard from './ValidationMicroDashboard';
@@ -1287,57 +1287,52 @@ export default function SkillPanel({
           </div>
         )}
 
-        {/* Connectors Tab */}
+        {/* Connectors Tab - shows connectors used by this skill */}
         {activeTab === 'connectors' && (
-          <ConnectorPanel
-            skillId={skill?.id}
-            onToolsImported={async (tools) => {
-              // Add imported tools to the skill
-              if (!skill || !tools?.length) return;
-
+          <SkillConnectorsPanel
+            skill={skill}
+            tools={skill.tools || []}
+            onLinkConnector={async (connectorId) => {
+              // Link a connector to this skill
               try {
-                // Get existing tools and merge with new ones
-                const existingTools = skill.tools || [];
-                const existingIds = new Set(existingTools.map(t => t.id));
-
-                // Filter out tools that already exist (by ID)
-                const newTools = tools.filter(t => !existingIds.has(t.id));
-
-                if (newTools.length === 0) {
-                  if (onAskAbout) {
-                    onAskAbout(`All ${tools.length} selected tools are already in this skill.`, true);
+                const currentConnectors = skill.connectors || [];
+                if (!currentConnectors.includes(connectorId)) {
+                  const { updateSkill: updateSkillApi } = await import('../api/client');
+                  const updatedSkill = await updateSkillApi(skill.id, {
+                    connectors: [...currentConnectors, connectorId]
+                  });
+                  if (onSkillUpdate && updatedSkill) {
+                    onSkillUpdate(updatedSkill);
                   }
-                  return;
+                  if (onAskAbout) {
+                    onAskAbout(`Linked connector "${connectorId}" to this skill. You can now import tools from it.`, true);
+                  }
                 }
-
-                // Merge and update
-                const updatedTools = [...existingTools, ...newTools];
-
-                // Import through the API client
+              } catch (err) {
+                console.error('Failed to link connector:', err);
+                if (onAskAbout) {
+                  onAskAbout(`Failed to link connector: ${err.message}`, true);
+                }
+              }
+            }}
+            onUnlinkConnector={async (connectorId) => {
+              // Unlink a connector from this skill (only if no tools depend on it)
+              try {
+                const currentConnectors = skill.connectors || [];
                 const { updateSkill: updateSkillApi } = await import('../api/client');
-                const updatedSkill = await updateSkillApi(skill.id, { tools: updatedTools });
-
-                // Update local state through parent callback
+                const updatedSkill = await updateSkillApi(skill.id, {
+                  connectors: currentConnectors.filter(c => c !== connectorId)
+                });
                 if (onSkillUpdate && updatedSkill) {
                   onSkillUpdate(updatedSkill);
                 }
-
-                // Notify user through chat
                 if (onAskAbout) {
-                  const toolNames = newTools.map(t => t.name).join(', ');
-                  onAskAbout(
-                    `Successfully imported ${newTools.length} tool(s) from the connector: ${toolNames}. ` +
-                    `These tools use the MCP bridge source type and will call the connected MCP server when invoked.`,
-                    true
-                  );
+                  onAskAbout(`Unlinked connector "${connectorId}" from this skill.`, true);
                 }
-
-                // Switch to tools tab to show the new tools
-                setActiveTab('tools');
               } catch (err) {
-                console.error('Failed to import tools:', err);
+                console.error('Failed to unlink connector:', err);
                 if (onAskAbout) {
-                  onAskAbout(`Failed to import tools: ${err.message}`, true);
+                  onAskAbout(`Failed to unlink connector: ${err.message}`, true);
                 }
               }
             }}
