@@ -1449,6 +1449,24 @@ export function generateAdasExportPayload(toolbox) {
     }));
   }
 
+  // Add triggers if present (for ADAS trigger-runner)
+  if (toolbox.triggers && toolbox.triggers.length > 0) {
+    const enabledTriggers = toolbox.triggers.filter(t => t.enabled);
+    if (enabledTriggers.length > 0) {
+      skill.triggers = enabledTriggers.map(t => ({
+        id: t.id,
+        type: t.type,
+        enabled: t.enabled,
+        concurrency: t.concurrency || 1,
+        prompt: t.prompt,
+        ...(t.input && Object.keys(t.input).length > 0 && { input: t.input }),
+        ...(t.type === 'schedule' && { every: t.every }),
+        ...(t.type === 'event' && { event: t.event }),
+        ...(t.type === 'event' && t.filter && Object.keys(t.filter).length > 0 && { filter: t.filter })
+      }));
+    }
+  }
+
   // Build tools array with name and code (regular tools)
   const toolsPayload = tools.map(tool => ({
     name: tool.name,
