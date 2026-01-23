@@ -902,6 +902,20 @@ export default function SkillPanel({
             <IdentityPanel
               skill={skill}
               onAskAbout={onAskAbout}
+              connectorConfigs={skill.connector_configs || []}
+              onConnectorConfigChange={async (newConfigs) => {
+                try {
+                  const { updateSkill: updateSkillApi } = await import('../api/client');
+                  const updatedSkill = await updateSkillApi(skill.id, {
+                    connector_configs: newConfigs
+                  });
+                  if (onSkillUpdate && updatedSkill) {
+                    onSkillUpdate(updatedSkill);
+                  }
+                } catch (err) {
+                  console.error('Failed to update connector config:', err);
+                }
+              }}
               validateButton={
                 <ValidateButton
                   section="identity"
@@ -1292,7 +1306,6 @@ export default function SkillPanel({
           <SkillConnectorsPanel
             skill={skill}
             tools={skill.tools || []}
-            connectorConfigs={skill.connector_configs || []}
             onLinkConnector={async (connectorId) => {
               // Link a connector to this skill
               try {
@@ -1335,20 +1348,6 @@ export default function SkillPanel({
                 if (onAskAbout) {
                   onAskAbout(`Failed to unlink connector: ${err.message}`, true);
                 }
-              }
-            }}
-            onConnectorConfigChange={async (newConfigs) => {
-              // Update connector identity/config for this skill
-              try {
-                const { updateSkill: updateSkillApi } = await import('../api/client');
-                const updatedSkill = await updateSkillApi(skill.id, {
-                  connector_configs: newConfigs
-                });
-                if (onSkillUpdate && updatedSkill) {
-                  onSkillUpdate(updatedSkill);
-                }
-              } catch (err) {
-                console.error('Failed to update connector config:', err);
               }
             }}
           />

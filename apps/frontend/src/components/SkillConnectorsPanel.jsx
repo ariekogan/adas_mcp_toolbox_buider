@@ -1,19 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { listConnectors, listActors, findOrCreateActorForIdentity, createToken } from '../api/client';
-
-// Debounce helper
-function useDebouncedCallback(callback, delay) {
-  const timeoutRef = useRef(null);
-
-  return useCallback((...args) => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    timeoutRef.current = setTimeout(() => {
-      callback(...args);
-    }, delay);
-  }, [callback, delay]);
-}
+import { useState, useEffect } from 'react';
+import { listConnectors } from '../api/client';
 
 const styles = {
   section: {
@@ -131,153 +117,6 @@ const styles = {
     alignItems: 'center',
     gap: '6px',
     transition: 'border-color 0.15s'
-  },
-  identitySection: {
-    marginTop: '12px',
-    padding: '12px',
-    background: 'var(--bg-secondary)',
-    borderRadius: '6px',
-    borderTop: '1px solid var(--border)'
-  },
-  identityTitle: {
-    fontSize: '11px',
-    fontWeight: '600',
-    color: 'var(--text-muted)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-    marginBottom: '8px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  identityToggle: {
-    fontSize: '11px',
-    color: 'var(--accent)',
-    cursor: 'pointer',
-    background: 'none',
-    border: 'none',
-    padding: 0
-  },
-  inputGroup: {
-    marginBottom: '8px'
-  },
-  inputLabel: {
-    fontSize: '11px',
-    color: 'var(--text-secondary)',
-    marginBottom: '4px',
-    display: 'block'
-  },
-  input: {
-    width: '100%',
-    padding: '6px 8px',
-    fontSize: '12px',
-    background: 'var(--bg-card)',
-    border: '1px solid var(--border)',
-    borderRadius: '4px',
-    color: 'var(--text-primary)',
-    outline: 'none'
-  },
-  textarea: {
-    width: '100%',
-    padding: '6px 8px',
-    fontSize: '12px',
-    background: 'var(--bg-card)',
-    border: '1px solid var(--border)',
-    borderRadius: '4px',
-    color: 'var(--text-primary)',
-    outline: 'none',
-    resize: 'vertical',
-    minHeight: '60px',
-    fontFamily: 'inherit'
-  },
-  actorSection: {
-    marginTop: '12px',
-    padding: '12px',
-    background: 'linear-gradient(to right, var(--bg-secondary), rgba(var(--accent-rgb), 0.05))',
-    borderRadius: '6px',
-    border: '1px solid var(--border)'
-  },
-  actorTitle: {
-    fontSize: '11px',
-    fontWeight: '600',
-    color: 'var(--accent)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-    marginBottom: '8px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px'
-  },
-  actorInfo: {
-    fontSize: '12px',
-    color: 'var(--text-secondary)',
-    marginBottom: '8px'
-  },
-  actorLinked: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '8px',
-    background: 'var(--bg-card)',
-    borderRadius: '4px',
-    border: '1px solid var(--success)',
-    marginBottom: '8px'
-  },
-  actorNotLinked: {
-    padding: '8px',
-    background: 'var(--bg-card)',
-    borderRadius: '4px',
-    border: '1px dashed var(--border)',
-    marginBottom: '8px'
-  },
-  actorBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '4px',
-    padding: '2px 8px',
-    background: 'rgba(var(--success-rgb), 0.1)',
-    color: 'var(--success)',
-    borderRadius: '12px',
-    fontSize: '11px',
-    fontWeight: '500'
-  },
-  tokenDisplay: {
-    fontFamily: 'monospace',
-    fontSize: '11px',
-    background: 'var(--bg-secondary)',
-    padding: '4px 8px',
-    borderRadius: '4px',
-    wordBreak: 'break-all',
-    marginTop: '4px'
-  },
-  select: {
-    width: '100%',
-    padding: '6px 8px',
-    fontSize: '12px',
-    background: 'var(--bg-card)',
-    border: '1px solid var(--border)',
-    borderRadius: '4px',
-    color: 'var(--text-primary)',
-    outline: 'none',
-    cursor: 'pointer'
-  },
-  buttonSmall: {
-    padding: '4px 8px',
-    fontSize: '11px',
-    background: 'var(--accent)',
-    border: 'none',
-    borderRadius: '4px',
-    color: 'white',
-    cursor: 'pointer'
-  },
-  buttonDanger: {
-    background: 'var(--danger)',
-    borderColor: 'var(--danger)'
-  },
-  actorActions: {
-    display: 'flex',
-    gap: '8px',
-    marginTop: '8px'
   }
 };
 
@@ -294,53 +133,17 @@ const CONNECTOR_ICONS = {
 export default function SkillConnectorsPanel({
   skill,
   tools = [],
-  connectorConfigs = [],
   onLinkConnector,
-  onUnlinkConnector,
-  onConnectorConfigChange
+  onUnlinkConnector
 }) {
   const [globalConnectors, setGlobalConnectors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
-  const [expandedIdentity, setExpandedIdentity] = useState(null);
-  // Local state for identity inputs (to avoid saving on every keystroke)
-  const [localIdentity, setLocalIdentity] = useState(() => {
-    // Initialize from props on first render
-    const identityMap = {};
-    for (const config of connectorConfigs) {
-      if (config.identity) {
-        identityMap[config.connector_id] = { ...config.identity };
-      }
-    }
-    return identityMap;
-  });
-  // Track if we're currently editing to avoid resetting from props
-  const isEditingRef = useRef(false);
-
-  // Actor management state
-  const [actors, setActors] = useState([]);
-  const [actorsLoading, setActorsLoading] = useState(false);
-  const [linkingActorFor, setLinkingActorFor] = useState(null);
-  const [newlyCreatedToken, setNewlyCreatedToken] = useState(null);
 
   // Load globally connected connectors
   useEffect(() => {
     loadGlobalConnectors();
   }, []);
-
-  // Only sync from props if we're not currently editing
-  // This handles the case where connectorConfigs changes from outside (e.g., page reload)
-  useEffect(() => {
-    if (!isEditingRef.current) {
-      const identityMap = {};
-      for (const config of connectorConfigs) {
-        if (config.identity) {
-          identityMap[config.connector_id] = { ...config.identity };
-        }
-      }
-      setLocalIdentity(identityMap);
-    }
-  }, [connectorConfigs]);
 
   async function loadGlobalConnectors() {
     try {
@@ -351,97 +154,6 @@ export default function SkillConnectorsPanel({
     } finally {
       setLoading(false);
     }
-  }
-
-  async function loadActors() {
-    setActorsLoading(true);
-    try {
-      const result = await listActors();
-      setActors(result.actors || []);
-    } catch (err) {
-      console.error('Failed to load actors:', err);
-      // Don't fail silently - actors might not be available if CORE is not running
-    } finally {
-      setActorsLoading(false);
-    }
-  }
-
-  // Load actors when expanding identity section
-  useEffect(() => {
-    if (expandedIdentity && actors.length === 0 && !actorsLoading) {
-      loadActors();
-    }
-  }, [expandedIdentity]);
-
-  // Link identity to CORE actor
-  async function handleLinkToActor(connectorId) {
-    const identity = getLocalIdentity(connectorId);
-    if (!identity.from_email) {
-      alert('Please configure an email address first');
-      return;
-    }
-
-    setLinkingActorFor(connectorId);
-    try {
-      // Find or create actor for this identity
-      const result = await findOrCreateActorForIdentity({
-        provider: guessConnectorType(connectorId),
-        externalId: identity.from_email,
-        displayName: identity.from_name || identity.from_email
-      });
-
-      // Generate a token for this skill
-      const tokenResult = await createToken(result.actor.actorId, ['*']);
-
-      // Update local identity with actor info
-      const updatedIdentity = {
-        ...identity,
-        actor_id: result.actor.actorId,
-        actor_display_name: result.actor.displayName,
-        token_prefix: tokenResult.prefix
-      };
-
-      // Show token once (it won't be shown again)
-      setNewlyCreatedToken({
-        connectorId,
-        token: tokenResult.token,
-        actorId: result.actor.actorId
-      });
-
-      // Update local state
-      setLocalIdentity(prev => ({
-        ...prev,
-        [connectorId]: updatedIdentity
-      }));
-
-      // Save to backend
-      saveIdentityConfig(connectorId, updatedIdentity);
-
-      // Refresh actors list
-      loadActors();
-    } catch (err) {
-      console.error('Failed to link actor:', err);
-      alert(`Failed to link actor: ${err.message}`);
-    } finally {
-      setLinkingActorFor(null);
-    }
-  }
-
-  // Unlink actor from identity
-  function handleUnlinkActor(connectorId) {
-    const identity = getLocalIdentity(connectorId);
-    const updatedIdentity = { ...identity };
-    delete updatedIdentity.actor_id;
-    delete updatedIdentity.actor_display_name;
-    delete updatedIdentity.token_prefix;
-
-    setLocalIdentity(prev => ({
-      ...prev,
-      [connectorId]: updatedIdentity
-    }));
-
-    saveIdentityConfig(connectorId, updatedIdentity);
-    setNewlyCreatedToken(null);
   }
 
   // Get linked connectors from skill (those referenced by tools)
@@ -517,80 +229,12 @@ export default function SkillConnectorsPanel({
     setShowLinkPicker(false);
   }
 
-  // Get local identity for a connector (for input display)
-  function getLocalIdentity(connectorId) {
-    return localIdentity[connectorId] || {};
-  }
-
-  // Save identity config to backend (debounced)
-  const saveIdentityConfig = useCallback((connectorId, identity) => {
-    if (!onConnectorConfigChange) return;
-
-    const existingConfig = connectorConfigs.find(c => c.connector_id === connectorId);
-    const newConfig = {
-      connector_id: connectorId,
-      identity: { ...identity }
-    };
-
-    // Remove empty values
-    Object.keys(newConfig.identity).forEach(key => {
-      if (!newConfig.identity[key]) {
-        delete newConfig.identity[key];
-      }
-    });
-
-    // Build new configs array
-    const newConfigs = existingConfig
-      ? connectorConfigs.map(c => c.connector_id === connectorId ? newConfig : c)
-      : [...connectorConfigs, newConfig];
-
-    // Remove configs with empty identity
-    const filteredConfigs = newConfigs.filter(c =>
-      c.identity && Object.keys(c.identity).some(k => c.identity[k])
-    );
-
-    onConnectorConfigChange(filteredConfigs);
-
-    // Reset editing flag after save completes
-    setTimeout(() => {
-      isEditingRef.current = false;
-    }, 100);
-  }, [connectorConfigs, onConnectorConfigChange]);
-
-  // Debounced save (800ms delay)
-  const debouncedSave = useDebouncedCallback(saveIdentityConfig, 800);
-
-  // Update local identity and trigger debounced save
-  const handleIdentityChange = useCallback((connectorId, field, value) => {
-    // Mark as editing to prevent props from resetting local state
-    isEditingRef.current = true;
-
-    // Update local state immediately for responsive UI
-    setLocalIdentity(prev => ({
-      ...prev,
-      [connectorId]: {
-        ...(prev[connectorId] || {}),
-        [field]: value
-      }
-    }));
-
-    // Trigger debounced save
-    debouncedSave(connectorId, { ...(localIdentity[connectorId] || {}), [field]: value });
-  }, [debouncedSave, localIdentity]);
-
-  // Check if connector type supports identity (email connectors)
-  function supportsIdentity(connectorType) {
-    return ['gmail', 'mail', 'email', 'smtp'].some(t =>
-      connectorType.toLowerCase().includes(t)
-    );
-  }
-
   return (
     <div>
       <div style={styles.section}>
         <div style={styles.sectionHeader}>
           <span style={styles.sectionTitle}>
-            🔌 CONNECTORS ({linkedConnectors.length})
+            CONNECTORS ({linkedConnectors.length})
           </span>
           <button
             style={{ ...styles.button, ...styles.buttonPrimary }}
@@ -611,203 +255,44 @@ export default function SkillConnectorsPanel({
             Link a connector to import tools from it.
           </div>
         ) : (
-          linkedConnectors.map(connector => {
-            const identity = getLocalIdentity(connector.id);
-            const isExpanded = expandedIdentity === connector.id;
-            const showIdentitySection = supportsIdentity(connector.type);
-
-            return (
-              <div key={connector.id} style={styles.card}>
-                <div style={styles.cardHeader}>
-                  <span style={styles.connectorName}>
-                    {CONNECTOR_ICONS[connector.type] || CONNECTOR_ICONS.default}
-                    {connector.name}
-                  </span>
-                  <button
-                    style={{
-                      ...styles.button,
-                      ...(canRemove(connector) ? {} : styles.buttonDisabled)
-                    }}
-                    onClick={() => handleRemove(connector)}
-                    disabled={!canRemove(connector)}
-                    title={canRemove(connector) ? 'Remove connector' : 'Cannot remove - tools depend on it'}
-                  >
-                    Remove
-                  </button>
-                </div>
-
-                <div style={styles.toolsList}>
-                  Tools using: {connector.tools.length > 0
-                    ? connector.tools.join(', ')
-                    : <em>none</em>
-                  }
-                </div>
-
-                <div style={{
-                  ...styles.status,
-                  ...(canRemove(connector) ? styles.statusOk : styles.statusBlocked)
-                }}>
-                  {canRemove(connector)
-                    ? '✓ Can be removed'
-                    : `⚠️ Cannot remove - ${connector.tools.length} tool${connector.tools.length > 1 ? 's' : ''} depend on it`
-                  }
-                </div>
-
-                {/* Identity Configuration Section (for email connectors) */}
-                {showIdentitySection && (
-                  <div style={styles.identitySection}>
-                    <div style={styles.identityTitle}>
-                      <span>📝 Skill Identity</span>
-                      <button
-                        style={styles.identityToggle}
-                        onClick={() => setExpandedIdentity(isExpanded ? null : connector.id)}
-                      >
-                        {isExpanded ? '▼ Hide' : '▶ Configure'}
-                      </button>
-                    </div>
-
-                    {isExpanded && (
-                      <>
-                        <div style={styles.inputGroup}>
-                          <label style={styles.inputLabel}>From Name</label>
-                          <input
-                            type="text"
-                            style={styles.input}
-                            placeholder="e.g., Support Bot"
-                            value={identity.from_name || ''}
-                            onChange={(e) => handleIdentityChange(connector.id, 'from_name', e.target.value)}
-                          />
-                        </div>
-
-                        <div style={styles.inputGroup}>
-                          <label style={styles.inputLabel}>From Email</label>
-                          <input
-                            type="email"
-                            style={styles.input}
-                            placeholder="e.g., support@example.com"
-                            value={identity.from_email || ''}
-                            onChange={(e) => handleIdentityChange(connector.id, 'from_email', e.target.value)}
-                          />
-                        </div>
-
-                        <div style={styles.inputGroup}>
-                          <label style={styles.inputLabel}>Signature</label>
-                          <textarea
-                            style={styles.textarea}
-                            placeholder="e.g., -- Sent by ADAS Support"
-                            value={identity.signature || ''}
-                            onChange={(e) => handleIdentityChange(connector.id, 'signature', e.target.value)}
-                          />
-                        </div>
-
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
-                          💡 This identity will be used when this skill sends emails via {connector.name}
-                        </div>
-
-                        {/* Activation Section */}
-                        <div style={styles.actorSection}>
-                          <div style={styles.actorTitle}>
-                            🔐 Activate Identity
-                          </div>
-                          <div style={styles.actorInfo}>
-                            Activate this identity so the skill can send emails on your behalf.
-                          </div>
-
-                          {identity.actor_id ? (
-                            <>
-                              <div style={styles.actorLinked}>
-                                <span style={styles.actorBadge}>
-                                  ✓ Active
-                                </span>
-                                <span style={{ flex: 1, fontSize: '12px' }}>
-                                  {identity.actor_display_name || identity.from_email}
-                                </span>
-                              </div>
-                              {identity.token_prefix && (
-                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                  Access key: <code>{identity.token_prefix}...</code>
-                                </div>
-                              )}
-                              {newlyCreatedToken?.connectorId === connector.id && (
-                                <div style={{
-                                  padding: '12px',
-                                  background: 'rgba(var(--warning-rgb), 0.1)',
-                                  border: '1px solid var(--warning)',
-                                  borderRadius: '6px',
-                                  marginBottom: '8px'
-                                }}>
-                                  <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--warning)', marginBottom: '4px' }}>
-                                    ⚠️ Copy this access key now - it won't be shown again!
-                                  </div>
-                                  <div style={styles.tokenDisplay}>
-                                    {newlyCreatedToken.token}
-                                  </div>
-                                  <button
-                                    style={{ ...styles.buttonSmall, marginTop: '8px' }}
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(newlyCreatedToken.token);
-                                      alert('Access key copied to clipboard!');
-                                    }}
-                                  >
-                                    📋 Copy Key
-                                  </button>
-                                </div>
-                              )}
-                              <div style={styles.actorActions}>
-                                <button
-                                  style={{ ...styles.button, ...styles.buttonDanger }}
-                                  onClick={() => handleUnlinkActor(connector.id)}
-                                >
-                                  Deactivate
-                                </button>
-                              </div>
-                            </>
-                          ) : (
-                            <>
-                              <div style={styles.actorNotLinked}>
-                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                                  Not activated yet
-                                </span>
-                              </div>
-                              <div style={styles.actorActions}>
-                                <button
-                                  style={styles.buttonSmall}
-                                  onClick={() => handleLinkToActor(connector.id)}
-                                  disabled={!identity.from_email || linkingActorFor === connector.id}
-                                >
-                                  {linkingActorFor === connector.id ? 'Activating...' : '✓ Activate Identity'}
-                                </button>
-                              </div>
-                              {!identity.from_email && (
-                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                  Enter an email address above to activate
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </>
-                    )}
-
-                    {!isExpanded && identity.from_email && (
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        ✓ {identity.from_name || ''} &lt;{identity.from_email}&gt;
-                        {identity.actor_id ? (
-                          <span style={{ marginLeft: '8px', color: 'var(--success)' }}>
-                            🔐 Active
-                          </span>
-                        ) : (
-                          <span style={{ marginLeft: '8px', color: 'var(--warning)' }}>
-                            ⚠️ Not activated
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
+          linkedConnectors.map(connector => (
+            <div key={connector.id} style={styles.card}>
+              <div style={styles.cardHeader}>
+                <span style={styles.connectorName}>
+                  {CONNECTOR_ICONS[connector.type] || CONNECTOR_ICONS.default}
+                  {connector.name}
+                </span>
+                <button
+                  style={{
+                    ...styles.button,
+                    ...(canRemove(connector) ? {} : styles.buttonDisabled)
+                  }}
+                  onClick={() => handleRemove(connector)}
+                  disabled={!canRemove(connector)}
+                  title={canRemove(connector) ? 'Remove connector' : 'Cannot remove - tools depend on it'}
+                >
+                  Remove
+                </button>
               </div>
-            );
-          })
+
+              <div style={styles.toolsList}>
+                Tools using: {connector.tools.length > 0
+                  ? connector.tools.join(', ')
+                  : <em>none</em>
+                }
+              </div>
+
+              <div style={{
+                ...styles.status,
+                ...(canRemove(connector) ? styles.statusOk : styles.statusBlocked)
+              }}>
+                {canRemove(connector)
+                  ? '✓ Can be removed'
+                  : `⚠️ Cannot remove - ${connector.tools.length} tool${connector.tools.length > 1 ? 's' : ''} depend on it`
+                }
+              </div>
+            </div>
+          ))
         )}
 
         {/* Link Connector Picker */}
