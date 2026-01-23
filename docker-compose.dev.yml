@@ -16,6 +16,9 @@ services:
       - TEMPLATES_PATH=/app/templates
       # ADAS Core URL for deployment (uses ADAS network for direct container access)
       - ADAS_CORE_URL=${ADAS_CORE_URL:-http://ai-dev-assistant-backend-1:4000}
+      # CORE MCP URL for actor/identity management
+      - CORE_MCP_URL=${CORE_MCP_URL:-http://ai-dev-assistant-adas-mcp-1:4310/mcp}
+      - CORE_MCP_SECRET=${CORE_MCP_SECRET:-}
     networks:
       - default
       - adas_network
