@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listConnectors } from '../api/client';
+import { listConnectors, listActors, findOrCreateActorForIdentity, createToken } from '../api/client';
 
 // Debounce helper
 function useDebouncedCallback(callback, delay) {
@@ -189,6 +189,95 @@ const styles = {
     resize: 'vertical',
     minHeight: '60px',
     fontFamily: 'inherit'
+  },
+  actorSection: {
+    marginTop: '12px',
+    padding: '12px',
+    background: 'linear-gradient(to right, var(--bg-secondary), rgba(var(--accent-rgb), 0.05))',
+    borderRadius: '6px',
+    border: '1px solid var(--border)'
+  },
+  actorTitle: {
+    fontSize: '11px',
+    fontWeight: '600',
+    color: 'var(--accent)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    marginBottom: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px'
+  },
+  actorInfo: {
+    fontSize: '12px',
+    color: 'var(--text-secondary)',
+    marginBottom: '8px'
+  },
+  actorLinked: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px',
+    background: 'var(--bg-card)',
+    borderRadius: '4px',
+    border: '1px solid var(--success)',
+    marginBottom: '8px'
+  },
+  actorNotLinked: {
+    padding: '8px',
+    background: 'var(--bg-card)',
+    borderRadius: '4px',
+    border: '1px dashed var(--border)',
+    marginBottom: '8px'
+  },
+  actorBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '2px 8px',
+    background: 'rgba(var(--success-rgb), 0.1)',
+    color: 'var(--success)',
+    borderRadius: '12px',
+    fontSize: '11px',
+    fontWeight: '500'
+  },
+  tokenDisplay: {
+    fontFamily: 'monospace',
+    fontSize: '11px',
+    background: 'var(--bg-secondary)',
+    padding: '4px 8px',
+    borderRadius: '4px',
+    wordBreak: 'break-all',
+    marginTop: '4px'
+  },
+  select: {
+    width: '100%',
+    padding: '6px 8px',
+    fontSize: '12px',
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border)',
+    borderRadius: '4px',
+    color: 'var(--text-primary)',
+    outline: 'none',
+    cursor: 'pointer'
+  },
+  buttonSmall: {
+    padding: '4px 8px',
+    fontSize: '11px',
+    background: 'var(--accent)',
+    border: 'none',
+    borderRadius: '4px',
+    color: 'white',
+    cursor: 'pointer'
+  },
+  buttonDanger: {
+    background: 'var(--danger)',
+    borderColor: 'var(--danger)'
+  },
+  actorActions: {
+    display: 'flex',
+    gap: '8px',
+    marginTop: '8px'
   }
 };
 
@@ -228,6 +317,12 @@ export default function SkillConnectorsPanel({
   // Track if we're currently editing to avoid resetting from props
   const isEditingRef = useRef(false);
 
+  // Actor management state
+  const [actors, setActors] = useState([]);
+  const [actorsLoading, setActorsLoading] = useState(false);
+  const [linkingActorFor, setLinkingActorFor] = useState(null);
+  const [newlyCreatedToken, setNewlyCreatedToken] = useState(null);
+
   // Load globally connected connectors
   useEffect(() => {
     loadGlobalConnectors();
@@ -256,6 +351,97 @@ export default function SkillConnectorsPanel({
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadActors() {
+    setActorsLoading(true);
+    try {
+      const result = await listActors();
+      setActors(result.actors || []);
+    } catch (err) {
+      console.error('Failed to load actors:', err);
+      // Don't fail silently - actors might not be available if CORE is not running
+    } finally {
+      setActorsLoading(false);
+    }
+  }
+
+  // Load actors when expanding identity section
+  useEffect(() => {
+    if (expandedIdentity && actors.length === 0 && !actorsLoading) {
+      loadActors();
+    }
+  }, [expandedIdentity]);
+
+  // Link identity to CORE actor
+  async function handleLinkToActor(connectorId) {
+    const identity = getLocalIdentity(connectorId);
+    if (!identity.from_email) {
+      alert('Please configure an email address first');
+      return;
+    }
+
+    setLinkingActorFor(connectorId);
+    try {
+      // Find or create actor for this identity
+      const result = await findOrCreateActorForIdentity({
+        provider: guessConnectorType(connectorId),
+        externalId: identity.from_email,
+        displayName: identity.from_name || identity.from_email
+      });
+
+      // Generate a token for this skill
+      const tokenResult = await createToken(result.actor.actorId, ['*']);
+
+      // Update local identity with actor info
+      const updatedIdentity = {
+        ...identity,
+        actor_id: result.actor.actorId,
+        actor_display_name: result.actor.displayName,
+        token_prefix: tokenResult.prefix
+      };
+
+      // Show token once (it won't be shown again)
+      setNewlyCreatedToken({
+        connectorId,
+        token: tokenResult.token,
+        actorId: result.actor.actorId
+      });
+
+      // Update local state
+      setLocalIdentity(prev => ({
+        ...prev,
+        [connectorId]: updatedIdentity
+      }));
+
+      // Save to backend
+      saveIdentityConfig(connectorId, updatedIdentity);
+
+      // Refresh actors list
+      loadActors();
+    } catch (err) {
+      console.error('Failed to link actor:', err);
+      alert(`Failed to link actor: ${err.message}`);
+    } finally {
+      setLinkingActorFor(null);
+    }
+  }
+
+  // Unlink actor from identity
+  function handleUnlinkActor(connectorId) {
+    const identity = getLocalIdentity(connectorId);
+    const updatedIdentity = { ...identity };
+    delete updatedIdentity.actor_id;
+    delete updatedIdentity.actor_display_name;
+    delete updatedIdentity.token_prefix;
+
+    setLocalIdentity(prev => ({
+      ...prev,
+      [connectorId]: updatedIdentity
+    }));
+
+    saveIdentityConfig(connectorId, updatedIdentity);
+    setNewlyCreatedToken(null);
   }
 
   // Get linked connectors from skill (those referenced by tools)
@@ -517,12 +703,104 @@ export default function SkillConnectorsPanel({
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
                           💡 This identity will be used when this skill sends emails via {connector.name}
                         </div>
+
+                        {/* Activation Section */}
+                        <div style={styles.actorSection}>
+                          <div style={styles.actorTitle}>
+                            🔐 Activate Identity
+                          </div>
+                          <div style={styles.actorInfo}>
+                            Activate this identity so the skill can send emails on your behalf.
+                          </div>
+
+                          {identity.actor_id ? (
+                            <>
+                              <div style={styles.actorLinked}>
+                                <span style={styles.actorBadge}>
+                                  ✓ Active
+                                </span>
+                                <span style={{ flex: 1, fontSize: '12px' }}>
+                                  {identity.actor_display_name || identity.from_email}
+                                </span>
+                              </div>
+                              {identity.token_prefix && (
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                                  Access key: <code>{identity.token_prefix}...</code>
+                                </div>
+                              )}
+                              {newlyCreatedToken?.connectorId === connector.id && (
+                                <div style={{
+                                  padding: '12px',
+                                  background: 'rgba(var(--warning-rgb), 0.1)',
+                                  border: '1px solid var(--warning)',
+                                  borderRadius: '6px',
+                                  marginBottom: '8px'
+                                }}>
+                                  <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--warning)', marginBottom: '4px' }}>
+                                    ⚠️ Copy this access key now - it won't be shown again!
+                                  </div>
+                                  <div style={styles.tokenDisplay}>
+                                    {newlyCreatedToken.token}
+                                  </div>
+                                  <button
+                                    style={{ ...styles.buttonSmall, marginTop: '8px' }}
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(newlyCreatedToken.token);
+                                      alert('Access key copied to clipboard!');
+                                    }}
+                                  >
+                                    📋 Copy Key
+                                  </button>
+                                </div>
+                              )}
+                              <div style={styles.actorActions}>
+                                <button
+                                  style={{ ...styles.button, ...styles.buttonDanger }}
+                                  onClick={() => handleUnlinkActor(connector.id)}
+                                >
+                                  Deactivate
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div style={styles.actorNotLinked}>
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                  Not activated yet
+                                </span>
+                              </div>
+                              <div style={styles.actorActions}>
+                                <button
+                                  style={styles.buttonSmall}
+                                  onClick={() => handleLinkToActor(connector.id)}
+                                  disabled={!identity.from_email || linkingActorFor === connector.id}
+                                >
+                                  {linkingActorFor === connector.id ? 'Activating...' : '✓ Activate Identity'}
+                                </button>
+                              </div>
+                              {!identity.from_email && (
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                  Enter an email address above to activate
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </>
                     )}
 
                     {!isExpanded && identity.from_email && (
                       <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        ✓ Configured: {identity.from_name || ''} &lt;{identity.from_email}&gt;
+                        ✓ {identity.from_name || ''} &lt;{identity.from_email}&gt;
+                        {identity.actor_id ? (
+                          <span style={{ marginLeft: '8px', color: 'var(--success)' }}>
+                            🔐 Active
+                          </span>
+                        ) : (
+                          <span style={{ marginLeft: '8px', color: 'var(--warning)' }}>
+                            ⚠️ Not activated
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>

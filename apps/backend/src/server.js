@@ -9,6 +9,7 @@ import mockRouter from "./routes/mock.js";
 import exportRouter from "./routes/export.js";
 import validateRouter from "./routes/validate.js";
 import connectorsRouter from "./routes/connectors.js";
+import actorsRouter from "./routes/actors.js";
 import { isSearchAvailable } from "./services/webSearch.js";
 
 const app = express();
@@ -74,6 +75,7 @@ app.use("/api/mock", mockRouter);
 app.use("/api/export", exportRouter);
 app.use("/api/validate", validateRouter);
 app.use("/api/connectors", connectorsRouter);
+app.use("/api/actors", actorsRouter);
 
 // Error handler
 app.use((err, req, res, _next) => {

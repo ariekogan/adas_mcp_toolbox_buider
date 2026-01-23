@@ -280,6 +280,88 @@ export async function importConnectorTools(connectionId, domainId, tools = [], p
   });
 }
 
+// ============================================
+// Actors (CORE cp.admin_api bridge)
+// ============================================
+
+export async function listActors(params = {}) {
+  const query = new URLSearchParams();
+  if (params.limit) query.append('limit', params.limit);
+  if (params.offset) query.append('offset', params.offset);
+  if (params.status) query.append('status', params.status);
+  const queryStr = query.toString();
+  return request(`/actors${queryStr ? `?${queryStr}` : ''}`);
+}
+
+export async function getActor(actorId) {
+  return request(`/actors/${actorId}`);
+}
+
+export async function createActor(params) {
+  return request('/actors', {
+    method: 'POST',
+    body: JSON.stringify(params)
+  });
+}
+
+export async function updateActorRoles(actorId, roles) {
+  return request(`/actors/${actorId}/roles`, {
+    method: 'PATCH',
+    body: JSON.stringify({ roles })
+  });
+}
+
+export async function approveActor(actorId) {
+  return request(`/actors/${actorId}/approve`, { method: 'POST' });
+}
+
+export async function deactivateActor(actorId) {
+  return request(`/actors/${actorId}/deactivate`, { method: 'POST' });
+}
+
+export async function linkIdentity(actorId, provider, externalId) {
+  return request(`/actors/${actorId}/identities`, {
+    method: 'POST',
+    body: JSON.stringify({ provider, externalId })
+  });
+}
+
+export async function unlinkIdentity(actorId, provider, externalId) {
+  return request(`/actors/${actorId}/identities`, {
+    method: 'DELETE',
+    body: JSON.stringify({ provider, externalId })
+  });
+}
+
+export async function listTokens(actorId) {
+  return request(`/actors/${actorId}/tokens`);
+}
+
+export async function createToken(actorId, scopes = ['*']) {
+  return request(`/actors/${actorId}/tokens`, {
+    method: 'POST',
+    body: JSON.stringify({ scopes })
+  });
+}
+
+export async function revokeToken(tokenId) {
+  return request(`/actors/tokens/${tokenId}`, { method: 'DELETE' });
+}
+
+export async function findOrCreateActorForIdentity(params) {
+  return request('/actors/find-or-create', {
+    method: 'POST',
+    body: JSON.stringify(params)
+  });
+}
+
+export async function getOrCreateTokenForIdentity(params) {
+  return request('/actors/token-for-identity', {
+    method: 'POST',
+    body: JSON.stringify(params)
+  });
+}
+
 export default {
   checkHealth,
   listTemplates,
@@ -315,5 +397,19 @@ export default {
   getConnectorStatus,
   getConnectorTools,
   callConnectorTool,
-  importConnectorTools
+  importConnectorTools,
+  // Actors (CORE bridge)
+  listActors,
+  getActor,
+  createActor,
+  updateActorRoles,
+  approveActor,
+  deactivateActor,
+  linkIdentity,
+  unlinkIdentity,
+  listTokens,
+  createToken,
+  revokeToken,
+  findOrCreateActorForIdentity,
+  getOrCreateTokenForIdentity
 };
