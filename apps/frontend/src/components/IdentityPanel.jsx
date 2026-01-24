@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listConnectors, listActors, findOrCreateActorForIdentity, createToken } from '../api/client';
+import { listConnectors, listActors, findOrCreateActorForIdentity, createToken, createActor, getTenantChannels } from '../api/client';
 
 // Debounce helper
 function useDebouncedCallback(callback, delay) {
@@ -279,14 +279,37 @@ export default function IdentityPanel({
   onAskAbout,
   validateButton,
   connectorConfigs = [],
-  onConnectorConfigChange
+  onConnectorConfigChange,
+  skillIdentity = null,
+  onSkillIdentityChange
 }) {
   const [expanded, setExpanded] = useState({
+    skillIdentity: true,
     problem: true,
     role: true,
     scenarios: true,
-    sender: true
+    sender: false  // Collapse legacy sender section by default
   });
+
+  // Skill Identity state
+  const [localSkillIdentity, setLocalSkillIdentity] = useState(skillIdentity || {
+    actor_ref: '',
+    display_name: '',
+    channel_identities: {
+      email: { from_name: '', from_email: '', signature: '' },
+      slack: { bot_name: '' }
+    }
+  });
+  const [activatingSkillActor, setActivatingSkillActor] = useState(false);
+  const [skillActorToken, setSkillActorToken] = useState(null);
+  const isEditingSkillIdentityRef = useRef(false);
+
+  // Sync skill identity from props (only when not actively editing)
+  useEffect(() => {
+    if (skillIdentity && !isEditingSkillIdentityRef.current) {
+      setLocalSkillIdentity(skillIdentity);
+    }
+  }, [skillIdentity]);
   const [expandedItems, setExpandedItems] = useState({});
 
   // Email connector state
@@ -307,7 +330,10 @@ export default function IdentityPanel({
   const [linkingActor, setLinkingActor] = useState(false);
   const [newlyCreatedToken, setNewlyCreatedToken] = useState(null);
 
-  // Load global connectors
+  // Inbound channels state (routes that send messages TO this skill)
+  const [inboundChannels, setInboundChannels] = useState({ email: [], slack: [] });
+
+  // Load global connectors and inbound channels
   useEffect(() => {
     async function load() {
       try {
@@ -323,9 +349,47 @@ export default function IdentityPanel({
       } catch (err) {
         console.error('Failed to load connectors:', err);
       }
+
+      // Load inbound channel routing for this skill
+      if (skill?.id || skill?.name) {
+        try {
+          const channels = await getTenantChannels();
+          // Generate slug from name (e.g., "CS:Tier-1" -> "cs-tier-1")
+          const skillSlug = skill.name?.toLowerCase().replace(/[:\s]+/g, '-');
+          const skillId = skill.id;
+
+          console.log('[IdentityPanel] Matching inbound channels:', {
+            skillName: skill.name,
+            skillSlug,
+            skillId,
+            rules: channels?.email?.routing?.rules
+          });
+
+          // Match by slug OR by skill ID
+          const matchesSkill = (r) =>
+            r.skill_slug === skillSlug ||
+            r.skill_slug === skillId ||
+            r.skill_id === skillId;
+
+          // Find email routes to this skill (API returns {email: {routing: {rules: [...]}}, slack: {...}})
+          const emailRoutes = (channels?.email?.routing?.rules || [])
+            .filter(matchesSkill)
+            .map(r => r.address);
+
+          // Find slack routes to this skill
+          const slackRoutes = (channels?.slack?.routing?.rules || [])
+            .filter(matchesSkill)
+            .map(r => r.channel || r.mention);
+
+          console.log('[IdentityPanel] Found routes:', { emailRoutes, slackRoutes });
+          setInboundChannels({ email: emailRoutes, slack: slackRoutes });
+        } catch (err) {
+          console.error('Failed to load inbound channels:', err);
+        }
+      }
     }
     load();
-  }, []);
+  }, [skill?.id, skill?.name]);
 
   // Sync local identity from props when not editing
   useEffect(() => {
@@ -479,6 +543,113 @@ export default function IdentityPanel({
     setNewlyCreatedToken(null);
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // NEW: Skill Identity handlers
+  // ═══════════════════════════════════════════════════════════════
+
+  // Save skill identity to parent (debounced)
+  const saveSkillIdentity = useCallback((updated) => {
+    if (onSkillIdentityChange) {
+      onSkillIdentityChange(updated);
+    }
+    setTimeout(() => {
+      isEditingSkillIdentityRef.current = false;
+    }, 100);
+  }, [onSkillIdentityChange]);
+
+  const debouncedSaveSkillIdentity = useDebouncedCallback(saveSkillIdentity, 800);
+
+  // Update skill identity field - local state immediately, debounced save to parent
+  const handleSkillIdentityChange = useCallback((field, value) => {
+    isEditingSkillIdentityRef.current = true;
+
+    setLocalSkillIdentity(prev => {
+      const updated = { ...prev };
+
+      if (field.includes('.')) {
+        // Nested field like 'channel_identities.email.from_name'
+        const parts = field.split('.');
+        let current = updated;
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (!current[parts[i]]) current[parts[i]] = {};
+          current = current[parts[i]];
+        }
+        current[parts[parts.length - 1]] = value;
+      } else {
+        updated[field] = value;
+      }
+
+      // Debounce save to parent
+      debouncedSaveSkillIdentity(updated);
+
+      return updated;
+    });
+  }, [debouncedSaveSkillIdentity]);
+
+  // Activate skill actor (create agent type actor in CORE)
+  async function handleActivateSkillActor() {
+    if (!localSkillIdentity.display_name) {
+      alert('Please enter a display name for the skill identity');
+      return;
+    }
+
+    setActivatingSkillActor(true);
+    try {
+      const skillSlug = skill.id || skill.name?.toLowerCase().replace(/\s+/g, '-') || 'skill';
+      const actorRef = `agent::${skillSlug}`;
+
+      // Create agent actor
+      const actorResult = await createActor({
+        actorType: 'agent',
+        displayName: actorRef,
+        roles: ['agent'],
+        identities: [],
+        status: 'active'
+      });
+
+      // Create token for the skill
+      const tokenResult = await createToken(actorResult.actor.actorId, ['*']);
+
+      // Update local state
+      const updated = {
+        ...localSkillIdentity,
+        actor_ref: actorRef,
+        actor_id: actorResult.actor.actorId,
+        token_prefix: tokenResult.prefix
+      };
+
+      setLocalSkillIdentity(updated);
+      setSkillActorToken({
+        token: tokenResult.token,
+        actorId: actorResult.actor.actorId
+      });
+
+      if (onSkillIdentityChange) {
+        onSkillIdentityChange(updated);
+      }
+    } catch (err) {
+      console.error('Failed to activate skill actor:', err);
+      alert(`Failed to activate skill actor: ${err.message}`);
+    } finally {
+      setActivatingSkillActor(false);
+    }
+  }
+
+  // Deactivate skill actor
+  function handleDeactivateSkillActor() {
+    const updated = { ...localSkillIdentity };
+    delete updated.actor_id;
+    delete updated.token_prefix;
+    // Keep actor_ref as it's the logical reference
+
+    setLocalSkillIdentity(updated);
+    setSkillActorToken(null);
+
+    if (onSkillIdentityChange) {
+      onSkillIdentityChange(updated);
+    }
+  }
+
   if (!skill) {
     return <div style={styles.empty}>No skill selected</div>;
   }
@@ -506,158 +677,199 @@ export default function IdentityPanel({
         {validateButton}
       </div>
 
-      {/* Sender Identity - NEW SECTION */}
-      <div style={styles.section}>
-        <div style={styles.sectionHeader}>
-          <div style={styles.sectionTitle} onClick={() => toggleSection('sender')}>
-            <span style={{ ...styles.expandIcon, transform: expanded.sender ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
-            Sender Identity
-          </div>
+      {/* Skill Identity - Simple flat form */}
+      <div style={styles.card}>
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+          Define how this skill identifies itself when sending messages.
         </div>
-        {expanded.sender && (
-          globalConnectors.length === 0 ? (
-            <div style={styles.noConnector}>
-              <div style={{ marginBottom: '8px' }}>No email connector linked</div>
-              <div style={{ fontSize: '12px' }}>
-                Link a Gmail or email connector in the Connectors tab to configure sender identity.
-              </div>
+
+        {/* Display Name */}
+        <div style={styles.inputGroup}>
+          <label style={styles.inputLabel}>Display Name *</label>
+          <input
+            type="text"
+            style={styles.input}
+            placeholder="e.g., CS Support Bot"
+            value={localSkillIdentity.display_name || ''}
+            onChange={(e) => handleSkillIdentityChange('display_name', e.target.value)}
+          />
+        </div>
+
+        {/* Email Settings */}
+        <div style={styles.inputGroup}>
+          <label style={styles.inputLabel}>Email - From Name</label>
+          <input
+            type="text"
+            style={styles.input}
+            placeholder="e.g., Customer Support"
+            value={localSkillIdentity.channel_identities?.email?.from_name || ''}
+            onChange={(e) => handleSkillIdentityChange('channel_identities.email.from_name', e.target.value)}
+          />
+        </div>
+
+        <div style={styles.inputGroup}>
+          <label style={styles.inputLabel}>Email - From Address</label>
+          <input
+            type="email"
+            style={styles.input}
+            placeholder="e.g., support@example.com"
+            value={localSkillIdentity.channel_identities?.email?.from_email || ''}
+            onChange={(e) => handleSkillIdentityChange('channel_identities.email.from_email', e.target.value)}
+          />
+          {/* Show hint if inbound channels are configured */}
+          {inboundChannels.email.length > 0 && !localSkillIdentity.channel_identities?.email?.from_email && (
+            <div style={{
+              marginTop: '6px',
+              padding: '6px 10px',
+              background: 'rgba(59, 130, 246, 0.1)',
+              borderRadius: '4px',
+              fontSize: '11px',
+              color: 'var(--accent)'
+            }}>
+              💡 Tip: Use one of your inbound addresses: {inboundChannels.email.join(', ')}
             </div>
-          ) : (
-            <div style={styles.card}>
-              {/* Connector selector (if multiple email connectors) */}
-              {globalConnectors.length > 1 && (
-                <select
-                  style={styles.connectorSelect}
-                  value={selectedConnector || ''}
-                  onChange={(e) => setSelectedConnector(e.target.value)}
-                >
-                  {globalConnectors.map(c => (
-                    <option key={c.id} value={c.id}>{c.name || c.id}</option>
-                  ))}
-                </select>
-              )}
+          )}
+        </div>
 
-              <div style={styles.inputGroup}>
-                <label style={styles.inputLabel}>From Name</label>
-                <input
-                  type="text"
-                  style={styles.input}
-                  placeholder="e.g., Support Bot"
-                  value={identity.from_name || ''}
-                  onChange={(e) => handleIdentityChange('from_name', e.target.value)}
-                />
-              </div>
+        {/* Slack Settings */}
+        <div style={styles.inputGroup}>
+          <label style={styles.inputLabel}>Slack - Bot Name</label>
+          <input
+            type="text"
+            style={styles.input}
+            placeholder="e.g., SupportBot"
+            value={localSkillIdentity.channel_identities?.slack?.bot_name || ''}
+            onChange={(e) => handleSkillIdentityChange('channel_identities.slack.bot_name', e.target.value)}
+          />
+        </div>
 
-              <div style={styles.inputGroup}>
-                <label style={styles.inputLabel}>From Email</label>
-                <input
-                  type="email"
-                  style={styles.input}
-                  placeholder="e.g., support@example.com"
-                  value={identity.from_email || ''}
-                  onChange={(e) => handleIdentityChange('from_email', e.target.value)}
-                />
-              </div>
-
-              <div style={styles.inputGroup}>
-                <label style={styles.inputLabel}>Signature</label>
-                <textarea
-                  style={styles.textarea}
-                  placeholder="e.g., -- Sent by ADAS Support"
-                  value={identity.signature || ''}
-                  onChange={(e) => handleIdentityChange('signature', e.target.value)}
-                />
-              </div>
-
-              {/* Activation Section */}
-              <div style={styles.actorSection}>
-                <div style={styles.actorTitle}>
-                  Activate Identity
-                </div>
-                <div style={styles.actorInfo}>
-                  Activate this identity so the skill can send emails on your behalf.
-                </div>
-
-                {identity.actor_id ? (
-                  <>
-                    <div style={styles.actorLinked}>
-                      <span style={styles.actorBadge}>
-                        Active
-                      </span>
-                      <span style={{ flex: 1, fontSize: '13px' }}>
-                        {identity.actor_display_name || identity.from_email}
-                      </span>
-                    </div>
-                    {identity.token_prefix && (
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                        Access key: <code>{identity.token_prefix}...</code>
-                      </div>
-                    )}
-                    {newlyCreatedToken && (
-                      <div style={{
-                        padding: '12px',
-                        background: 'rgba(var(--warning-rgb), 0.1)',
-                        border: '1px solid var(--warning)',
-                        borderRadius: '6px',
-                        marginBottom: '12px'
-                      }}>
-                        <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--warning)', marginBottom: '6px' }}>
-                          Copy this access key now - it won't be shown again!
-                        </div>
-                        <div style={styles.tokenDisplay}>
-                          {newlyCreatedToken.token}
-                        </div>
-                        <button
-                          style={{ ...styles.button, marginTop: '10px' }}
-                          onClick={() => {
-                            navigator.clipboard.writeText(newlyCreatedToken.token);
-                            alert('Access key copied to clipboard!');
-                          }}
-                        >
-                          Copy Key
-                        </button>
-                      </div>
-                    )}
-                    <div style={styles.actorActions}>
-                      <button
-                        style={{ ...styles.button, ...styles.buttonDanger }}
-                        onClick={handleDeactivateIdentity}
-                      >
-                        Deactivate
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div style={styles.actorNotLinked}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                        Not activated yet
-                      </span>
-                    </div>
-                    <div style={styles.actorActions}>
-                      <button
-                        style={styles.button}
-                        onClick={handleActivateIdentity}
-                        disabled={!identity.from_email || linkingActor}
-                      >
-                        {linkingActor ? 'Activating...' : 'Activate Identity'}
-                      </button>
-                    </div>
-                    {!identity.from_email && (
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>
-                        Enter an email address above to activate
-                      </div>
-                    )}
-                  </>
+        {/* Activation Status */}
+        <div style={{
+          marginTop: '20px',
+          padding: '12px',
+          background: localSkillIdentity.actor_id ? 'rgba(34, 197, 94, 0.1)' : 'var(--bg-secondary)',
+          borderRadius: '8px',
+          border: localSkillIdentity.actor_id ? '1px solid var(--success)' : '1px solid var(--border)'
+        }}>
+          {localSkillIdentity.actor_id ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <span style={styles.actorBadge}>✓ Active in CORE</span>
+                {localSkillIdentity.token_prefix && (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Token: {localSkillIdentity.token_prefix}...
+                  </div>
                 )}
               </div>
+              <button
+                style={{ ...styles.button, background: 'transparent', border: '1px solid var(--text-muted)', color: 'var(--text-secondary)' }}
+                onClick={handleDeactivateSkillActor}
+              >
+                Deactivate
+              </button>
             </div>
-          )
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                Activate to enable sending messages
+              </div>
+              <button
+                style={styles.button}
+                onClick={handleActivateSkillActor}
+                disabled={!localSkillIdentity.display_name || activatingSkillActor}
+              >
+                {activatingSkillActor ? 'Activating...' : 'Activate'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Show token if just created */}
+        {skillActorToken && (
+          <div style={{
+            marginTop: '12px',
+            padding: '12px',
+            background: 'rgba(234, 179, 8, 0.1)',
+            border: '1px solid #eab308',
+            borderRadius: '6px'
+          }}>
+            <div style={{ fontSize: '12px', fontWeight: '600', color: '#eab308', marginBottom: '6px' }}>
+              ⚠️ Copy this token now - it won't be shown again!
+            </div>
+            <div style={styles.tokenDisplay}>
+              {skillActorToken.token}
+            </div>
+            <button
+              style={{ ...styles.button, marginTop: '10px' }}
+              onClick={() => {
+                navigator.clipboard.writeText(skillActorToken.token);
+                alert('Token copied!');
+              }}
+            >
+              Copy Token
+            </button>
+          </div>
         )}
+
+        {/* Inbound Channels - shows which addresses/channels route TO this skill */}
+        <div style={{
+          marginTop: '20px',
+          padding: '12px',
+          background: 'var(--bg-secondary)',
+          borderRadius: '8px',
+          border: '1px solid var(--border)'
+        }}>
+          <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '10px' }}>
+            Inbound Channels
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
+            Messages sent to these addresses are routed to this skill.
+          </div>
+
+          {inboundChannels.email.length > 0 || inboundChannels.slack.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {inboundChannels.email.map((addr, i) => (
+                <div key={`email-${i}`} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 10px',
+                  background: 'var(--bg-card)',
+                  borderRadius: '6px',
+                  fontSize: '13px'
+                }}>
+                  <span style={{ fontSize: '14px' }}>📧</span>
+                  <span style={{ color: 'var(--text-primary)' }}>{addr}</span>
+                </div>
+              ))}
+              {inboundChannels.slack.map((channel, i) => (
+                <div key={`slack-${i}`} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 10px',
+                  background: 'var(--bg-card)',
+                  borderRadius: '6px',
+                  fontSize: '13px'
+                }}>
+                  <span style={{ fontSize: '14px' }}>💬</span>
+                  <span style={{ color: 'var(--text-primary)' }}>{channel}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+              No inbound channels configured.
+              <span style={{ color: 'var(--accent)', marginLeft: '4px', cursor: 'pointer' }}>
+                Configure in Channels →
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Problem */}
-      <div style={styles.section}>
+      {/* Problem - collapsed by default now */}
+      <div style={{ ...styles.section, marginTop: '20px' }}>
         <div style={styles.sectionHeader}>
           <div style={styles.sectionTitle} onClick={() => toggleSection('problem')}>
             <span style={{ ...styles.expandIcon, transform: expanded.problem ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
