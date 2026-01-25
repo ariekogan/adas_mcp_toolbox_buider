@@ -315,6 +315,8 @@ const styles = {
 export default function TenantChannelsPage({ onClose }) {
   const [tenantConfig, setTenantConfig] = useState(null);
   const [skills, setSkills] = useState([]);
+  const [emailAliases, setEmailAliases] = useState([]);
+  const [loadingAliases, setLoadingAliases] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -333,6 +335,7 @@ export default function TenantChannelsPage({ onClose }) {
   useEffect(() => {
     loadTenantConfig();
     loadSkills();
+    loadEmailAliases();
   }, []);
 
   const loadSkills = async () => {
@@ -341,6 +344,20 @@ export default function TenantChannelsPage({ onClose }) {
       setSkills(skillsList || []);
     } catch (err) {
       console.error('Failed to load skills:', err);
+    }
+  };
+
+  const loadEmailAliases = async () => {
+    try {
+      setLoadingAliases(true);
+      const result = await api.listEmailAliases();
+      if (result.ok && result.aliases) {
+        setEmailAliases(result.aliases);
+      }
+    } catch (err) {
+      console.error('Failed to load email aliases:', err);
+    } finally {
+      setLoadingAliases(false);
     }
   };
 
@@ -715,12 +732,18 @@ export default function TenantChannelsPage({ onClose }) {
                       {editingEmailRule?.originalAddress === rule.address ? (
                         <>
                           <div style={styles.editForm}>
-                            <input
-                              style={styles.editInput}
+                            <select
+                              style={styles.editSelect}
                               value={editingEmailRule.address}
                               onChange={(e) => setEditingEmailRule(prev => ({ ...prev, address: e.target.value }))}
-                              placeholder="Email address"
-                            />
+                            >
+                              <option value="">Select email...</option>
+                              {emailAliases.map(alias => (
+                                <option key={alias.sendAsEmail} value={alias.sendAsEmail}>
+                                  {alias.sendAsEmail}
+                                </option>
+                              ))}
+                            </select>
                             <span style={styles.ruleArrow}>→</span>
                             <select
                               style={styles.editSelect}
@@ -784,12 +807,20 @@ export default function TenantChannelsPage({ onClose }) {
                 </div>
 
                 <form style={styles.addRuleForm} onSubmit={handleAddEmailRule}>
-                  <input
-                    style={styles.input}
-                    placeholder="Email address (e.g., support@domain.com)"
+                  <select
+                    style={styles.select}
                     value={newEmailAddress}
                     onChange={(e) => setNewEmailAddress(e.target.value)}
-                  />
+                  >
+                    <option value="">
+                      {loadingAliases ? 'Loading emails...' : 'Select email address...'}
+                    </option>
+                    {emailAliases.map(alias => (
+                      <option key={alias.sendAsEmail} value={alias.sendAsEmail}>
+                        {alias.sendAsEmail}{alias.displayName ? ` (${alias.displayName})` : ''}{alias.isPrimary ? ' [Primary]' : ''}
+                      </option>
+                    ))}
+                  </select>
                   <select
                     style={styles.select}
                     value={newEmailSkill}

@@ -362,6 +362,109 @@ export async function getOrCreateTokenForIdentity(params) {
   });
 }
 
+// ============================================
+// Tenant Configuration
+// ============================================
+
+export async function getTenantConfig() {
+  return request('/tenant');
+}
+
+export async function updateTenantConfig(config) {
+  return request('/tenant', {
+    method: 'PUT',
+    body: JSON.stringify(config)
+  });
+}
+
+export async function patchTenantConfig(updates) {
+  return request('/tenant', {
+    method: 'PATCH',
+    body: JSON.stringify(updates)
+  });
+}
+
+export async function getTenantChannels() {
+  return request('/tenant/channels');
+}
+
+export async function updateTenantChannel(channel, config) {
+  return request(`/tenant/channels/${channel}`, {
+    method: 'PUT',
+    body: JSON.stringify(config)
+  });
+}
+
+export async function enableTenantChannel(channel, enabled) {
+  return request(`/tenant/channels/${channel}/enable`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled })
+  });
+}
+
+export async function addEmailRoutingRule(address, skillSlug) {
+  return request('/tenant/channels/email/routing/rules', {
+    method: 'POST',
+    body: JSON.stringify({ address, skill_slug: skillSlug })
+  });
+}
+
+export async function removeEmailRoutingRule(address) {
+  return request(`/tenant/channels/email/routing/rules/${encodeURIComponent(address)}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function addSlackRoutingRule(rule) {
+  return request('/tenant/channels/slack/routing/rules', {
+    method: 'POST',
+    body: JSON.stringify(rule)
+  });
+}
+
+export async function removeSlackRoutingRule(params) {
+  const query = new URLSearchParams();
+  if (params.mention_handle) query.append('mention_handle', params.mention_handle);
+  if (params.channel_id) query.append('channel_id', params.channel_id);
+  return request(`/tenant/channels/slack/routing/rules?${query}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function getTenantPolicies() {
+  return request('/tenant/policies');
+}
+
+export async function updateTenantPolicies(policies) {
+  return request('/tenant/policies', {
+    method: 'PATCH',
+    body: JSON.stringify(policies)
+  });
+}
+
+export async function listEmailAliases() {
+  return request('/tenant/email-aliases');
+}
+
+// ============================================
+// Triggers (CORE trigger-runner bridge)
+// ============================================
+
+export async function getTriggersStatus(skillId) {
+  return request(`/export/${skillId}/triggers/status`);
+}
+
+export async function toggleTriggerInCore(skillId, triggerId, active) {
+  return request(`/export/${skillId}/triggers/${encodeURIComponent(triggerId)}/toggle`, {
+    method: 'POST',
+    body: JSON.stringify({ active })
+  });
+}
+
+export async function getTriggerHistory(skillId, triggerId, limit = 20) {
+  return request(`/export/${skillId}/triggers/${encodeURIComponent(triggerId)}/history?limit=${limit}`);
+}
+
 export default {
   checkHealth,
   listTemplates,
@@ -411,5 +514,23 @@ export default {
   createToken,
   revokeToken,
   findOrCreateActorForIdentity,
-  getOrCreateTokenForIdentity
+  getOrCreateTokenForIdentity,
+  // Tenant
+  getTenantConfig,
+  updateTenantConfig,
+  patchTenantConfig,
+  getTenantChannels,
+  updateTenantChannel,
+  enableTenantChannel,
+  addEmailRoutingRule,
+  removeEmailRoutingRule,
+  addSlackRoutingRule,
+  removeSlackRoutingRule,
+  getTenantPolicies,
+  updateTenantPolicies,
+  listEmailAliases,
+  // Triggers (CORE bridge)
+  getTriggersStatus,
+  toggleTriggerInCore,
+  getTriggerHistory
 };
