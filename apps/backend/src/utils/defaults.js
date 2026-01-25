@@ -71,7 +71,7 @@ export function createEmptyDraftDomain(id, name) {
         },
         replanning: {
           enabled: true,
-          max_replans: 2,
+          max_replans: 5,
         },
       },
       autonomy: {
