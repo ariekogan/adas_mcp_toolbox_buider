@@ -1539,6 +1539,24 @@ export function generateAdasExportPayload(toolbox) {
     skill.role = { persona: toolbox.role.persona };
   }
 
+  // Add engine config (max_iterations, timeout, etc.)
+  if (toolbox.engine) {
+    skill.engine = {
+      model: toolbox.engine.model || 'default',
+      temperature: toolbox.engine.temperature ?? 0.7,
+      max_tokens: toolbox.engine.max_tokens || 4096,
+      // RV2 settings
+      max_iterations: toolbox.engine.rv2?.max_iterations ?? 16,
+      timeout: toolbox.engine.rv2?.timeout ?? 60000,
+      on_max_iterations: toolbox.engine.rv2?.on_max_iterations ?? 'ask_user',
+      // Finalization gate
+      finalization_gate: {
+        enabled: toolbox.engine.finalization_gate?.enabled ?? true,
+        max_retries: toolbox.engine.finalization_gate?.max_retries ?? 2
+      }
+    };
+  }
+
   // Add connectors array if skill has linked connectors
   if (toolbox.connectors && toolbox.connectors.length > 0) {
     skill.connectors = [...toolbox.connectors];
