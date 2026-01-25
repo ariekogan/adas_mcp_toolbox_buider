@@ -589,6 +589,10 @@ export function generateDomainYaml(domain) {
   lines.push(`  model: ${domain.engine?.model || 'default'}`);
   lines.push(`  temperature: ${domain.engine?.temperature ?? 0.7}`);
   lines.push(`  max_tokens: ${domain.engine?.max_tokens || 4096}`);
+  // RV2 Engine settings - max_iterations is the main iteration limit
+  lines.push(`  max_iterations: ${domain.engine?.rv2?.max_iterations ?? 16}`);
+  lines.push(`  timeout: ${domain.engine?.rv2?.timeout ?? 60000}`);
+  lines.push(`  on_max_iterations: ${domain.engine?.rv2?.on_max_iterations ?? 'ask_user'}`);
   if (domain.engine?.response_format) {
     lines.push(`  response_format: ${domain.engine.response_format}`);
   }
