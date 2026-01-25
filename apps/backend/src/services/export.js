@@ -1233,9 +1233,11 @@ export function generateSkillYaml(toolbox) {
     lines.push(``);
   }
 
-  // Connector configurations - per-skill identity/config overrides
+  // Connector configurations - per-skill identity/config overrides (DEPRECATED)
+  // Kept for backward compatibility with existing CORE versions
   if (toolbox.connector_configs?.length > 0) {
-    lines.push(`# Connector Configurations - Per-skill identity overrides`);
+    lines.push(`# Connector Configurations - Per-skill identity overrides (DEPRECATED)`);
+    lines.push(`# Use 'identity' and 'channels' sections instead`);
     lines.push(`connector_configs:`);
     for (const config of toolbox.connector_configs) {
       lines.push(`  - connector_id: ${yamlString(config.connector_id)}`);
@@ -1258,6 +1260,104 @@ export function generateSkillYaml(toolbox) {
         }
       }
     }
+    lines.push(``);
+  }
+
+  // NEW: Skill Identity - who the skill is (independent of channels)
+  if (toolbox.skill_identity) {
+    const identity = toolbox.skill_identity;
+    lines.push(`# Skill Identity - who this skill is`);
+    lines.push(`identity:`);
+
+    if (identity.actor_ref) {
+      lines.push(`  actor_ref: ${yamlString(identity.actor_ref)}`);
+    }
+    if (identity.display_name) {
+      lines.push(`  display_name: ${yamlString(identity.display_name)}`);
+    }
+    if (identity.avatar_url) {
+      lines.push(`  avatar_url: ${yamlString(identity.avatar_url)}`);
+    }
+
+    // Channel-specific identities
+    if (identity.channel_identities?.email) {
+      const email = identity.channel_identities.email;
+      lines.push(`  email:`);
+      if (email.from_name) {
+        lines.push(`    from_name: ${yamlString(email.from_name)}`);
+      }
+      if (email.from_email) {
+        lines.push(`    from_email: ${yamlString(email.from_email)}`);
+      }
+      if (email.signature) {
+        lines.push(`    signature: |`);
+        const sigLines = email.signature.split('\n');
+        for (const line of sigLines) {
+          lines.push(`      ${line}`);
+        }
+      }
+    }
+
+    if (identity.channel_identities?.slack) {
+      const slack = identity.channel_identities.slack;
+      lines.push(`  slack:`);
+      if (slack.bot_name) {
+        lines.push(`    bot_name: ${yamlString(slack.bot_name)}`);
+      }
+      if (slack.bot_icon_url) {
+        lines.push(`    bot_icon_url: ${yamlString(slack.bot_icon_url)}`);
+      }
+    }
+
+    lines.push(``);
+  }
+
+  // NEW: Skill Channels - how the skill is reached and responds
+  if (toolbox.skill_channels) {
+    const channels = toolbox.skill_channels;
+    lines.push(`# Skill Channels - routing configuration`);
+    lines.push(`channels:`);
+
+    // Email channels
+    if (channels.email) {
+      lines.push(`  email:`);
+      if (channels.email.inbound?.addresses?.length > 0) {
+        lines.push(`    inbound:`);
+        lines.push(`      addresses:`);
+        for (const addr of channels.email.inbound.addresses) {
+          lines.push(`        - ${yamlString(addr)}`);
+        }
+      }
+      if (channels.email.outbound?.from_email) {
+        lines.push(`    outbound:`);
+        lines.push(`      from_email: ${yamlString(channels.email.outbound.from_email)}`);
+      }
+    }
+
+    // Slack channels
+    if (channels.slack) {
+      lines.push(`  slack:`);
+      if (channels.slack.inbound) {
+        lines.push(`    inbound:`);
+        if (channels.slack.inbound.mentions?.length > 0) {
+          lines.push(`      mentions:`);
+          for (const mention of channels.slack.inbound.mentions) {
+            lines.push(`        - ${yamlString(mention)}`);
+          }
+        }
+        if (channels.slack.inbound.channels?.length > 0) {
+          lines.push(`      channels:`);
+          for (const ch of channels.slack.inbound.channels) {
+            lines.push(`        - ${yamlString(ch)}`);
+          }
+        }
+      }
+      if (channels.slack.outbound?.bot_ref) {
+        lines.push(`    outbound:`);
+        lines.push(`      bot_ref: ${yamlString(channels.slack.outbound.bot_ref)}`);
+      }
+    }
+
     lines.push(``);
   }
 

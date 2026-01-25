@@ -20,6 +20,7 @@ export const COVERAGE = [
   { section: 'tools', field: 'tools', check: 'At least 1 tool with name, description, output', type: 'completeness' },
   { section: 'policy', field: 'policy.guardrails', check: 'At least 1 guardrail (never or always)', type: 'completeness' },
   { section: 'mocks', field: 'tools[].mock_status', check: 'All tools tested or skipped', type: 'completeness' },
+  { section: 'identity', field: 'skill_identity', check: 'Has display_name and outbound email configured', type: 'completeness' },
 ];
 
 /**
@@ -37,6 +38,7 @@ export function checkCompleteness(domain) {
     policy: isPolicyComplete(domain),
     engine: true, // Engine always has defaults
     mocks_tested: areMocksTested(domain),
+    identity: isIdentityComplete(domain),
   };
 }
 
@@ -155,6 +157,29 @@ export function areMocksTested(domain) {
 }
 
 /**
+ * Check if identity section is complete
+ * @param {DraftDomain} domain
+ * @returns {boolean}
+ */
+export function isIdentityComplete(domain) {
+  const identity = domain.skill_identity;
+  if (!identity) return false;
+
+  // Must have display name
+  if (!identity.display_name || identity.display_name.length === 0) {
+    return false;
+  }
+
+  // Must have outbound email configured (from_email) for email channel
+  const emailIdentity = identity.channel_identities?.email;
+  if (!emailIdentity?.from_email || emailIdentity.from_email.length === 0) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Get detailed completeness report
  * @param {DraftDomain} domain
  * @returns {Object}
@@ -222,10 +247,19 @@ export function getCompletenessReport(domain) {
         untested: domain.tools?.filter(t => t.mock_status === 'untested').length || 0,
       },
     },
+    identity: {
+      complete: isIdentityComplete(domain),
+      details: {
+        has_display_name: Boolean(domain.skill_identity?.display_name?.length > 0),
+        has_email_from: Boolean(domain.skill_identity?.channel_identities?.email?.from_email?.length > 0),
+        has_email_from_name: Boolean(domain.skill_identity?.channel_identities?.email?.from_name?.length > 0),
+        is_activated: Boolean(domain.skill_identity?.actor_id),
+      },
+    },
   };
 
   // Calculate overall progress percentage
-  const sections = ['problem', 'scenarios', 'role', 'intents', 'tools', 'policy', 'mocks'];
+  const sections = ['problem', 'scenarios', 'role', 'intents', 'tools', 'policy', 'mocks', 'identity'];
   const completedCount = sections.filter(s => report[s].complete).length;
   report.overall_progress = Math.round((completedCount / sections.length) * 100);
 
@@ -248,6 +282,7 @@ export function getIncompleteSections(domain) {
   if (!completeness.tools) incomplete.push('tools');
   if (!completeness.policy) incomplete.push('policy');
   if (!completeness.mocks_tested) incomplete.push('mocks');
+  if (!completeness.identity) incomplete.push('identity');
 
   return incomplete;
 }

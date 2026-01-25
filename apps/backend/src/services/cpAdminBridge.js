@@ -193,6 +193,112 @@ export async function listAudit(params = {}) {
 }
 
 // ============================================
+// Email Aliases (Gmail Send As)
+// ============================================
+
+/**
+ * List Gmail "Send As" email aliases
+ * @returns {Promise<{ ok: boolean, aliases: EmailAlias[] }>}
+ */
+export async function listEmailAliases() {
+  return callAdminApi("listEmailAliases", {});
+}
+
+/**
+ * Set email configuration (SMTP/IMAP credentials)
+ * @param {object} params - { emailUser, emailPass, smtpHost?, smtpPort?, imapHost?, imapPort? }
+ * @returns {Promise<{ ok: boolean, config: EmailConfig }>}
+ */
+export async function setEmailConfig(params = {}) {
+  return callAdminApi("setEmailConfig", params);
+}
+
+/**
+ * Get current email configuration (password masked)
+ * @returns {Promise<{ ok: boolean, configured: boolean, config: EmailConfig }>}
+ */
+export async function getEmailConfig() {
+  return callAdminApi("getEmailConfig", {});
+}
+
+/**
+ * Test email connection (SMTP and/or IMAP)
+ * @param {object} params - { protocol?: "smtp" | "imap" | "both" }
+ * @returns {Promise<{ ok: boolean, smtp?, imap? }>}
+ */
+export async function testEmailConnection(params = {}) {
+  return callAdminApi("testEmailConnection", params);
+}
+
+// ============================================
+// Trigger Management
+// ============================================
+
+/**
+ * List all triggers across all skills or for a specific skill
+ * @param {object} params - { skillSlug?, status?, limit?, offset? }
+ * @returns {Promise<{ triggers: Trigger[], paging: { total, limit, offset } }>}
+ */
+export async function listTriggers(params = {}) {
+  return callAdminApi("listTriggers", params);
+}
+
+/**
+ * Get a specific trigger by skill and trigger ID
+ * @param {string} skillSlug - The skill slug
+ * @param {string} triggerId - The trigger ID
+ * @returns {Promise<{ trigger: Trigger }>}
+ */
+export async function getTrigger(skillSlug, triggerId) {
+  return callAdminApi("getTrigger", { skillSlug, triggerId });
+}
+
+/**
+ * Enable a trigger (make it active in CORE)
+ * @param {string} skillSlug - The skill slug
+ * @param {string} triggerId - The trigger ID
+ * @returns {Promise<{ trigger: Trigger }>}
+ */
+export async function enableTrigger(skillSlug, triggerId) {
+  return callAdminApi("enableTrigger", { skillSlug, triggerId });
+}
+
+/**
+ * Disable a trigger (pause it in CORE)
+ * @param {string} skillSlug - The skill slug
+ * @param {string} triggerId - The trigger ID
+ * @returns {Promise<{ trigger: Trigger }>}
+ */
+export async function disableTrigger(skillSlug, triggerId) {
+  return callAdminApi("disableTrigger", { skillSlug, triggerId });
+}
+
+/**
+ * Toggle a trigger's active state
+ * @param {string} skillSlug - The skill slug
+ * @param {string} triggerId - The trigger ID
+ * @param {boolean} active - Whether to enable or disable
+ * @returns {Promise<{ trigger: Trigger }>}
+ */
+export async function toggleTrigger(skillSlug, triggerId, active) {
+  if (active) {
+    return enableTrigger(skillSlug, triggerId);
+  }
+  return disableTrigger(skillSlug, triggerId);
+}
+
+/**
+ * Get trigger execution history
+ * @param {string} skillSlug - The skill slug
+ * @param {string} triggerId - The trigger ID
+ * @param {object} params - { limit?, since? }
+ * @returns {Promise<{ executions: TriggerExecution[] }>}
+ */
+export async function getTriggerHistory(skillSlug, triggerId, params = {}) {
+  return callAdminApi("getTriggerHistory", { skillSlug, triggerId, ...params });
+}
+
+// ============================================
 // Convenience Methods for DAL
 // ============================================
 
@@ -250,6 +356,68 @@ export async function getOrCreateTokenForIdentity({ provider, externalId, displa
   };
 }
 
+/**
+ * Find or create a skill actor (agent type)
+ *
+ * Skills have actorType 'agent' and are identified by their skillSlug.
+ * The actor_ref format is: agent::{skillSlug}
+ *
+ * @param {object} params - { skillSlug, displayName }
+ * @returns {Promise<{ actor: Actor, created: boolean }>}
+ */
+export async function findOrCreateSkillActor({ skillSlug, displayName }) {
+  // First, try to find existing actor by listing and filtering
+  const { actors } = await listActors({ limit: 1000 });
+
+  // Skill actors have identity with provider='skill' and externalId=skillSlug
+  const existingActor = actors.find((actor) =>
+    actor.actorType === "agent" &&
+    actor.identities?.some(
+      (id) =>
+        id.provider?.toLowerCase() === "skill" &&
+        id.externalId?.toLowerCase() === skillSlug?.toLowerCase()
+    )
+  );
+
+  if (existingActor) {
+    return { actor: existingActor, created: false };
+  }
+
+  // Create new actor with agent type
+  const { actor } = await createActor({
+    actorType: "agent",
+    roles: ["skill", "agent"],
+    displayName: displayName || skillSlug,
+    identities: [{ provider: "skill", externalId: skillSlug }],
+    status: "active",
+  });
+
+  return { actor, created: true };
+}
+
+/**
+ * Provision a skill actor with token
+ *
+ * Creates skill actor if needed, then creates/returns token.
+ * Used during skill deployment to ADAS Core.
+ *
+ * @param {object} params - { skillSlug, displayName, scopes }
+ * @returns {Promise<{ actor: Actor, token: string, tokenId: string, created: boolean }>}
+ */
+export async function provisionSkillActor({ skillSlug, displayName, scopes = ["*"] }) {
+  const { actor, created } = await findOrCreateSkillActor({ skillSlug, displayName });
+
+  // Create a new token for this skill actor
+  const { id, token } = await createToken(actor.actorId, scopes);
+
+  return {
+    actor,
+    token,
+    tokenId: id,
+    created,
+  };
+}
+
 export default {
   // Actor
   listActors,
@@ -267,7 +435,22 @@ export default {
   listTokens,
   // Audit
   listAudit,
+  // Email Config
+  listEmailAliases,
+  setEmailConfig,
+  getEmailConfig,
+  testEmailConnection,
+  // Triggers
+  listTriggers,
+  getTrigger,
+  enableTrigger,
+  disableTrigger,
+  toggleTrigger,
+  getTriggerHistory,
   // Convenience
   findOrCreateActorForIdentity,
   getOrCreateTokenForIdentity,
+  // Skill Actors
+  findOrCreateSkillActor,
+  provisionSkillActor,
 };

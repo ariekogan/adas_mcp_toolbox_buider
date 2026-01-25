@@ -6,9 +6,11 @@ import SettingsModal from './components/SettingsModal';
 import ExtractionReviewModal from './components/ExtractionReviewModal';
 import ExportModal from './components/ExportModal';
 import ConnectorsPage from './components/ConnectorsPage';
+import TenantChannelsPage from './components/TenantChannelsPage';
 import { useSkill } from './hooks/useSkill';
 import { useSettings } from './hooks/useSettings';
 import * as api from './api/client';
+// Force rebuild - triggers and channels update
 
 const styles = {
   app: {
@@ -305,6 +307,15 @@ export default function App() {
           <button
             style={{
               ...styles.navBtn,
+              ...(currentView === 'channels' ? styles.navBtnActive : {})
+            }}
+            onClick={() => setCurrentView('channels')}
+          >
+            📡 Channels
+          </button>
+          <button
+            style={{
+              ...styles.navBtn,
               ...(currentView === 'connectors' ? styles.navBtnActive : {})
             }}
             onClick={() => setCurrentView('connectors')}
@@ -325,7 +336,9 @@ export default function App() {
       </div>
 
       <div style={styles.main}>
-        {currentView === 'connectors' ? (
+        {currentView === 'channels' ? (
+          <TenantChannelsPage onClose={() => setCurrentView('skills')} />
+        ) : currentView === 'connectors' ? (
           <ConnectorsPage onClose={() => setCurrentView('skills')} />
         ) : (
           <>

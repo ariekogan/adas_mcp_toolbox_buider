@@ -17,6 +17,7 @@ import PolicyPanel from './PolicyPanel';
 import EnginePanel from './EnginePanel';
 import IdentityPanel from './IdentityPanel';
 import SkillConnectorsPanel from './SkillConnectorsPanel';
+import TriggersPanel from './TriggersPanel';
 import ValidationBanner from './ValidationBanner';
 import ValidationList from './ValidationList';
 import ValidationMicroDashboard from './ValidationMicroDashboard';
@@ -53,10 +54,16 @@ const styles = {
   tabs: {
     display: 'flex',
     borderBottom: '1px solid var(--border)',
-    background: 'var(--bg-primary)'
+    background: 'var(--bg-primary)',
+    overflowX: 'auto',
+    overflowY: 'hidden',
+    scrollbarWidth: 'none',  // Firefox
+    msOverflowStyle: 'none'  // IE/Edge
   },
   tab: {
-    padding: '10px 16px',
+    padding: '10px 12px',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
     fontSize: '12px',
     fontWeight: '500',
     color: 'var(--text-muted)',
@@ -356,7 +363,8 @@ const TABS = [
   { id: 'tools', label: 'Tools' },
   { id: 'connectors', label: 'Connectors' },
   { id: 'policy', label: 'Policy' },
-  { id: 'engine', label: 'Engine' }
+  { id: 'engine', label: 'Engine' },
+  { id: 'triggers', label: 'Triggers' }
 ];
 
 // Phase progress mapping (8 phases)
@@ -468,6 +476,18 @@ function getTabBadge(tabId, skill) {
       return {
         text: hasCustom ? '✓' : 'default',
         style: styles.badgeGreen // Engine always ok (has defaults)
+      };
+    }
+    case 'triggers': {
+      // Triggers: count of enabled triggers
+      const triggers = skill.triggers || [];
+      if (triggers.length === 0) {
+        return { text: '0', style: styles.badgeGray };
+      }
+      const enabled = triggers.filter(t => t.enabled).length;
+      return {
+        text: `${enabled}/${triggers.length}`,
+        style: enabled > 0 ? styles.badgeGreen : styles.badgeYellow
       };
     }
     default:
@@ -914,6 +934,20 @@ export default function SkillPanel({
                   }
                 } catch (err) {
                   console.error('Failed to update connector config:', err);
+                }
+              }}
+              skillIdentity={skill.skill_identity || null}
+              onSkillIdentityChange={async (newIdentity) => {
+                try {
+                  const { updateSkill: updateSkillApi } = await import('../api/client');
+                  const updatedSkill = await updateSkillApi(skill.id, {
+                    skill_identity: newIdentity
+                  });
+                  if (onSkillUpdate && updatedSkill) {
+                    onSkillUpdate(updatedSkill);
+                  }
+                } catch (err) {
+                  console.error('Failed to update skill identity:', err);
                 }
               }}
               validateButton={
@@ -1378,6 +1412,28 @@ export default function SkillPanel({
         {/* Engine Tab */}
         {activeTab === 'engine' && (
           <EnginePanel engine={skill.engine} onAskAbout={onAskAbout} />
+        )}
+
+        {/* Triggers Tab */}
+        {activeTab === 'triggers' && (
+          <TriggersPanel
+            triggers={skill.triggers || []}
+            skillId={skill.id}
+            onTriggersChange={async (newTriggers) => {
+              try {
+                const { updateSkill: updateSkillApi } = await import('../api/client');
+                const updatedSkill = await updateSkillApi(skill.id, {
+                  triggers: newTriggers
+                });
+                if (onSkillUpdate && updatedSkill) {
+                  onSkillUpdate(updatedSkill);
+                }
+              } catch (err) {
+                console.error('Failed to update triggers:', err);
+              }
+            }}
+            skillDeployed={!!skill.deployedTo}
+          />
         )}
       </div>
 

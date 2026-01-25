@@ -263,4 +263,78 @@ router.post("/token-for-identity", async (req, res) => {
   }
 });
 
+// ============================================
+// Email Configuration
+// ============================================
+
+/**
+ * GET /api/actors/email-aliases
+ * List Gmail "Send As" email aliases
+ */
+router.get("/email-aliases", async (req, res) => {
+  try {
+    const result = await cpAdminBridge.listEmailAliases();
+    res.json(result);
+  } catch (err) {
+    console.error("[actors] listEmailAliases error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/actors/email-config
+ * Get current email configuration (password masked)
+ */
+router.get("/email-config", async (req, res) => {
+  try {
+    const result = await cpAdminBridge.getEmailConfig();
+    res.json(result);
+  } catch (err) {
+    console.error("[actors] getEmailConfig error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/actors/email-config
+ * Set email configuration (SMTP/IMAP credentials)
+ */
+router.post("/email-config", async (req, res) => {
+  try {
+    const { emailUser, emailPass, smtpHost, smtpPort, imapHost, imapPort } = req.body;
+
+    if (!emailUser || !emailPass) {
+      return res.status(400).json({ error: "emailUser and emailPass are required" });
+    }
+
+    const result = await cpAdminBridge.setEmailConfig({
+      emailUser,
+      emailPass,
+      smtpHost,
+      smtpPort,
+      imapHost,
+      imapPort,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error("[actors] setEmailConfig error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/actors/email-config/test
+ * Test email connection (SMTP and/or IMAP)
+ */
+router.post("/email-config/test", async (req, res) => {
+  try {
+    const { protocol } = req.body; // "smtp", "imap", or "both"
+    const result = await cpAdminBridge.testEmailConnection({ protocol });
+    res.json(result);
+  } catch (err) {
+    console.error("[actors] testEmailConnection error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

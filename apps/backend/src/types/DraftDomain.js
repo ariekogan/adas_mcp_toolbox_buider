@@ -207,6 +207,206 @@
  */
 
 // ═══════════════════════════════════════════════════════════════
+// TENANT & CHANNEL CONFIGURATION (Multi-Tenant Architecture)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Actor types in the system
+ * @typedef {'external_user' | 'skill_builder' | 'adas_builder' | 'agent' | 'service'} ActorType
+ */
+
+/**
+ * Actor identity on a specific channel/provider
+ * @typedef {Object} ActorIdentity
+ * @property {'gmail' | 'slack' | 'whatsapp'} provider - Channel provider
+ * @property {string} externalId - Identity on that provider (email, Slack user ID, etc.)
+ */
+
+/**
+ * Actor - represents any entity (human or skill) that can send/receive messages
+ * @typedef {Object} Actor
+ * @property {string} actorId - UUID
+ * @property {ActorType} actorType - Type of actor
+ * @property {string} displayName - Display name
+ * @property {ActorIdentity[]} identities - Channel identities
+ * @property {string[]} roles - Assigned roles
+ * @property {'active' | 'pending' | 'inactive'} status
+ * @property {string} createdAt
+ * @property {string} updatedAt
+ */
+
+/**
+ * Email routing rule - maps email address to skill
+ * @typedef {Object} EmailRoutingRule
+ * @property {string} address - Email address (e.g., "swdev2@yourdomain.com")
+ * @property {string} skill_slug - Target skill slug
+ */
+
+/**
+ * Slack routing rule - maps mention/channel to skill
+ * @typedef {Object} SlackRoutingRule
+ * @property {string} [mention_handle] - Mention handle (e.g., "@swdev2") for mention-based routing
+ * @property {string} [bot_user_id] - Slack bot user ID
+ * @property {string} [channel_id] - Channel ID for channel-per-skill routing
+ * @property {string} skill_slug - Target skill slug
+ */
+
+/**
+ * Email channel configuration (tenant-level)
+ * @typedef {Object} EmailChannelConfig
+ * @property {boolean} enabled
+ * @property {string} connector_id - Reference to MCP connector
+ * @property {Object} routing
+ * @property {'dedicated_mailbox' | 'plus_addressing'} routing.mode
+ * @property {EmailRoutingRule[]} routing.rules
+ */
+
+/**
+ * Slack channel configuration (tenant-level)
+ * @typedef {Object} SlackChannelConfig
+ * @property {boolean} enabled
+ * @property {string} connector_id - Reference to MCP connector
+ * @property {string} workspace_id - Slack workspace ID
+ * @property {Object} routing
+ * @property {'mention_based' | 'channel_per_skill'} routing.mode
+ * @property {SlackRoutingRule[]} routing.rules
+ */
+
+/**
+ * Tenant policies for actor management
+ * @typedef {Object} TenantPolicies
+ * @property {boolean} allow_external_users - Auto-provision actors for unknown senders
+ * @property {string} [default_skill_slug] - Fallback skill if routing fails
+ */
+
+/**
+ * Tenant configuration - defines communication channels and policies
+ * @typedef {Object} TenantConfig
+ * @property {string} tenant_id - UUID
+ * @property {string} name - Tenant name
+ * @property {Object} channels - Communication channels
+ * @property {EmailChannelConfig} [channels.email]
+ * @property {SlackChannelConfig} [channels.slack]
+ * @property {TenantPolicies} policies
+ * @property {string} createdAt
+ * @property {string} updatedAt
+ */
+
+// ═══════════════════════════════════════════════════════════════
+// SKILL IDENTITY & CHANNELS (Skill-Level Configuration)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Skill's email identity
+ * @typedef {Object} SkillEmailIdentity
+ * @property {string} from_name - Display name in emails
+ * @property {string} from_email - Email address (e.g., "swdev2@yourdomain.com")
+ * @property {string} [signature] - Email signature
+ */
+
+/**
+ * Skill's Slack identity
+ * @typedef {Object} SkillSlackIdentity
+ * @property {string} [bot_name] - Override bot display name
+ * @property {string} [bot_icon_url] - Override bot icon
+ */
+
+/**
+ * Skill identity - who the skill is (independent of channels)
+ * @typedef {Object} SkillIdentity
+ * @property {string} actor_ref - Logical reference to CORE actor (e.g., "agent::swdev2")
+ * @property {string} display_name - Display name (e.g., "SWDev2 Bot")
+ * @property {string} [avatar_url] - Avatar URL
+ * @property {Object} [channel_identities] - Per-channel identity overrides
+ * @property {SkillEmailIdentity} [channel_identities.email]
+ * @property {SkillSlackIdentity} [channel_identities.slack]
+ */
+
+/**
+ * Skill's inbound email configuration
+ * @typedef {Object} SkillEmailInbound
+ * @property {string[]} addresses - Email addresses that route to this skill
+ */
+
+/**
+ * Skill's outbound email configuration
+ * @typedef {Object} SkillEmailOutbound
+ * @property {string} from_email - Email address to send from
+ */
+
+/**
+ * Skill's inbound Slack configuration
+ * @typedef {Object} SkillSlackInbound
+ * @property {string[]} [mentions] - Mention handles (e.g., ["@swdev2"])
+ * @property {string[]} [channels] - Channel IDs for channel-per-skill mode
+ */
+
+/**
+ * Skill's outbound Slack configuration
+ * @typedef {Object} SkillSlackOutbound
+ * @property {string} bot_ref - Bot reference to use for sending
+ */
+
+/**
+ * Skill channels configuration - how the skill is reached and responds
+ * @typedef {Object} SkillChannelsConfig
+ * @property {Object} [email]
+ * @property {SkillEmailInbound} [email.inbound]
+ * @property {SkillEmailOutbound} [email.outbound]
+ * @property {Object} [slack]
+ * @property {SkillSlackInbound} [slack.inbound]
+ * @property {SkillSlackOutbound} [slack.outbound]
+ */
+
+// ═══════════════════════════════════════════════════════════════
+// MESSAGE ATTRIBUTION & ROUTING
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Inbound event - normalized event from any channel
+ * @typedef {Object} InboundEvent
+ * @property {'gmail' | 'slack'} provider - Channel provider
+ * @property {ActorIdentity} senderIdentity - Sender's channel identity
+ * @property {string} senderActorId - Resolved sender actor UUID
+ * @property {string} targetSkillSlug - Resolved target skill
+ * @property {string} conversationKey - Stable thread/conversation key
+ * @property {string} messageText - Message content
+ * @property {string} [onBehalfOfActorId] - Delegation: original human actor
+ * @property {string[]} [delegationChain] - Full delegation chain
+ */
+
+/**
+ * Message attribution - who sent, who received, delegation
+ * @typedef {Object} MessageAttribution
+ * @property {string} senderActorId - Who actually sent (human or agent)
+ * @property {string} targetSkillSlug - Which skill handles this
+ * @property {string} [onBehalfOfActorId] - Human in delegation scenarios
+ * @property {string[]} [delegationChain] - Full chain for nested delegation
+ */
+
+/**
+ * Reply context - how to reply to a message
+ * @typedef {Object} ReplyContext
+ * @property {'email' | 'slack'} type - Channel type
+ * @property {string} [to] - Email recipient
+ * @property {string} [threadId] - Email thread ID
+ * @property {string} [channelId] - Slack channel ID
+ * @property {string} [threadTs] - Slack thread timestamp
+ */
+
+/**
+ * Job metadata with attribution
+ * @typedef {Object} JobMetadata
+ * @property {string} jobId - UUID
+ * @property {string} ownerActorId - Job owner (sender actor)
+ * @property {string} skillActorId - Skill actor handling the job
+ * @property {string} [onBehalfOfActorId] - Delegation: original human
+ * @property {string[]} [delegationChain] - Full delegation chain
+ * @property {'email' | 'slack' | 'api'} channel - Inbound channel
+ * @property {ReplyContext} replyContext - How to reply
+ */
+
+// ═══════════════════════════════════════════════════════════════
 // TRIGGER TYPES (Scheduler & Automation)
 // ═══════════════════════════════════════════════════════════════
 
@@ -486,7 +686,9 @@
  * @property {Trigger[]} triggers - Automation triggers (schedule, event)
  * @property {PolicyConfig} policy
  * @property {Channel[]} channels
- * @property {ConnectorConfig[]} [connector_configs] - Per-skill connector identity/config overrides
+ * @property {ConnectorConfig[]} [connector_configs] - Per-skill connector identity/config overrides (DEPRECATED: use skill_identity + skill_channels)
+ * @property {SkillIdentity} [skill_identity] - Skill's identity (who the skill is)
+ * @property {SkillChannelsConfig} [skill_channels] - Skill's channel configuration (how it's reached)
  * @property {ValidationResult} validation
  * @property {Message[]} conversation
  */

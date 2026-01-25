@@ -241,6 +241,37 @@ export function validateSection(domain, section) {
     case 'engine':
       // Engine has defaults, so usually no issues
       break;
+
+    case 'identity':
+      // Check identity configuration
+      if (!domain.skill_identity?.display_name) {
+        issues.push({
+          code: 'MISSING_DISPLAY_NAME',
+          severity: 'warning',
+          path: 'skill_identity.display_name',
+          message: 'Skill display name is required',
+          suggestion: 'Add a display name for the skill identity',
+        });
+      }
+      if (!domain.skill_identity?.channel_identities?.email?.from_email) {
+        issues.push({
+          code: 'MISSING_EMAIL_FROM',
+          severity: 'warning',
+          path: 'skill_identity.channel_identities.email.from_email',
+          message: 'Outbound email address is not configured',
+          suggestion: 'Select a connected email address for outbound messages',
+        });
+      }
+      if (!domain.skill_identity?.actor_id) {
+        issues.push({
+          code: 'IDENTITY_NOT_ACTIVATED',
+          severity: 'warning',
+          path: 'skill_identity.actor_id',
+          message: 'Skill identity is not activated in CORE',
+          suggestion: 'Activate the identity to enable sending messages',
+        });
+      }
+      break;
   }
 
   return issues;
@@ -274,6 +305,7 @@ export function getValidationSummary(domain) {
       tools: { complete: result.completeness.tools, ...report.tools?.details },
       policy: { complete: result.completeness.policy, ...report.policy?.details },
       mocks: { complete: result.completeness.mocks_tested, ...report.mocks?.details },
+      identity: { complete: result.completeness.identity, ...report.identity?.details },
     },
   };
 }

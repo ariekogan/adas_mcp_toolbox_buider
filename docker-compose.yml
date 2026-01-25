@@ -11,6 +11,11 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo}
       - MEMORY_PATH=/memory
+      # ADAS CORE MCP connection
+      - CORE_MCP_URL=${CORE_MCP_URL:-http://host.docker.internal:4310/mcp}
+      - CORE_MCP_SECRET=${CORE_MCP_SECRET:-7a0cf2318aa65a2b4bbe2e572a4152f7995fe7d8d52269e7201b9488b79cac62}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ${MEMORY_PATH:-./memory}:/memory
     ports:
@@ -42,7 +47,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "${FRONTEND_PORT:-3311}:80"
+      - "${FRONTEND_PORT:-3312}:80"
     restart: "no"
     deploy:
       resources:
