@@ -40,8 +40,12 @@ function generateToolFunction(tool) {
   const output = tool.output || {};
   const mock = tool.mock || {};
   
-  // Generate function signature
-  const params = inputs.map(inp => {
+  // Generate function signature - required params first, then optional
+  const requiredParams = inputs.filter(inp => inp.required !== false);
+  const optionalParams = inputs.filter(inp => inp.required === false);
+  const sortedInputs = [...requiredParams, ...optionalParams];
+
+  const params = sortedInputs.map(inp => {
     const typeHint = pythonType(inp.type);
     if (inp.required === false) {
       return `${inp.name}: ${typeHint} = None`;
