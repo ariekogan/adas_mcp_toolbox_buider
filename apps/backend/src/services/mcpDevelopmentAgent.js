@@ -24,6 +24,173 @@ import path from "path";
 const MAX_GENERATION_ITERATIONS = 20;
 
 // ═══════════════════════════════════════════════════════════════════════════
+// LLM CLIENT - supports both Anthropic and OpenAI
+// ═══════════════════════════════════════════════════════════════════════════
+
+function getLLMConfig() {
+  const provider = process.env.LLM_PROVIDER || "anthropic";
+
+  if (provider === "openai") {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error("OPENAI_API_KEY not set");
+    }
+    return {
+      provider: "openai",
+      apiKey,
+      model: process.env.OPENAI_MODEL || "gpt-4-turbo",
+      baseUrl: "https://api.openai.com/v1"
+    };
+  } else {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error("ANTHROPIC_API_KEY not set");
+    }
+    return {
+      provider: "anthropic",
+      apiKey,
+      model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514"
+    };
+  }
+}
+
+/**
+ * Call LLM with tool use support - works with both Anthropic and OpenAI
+ */
+async function callLLMWithTools({ systemPrompt, messages, tools, maxTokens = 8192, llmConfig }) {
+  if (llmConfig.provider === "openai") {
+    return callOpenAIWithTools({ systemPrompt, messages, tools, maxTokens, llmConfig });
+  } else {
+    return callAnthropicWithTools({ systemPrompt, messages, tools, maxTokens, llmConfig });
+  }
+}
+
+async function callAnthropicWithTools({ systemPrompt, messages, tools, maxTokens, llmConfig }) {
+  const client = new Anthropic({ apiKey: llmConfig.apiKey });
+
+  const response = await client.messages.create({
+    model: llmConfig.model,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    tools,
+    messages,
+  });
+
+  return {
+    content: response.content,
+    stopReason: response.stop_reason,
+    toolUseBlocks: response.content.filter((b) => b.type === "tool_use"),
+    textContent: response.content
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("\n"),
+  };
+}
+
+async function callOpenAIWithTools({ systemPrompt, messages, tools, maxTokens, llmConfig }) {
+  // Convert Anthropic-style tools to OpenAI format
+  const openaiTools = tools.map((t) => ({
+    type: "function",
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema,
+    },
+  }));
+
+  // Convert messages to OpenAI format
+  const openaiMessages = [
+    { role: "system", content: systemPrompt },
+    ...messages.map((m) => {
+      if (m.role === "assistant" && Array.isArray(m.content)) {
+        // Handle assistant messages with tool calls
+        const textParts = m.content.filter((c) => c.type === "text");
+        const toolUseParts = m.content.filter((c) => c.type === "tool_use");
+
+        if (toolUseParts.length > 0) {
+          return {
+            role: "assistant",
+            content: textParts.map((t) => t.text).join("\n") || null,
+            tool_calls: toolUseParts.map((t) => ({
+              id: t.id,
+              type: "function",
+              function: {
+                name: t.name,
+                arguments: JSON.stringify(t.input),
+              },
+            })),
+          };
+        }
+        return {
+          role: "assistant",
+          content: textParts.map((t) => t.text).join("\n"),
+        };
+      }
+      if (m.role === "user" && Array.isArray(m.content)) {
+        // Handle tool results
+        const toolResults = m.content.filter((c) => c.type === "tool_result");
+        if (toolResults.length > 0) {
+          return toolResults.map((r) => ({
+            role: "tool",
+            tool_call_id: r.tool_use_id,
+            content: r.content,
+          }));
+        }
+      }
+      return { role: m.role, content: m.content };
+    }).flat(),
+  ];
+
+  const response = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${llmConfig.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: llmConfig.model,
+      messages: openaiMessages,
+      max_tokens: maxTokens,
+      tools: openaiTools.length > 0 ? openaiTools : undefined,
+      tool_choice: openaiTools.length > 0 ? "auto" : undefined,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(`OpenAI API error: ${response.status} - ${error.error?.message || response.statusText}`);
+  }
+
+  const data = await response.json();
+  const message = data.choices[0]?.message;
+  const toolCalls = message?.tool_calls || [];
+
+  // Convert to Anthropic-like response format
+  const content = [];
+  if (message?.content) {
+    content.push({ type: "text", text: message.content });
+  }
+  for (const tc of toolCalls) {
+    content.push({
+      type: "tool_use",
+      id: tc.id,
+      name: tc.function.name,
+      input: JSON.parse(tc.function.arguments || "{}"),
+    });
+  }
+
+  return {
+    content,
+    stopReason: data.choices[0]?.finish_reason,
+    toolUseBlocks: content.filter((b) => b.type === "tool_use"),
+    textContent: content
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("\n"),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // PHASES (simplified)
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -224,16 +391,12 @@ export class MCPDevelopmentSession {
     this.inferences = new Map(); // Store what we inferred for each tool
     this.validationResults = null;
 
-    this.client = null;
-    this.model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
+    this.llmConfig = null;
   }
 
   async init() {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error("ANTHROPIC_API_KEY not set");
-    }
-    this.client = new Anthropic({ apiKey });
+    this.llmConfig = getLLMConfig();
+    console.log(`[MCPDev] Using LLM provider: ${this.llmConfig.provider}, model: ${this.llmConfig.model}`);
   }
 
   /**
@@ -384,28 +547,20 @@ export class MCPDevelopmentSession {
 
       yield { type: "iteration", iteration, maxIterations: MAX_GENERATION_ITERATIONS };
 
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: 8192,
-        system: systemPrompt,
-        tools,
+      const response = await callLLMWithTools({
+        systemPrompt,
         messages,
+        tools,
+        maxTokens: 8192,
+        llmConfig: this.llmConfig,
       });
 
-      const assistantContent = response.content;
-      messages.push({ role: "assistant", content: assistantContent });
+      messages.push({ role: "assistant", content: response.content });
 
-      const toolUseBlocks = assistantContent.filter((b) => b.type === "tool_use");
-
-      if (toolUseBlocks.length === 0 || response.stop_reason === "end_turn") {
-        const textContent = assistantContent
-          .filter((b) => b.type === "text")
-          .map((b) => b.text)
-          .join("\n");
-
+      if (response.toolUseBlocks.length === 0 || response.stopReason === "end_turn" || response.stopReason === "stop") {
         yield {
           type: "generation_complete",
-          message: textContent,
+          message: response.textContent,
           files: this.generatedFiles,
         };
         break;
@@ -413,7 +568,7 @@ export class MCPDevelopmentSession {
 
       const toolResults = [];
 
-      for (const toolUse of toolUseBlocks) {
+      for (const toolUse of response.toolUseBlocks) {
         yield { type: "tool_use", tool: toolUse.name };
 
         try {
@@ -459,30 +614,27 @@ Make the requested changes. Be surgical - only modify what's needed.`;
 
       yield { type: "iteration", iteration, maxIterations: MAX_GENERATION_ITERATIONS };
 
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: 8192,
-        system: systemPrompt,
-        tools,
+      const response = await callLLMWithTools({
+        systemPrompt,
         messages,
+        tools,
+        maxTokens: 8192,
+        llmConfig: this.llmConfig,
       });
 
-      const assistantContent = response.content;
-      messages.push({ role: "assistant", content: assistantContent });
+      messages.push({ role: "assistant", content: response.content });
 
-      const toolUseBlocks = assistantContent.filter((b) => b.type === "tool_use");
-
-      if (toolUseBlocks.length === 0 || response.stop_reason === "end_turn") {
+      if (response.toolUseBlocks.length === 0 || response.stopReason === "end_turn" || response.stopReason === "stop") {
         yield {
           type: "refinement_complete",
-          message: assistantContent.filter((b) => b.type === "text").map((b) => b.text).join("\n"),
+          message: response.textContent,
         };
         break;
       }
 
       const toolResults = [];
 
-      for (const toolUse of toolUseBlocks) {
+      for (const toolUse of response.toolUseBlocks) {
         yield { type: "tool_use", tool: toolUse.name };
 
         try {
