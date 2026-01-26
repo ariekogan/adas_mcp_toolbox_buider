@@ -941,4 +941,227 @@ router.get("/:domainId/triggers/:triggerId/history", async (req, res, next) => {
   }
 });
 
+// ============================================================================
+// MCP SERVER RUNTIME MANAGEMENT
+// ============================================================================
+
+// Store running MCP processes
+const runningMCPs = new Map();
+
+/**
+ * POST /api/export/:domainId/mcp/run
+ *
+ * Start the generated MCP server.
+ * Returns the server status and port.
+ */
+router.post("/:domainId/mcp/run", async (req, res, next) => {
+  try {
+    const { domainId } = req.params;
+    const log = req.app.locals.log;
+
+    // Check if already running
+    if (runningMCPs.has(domainId)) {
+      const existing = runningMCPs.get(domainId);
+      return res.json({
+        ok: true,
+        status: 'already_running',
+        pid: existing.pid,
+        port: existing.port,
+        startedAt: existing.startedAt
+      });
+    }
+
+    const domain = await domainsStore.load(domainId);
+    const version = domain.version;
+
+    if (!version) {
+      return res.status(400).json({
+        error: "No MCP export found",
+        hint: "Generate an MCP first using the Export dialog"
+      });
+    }
+
+    // Get export path
+    const exportPath = await domainsStore.getExportPath(domainId, version);
+
+    log.info(`Starting MCP server for ${domainId} from ${exportPath}`);
+
+    // Find the server file
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const files = await fs.readdir(exportPath);
+    const serverFile = files.find(f => f === 'server.py' || f === 'mcp_server.py');
+
+    if (!serverFile) {
+      return res.status(400).json({
+        error: "No server.py found in export",
+        files
+      });
+    }
+
+    // Spawn python process
+    const { spawn } = await import('child_process');
+    const serverPath = path.join(exportPath, serverFile);
+
+    // Find available port (start from 8100)
+    const basePort = 8100 + Math.floor(Math.random() * 100);
+
+    const proc = spawn('python', [serverPath], {
+      cwd: exportPath,
+      env: {
+        ...process.env,
+        MCP_PORT: String(basePort),
+        PYTHONUNBUFFERED: '1'
+      },
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    let output = '';
+    let errorOutput = '';
+
+    proc.stdout.on('data', (data) => {
+      output += data.toString();
+      log.info(`[MCP:${domainId}] ${data.toString().trim()}`);
+    });
+
+    proc.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+      log.warn(`[MCP:${domainId}] ${data.toString().trim()}`);
+    });
+
+    proc.on('error', (err) => {
+      log.error(`[MCP:${domainId}] Process error: ${err.message}`);
+      runningMCPs.delete(domainId);
+    });
+
+    proc.on('exit', (code) => {
+      log.info(`[MCP:${domainId}] Process exited with code ${code}`);
+      runningMCPs.delete(domainId);
+    });
+
+    // Store process info
+    const mcpInfo = {
+      pid: proc.pid,
+      port: basePort,
+      startedAt: new Date().toISOString(),
+      process: proc,
+      domainId,
+      version
+    };
+    runningMCPs.set(domainId, mcpInfo);
+
+    // Wait a moment for server to start
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // Check if still running
+    if (!runningMCPs.has(domainId)) {
+      return res.status(500).json({
+        error: "MCP server failed to start",
+        output,
+        errorOutput
+      });
+    }
+
+    res.json({
+      ok: true,
+      status: 'started',
+      pid: proc.pid,
+      port: basePort,
+      startedAt: mcpInfo.startedAt,
+      message: `MCP server running on port ${basePort}`
+    });
+
+  } catch (err) {
+    if (err.message?.includes('not found') || err.code === "ENOENT") {
+      return res.status(404).json({ error: "Domain not found" });
+    }
+    next(err);
+  }
+});
+
+/**
+ * POST /api/export/:domainId/mcp/stop
+ *
+ * Stop the running MCP server.
+ */
+router.post("/:domainId/mcp/stop", async (req, res, next) => {
+  try {
+    const { domainId } = req.params;
+    const log = req.app.locals.log;
+
+    if (!runningMCPs.has(domainId)) {
+      return res.json({
+        ok: true,
+        status: 'not_running'
+      });
+    }
+
+    const mcpInfo = runningMCPs.get(domainId);
+    log.info(`Stopping MCP server for ${domainId} (pid: ${mcpInfo.pid})`);
+
+    mcpInfo.process.kill('SIGTERM');
+    runningMCPs.delete(domainId);
+
+    res.json({
+      ok: true,
+      status: 'stopped',
+      pid: mcpInfo.pid
+    });
+
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/export/:domainId/mcp/status
+ *
+ * Get MCP server running status.
+ */
+router.get("/:domainId/mcp/running", async (req, res) => {
+  const { domainId } = req.params;
+
+  if (runningMCPs.has(domainId)) {
+    const info = runningMCPs.get(domainId);
+    return res.json({
+      running: true,
+      pid: info.pid,
+      port: info.port,
+      startedAt: info.startedAt
+    });
+  }
+
+  res.json({ running: false });
+});
+
+/**
+ * GET /api/export/:domainId/files/:version/:filename
+ *
+ * Get content of a specific export file.
+ */
+router.get("/:domainId/files/:version/:filename", async (req, res, next) => {
+  try {
+    const { domainId, version, filename } = req.params;
+
+    const files = await domainsStore.getExport(domainId, version);
+    const file = files.find(f => f.name === filename);
+
+    if (!file) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    res.json({
+      name: file.name,
+      content: file.content,
+      size: file.content.length
+    });
+
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      return res.status(404).json({ error: "Export not found" });
+    }
+    next(err);
+  }
+});
+
 export default router;

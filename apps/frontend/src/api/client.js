@@ -499,6 +499,22 @@ export async function downloadMCPExport(skillId, version) {
   return request(`/export/${skillId}/download/${version}`);
 }
 
+export async function getMCPFile(skillId, version, filename) {
+  return request(`/export/${skillId}/files/${version}/${encodeURIComponent(filename)}`);
+}
+
+export async function startMCPServer(skillId) {
+  return request(`/export/${skillId}/mcp/run`, { method: 'POST' });
+}
+
+export async function stopMCPServer(skillId) {
+  return request(`/export/${skillId}/mcp/stop`, { method: 'POST' });
+}
+
+export async function getMCPServerStatus(skillId) {
+  return request(`/export/${skillId}/mcp/running`);
+}
+
 // ============================================
 // Triggers (CORE trigger-runner bridge)
 // ============================================
@@ -590,5 +606,9 @@ export default {
   listSkillMCPs,
   previewMCPGeneration,
   generateMCP,
-  downloadMCPExport
+  downloadMCPExport,
+  getMCPFile,
+  startMCPServer,
+  stopMCPServer,
+  getMCPServerStatus
 };
