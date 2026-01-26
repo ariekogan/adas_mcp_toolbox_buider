@@ -90,6 +90,10 @@ function generateMockImplementation(tool) {
   ];
   
   for (const example of examples) {
+    // Skip examples with undefined input or output
+    if (example.input === undefined || example.output === undefined) {
+      continue;
+    }
     const key = JSON.stringify(example.input);
     const value = JSON.stringify(example.output);
     lines.push(`        ${key}: ${value},`);
