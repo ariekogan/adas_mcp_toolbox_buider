@@ -729,46 +729,86 @@ Make the requested changes. Be surgical - only modify what's needed.`;
 // ═══════════════════════════════════════════════════════════════════════════
 
 function buildAutonomousGenerationPrompt(context) {
-  return `You are an expert MCP server developer. Generate a COMPLETE, PRODUCTION-READY FastMCP server.
+  const toolDefs = (context.enrichedTools || []).map(t => {
+    const params = (t.inputs || t.parameters || []).map(p =>
+      `${p.name}: ${p.type || 'str'}`
+    ).join(', ');
+    return `@mcp.tool()
+def ${t.name}(${params}) -> dict:
+    """${t.description || t.purpose || 'No description'}"""
+    # TODO: Implement - use mock data
+    return {"success": True, "data": {}}`;
+  }).join('\n\n');
 
-## CRITICAL RULES
-1. DO NOT ask questions - just make reasonable decisions
-2. Generate REAL implementations, not stubs
-3. Use the inferences provided to guide implementation
-4. Include proper error handling
-5. Add discovery endpoints
-6. **IMPORTANT**: You MUST use the write_file tool to create each file. Do NOT just output code in text - use the tool!
-7. After writing all files, call the generation_complete tool with a summary
+  return `You are an expert MCP server developer. Generate a COMPLETE FastMCP server.
 
-## Domain
-Name: ${context.domain.name || "Unnamed"}
-Purpose: ${context.domain.problem?.statement || "General purpose MCP server"}
+## CRITICAL: Follow this EXACT structure for mcp_server.py
 
-## Tools to Implement
+\`\`\`python
+from fastmcp import FastMCP
+import os
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+mcp = FastMCP("${context.domain.name || 'MCP Server'}")
+
+# ============================================================================
+# TOOL IMPLEMENTATIONS - Fill in each tool with mock logic
+# ============================================================================
+
+${toolDefs}
+
+# ============================================================================
+# DISCOVERY ENDPOINTS (required)
+# ============================================================================
+
+@mcp.tool()
+def get_skill_info() -> dict:
+    """Get information about this MCP server."""
+    return {
+        "name": "${context.domain.name || 'MCP Server'}",
+        "description": "${(context.domain.problem?.statement || 'MCP Server').replace(/"/g, '\\"')}",
+        "version": "1.0.0",
+        "tools_count": ${(context.enrichedTools || []).length}
+    }
+
+@mcp.tool()
+def health_check() -> dict:
+    """Check server health."""
+    return {"status": "healthy", "server": "${context.domain.name || 'MCP Server'}"}
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+if __name__ == "__main__":
+    port = int(os.environ.get("MCP_PORT", 8100))
+    logger.info(f"Starting MCP server on port {port}")
+    mcp.run(transport="sse", port=port)
+\`\`\`
+
+## YOUR TASK
+1. Use write_file to create mcp_server.py following the EXACT structure above
+2. Fill in REAL implementations for each tool (use realistic mock data, not stubs)
+3. Create requirements.txt with: fastmcp>=0.1.0, httpx
+4. Create README.md with basic usage info
+5. Call generation_complete when done
+
+## Tools to implement with REAL logic:
 ${JSON.stringify(context.enrichedTools, null, 2)}
 
-## Implementation Inferences (use these!)
+## Inferences to guide implementation:
 ${JSON.stringify(context.inferences, null, 2)}
 
-## Files to Create
-1. **mcp_server.py** - Main server with ALL tools fully implemented
-2. **requirements.txt** - Python dependencies
-3. **README.md** - Brief documentation
+IMPORTANT:
+- Use the EXACT template structure above
+- Fill in actual mock implementations, not "pass" or "TODO"
+- Include proper type hints
+- Return dicts with meaningful mock data
 
-## Discovery Endpoints (REQUIRED)
-- get_skill_info() - Returns server metadata
-- list_capabilities() - Returns all tools with schemas
-- get_tool_details(tool_name) - Returns specific tool info
-- health_check() - Returns health status
-
-## Implementation Guidelines
-- Use mock data for external APIs (realistic but fake)
-- Add logging with Python's logging module
-- Use type hints everywhere
-- Return structured dicts with "status" field
-- Handle errors gracefully
-
-Start generating. Use the write_file tool to create mcp_server.py first, then requirements.txt, then README.md.`;
+Start now with write_file for mcp_server.py.`;
 }
 
 function buildGenerationRequest(context) {
