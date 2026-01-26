@@ -1191,6 +1191,7 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
         env: {
           ...process.env,
           MCP_PORT: String(basePort),
+          MCP_HOST: '0.0.0.0',  // Bind to all interfaces for Docker access
           PYTHONUNBUFFERED: '1'
         },
         stdio: ['pipe', 'pipe', 'pipe']
@@ -1231,9 +1232,10 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
       log.info(`[MCP Deploy] Server started on port ${basePort}`);
     }
 
-    // Step 2: Build MCP URI (use container network name for Docker)
-    // In Docker, the toolbox backend can reach itself as 'localhost' or via container name
-    const mcpHost = process.env.MCP_HOST || 'localhost';
+    // Step 2: Build MCP URI
+    // For Docker-to-Docker communication, we need to use the host IP
+    // since containers are on different networks
+    const mcpHost = process.env.MCP_HOST || process.env.HOST_IP || '10.0.0.8';
     const mcpUri = `http://${mcpHost}:${mcpInfo.port}`;
     mcpInfo.mcpUri = mcpUri;
 
