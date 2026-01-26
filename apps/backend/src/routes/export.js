@@ -2,6 +2,11 @@ import { Router } from "express";
 import domainsStore from "../store/domains.js";
 import { generateExportFiles, generateAdasExportPayload, generateAdasExportFiles } from "../services/export.js";
 import { provisionSkillActor, listTriggers, toggleTrigger, getTriggerHistory } from "../services/cpAdminBridge.js";
+import { generateMCPWithAgent, generateMCPSimple, isAgentSDKAvailable } from "../services/mcpGenerationAgent.js";
+import { MCPDevelopmentSession, analyzeDomainForMCP, MCP_DEV_PHASES } from "../services/mcpDevelopmentAgent.js";
+
+// Store active development sessions (in production, use Redis or similar)
+const activeSessions = new Map();
 
 const router = Router();
 
@@ -92,6 +97,393 @@ router.get("/:domainId/preview", async (req, res, next) => {
         name: f.name,
         content: f.content
       }))
+    });
+
+  } catch (err) {
+    if (err.message?.includes('not found') || err.code === "ENOENT") {
+      return res.status(404).json({ error: "Domain not found" });
+    }
+    next(err);
+  }
+});
+
+// ============================================================================
+// AGENT-POWERED MCP GENERATION
+// ============================================================================
+
+/**
+ * POST /api/export/:domainId/mcp/generate
+ *
+ * Generate a complete MCP server using the Claude Agent SDK.
+ * Streams progress events via Server-Sent Events (SSE).
+ *
+ * This endpoint uses an AI agent to:
+ * - Generate fully-implemented tools (not stubs)
+ * - Add discovery endpoints
+ * - Create proper error handling
+ * - Research APIs when needed
+ */
+router.post("/:domainId/mcp/generate", async (req, res, next) => {
+  try {
+    const { domainId } = req.params;
+    const { useAgent = "true" } = req.query;
+    const log = req.app.locals.log;
+
+    log.info(`Generating MCP for domain ${domainId} (useAgent=${useAgent})`);
+
+    // Load domain
+    const domain = await domainsStore.load(domainId);
+
+    // Check if tools exist
+    if (!domain.tools || domain.tools.length === 0) {
+      return res.status(400).json({
+        error: "Domain has no tools defined",
+        hint: "Add tools to the domain before generating MCP"
+      });
+    }
+
+    // Check if Agent SDK is available
+    const agentAvailable = await isAgentSDKAvailable();
+
+    if (useAgent === "true" && !agentAvailable) {
+      log.warn("Agent SDK not available, falling back to simple generation");
+    }
+
+    // Prepare output directory
+    const version = (domain.version || 0) + 1;
+    const outputDir = await domainsStore.getExportPath(domainId, version);
+
+    if (useAgent === "true" && agentAvailable) {
+      // Use Agent SDK with streaming
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+
+      const sendEvent = (event, data) => {
+        res.write(`event: ${event}\n`);
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      sendEvent("start", {
+        domainId,
+        version,
+        toolsCount: domain.tools.length,
+        timestamp: new Date().toISOString()
+      });
+
+      try {
+        for await (const message of generateMCPWithAgent(domain, {
+          outputDir,
+          onProgress: (msg) => log.info(`[MCPAgent] ${msg}`)
+        })) {
+          sendEvent("progress", message);
+
+          if (message.type === "complete") {
+            // Update domain
+            domain.version = version;
+            domain.phase = "EXPORTED";
+            domain.lastExportedAt = new Date().toISOString();
+            domain.lastExportType = "mcp-agent";
+            await domainsStore.save(domain);
+
+            sendEvent("complete", {
+              version,
+              outputDir,
+              message: "MCP generation complete"
+            });
+          }
+        }
+      } catch (agentErr) {
+        log.error(`Agent generation failed: ${agentErr.message}`);
+        sendEvent("error", { error: agentErr.message });
+      }
+
+      res.end();
+
+    } else {
+      // Use simple generation (no agent)
+      log.info("Using simple MCP generation (no agent)");
+
+      const files = await generateMCPSimple(domain);
+
+      // Save files
+      const fileList = Object.entries(files).map(([name, content]) => ({
+        name,
+        content
+      }));
+      await domainsStore.saveExport(domainId, version, fileList);
+
+      // Update domain
+      domain.version = version;
+      domain.phase = "EXPORTED";
+      domain.lastExportedAt = new Date().toISOString();
+      domain.lastExportType = "mcp-simple";
+      await domainsStore.save(domain);
+
+      res.json({
+        ok: true,
+        version,
+        method: "simple",
+        files: fileList.map(f => ({
+          name: f.name,
+          size: f.content.length
+        })),
+        download_url: `/api/export/${domainId}/download/${version}`
+      });
+    }
+
+  } catch (err) {
+    if (err.message?.includes('not found') || err.code === "ENOENT") {
+      return res.status(404).json({ error: "Domain not found" });
+    }
+    next(err);
+  }
+});
+
+/**
+ * GET /api/export/:domainId/mcp/status
+ *
+ * Check if Agent SDK is available and get generation capabilities.
+ */
+router.get("/:domainId/mcp/status", async (req, res) => {
+  const agentAvailable = await isAgentSDKAvailable();
+
+  res.json({
+    agentSDKAvailable: agentAvailable,
+    capabilities: agentAvailable ? [
+      "full-implementation",
+      "api-research",
+      "error-handling",
+      "discovery-endpoints",
+      "streaming-progress"
+    ] : [
+      "stub-implementation",
+      "basic-structure"
+    ],
+    recommendedMethod: agentAvailable ? "agent" : "simple"
+  });
+});
+
+// ============================================================================
+// MCP DEVELOPMENT - AUTONOMOUS (no questions, just generate)
+// ============================================================================
+
+/**
+ * POST /api/export/:domainId/mcp/develop
+ *
+ * ONE-SHOT MCP generation. No questions, no sessions to manage.
+ *
+ * 1. Analyzes domain and infers missing details
+ * 2. Generates complete MCP server
+ * 3. Returns files
+ *
+ * User can optionally refine after by calling /mcp/develop/refine
+ */
+router.post("/:domainId/mcp/develop", async (req, res, next) => {
+  try {
+    const { domainId } = req.params;
+    const log = req.app.locals.log;
+
+    log.info(`Starting autonomous MCP generation for ${domainId}`);
+
+    const domain = await domainsStore.load(domainId);
+
+    if (!domain.tools || domain.tools.length === 0) {
+      return res.status(400).json({
+        error: "Domain has no tools defined",
+        hint: "Add at least one tool before generating MCP"
+      });
+    }
+
+    // Create output directory
+    const version = (domain.version || 0) + 1;
+    const outputDir = await domainsStore.getExportPath(domainId, version);
+
+    // Create session
+    const session = new MCPDevelopmentSession(domain, {
+      outputDir,
+      onProgress: (msg) => log.info(`[MCPDev] ${JSON.stringify(msg)}`)
+    });
+
+    // Analyze and enrich (no questions - just infer)
+    const enrichment = session.analyzeAndEnrich();
+    log.info(`Enriched ${enrichment.toolsCount} tools with inferences`);
+
+    // Store session for potential refinement
+    const sessionId = `${domainId}_${Date.now()}`;
+    activeSessions.set(sessionId, { session, domainId, version });
+
+    // Set up SSE streaming
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    const sendEvent = (event, data) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    sendEvent("start", {
+      sessionId,
+      domainId,
+      version,
+      toolsCount: domain.tools.length,
+      inferences: enrichment.inferences,
+      message: "Starting generation (no questions - we figured it out!)"
+    });
+
+    try {
+      for await (const event of session.generate()) {
+        sendEvent("progress", event);
+
+        if (event.type === "complete") {
+          // Update domain
+          domain.version = version;
+          domain.phase = "EXPORTED";
+          domain.lastExportedAt = new Date().toISOString();
+          domain.lastExportType = "mcp-autonomous";
+          await domainsStore.save(domain);
+
+          sendEvent("complete", {
+            sessionId,
+            version,
+            files: event.files,
+            validation: event.validation,
+            download_url: `/api/export/${domainId}/download/${version}`,
+            message: "MCP generated! Use /mcp/develop/refine if you want changes."
+          });
+        }
+      }
+    } catch (genErr) {
+      log.error(`Generation failed: ${genErr.message}`);
+      sendEvent("error", { error: genErr.message });
+    }
+
+    res.end();
+
+  } catch (err) {
+    if (err.message?.includes('not found') || err.code === "ENOENT") {
+      return res.status(404).json({ error: "Domain not found" });
+    }
+    next(err);
+  }
+});
+
+/**
+ * POST /api/export/:domainId/mcp/develop/refine
+ *
+ * Refine a previously generated MCP based on feedback.
+ * Just tell us what to change, we'll do it.
+ */
+router.post("/:domainId/mcp/develop/refine", async (req, res, next) => {
+  try {
+    const { domainId } = req.params;
+    const { sessionId, feedback } = req.body;
+    const log = req.app.locals.log;
+
+    if (!feedback) {
+      return res.status(400).json({
+        error: "No feedback provided",
+        hint: "Tell us what to change, e.g., 'Add retry logic to API calls'"
+      });
+    }
+
+    // Find or recreate session
+    let session, version;
+
+    if (sessionId && activeSessions.has(sessionId)) {
+      ({ session, version } = activeSessions.get(sessionId));
+    } else {
+      // No session - create one from the latest export
+      const domain = await domainsStore.load(domainId);
+      version = domain.version || 1;
+      const outputDir = await domainsStore.getExportPath(domainId, version);
+
+      session = new MCPDevelopmentSession(domain, {
+        outputDir,
+        onProgress: (msg) => log.info(`[MCPDev] ${JSON.stringify(msg)}`)
+      });
+
+      // Load existing files
+      try {
+        const existingFiles = await domainsStore.getExport(domainId, version);
+        session.generatedFiles = existingFiles.map(f => f.name);
+      } catch {
+        return res.status(400).json({
+          error: "No previous generation found",
+          hint: "Generate first with POST /mcp/develop"
+        });
+      }
+    }
+
+    // Set up SSE
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    const sendEvent = (event, data) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    sendEvent("start", {
+      domainId,
+      version,
+      feedback,
+      message: "Applying your changes..."
+    });
+
+    try {
+      for await (const event of session.refine(feedback)) {
+        sendEvent("progress", event);
+
+        if (event.type === "complete" || event.type === "refinement_complete") {
+          sendEvent("complete", {
+            version,
+            files: session.generatedFiles,
+            validation: session.validationResults,
+            download_url: `/api/export/${domainId}/download/${version}`
+          });
+        }
+      }
+    } catch (refineErr) {
+      log.error(`Refinement failed: ${refineErr.message}`);
+      sendEvent("error", { error: refineErr.message });
+    }
+
+    res.end();
+
+  } catch (err) {
+    if (err.message?.includes('not found') || err.code === "ENOENT") {
+      return res.status(404).json({ error: "Domain not found" });
+    }
+    next(err);
+  }
+});
+
+/**
+ * GET /api/export/:domainId/mcp/develop/preview
+ *
+ * Preview what will be inferred before generating.
+ * Shows the inferences without actually generating.
+ */
+router.get("/:domainId/mcp/develop/preview", async (req, res, next) => {
+  try {
+    const { domainId } = req.params;
+
+    const domain = await domainsStore.load(domainId);
+    const analysis = analyzeDomainForMCP(domain);
+
+    res.json({
+      domainId,
+      domainName: domain.name,
+      ready: analysis.ready,
+      toolsCount: analysis.toolsCount,
+      inferences: analysis.inferences,
+      summary: analysis.summary,
+      message: analysis.ready
+        ? "Ready to generate! Call POST /mcp/develop to start."
+        : "Add some tools first."
     });
 
   } catch (err) {

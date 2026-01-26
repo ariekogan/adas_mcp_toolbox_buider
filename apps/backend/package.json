@@ -8,6 +8,7 @@
     "generate:coverage": "node scripts/generate-validation-coverage.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "express": "^4.19.2",
     "cors": "^2.8.5",
     "uuid": "^9.0.0",

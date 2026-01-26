@@ -615,6 +615,18 @@ async function getExport(slug, version) {
   return result;
 }
 
+/**
+ * Get the export path for a given version (creates directory if needed)
+ * @param {string} slug
+ * @param {string|number} version
+ * @returns {Promise<string>} Export directory path
+ */
+async function getExportPath(slug, version) {
+  const exportDir = path.join(MEMORY_PATH, slug, 'exports', `v${version}`);
+  await ensureDir(exportDir);
+  return exportDir;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════════
@@ -651,4 +663,5 @@ export default {
   remove,
   saveExport,
   getExport,
+  getExportPath,
 };
