@@ -24,6 +24,8 @@ services:
       - ${MEMORY_PATH:-./memory}:/memory
     ports:
       - "${BACKEND_PORT:-4311}:4000"
+      # Expose port range for dynamically spawned MCP servers
+      - "8100-8110:8100-8110"
     restart: "no"
     deploy:
       resources:

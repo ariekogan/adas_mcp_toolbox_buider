@@ -1184,7 +1184,8 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
 
       const { spawn } = await import('child_process');
       const serverPath = path.join(exportPath, serverFile);
-      const basePort = 8100 + Math.floor(Math.random() * 100);
+      // Use ports 8100-8110 which are exposed in docker-compose.yml
+      const basePort = 8100 + Math.floor(Math.random() * 11);
 
       const proc = spawn('python', [serverPath], {
         cwd: exportPath,
