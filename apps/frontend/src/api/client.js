@@ -450,6 +450,11 @@ export async function listEmailAliases() {
 // MCP Generation (Autonomous Agent)
 // ============================================
 
+export async function listSkillMCPs() {
+  const data = await request('/export/mcps');
+  return data.mcps;
+}
+
 export async function previewMCPGeneration(skillId) {
   return request(`/export/${skillId}/mcp/develop/preview`);
 }
@@ -582,6 +587,7 @@ export default {
   toggleTriggerInCore,
   getTriggerHistory,
   // MCP Generation
+  listSkillMCPs,
   previewMCPGeneration,
   generateMCP,
   downloadMCPExport

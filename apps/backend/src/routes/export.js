@@ -10,6 +10,69 @@ const activeSessions = new Map();
 
 const router = Router();
 
+// ============================================================================
+// LIST ALL SKILL MCP EXPORTS
+// ============================================================================
+
+/**
+ * GET /api/export/mcps
+ *
+ * List all skills that have generated MCP exports.
+ * Returns skills with their version info and export status.
+ */
+router.get("/mcps", async (req, res, next) => {
+  try {
+    const log = req.app.locals.log;
+    log.info("Listing all skill MCP exports");
+
+    // Get all domains
+    const domains = await domainsStore.list();
+
+    // Filter and enrich with export info
+    const skillMcps = [];
+
+    for (const domainSummary of domains) {
+      try {
+        const domain = await domainsStore.load(domainSummary.id);
+
+        // Check if this domain has an MCP export
+        if (domain.version && domain.lastExportType?.startsWith('mcp')) {
+          // Get export files
+          let exportFiles = [];
+          try {
+            exportFiles = await domainsStore.getExport(domain.id, domain.version);
+          } catch {
+            // No export files found
+          }
+
+          skillMcps.push({
+            id: domain.id,
+            name: domain.name,
+            version: domain.version,
+            exportType: domain.lastExportType,
+            exportedAt: domain.lastExportedAt,
+            phase: domain.phase,
+            toolsCount: domain.tools?.length || 0,
+            files: exportFiles.map(f => ({ name: f.name, size: f.content?.length || 0 })),
+            hasServerPy: exportFiles.some(f => f.name === 'server.py'),
+            downloadUrl: `/api/export/${domain.id}/download/${domain.version}`
+          });
+        }
+      } catch (err) {
+        // Skip domains that fail to load
+        log.warn(`Failed to load domain ${domainSummary.id}: ${err.message}`);
+      }
+    }
+
+    res.json({
+      mcps: skillMcps.sort((a, b) => new Date(b.exportedAt) - new Date(a.exportedAt))
+    });
+
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Export domain as MCP server
 router.get("/:domainId", async (req, res, next) => {
   try {

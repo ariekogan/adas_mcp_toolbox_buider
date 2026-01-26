@@ -1,4 +1,5 @@
 import ConnectorPanel from './ConnectorPanel';
+import SkillMCPsSection from './SkillMCPsSection';
 
 const styles = {
   container: {
@@ -42,6 +43,23 @@ const styles = {
     flex: 1,
     overflow: 'auto',
     padding: '24px'
+  },
+  divider: {
+    borderTop: '1px solid var(--border)',
+    margin: '24px 0',
+    position: 'relative'
+  },
+  dividerLabel: {
+    position: 'absolute',
+    top: '-10px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background: 'var(--bg-primary)',
+    padding: '0 12px',
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px'
   }
 };
 
@@ -50,8 +68,8 @@ export default function ConnectorsPage({ onClose }) {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <div style={styles.title}>Connectors</div>
-          <div style={styles.subtitle}>Manage MCP connections for your skills</div>
+          <div style={styles.title}>Connectors & MCPs</div>
+          <div style={styles.subtitle}>Manage generated skill MCPs and external MCP connections</div>
         </div>
         <button style={styles.closeBtn} onClick={onClose} title="Close">
           ✕
@@ -59,6 +77,15 @@ export default function ConnectorsPage({ onClose }) {
       </div>
 
       <div style={styles.content}>
+        {/* ADAS Skills MCPs Section */}
+        <SkillMCPsSection />
+
+        {/* Divider */}
+        <div style={styles.divider}>
+          <span style={styles.dividerLabel}>External Connectors</span>
+        </div>
+
+        {/* External Connectors Section */}
         <ConnectorPanel
           skillId={null}
           onToolsImported={() => {}}
