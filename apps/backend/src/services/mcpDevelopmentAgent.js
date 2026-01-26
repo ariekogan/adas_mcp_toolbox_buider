@@ -16,6 +16,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs/promises";
 import path from "path";
+import { generateDomainYaml } from "./export.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -379,6 +380,68 @@ function generateMockExample(tool, inference) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// EXTERNAL CONNECTOR CONFIGURATION
+// Maps connector IDs to their MCP server command/args
+// ═══════════════════════════════════════════════════════════════════════════
+
+const CONNECTOR_CONFIGS = {
+  github: {
+    name: 'GitHub',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-github'],
+    envRequired: ['GITHUB_PERSONAL_ACCESS_TOKEN']
+  },
+  puppeteer: {
+    name: 'Puppeteer',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-puppeteer'],
+    envRequired: []
+  },
+  slack: {
+    name: 'Slack',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-slack'],
+    envRequired: ['SLACK_BOT_TOKEN', 'SLACK_TEAM_ID']
+  },
+  gmail: {
+    name: 'Gmail',
+    command: 'npx',
+    args: ['-y', 'mcp-mail-server'],
+    envRequired: ['EMAIL_USER', 'EMAIL_PASS']
+  },
+  filesystem: {
+    name: 'Filesystem',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-filesystem'],
+    envRequired: []
+  },
+  postgres: {
+    name: 'PostgreSQL',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-postgres'],
+    envRequired: ['POSTGRES_CONNECTION_STRING']
+  },
+  brave_search: {
+    name: 'Brave Search',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-brave-search'],
+    envRequired: ['BRAVE_API_KEY']
+  },
+  fetch: {
+    name: 'Web Fetch',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-fetch'],
+    envRequired: []
+  },
+  memory: {
+    name: 'Memory',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-memory'],
+    envRequired: []
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MAIN DEVELOPMENT SESSION - AUTONOMOUS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -392,6 +455,7 @@ export class MCPDevelopmentSession {
     this.generatedFiles = [];
     this.inferences = new Map(); // Store what we inferred for each tool
     this.validationResults = null;
+    this.connectorTools = new Map(); // connector_id -> [tools]
 
     this.llmConfig = null;
   }
@@ -409,8 +473,25 @@ export class MCPDevelopmentSession {
 
     const enrichedTools = [];
     const allInferences = [];
+    const nativeTools = []; // Tools that are NOT from external connectors
+    const connectorToolsMap = new Map(); // connector_id -> [tools]
 
     for (const tool of this.domain.tools || []) {
+      // Check if this tool is from an external MCP connector
+      if (tool.source?.type === 'mcp_bridge' && tool.source.connection_id) {
+        const connectorId = tool.source.connection_id;
+        if (!connectorToolsMap.has(connectorId)) {
+          connectorToolsMap.set(connectorId, []);
+        }
+        connectorToolsMap.get(connectorId).push({
+          ...tool,
+          _mcpTool: tool.source.mcp_tool || tool.name,
+          _isConnectorTool: true
+        });
+        continue; // Skip inference for connector tools - they're pass-through
+      }
+
+      // Native tool - run inference
       const inference = inferToolImplementation(tool);
       const inferredInputs = inferToolInputs(tool);
       const mockExample = generateMockExample(tool, inference);
@@ -423,9 +504,11 @@ export class MCPDevelopmentSession {
         _inference: inference,
         inputs: tool.inputs?.length > 0 ? tool.inputs : inferredInputs,
         _mockExample: mockExample,
+        _isConnectorTool: false
       };
 
       enrichedTools.push(enrichedTool);
+      nativeTools.push(enrichedTool);
       allInferences.push({
         tool: tool.name,
         inference,
@@ -433,12 +516,37 @@ export class MCPDevelopmentSession {
       });
     }
 
-    // Store enriched tools
+    // Store enriched tools and connector tools
     this.enrichedTools = enrichedTools;
+    this.nativeTools = nativeTools;
+    this.connectorTools = connectorToolsMap;
+
+    // Build connector info for generation prompt
+    const connectorInfo = [];
+    for (const [connectorId, tools] of connectorToolsMap) {
+      const config = CONNECTOR_CONFIGS[connectorId];
+      connectorInfo.push({
+        id: connectorId,
+        name: config?.name || connectorId,
+        command: config?.command || 'npx',
+        args: config?.args || [],
+        envRequired: config?.envRequired || [],
+        tools: tools.map(t => ({
+          name: t.name,
+          mcpTool: t._mcpTool,
+          description: t.description,
+          inputs: t.inputs || []
+        }))
+      });
+    }
+    this.connectorInfo = connectorInfo;
 
     return {
       phase: this.phase,
-      toolsCount: enrichedTools.length,
+      toolsCount: enrichedTools.length + Array.from(connectorToolsMap.values()).flat().length,
+      nativeToolsCount: nativeTools.length,
+      connectorToolsCount: Array.from(connectorToolsMap.values()).flat().length,
+      connectors: connectorInfo.map(c => ({ id: c.id, name: c.name, toolCount: c.tools.length })),
       inferences: allInferences,
       ready: true, // Always ready - we inferred what we needed
     };
@@ -460,11 +568,17 @@ export class MCPDevelopmentSession {
       await this.init();
     }
 
+    // Generate the skill YAML definition
+    const skillYaml = generateDomainYaml(this.domain);
+
     // Build the generation context with all our inferences
     const context = {
       domain: this.domain,
       enrichedTools: this.enrichedTools || this.domain.tools,
+      nativeTools: this.nativeTools || this.enrichedTools || this.domain.tools,
       inferences: Object.fromEntries(this.inferences),
+      connectorInfo: this.connectorInfo || [],
+      skillYaml, // Include skill YAML for embedding in MCP
     };
 
     // Run the generation agent
@@ -729,7 +843,9 @@ Make the requested changes. Be surgical - only modify what's needed.`;
 // ═══════════════════════════════════════════════════════════════════════════
 
 function buildAutonomousGenerationPrompt(context) {
-  const toolDefs = (context.enrichedTools || []).map(t => {
+  // Native tools (not from external connectors)
+  const nativeTools = context.nativeTools || context.enrichedTools || [];
+  const nativeToolDefs = nativeTools.map(t => {
     const params = (t.inputs || t.parameters || []).map(p =>
       `${p.name}: ${p.type || 'str'}`
     ).join(', ');
@@ -740,6 +856,78 @@ def ${t.name}(${params}) -> dict:
     return {"success": True, "data": {}}`;
   }).join('\n\n');
 
+  // External connector tools - NO LONGER embedded in generated MCP
+  // Instead, connectors are declared in skill.yaml and managed by ADAS Core
+  const connectorInfo = context.connectorInfo || [];
+  let connectorImports = '';
+  let connectorClientCode = '';
+  let connectorToolDefs = '';
+
+  // Generate comment explaining connector architecture (no embedded client code)
+  if (connectorInfo.length > 0) {
+    connectorClientCode = `
+# ============================================================================
+# EXTERNAL CONNECTORS
+# ============================================================================
+# This skill depends on the following external connectors:
+${connectorInfo.map(c => `# - ${c.id}: ${c.name} (${c.tools.length} tools)`).join('\n')}
+#
+# These connectors are managed by ADAS Core via ConnectorManager.
+# The skill.yaml declares connector dependencies which ADAS Core uses to:
+# 1. Auto-register connectors with proper configs
+# 2. Start/stop connectors as needed
+# 3. Proxy tool calls through the unified tool map
+#
+# When this MCP is installed in ADAS Core, the connector tools become available
+# automatically via the skill's tool map (Tier 3: Connector tools).
+# ============================================================================
+`;
+
+    // Generate simple wrapper tools that document the connector dependency
+    // These are informational - actual calls go through ADAS Core's tool map
+    for (const connector of connectorInfo) {
+      for (const tool of connector.tools) {
+        const params = (tool.inputs || []).map(p =>
+          `${p.name}: ${p.type || 'str'}`
+        ).join(', ');
+        const paramDocs = (tool.inputs || []).map(p =>
+          `        ${p.name}: ${p.description || 'No description'}`
+        ).join('\n');
+
+        connectorToolDefs += `
+@mcp.tool()
+def ${tool.name}(${params}) -> dict:
+    """${tool.description || 'No description'}
+
+    This tool is provided by the ${connector.name} connector (${connector.id}).
+    When running in ADAS Core, this tool proxies to the connector managed by ConnectorManager.
+
+    Args:
+${paramDocs || '        None'}
+
+    Returns:
+        dict: Result from the ${connector.name} connector
+    """
+    # When running standalone, return info about the connector dependency
+    return {
+        "success": False,
+        "error": "This tool requires the ${connector.id} connector. Install this skill in ADAS Core to use connector tools.",
+        "connector_id": "${connector.id}",
+        "mcp_tool": "${tool.mcpTool}",
+        "requires": "ADAS Core ConnectorManager"
+    }
+`;
+      }
+    }
+  }
+
+  const hasConnectors = connectorInfo.length > 0;
+  const totalTools = nativeTools.length + connectorInfo.reduce((sum, c) => sum + c.tools.length, 0);
+
+  // Escape the skill YAML for embedding in Python as a triple-quoted string
+  const skillYaml = context.skillYaml || '';
+  const escapedYaml = skillYaml.replace(/\\/g, '\\\\').replace(/"""/g, '\\"\\"\\"');
+
   return `You are an expert MCP server developer. Generate a COMPLETE FastMCP server.
 
 ## CRITICAL: Follow this EXACT structure for mcp_server.py
@@ -748,20 +936,28 @@ def ${t.name}(${params}) -> dict:
 from fastmcp import FastMCP
 import os
 import logging
-
+${connectorImports}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP("${context.domain.name || 'MCP Server'}")
 
 # ============================================================================
-# TOOL IMPLEMENTATIONS - Fill in each tool with mock logic
+# SKILL DEFINITION (YAML) - Complete skill config for ADAS Core
 # ============================================================================
 
-${toolDefs}
-
+SKILL_DEFINITION_YAML = """
+${escapedYaml}
+"""
+${connectorClientCode}
 # ============================================================================
-# DISCOVERY ENDPOINTS (required)
+# NATIVE TOOL IMPLEMENTATIONS - Fill in each tool with mock logic
+# ============================================================================
+
+${nativeToolDefs}
+${connectorToolDefs}
+# ============================================================================
+# DISCOVERY & SKILL DEFINITION ENDPOINTS (required)
 # ============================================================================
 
 @mcp.tool()
@@ -771,7 +967,29 @@ def get_skill_info() -> dict:
         "name": "${context.domain.name || 'MCP Server'}",
         "description": "${(context.domain.problem?.statement || 'MCP Server').replace(/"/g, '\\"')}",
         "version": "1.0.0",
-        "tools_count": ${(context.enrichedTools || []).length}
+        "tools_count": ${totalTools}${hasConnectors ? `,
+        "external_connectors": ${JSON.stringify(connectorInfo.map(c => c.id))}` : ''},
+        "has_skill_definition": True
+    }
+
+@mcp.tool()
+def get_skill_definition() -> dict:
+    """Get the complete skill definition YAML for ADAS Core installation.
+
+    This returns the full skill configuration including:
+    - Problem statement and goals
+    - Tool definitions with inputs/outputs
+    - Policy and guardrails
+    - Engine configuration
+    - External connector references
+
+    Use this when installing the skill in ADAS Core.
+    """
+    return {
+        "format": "yaml",
+        "content": SKILL_DEFINITION_YAML.strip(),
+        "skill_name": "${context.domain.name || 'MCP Server'}",
+        "version": "${context.domain.version || 1}"
     }
 
 @mcp.tool()
@@ -791,20 +1009,28 @@ if __name__ == "__main__":
 
 ## YOUR TASK
 1. Use write_file to create mcp_server.py following the EXACT structure above
-2. Fill in REAL implementations for each tool (use realistic mock data, not stubs)
-3. Create requirements.txt with: fastmcp>=0.1.0, httpx
-4. Create README.md with basic usage info
-5. Call generation_complete when done
+2. Fill in REAL implementations for native tools (use realistic mock data, not stubs)
+3. Keep the external connector wrapper tools AS-IS (they proxy to external MCPs)
+4. Keep the SKILL_DEFINITION_YAML exactly as provided - this is the complete skill config
+5. Create requirements.txt with: fastmcp>=0.1.0, httpx
+6. Create README.md with basic usage info${hasConnectors ? ` including external connector requirements` : ''}
+7. Create skill.yaml file with the skill definition (same content as SKILL_DEFINITION_YAML)
+8. Call generation_complete when done
 
-## Tools to implement with REAL logic:
-${JSON.stringify(context.enrichedTools, null, 2)}
-
+## Native Tools to implement with REAL logic:
+${JSON.stringify(nativeTools, null, 2)}
+${hasConnectors ? `
+## External Connector Tools (already implemented as wrappers):
+${JSON.stringify(connectorInfo, null, 2)}
+` : ''}
 ## Inferences to guide implementation:
 ${JSON.stringify(context.inferences, null, 2)}
 
 IMPORTANT:
 - Use the EXACT template structure above
-- Fill in actual mock implementations, not "pass" or "TODO"
+- Fill in actual mock implementations for NATIVE tools, not "pass" or "TODO"
+- DO NOT modify the external connector wrapper code - it's already complete
+- DO NOT modify SKILL_DEFINITION_YAML - it contains the complete skill config
 - Include proper type hints
 - Return dicts with meaningful mock data
 
@@ -812,18 +1038,37 @@ Start now with write_file for mcp_server.py.`;
 }
 
 function buildGenerationRequest(context) {
-  const toolCount = context.enrichedTools?.length || 0;
-  return `Generate a complete MCP server with ${toolCount} tools for "${context.domain.name}".
+  const nativeToolCount = context.nativeTools?.length || 0;
+  const connectorInfo = context.connectorInfo || [];
+  const connectorToolCount = connectorInfo.reduce((sum, c) => sum + c.tools.length, 0);
+  const totalTools = nativeToolCount + connectorToolCount;
+
+  let toolList = (context.nativeTools || []).map((t) => `- ${t.name}: ${t.description || t.purpose || "No description"}`).join("\n");
+
+  if (connectorInfo.length > 0) {
+    toolList += "\n\nExternal connector tools (wrappers already provided):\n";
+    for (const connector of connectorInfo) {
+      toolList += connector.tools.map(t => `- ${t.name} [via ${connector.name}]: ${t.description || "No description"}`).join("\n");
+    }
+  }
+
+  return `Generate a complete MCP server with ${totalTools} tools for "${context.domain.name}".
 
 The tools are:
-${(context.enrichedTools || []).map((t) => `- ${t.name}: ${t.description || t.purpose || "No description"}`).join("\n")}
+${toolList}
 
+${connectorInfo.length > 0 ? `
+IMPORTANT: This skill uses ${connectorInfo.length} external MCP connector(s): ${connectorInfo.map(c => c.name).join(', ')}.
+The wrapper code for external connector tools is ALREADY PROVIDED in the template.
+Focus on implementing the ${nativeToolCount} native tools with real logic.
+` : ''}
 IMPORTANT: Use the write_file tool to create each file. Do not output code as text - call write_file for each file.
 
 Create these files using write_file:
-1. mcp_server.py - The main server implementation
-2. requirements.txt - Python dependencies
-3. README.md - Brief documentation
+1. mcp_server.py - The main server implementation (includes embedded skill definition)
+2. skill.yaml - The complete skill definition for ADAS Core installation
+3. requirements.txt - Python dependencies
+4. README.md - Brief documentation
 
 Start now by calling write_file to create mcp_server.py.`;
 }
@@ -879,7 +1124,24 @@ function getGenerationTools() {
 
 export function analyzeDomainForMCP(domain) {
   const tools = domain.tools || [];
-  const inferences = tools.map((t) => ({
+
+  // Separate native tools from connector tools
+  const nativeTools = [];
+  const connectorToolsMap = new Map();
+
+  for (const tool of tools) {
+    if (tool.source?.type === 'mcp_bridge' && tool.source.connection_id) {
+      const connectorId = tool.source.connection_id;
+      if (!connectorToolsMap.has(connectorId)) {
+        connectorToolsMap.set(connectorId, []);
+      }
+      connectorToolsMap.get(connectorId).push(tool);
+    } else {
+      nativeTools.push(tool);
+    }
+  }
+
+  const inferences = nativeTools.map((t) => ({
     name: t.name,
     inference: inferToolImplementation(t),
     hasInputs: (t.inputs?.length || 0) > 0,
@@ -887,12 +1149,29 @@ export function analyzeDomainForMCP(domain) {
     hasMocks: (t.mock?.examples?.length || 0) > 0,
   }));
 
+  // Build connector summary
+  const connectors = [];
+  for (const [connectorId, connectorTools] of connectorToolsMap) {
+    const config = CONNECTOR_CONFIGS[connectorId];
+    connectors.push({
+      id: connectorId,
+      name: config?.name || connectorId,
+      toolCount: connectorTools.length,
+      tools: connectorTools.map(t => t.name)
+    });
+  }
+
   return {
     ready: tools.length > 0, // Always ready if there are tools
     toolsCount: tools.length,
+    nativeToolsCount: nativeTools.length,
+    connectorToolsCount: tools.length - nativeTools.length,
+    connectors,
     inferences,
     summary: {
       totalTools: tools.length,
+      nativeTools: nativeTools.length,
+      connectorTools: tools.length - nativeTools.length,
       withInputs: inferences.filter((i) => i.hasInputs).length,
       withOutputs: inferences.filter((i) => i.hasOutput).length,
       withMocks: inferences.filter((i) => i.hasMocks).length,

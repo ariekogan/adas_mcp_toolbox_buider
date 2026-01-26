@@ -1127,11 +1127,190 @@ router.get("/:domainId/mcp/running", async (req, res) => {
       running: true,
       pid: info.pid,
       port: info.port,
-      startedAt: info.startedAt
+      startedAt: info.startedAt,
+      registered: info.registered || false,
+      mcpUri: info.mcpUri || null
     });
   }
 
   res.json({ running: false });
+});
+
+/**
+ * POST /api/export/:domainId/mcp/deploy
+ *
+ * ONE-CLICK DEPLOY: Start MCP server + Register with ADAS Core
+ *
+ * This is the CLEAN pure-MCP deploy flow:
+ * 1. Start the generated MCP server locally
+ * 2. Register MCP URI with ADAS Core via /api/skills/install-mcp
+ * 3. Skill is now available in ADAS Core (loaded fresh from MCP)
+ */
+router.post("/:domainId/mcp/deploy", async (req, res, next) => {
+  try {
+    const { domainId } = req.params;
+    const log = req.app.locals.log;
+
+    const domain = await domainsStore.load(domainId);
+    const version = domain.version;
+
+    if (!version) {
+      return res.status(400).json({
+        error: "No MCP export found",
+        hint: "Generate an MCP first using the Export dialog"
+      });
+    }
+
+    log.info(`[MCP Deploy] Starting deploy for ${domainId} (version ${version})`);
+
+    // Step 1: Start the MCP server (or get existing)
+    let mcpInfo = runningMCPs.get(domainId);
+
+    if (!mcpInfo) {
+      // Start the server
+      const exportPath = await domainsStore.getExportPath(domainId, version);
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const files = await fs.readdir(exportPath);
+      const serverFile = files.find(f => f === 'server.py' || f === 'mcp_server.py');
+
+      if (!serverFile) {
+        return res.status(400).json({
+          error: "No server.py found in export",
+          hint: "Generate MCP first",
+          files
+        });
+      }
+
+      const { spawn } = await import('child_process');
+      const serverPath = path.join(exportPath, serverFile);
+      const basePort = 8100 + Math.floor(Math.random() * 100);
+
+      const proc = spawn('python', [serverPath], {
+        cwd: exportPath,
+        env: {
+          ...process.env,
+          MCP_PORT: String(basePort),
+          PYTHONUNBUFFERED: '1'
+        },
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      proc.stdout.on('data', (data) => {
+        log.info(`[MCP:${domainId}] ${data.toString().trim()}`);
+      });
+
+      proc.stderr.on('data', (data) => {
+        log.warn(`[MCP:${domainId}] ${data.toString().trim()}`);
+      });
+
+      proc.on('exit', (code) => {
+        log.info(`[MCP:${domainId}] Process exited with code ${code}`);
+        runningMCPs.delete(domainId);
+      });
+
+      mcpInfo = {
+        pid: proc.pid,
+        port: basePort,
+        startedAt: new Date().toISOString(),
+        process: proc,
+        domainId,
+        version
+      };
+      runningMCPs.set(domainId, mcpInfo);
+
+      // Wait for server to start
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      if (!runningMCPs.has(domainId)) {
+        return res.status(500).json({
+          error: "MCP server failed to start"
+        });
+      }
+
+      log.info(`[MCP Deploy] Server started on port ${basePort}`);
+    }
+
+    // Step 2: Build MCP URI (use container network name for Docker)
+    // In Docker, the toolbox backend can reach itself as 'localhost' or via container name
+    const mcpHost = process.env.MCP_HOST || 'localhost';
+    const mcpUri = `http://${mcpHost}:${mcpInfo.port}`;
+    mcpInfo.mcpUri = mcpUri;
+
+    log.info(`[MCP Deploy] MCP URI: ${mcpUri}`);
+
+    // Step 3: Register with ADAS Core
+    const adasUrl = process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
+    const installUrl = `${adasUrl}/api/skills/install-mcp`;
+
+    // Generate skill slug from domain name
+    const skillSlug = domain.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || domainId;
+
+    log.info(`[MCP Deploy] Registering with ADAS Core: ${installUrl}`);
+
+    try {
+      const response = await fetch(installUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mcpUri,
+          skillSlug,
+          overwrite: true  // Allow re-deploy
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        log.error(`[MCP Deploy] ADAS Core registration failed: ${JSON.stringify(result)}`);
+        return res.status(response.status).json({
+          error: "ADAS Core registration failed",
+          details: result,
+          mcpUri,
+          hint: "MCP server is running but registration failed"
+        });
+      }
+
+      // Mark as registered
+      mcpInfo.registered = true;
+      mcpInfo.skillSlug = result.skillSlug;
+
+      // Update domain status
+      domain.phase = "DEPLOYED";
+      domain.deployedAt = new Date().toISOString();
+      domain.deployedTo = adasUrl;
+      domain.mcpUri = mcpUri;
+      await domainsStore.save(domain);
+
+      log.info(`[MCP Deploy] Successfully deployed! Skill: ${result.skillSlug}`);
+
+      return res.json({
+        ok: true,
+        status: 'deployed',
+        skillSlug: result.skillSlug,
+        mcpUri,
+        port: mcpInfo.port,
+        pid: mcpInfo.pid,
+        adasResponse: result,
+        message: `Skill "${result.skillSlug}" is now available in ADAS Core!`
+      });
+
+    } catch (fetchErr) {
+      log.error(`[MCP Deploy] Failed to connect to ADAS Core: ${fetchErr.message}`);
+      return res.status(502).json({
+        error: "Failed to connect to ADAS Core",
+        details: fetchErr.message,
+        mcpUri,
+        hint: "MCP server is running but could not register with ADAS Core"
+      });
+    }
+
+  } catch (err) {
+    if (err.message?.includes('not found') || err.code === "ENOENT") {
+      return res.status(404).json({ error: "Domain not found" });
+    }
+    next(err);
+  }
 });
 
 /**

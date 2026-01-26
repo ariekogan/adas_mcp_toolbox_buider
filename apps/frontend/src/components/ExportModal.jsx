@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { generateMCP, downloadMCPExport } from '../api/client';
+import { generateMCP, downloadMCPExport, deployMCPToAdas } from '../api/client';
 
 const styles = {
   overlay: {
@@ -243,6 +243,24 @@ export default function ExportModal({
     }
   };
 
+  const handleDeployMCP = async () => {
+    setLoading('deploy-mcp');
+    setError(null);
+    setResult(null);
+    try {
+      const res = await deployMCPToAdas(skillId);
+      setResult({
+        type: 'deploy-mcp',
+        message: `Skill "${res.skillSlug}" deployed to ADAS Core!`,
+        details: res
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(null);
+    }
+  };
+
   const handleGenerateMCP = async () => {
     setLoading('generate');
     setError(null);
@@ -347,6 +365,14 @@ export default function ExportModal({
             </div>
           )}
 
+          {result?.type === 'deploy-mcp' && result.details && (
+            <div style={styles.resultInfo}>
+              <strong>Skill:</strong> {result.details.skillSlug}<br/>
+              <strong>MCP URI:</strong> {result.details.mcpUri}<br/>
+              <strong>Port:</strong> {result.details.port}
+            </div>
+          )}
+
           {/* Generation Progress */}
           {generationProgress.length > 0 && (
             <div style={styles.progressBox}>
@@ -371,6 +397,31 @@ export default function ExportModal({
                 </div>
               ))}
             </div>
+          )}
+
+          {/* Deploy MCP button - shown after generation */}
+          {generatedVersion && result?.type === 'generate' && (
+            <button
+              style={{
+                ...styles.primaryBtn,
+                background: 'linear-gradient(135deg, #10b981, #059669)',
+                ...(loading ? styles.disabledBtn : {})
+              }}
+              onClick={handleDeployMCP}
+              disabled={!!loading}
+            >
+              {loading === 'deploy-mcp' ? (
+                <>
+                  <div style={styles.spinner} />
+                  Deploying to ADAS...
+                </>
+              ) : (
+                <>
+                  <span>🚀</span>
+                  Deploy to ADAS Core
+                </>
+              )}
+            </button>
           )}
 
           {/* Download generated files button */}

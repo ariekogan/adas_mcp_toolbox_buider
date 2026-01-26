@@ -515,6 +515,13 @@ export async function getMCPServerStatus(skillId) {
   return request(`/export/${skillId}/mcp/running`);
 }
 
+/**
+ * Deploy MCP to ADAS Core (one-click: start server + register)
+ */
+export async function deployMCPToAdas(skillId) {
+  return request(`/export/${skillId}/mcp/deploy`, { method: 'POST' });
+}
+
 // ============================================
 // Triggers (CORE trigger-runner bridge)
 // ============================================
@@ -610,5 +617,6 @@ export default {
   getMCPFile,
   startMCPServer,
   stopMCPServer,
-  getMCPServerStatus
+  getMCPServerStatus,
+  deployMCPToAdas
 };
