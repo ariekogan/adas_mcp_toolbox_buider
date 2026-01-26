@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import ConnectorPanel from './ConnectorPanel';
 import SkillMCPsSection from './SkillMCPsSection';
+import MCPDetailModal from './MCPDetailModal';
 
 const styles = {
   container: {
@@ -41,57 +43,87 @@ const styles = {
   },
   content: {
     flex: 1,
+    display: 'flex',
+    overflow: 'hidden'
+  },
+  // Side-by-side panels
+  leftPanel: {
+    width: '320px',
+    minWidth: '280px',
+    borderRight: '1px solid var(--border)',
+    padding: '20px',
     overflow: 'auto',
-    padding: '24px'
+    background: 'var(--bg-secondary)'
   },
-  divider: {
-    borderTop: '1px solid var(--border)',
-    margin: '24px 0',
-    position: 'relative'
+  rightPanel: {
+    flex: 1,
+    padding: '20px 24px',
+    overflow: 'auto'
   },
-  dividerLabel: {
-    position: 'absolute',
-    top: '-10px',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    background: 'var(--bg-primary)',
-    padding: '0 12px',
+  panelHeader: {
     fontSize: '11px',
+    fontWeight: '600',
     color: 'var(--text-muted)',
     textTransform: 'uppercase',
-    letterSpacing: '0.5px'
+    letterSpacing: '0.5px',
+    marginBottom: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px'
   }
 };
 
+// Icons
+const PlugIcon = () => (
+  <svg style={{ width: '14px', height: '14px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+  </svg>
+);
+
 export default function ConnectorsPage({ onClose }) {
+  const [selectedMCP, setSelectedMCP] = useState(null);
+
   return (
     <div style={styles.container}>
+      {/* Header */}
       <div style={styles.header}>
         <div>
           <div style={styles.title}>Connectors & MCPs</div>
-          <div style={styles.subtitle}>Manage generated skill MCPs and external MCP connections</div>
+          <div style={styles.subtitle}>Generated skill MCPs and external MCP connections</div>
         </div>
         <button style={styles.closeBtn} onClick={onClose} title="Close">
           ✕
         </button>
       </div>
 
+      {/* Content - Side by Side */}
       <div style={styles.content}>
-        {/* ADAS Skills MCPs Section */}
-        <SkillMCPsSection />
-
-        {/* Divider */}
-        <div style={styles.divider}>
-          <span style={styles.dividerLabel}>External Connectors</span>
+        {/* Left Panel - Generated Skill MCPs */}
+        <div style={styles.leftPanel}>
+          <SkillMCPsSection onSelectMCP={setSelectedMCP} />
         </div>
 
-        {/* External Connectors Section */}
-        <ConnectorPanel
-          skillId={null}
-          onToolsImported={() => {}}
-          standalone={true}
-        />
+        {/* Right Panel - External Connectors */}
+        <div style={styles.rightPanel}>
+          <div style={styles.panelHeader}>
+            <PlugIcon />
+            External Connectors
+          </div>
+          <ConnectorPanel
+            skillId={null}
+            onToolsImported={() => {}}
+            standalone={true}
+          />
+        </div>
       </div>
+
+      {/* MCP Detail Modal */}
+      {selectedMCP && (
+        <MCPDetailModal
+          mcp={selectedMCP}
+          onClose={() => setSelectedMCP(null)}
+        />
+      )}
     </div>
   );
 }

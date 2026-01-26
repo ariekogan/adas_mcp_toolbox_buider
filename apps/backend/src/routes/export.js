@@ -45,16 +45,32 @@ router.get("/mcps", async (req, res, next) => {
             // No export files found
           }
 
+          // Extract description from problem statement or identity
+          const description = domain.problem?.statement ||
+                             domain.identity?.role_description ||
+                             `MCP server for ${domain.name}`;
+
+          // Include full tool details
+          const tools = (domain.tools || []).map(t => ({
+            name: t.name,
+            description: t.description || 'No description',
+            parameters: t.parameters || [],
+            returns: t.returns || { type: 'any' },
+            policy: t.policy || {}
+          }));
+
           skillMcps.push({
             id: domain.id,
             name: domain.name,
+            description,
             version: domain.version,
             exportType: domain.lastExportType,
             exportedAt: domain.lastExportedAt,
             phase: domain.phase,
-            toolsCount: domain.tools?.length || 0,
+            toolsCount: tools.length,
+            tools,
             files: exportFiles.map(f => ({ name: f.name, size: f.content?.length || 0 })),
-            hasServerPy: exportFiles.some(f => f.name === 'server.py'),
+            hasServerPy: exportFiles.some(f => f.name === 'server.py' || f.name === 'mcp_server.py'),
             downloadUrl: `/api/export/${domain.id}/download/${domain.version}`
           });
         }
