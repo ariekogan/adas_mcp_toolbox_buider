@@ -1163,187 +1163,83 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
 
     log.info(`[MCP Deploy] Starting deploy for ${domainId} (version ${version})`);
 
-    // Step 1: Start the MCP server (or get existing)
-    let mcpInfo = runningMCPs.get(domainId);
+    // Step 1: Read the generated MCP files
+    const exportPath = await domainsStore.getExportPath(domainId, version);
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const files = await fs.readdir(exportPath);
+    const serverFile = files.find(f => f === 'server.py' || f === 'mcp_server.py');
 
-    if (!mcpInfo) {
-      // Start the server
-      const exportPath = await domainsStore.getExportPath(domainId, version);
-      const fs = await import('fs/promises');
-      const path = await import('path');
-      const files = await fs.readdir(exportPath);
-      const serverFile = files.find(f => f === 'server.py' || f === 'mcp_server.py');
-
-      if (!serverFile) {
-        return res.status(400).json({
-          error: "No server.py found in export",
-          hint: "Generate MCP first",
-          files
-        });
-      }
-
-      const { spawn } = await import('child_process');
-      const serverPath = path.join(exportPath, serverFile);
-      // Use ports 8100-8110 which are exposed in docker-compose.yml
-      const basePort = 8100 + Math.floor(Math.random() * 11);
-
-      const proc = spawn('python', [serverPath], {
-        cwd: exportPath,
-        env: {
-          ...process.env,
-          MCP_PORT: String(basePort),
-          MCP_HOST: '0.0.0.0',  // Bind to all interfaces for Docker access
-          PYTHONUNBUFFERED: '1'
-        },
-        stdio: ['pipe', 'pipe', 'pipe']
+    if (!serverFile) {
+      return res.status(400).json({
+        error: "No server.py found in export",
+        hint: "Generate MCP first",
+        files
       });
-
-      // Capture output for logging and error reporting
-      let stderrOutput = '';
-
-      proc.stdout.on('data', (data) => {
-        log.info(`[MCP:${domainId}] ${data.toString().trim()}`);
-      });
-
-      proc.stderr.on('data', (data) => {
-        const text = data.toString();
-        stderrOutput += text;
-        log.warn(`[MCP:${domainId}] ${text.trim()}`);
-      });
-
-      proc.on('exit', (code) => {
-        log.info(`[MCP:${domainId}] Process exited with code ${code}`);
-        runningMCPs.delete(domainId);
-      });
-
-      mcpInfo = {
-        pid: proc.pid,
-        port: basePort,
-        startedAt: new Date().toISOString(),
-        process: proc,
-        domainId,
-        version
-      };
-      runningMCPs.set(domainId, mcpInfo);
-
-      // Wait for server to start
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Check if process crashed (syntax error, missing deps, etc.)
-      if (!runningMCPs.has(domainId)) {
-        return res.status(500).json({
-          error: "MCP server failed to start",
-          hint: "The generated Python file may have syntax errors",
-          stderr: stderrOutput.slice(-500)  // Last 500 chars of error output
-        });
-      }
-
-      // Step 1b: Health check - verify MCP server is actually responding
-      log.info(`[MCP Deploy] Verifying MCP server health on port ${basePort}...`);
-      const healthCheckUrl = `http://localhost:${basePort}/sse`;
-      let healthOk = false;
-
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 3000);
-
-          const healthResp = await fetch(healthCheckUrl, {
-            method: 'GET',
-            signal: controller.signal
-          });
-          clearTimeout(timeout);
-
-          if (healthResp.ok) {
-            healthOk = true;
-            log.info(`[MCP Deploy] Health check passed on attempt ${attempt + 1}`);
-            break;
-          }
-        } catch (healthErr) {
-          log.warn(`[MCP Deploy] Health check attempt ${attempt + 1} failed: ${healthErr.message}`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
-
-      if (!healthOk) {
-        // Kill the broken process
-        proc.kill('SIGTERM');
-        runningMCPs.delete(domainId);
-
-        return res.status(500).json({
-          error: "MCP server started but failed health check",
-          hint: "The server may have crashed after starting. Check for runtime errors.",
-          stderr: stderrOutput.slice(-500)
-        });
-      }
-
-      log.info(`[MCP Deploy] Server started and healthy on port ${basePort}`);
     }
 
-    // Step 2: Build MCP URI
-    // For Docker-to-Docker communication, we need to use the host IP
-    // since containers are on different networks
-    const mcpHost = process.env.MCP_HOST || process.env.HOST_IP || '10.0.0.8';
-    const mcpUri = `http://${mcpHost}:${mcpInfo.port}`;
-    mcpInfo.mcpUri = mcpUri;
+    // Read the MCP server code
+    const serverPath = path.join(exportPath, serverFile);
+    const mcpServer = await fs.readFile(serverPath, 'utf8');
 
-    log.info(`[MCP Deploy] MCP URI: ${mcpUri}`);
+    // Read requirements if exists
+    let requirements = null;
+    try {
+      requirements = await fs.readFile(path.join(exportPath, 'requirements.txt'), 'utf8');
+    } catch { /* optional */ }
 
-    // Step 3: Register with ADAS Core
-    const adasUrl = process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
-    const installUrl = `${adasUrl}/api/skills/install-mcp`;
+    log.info(`[MCP Deploy] Read MCP files (${mcpServer.length} bytes)`);
 
     // Generate skill slug from domain name
     const skillSlug = domain.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || domainId;
 
-    log.info(`[MCP Deploy] Registering with ADAS Core: ${installUrl}`);
+    // Step 2: Send to ADAS Core for deployment
+    // ADAS Core will save the files and run the MCP server
+    const adasUrl = process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
+    const deployUrl = `${adasUrl}/api/skills/deploy-mcp`;
+
+    log.info(`[MCP Deploy] Sending to ADAS Core: ${deployUrl}`);
 
     try {
-      const response = await fetch(installUrl, {
+      const response = await fetch(deployUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mcpUri,
           skillSlug,
-          overwrite: true,  // Allow re-deploy
-          skipCheck: true   // Skip JSON-RPC check (doesn't work with SSE transport)
+          mcpServer,
+          requirements
         })
       });
 
       const result = await response.json();
 
       if (!response.ok) {
-        log.error(`[MCP Deploy] ADAS Core registration failed: ${JSON.stringify(result)}`);
+        log.error(`[MCP Deploy] ADAS Core deployment failed: ${JSON.stringify(result)}`);
         return res.status(response.status).json({
-          error: "ADAS Core registration failed",
-          details: result,
-          mcpUri,
-          hint: "MCP server is running but registration failed"
+          error: "ADAS Core deployment failed",
+          details: result
         });
       }
-
-      // Mark as registered
-      mcpInfo.registered = true;
-      mcpInfo.skillSlug = result.skillSlug;
 
       // Update domain status
       domain.phase = "DEPLOYED";
       domain.deployedAt = new Date().toISOString();
       domain.deployedTo = adasUrl;
-      domain.mcpUri = mcpUri;
+      domain.mcpUri = result.mcpUri;
+      domain.connectorId = result.connectorId;
       await domainsStore.save(domain);
 
-      log.info(`[MCP Deploy] Successfully deployed! Skill: ${result.skillSlug}`);
+      log.info(`[MCP Deploy] Successfully deployed! Skill: ${skillSlug}, MCP: ${result.mcpUri}`);
 
       return res.json({
         ok: true,
         status: 'deployed',
-        skillSlug: result.skillSlug,
-        mcpUri,
-        port: mcpInfo.port,
-        pid: mcpInfo.pid,
+        skillSlug,
+        mcpUri: result.mcpUri,
+        port: result.port,
+        connectorId: result.connectorId,
         adasResponse: result,
-        message: `Skill "${result.skillSlug}" is now available in ADAS Core!`
+        message: `Skill "${skillSlug}" deployed to ADAS Core and running!`
       });
 
     } catch (fetchErr) {
@@ -1351,8 +1247,7 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
       return res.status(502).json({
         error: "Failed to connect to ADAS Core",
         details: fetchErr.message,
-        mcpUri,
-        hint: "MCP server is running but could not register with ADAS Core"
+        hint: "Check ADAS Core is running and ADAS_CORE_URL is correct"
       });
     }
 
