@@ -4,7 +4,7 @@ FROM node:20-alpine
 RUN apk add --no-cache python3 py3-pip
 
 # Install common MCP dependencies globally
-RUN pip3 install --break-system-packages fastmcp httpx
+RUN pip3 install --break-system-packages fastmcp httpx uvicorn
 
 RUN corepack enable
 

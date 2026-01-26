@@ -22,7 +22,16 @@ mcp = FastMCP("${escapeString(name)}")
 ${toolFunctions}
 
 if __name__ == "__main__":
-    mcp.run()
+    import os
+    transport = os.environ.get("MCP_TRANSPORT", "sse")
+    port = int(os.environ.get("MCP_PORT", "8100"))
+    host = os.environ.get("MCP_HOST", "0.0.0.0")
+
+    if transport == "sse":
+        import uvicorn
+        uvicorn.run(mcp.sse_app(), host=host, port=port)
+    else:
+        mcp.run()
 `;
 }
 
@@ -164,6 +173,7 @@ function escapeString(str) {
 export function generateRequirements() {
   return `mcp>=0.1.0
 fastmcp>=0.1.0
+uvicorn>=0.30.0
 `;
 }
 
