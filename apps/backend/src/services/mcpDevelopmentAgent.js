@@ -737,6 +737,8 @@ function buildAutonomousGenerationPrompt(context) {
 3. Use the inferences provided to guide implementation
 4. Include proper error handling
 5. Add discovery endpoints
+6. **IMPORTANT**: You MUST use the write_file tool to create each file. Do NOT just output code in text - use the tool!
+7. After writing all files, call the generation_complete tool with a summary
 
 ## Domain
 Name: ${context.domain.name || "Unnamed"}
@@ -766,7 +768,7 @@ ${JSON.stringify(context.inferences, null, 2)}
 - Return structured dicts with "status" field
 - Handle errors gracefully
 
-Start generating. Write mcp_server.py first.`;
+Start generating. Use the write_file tool to create mcp_server.py first, then requirements.txt, then README.md.`;
 }
 
 function buildGenerationRequest(context) {
@@ -776,7 +778,14 @@ function buildGenerationRequest(context) {
 The tools are:
 ${(context.enrichedTools || []).map((t) => `- ${t.name}: ${t.description || t.purpose || "No description"}`).join("\n")}
 
-Write the complete mcp_server.py now. Do not ask any questions - just generate working code.`;
+IMPORTANT: Use the write_file tool to create each file. Do not output code as text - call write_file for each file.
+
+Create these files using write_file:
+1. mcp_server.py - The main server implementation
+2. requirements.txt - Python dependencies
+3. README.md - Brief documentation
+
+Start now by calling write_file to create mcp_server.py.`;
 }
 
 function getGenerationTools() {
