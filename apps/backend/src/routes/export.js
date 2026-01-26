@@ -1198,12 +1198,17 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
         stdio: ['pipe', 'pipe', 'pipe']
       });
 
+      // Capture output for logging and error reporting
+      let stderrOutput = '';
+
       proc.stdout.on('data', (data) => {
         log.info(`[MCP:${domainId}] ${data.toString().trim()}`);
       });
 
       proc.stderr.on('data', (data) => {
-        log.warn(`[MCP:${domainId}] ${data.toString().trim()}`);
+        const text = data.toString();
+        stderrOutput += text;
+        log.warn(`[MCP:${domainId}] ${text.trim()}`);
       });
 
       proc.on('exit', (code) => {
@@ -1224,13 +1229,55 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
       // Wait for server to start
       await new Promise(resolve => setTimeout(resolve, 2000));
 
+      // Check if process crashed (syntax error, missing deps, etc.)
       if (!runningMCPs.has(domainId)) {
         return res.status(500).json({
-          error: "MCP server failed to start"
+          error: "MCP server failed to start",
+          hint: "The generated Python file may have syntax errors",
+          stderr: stderrOutput.slice(-500)  // Last 500 chars of error output
         });
       }
 
-      log.info(`[MCP Deploy] Server started on port ${basePort}`);
+      // Step 1b: Health check - verify MCP server is actually responding
+      log.info(`[MCP Deploy] Verifying MCP server health on port ${basePort}...`);
+      const healthCheckUrl = `http://localhost:${basePort}/sse`;
+      let healthOk = false;
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 3000);
+
+          const healthResp = await fetch(healthCheckUrl, {
+            method: 'GET',
+            signal: controller.signal
+          });
+          clearTimeout(timeout);
+
+          if (healthResp.ok) {
+            healthOk = true;
+            log.info(`[MCP Deploy] Health check passed on attempt ${attempt + 1}`);
+            break;
+          }
+        } catch (healthErr) {
+          log.warn(`[MCP Deploy] Health check attempt ${attempt + 1} failed: ${healthErr.message}`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+
+      if (!healthOk) {
+        // Kill the broken process
+        proc.kill('SIGTERM');
+        runningMCPs.delete(domainId);
+
+        return res.status(500).json({
+          error: "MCP server started but failed health check",
+          hint: "The server may have crashed after starting. Check for runtime errors.",
+          stderr: stderrOutput.slice(-500)
+        });
+      }
+
+      log.info(`[MCP Deploy] Server started and healthy on port ${basePort}`);
     }
 
     // Step 2: Build MCP URI
@@ -1258,7 +1305,8 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
         body: JSON.stringify({
           mcpUri,
           skillSlug,
-          overwrite: true  // Allow re-deploy
+          overwrite: true,  // Allow re-deploy
+          skipCheck: true   // Skip JSON-RPC check (doesn't work with SSE transport)
         })
       });
 
