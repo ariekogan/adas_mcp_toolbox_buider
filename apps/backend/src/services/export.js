@@ -59,8 +59,11 @@ function generateToolFunction(tool) {
   // Generate mock implementation
   const mockImpl = generateMockImplementation(tool);
   
+  // Sanitize tool name to be a valid Python identifier
+  const pythonName = sanitizePythonName(tool.name);
+
   return `@mcp.tool()
-def ${tool.name}(${params}) -> dict:
+def ${pythonName}(${params}) -> dict:
 ${docstring}
 ${mockImpl}`;
 }
@@ -169,6 +172,20 @@ function pythonType(type) {
 
 function escapeString(str) {
   return (str || "").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+}
+
+/**
+ * Sanitize a name to be a valid Python identifier
+ */
+function sanitizePythonName(name) {
+  if (!name) return "unnamed_tool";
+  // Replace spaces and hyphens with underscores, remove invalid chars
+  let sanitized = name.replace(/[\s-]+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+  // Ensure it starts with a letter or underscore
+  if (/^[0-9]/.test(sanitized)) {
+    sanitized = '_' + sanitized;
+  }
+  return sanitized || "unnamed_tool";
 }
 
 /**
