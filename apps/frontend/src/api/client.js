@@ -447,6 +447,54 @@ export async function listEmailAliases() {
 }
 
 // ============================================
+// MCP Generation (Autonomous Agent)
+// ============================================
+
+export async function previewMCPGeneration(skillId) {
+  return request(`/export/${skillId}/mcp/develop/preview`);
+}
+
+export async function* generateMCP(skillId) {
+  const response = await fetch(`${API_BASE}/export/${skillId}/mcp/develop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `Generation failed: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // Keep incomplete line in buffer
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          yield data;
+        } catch (e) {
+          // Skip invalid JSON
+        }
+      }
+    }
+  }
+}
+
+export async function downloadMCPExport(skillId, version) {
+  return request(`/export/${skillId}/download/${version}`);
+}
+
+// ============================================
 // Triggers (CORE trigger-runner bridge)
 // ============================================
 
@@ -532,5 +580,9 @@ export default {
   // Triggers (CORE bridge)
   getTriggersStatus,
   toggleTriggerInCore,
-  getTriggerHistory
+  getTriggerHistory,
+  // MCP Generation
+  previewMCPGeneration,
+  generateMCP,
+  downloadMCPExport
 };
