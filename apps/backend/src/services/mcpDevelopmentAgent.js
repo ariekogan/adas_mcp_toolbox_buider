@@ -58,10 +58,12 @@ function getLLMConfig() {
  * Call LLM with tool use support - works with both Anthropic and OpenAI
  */
 async function callLLMWithTools({ systemPrompt, messages, tools, maxTokens = 8192, llmConfig }) {
+  // OpenAI models have lower token limits
+  const effectiveMaxTokens = llmConfig.provider === "openai" ? Math.min(maxTokens, 4096) : maxTokens;
   if (llmConfig.provider === "openai") {
-    return callOpenAIWithTools({ systemPrompt, messages, tools, maxTokens, llmConfig });
+    return callOpenAIWithTools({ systemPrompt, messages, tools, maxTokens: effectiveMaxTokens, llmConfig });
   } else {
-    return callAnthropicWithTools({ systemPrompt, messages, tools, maxTokens, llmConfig });
+    return callAnthropicWithTools({ systemPrompt, messages, tools, maxTokens: effectiveMaxTokens, llmConfig });
   }
 }
 
