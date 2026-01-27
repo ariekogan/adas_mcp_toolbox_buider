@@ -326,10 +326,13 @@ export default function TenantChannelsPage({ onClose }) {
   const [newEmailSkill, setNewEmailSkill] = useState('');
   const [newSlackMention, setNewSlackMention] = useState('');
   const [newSlackSkill, setNewSlackSkill] = useState('');
+  const [newTelegramCommand, setNewTelegramCommand] = useState('');
+  const [newTelegramSkill, setNewTelegramSkill] = useState('');
 
   // Edit state for routing rules
   const [editingEmailRule, setEditingEmailRule] = useState(null); // { originalAddress, address, skill_slug }
   const [editingSlackRule, setEditingSlackRule] = useState(null); // { originalHandle, mention_handle, skill_slug }
+  const [editingTelegramAlias, setEditingTelegramAlias] = useState(null); // { originalCommand, command, skill_slug }
 
   // Load tenant config and skills list
   useEffect(() => {
@@ -631,6 +634,124 @@ export default function TenantChannelsPage({ onClose }) {
     }
   }, [editingSlackRule]);
 
+  // Add Telegram command alias
+  const handleAddTelegramAlias = useCallback(async (e) => {
+    e.preventDefault();
+    if (!newTelegramCommand || !newTelegramSkill) return;
+
+    const cmd = newTelegramCommand.toLowerCase().replace(/^\//, '');
+
+    try {
+      setSaving(true);
+      await api.addTelegramRoutingRule({ command: cmd, skill_slug: newTelegramSkill });
+      setTenantConfig(prev => ({
+        ...prev,
+        channels: {
+          ...prev.channels,
+          telegram: {
+            ...prev.channels.telegram,
+            routing: {
+              ...prev.channels.telegram?.routing,
+              command_aliases: {
+                ...(prev.channels.telegram?.routing?.command_aliases || {}),
+                [cmd]: newTelegramSkill
+              }
+            }
+          }
+        }
+      }));
+      setNewTelegramCommand('');
+      setNewTelegramSkill('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }, [newTelegramCommand, newTelegramSkill]);
+
+  // Remove Telegram command alias
+  const handleRemoveTelegramAlias = useCallback(async (command) => {
+    try {
+      setSaving(true);
+      await api.removeTelegramRoutingRule({ command });
+      setTenantConfig(prev => {
+        const aliases = { ...(prev.channels.telegram?.routing?.command_aliases || {}) };
+        delete aliases[command];
+        return {
+          ...prev,
+          channels: {
+            ...prev.channels,
+            telegram: {
+              ...prev.channels.telegram,
+              routing: {
+                ...prev.channels.telegram?.routing,
+                command_aliases: aliases
+              }
+            }
+          }
+        };
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  // Start editing a Telegram alias
+  const handleStartEditTelegramAlias = useCallback((command, skillSlug) => {
+    setEditingTelegramAlias({
+      originalCommand: command,
+      command,
+      skill_slug: skillSlug
+    });
+  }, []);
+
+  // Cancel editing Telegram alias
+  const handleCancelEditTelegramAlias = useCallback(() => {
+    setEditingTelegramAlias(null);
+  }, []);
+
+  // Save edited Telegram alias (delete old, add new)
+  const handleSaveEditTelegramAlias = useCallback(async () => {
+    if (!editingTelegramAlias || !editingTelegramAlias.command || !editingTelegramAlias.skill_slug) return;
+
+    const cmd = editingTelegramAlias.command.toLowerCase().replace(/^\//, '');
+
+    try {
+      setSaving(true);
+      // Delete old alias
+      await api.removeTelegramRoutingRule({ command: editingTelegramAlias.originalCommand });
+      // Add new alias
+      await api.addTelegramRoutingRule({ command: cmd, skill_slug: editingTelegramAlias.skill_slug });
+
+      // Update local state
+      setTenantConfig(prev => {
+        const aliases = { ...(prev.channels.telegram?.routing?.command_aliases || {}) };
+        delete aliases[editingTelegramAlias.originalCommand];
+        aliases[cmd] = editingTelegramAlias.skill_slug;
+        return {
+          ...prev,
+          channels: {
+            ...prev.channels,
+            telegram: {
+              ...prev.channels.telegram,
+              routing: {
+                ...prev.channels.telegram?.routing,
+                command_aliases: aliases
+              }
+            }
+          }
+        };
+      });
+      setEditingTelegramAlias(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }, [editingTelegramAlias]);
+
   // Toggle auto-provision
   const handleToggleAutoProvision = useCallback(async () => {
     if (!tenantConfig) return;
@@ -673,6 +794,7 @@ export default function TenantChannelsPage({ onClose }) {
 
   const emailConfig = tenantConfig?.channels?.email || {};
   const slackConfig = tenantConfig?.channels?.slack || {};
+  const telegramConfig = tenantConfig?.channels?.telegram || {};
   const policies = tenantConfig?.policies || {};
 
   return (
@@ -973,6 +1095,138 @@ export default function TenantChannelsPage({ onClose }) {
                     disabled={saving || !newSlackMention || !newSlackSkill}
                   >
                     Add Rule
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Telegram Channel */}
+        <div style={styles.section}>
+          <div style={styles.channelCard}>
+            <div style={styles.channelHeader}>
+              <div style={styles.channelTitle}>
+                <span style={styles.channelIcon}>✈️</span>
+                <div>
+                  <div style={styles.channelName}>Telegram</div>
+                  <div style={styles.channelDesc}>Route Telegram messages to skills by command prefix</div>
+                </div>
+              </div>
+              <div
+                style={{ ...styles.toggle, ...(telegramConfig.enabled ? styles.toggleEnabled : {}) }}
+                onClick={() => handleToggleChannel('telegram')}
+              >
+                <div style={{ ...styles.toggleKnob, ...(telegramConfig.enabled ? styles.toggleKnobEnabled : {}) }} />
+              </div>
+            </div>
+
+            {telegramConfig.enabled && (
+              <div style={styles.routingSection}>
+                <div style={styles.routingTitle}>Command Aliases</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                  Map Telegram /command prefixes to skills (e.g., /dev, /support)
+                </div>
+
+                <div style={styles.rulesList}>
+                  {Object.entries(telegramConfig.routing?.command_aliases || {}).map(([cmd, skillSlug]) => (
+                    <div key={cmd} style={styles.ruleItem}>
+                      {editingTelegramAlias?.originalCommand === cmd ? (
+                        <>
+                          <div style={styles.editForm}>
+                            <input
+                              style={{ ...styles.editInput, maxWidth: '120px' }}
+                              value={editingTelegramAlias.command}
+                              onChange={(e) => setEditingTelegramAlias(prev => ({ ...prev, command: e.target.value }))}
+                              placeholder="command"
+                            />
+                            <span style={styles.ruleArrow}>&rarr;</span>
+                            <select
+                              style={styles.editSelect}
+                              value={editingTelegramAlias.skill_slug}
+                              onChange={(e) => setEditingTelegramAlias(prev => ({ ...prev, skill_slug: e.target.value }))}
+                            >
+                              <option value="">Select skill...</option>
+                              {skills.map(skill => (
+                                <option key={skill.id} value={getSkillSlug(skill)}>
+                                  {skill.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div style={styles.ruleActions}>
+                            <button
+                              style={styles.saveBtn}
+                              onClick={handleSaveEditTelegramAlias}
+                              disabled={saving || !editingTelegramAlias.command || !editingTelegramAlias.skill_slug}
+                            >
+                              Save
+                            </button>
+                            <button
+                              style={styles.cancelBtn}
+                              onClick={handleCancelEditTelegramAlias}
+                              disabled={saving}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            <span style={styles.ruleText}>/{cmd}</span>
+                            <span style={styles.ruleArrow}>&rarr;</span>
+                            <span style={styles.ruleSkill}>{skillSlug}</span>
+                          </div>
+                          <div style={styles.ruleActions}>
+                            <button
+                              style={styles.editBtn}
+                              onClick={() => handleStartEditTelegramAlias(cmd, skillSlug)}
+                              disabled={saving || editingTelegramAlias !== null}
+                              title="Edit alias"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              style={styles.deleteBtn}
+                              onClick={() => handleRemoveTelegramAlias(cmd)}
+                              disabled={saving || editingTelegramAlias !== null}
+                              title="Delete alias"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <form style={styles.addRuleForm} onSubmit={handleAddTelegramAlias}>
+                  <input
+                    style={{ ...styles.input, maxWidth: '180px' }}
+                    placeholder="Command (e.g., dev)"
+                    value={newTelegramCommand}
+                    onChange={(e) => setNewTelegramCommand(e.target.value)}
+                  />
+                  <select
+                    style={styles.select}
+                    value={newTelegramSkill}
+                    onChange={(e) => setNewTelegramSkill(e.target.value)}
+                  >
+                    <option value="">Select skill...</option>
+                    {skills.map(skill => (
+                      <option key={skill.id} value={getSkillSlug(skill)}>
+                        {skill.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="submit"
+                    style={styles.addBtn}
+                    disabled={saving || !newTelegramCommand || !newTelegramSkill}
+                  >
+                    Add Alias
                   </button>
                 </form>
               </div>

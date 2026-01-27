@@ -83,6 +83,15 @@ function createDefaultTenantConfig() {
           rules: [],
         },
       },
+      telegram: {
+        enabled: false,
+        connector_id: "telegram-mcp",
+        routing: {
+          mode: "command_prefix",
+          command_aliases: {},
+          rules: [],
+        },
+      },
     },
     policies: {
       allow_external_users: true,
@@ -206,8 +215,8 @@ router.put("/channels/:channel", async (req, res) => {
   try {
     const { channel } = req.params;
 
-    if (!["email", "slack"].includes(channel)) {
-      return res.status(400).json({ error: `Invalid channel: ${channel}. Must be 'email' or 'slack'.` });
+    if (!["email", "slack", "telegram"].includes(channel)) {
+      return res.status(400).json({ error: `Invalid channel: ${channel}. Must be 'email', 'slack', or 'telegram'.` });
     }
 
     let config = await loadTenantConfig();
@@ -238,7 +247,7 @@ router.patch("/channels/:channel/enable", async (req, res) => {
     const { channel } = req.params;
     const { enabled } = req.body;
 
-    if (!["email", "slack"].includes(channel)) {
+    if (!["email", "slack", "telegram"].includes(channel)) {
       return res.status(400).json({ error: `Invalid channel: ${channel}` });
     }
 
@@ -444,6 +453,133 @@ router.delete("/channels/slack/routing/rules", async (req, res) => {
     res.json({ deleted: mention_handle || channel_id });
   } catch (err) {
     console.error("[tenant] DELETE slack rule error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// Telegram Routing Rules
+// ============================================
+
+/**
+ * POST /api/tenant/channels/telegram/routing/rules
+ * Add Telegram routing rule (command alias → skill)
+ */
+router.post("/channels/telegram/routing/rules", async (req, res) => {
+  try {
+    const { command, skill_slug, chat_id, username } = req.body;
+
+    if (!skill_slug) {
+      return res.status(400).json({ error: "'skill_slug' is required" });
+    }
+
+    if (!command && !chat_id && !username) {
+      return res.status(400).json({ error: "At least one of 'command', 'chat_id', or 'username' is required" });
+    }
+
+    let config = await loadTenantConfig();
+    if (!config) {
+      config = createDefaultTenantConfig();
+    }
+
+    // Ensure telegram channel structure exists
+    if (!config.channels.telegram) {
+      config.channels.telegram = { enabled: false, connector_id: "telegram-mcp", routing: { mode: "command_prefix", command_aliases: {}, rules: [] } };
+    }
+    if (!config.channels.telegram.routing) {
+      config.channels.telegram.routing = { mode: "command_prefix", command_aliases: {}, rules: [] };
+    }
+    if (!config.channels.telegram.routing.command_aliases) {
+      config.channels.telegram.routing.command_aliases = {};
+    }
+    if (!config.channels.telegram.routing.rules) {
+      config.channels.telegram.routing.rules = [];
+    }
+
+    // If command alias, add to command_aliases map
+    if (command) {
+      const cmd = command.toLowerCase().replace(/^\//, "");
+      if (config.channels.telegram.routing.command_aliases[cmd]) {
+        return res.status(409).json({ error: `Command alias '/${cmd}' already exists` });
+      }
+      config.channels.telegram.routing.command_aliases[cmd] = skill_slug;
+    } else {
+      // Otherwise add as a routing rule (chat_id or username)
+      const rule = { skill_slug };
+      if (chat_id) rule.chat_id = String(chat_id);
+      if (username) rule.username = username.toLowerCase().replace(/^@/, "");
+
+      // Check for duplicates
+      const duplicate = config.channels.telegram.routing.rules.find(r => {
+        if (chat_id && r.chat_id) return String(r.chat_id) === String(chat_id);
+        if (username && r.username) return r.username === rule.username;
+        return false;
+      });
+      if (duplicate) {
+        return res.status(409).json({ error: `Rule already exists` });
+      }
+
+      config.channels.telegram.routing.rules.push(rule);
+    }
+
+    config.updatedAt = new Date().toISOString();
+    await saveTenantConfig(config);
+
+    res.status(201).json({ command, chat_id, username, skill_slug });
+  } catch (err) {
+    console.error("[tenant] POST telegram rule error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/tenant/channels/telegram/routing/rules
+ * Remove Telegram routing rule by command, chat_id, or username
+ */
+router.delete("/channels/telegram/routing/rules", async (req, res) => {
+  try {
+    const { command, chat_id, username } = req.query;
+
+    if (!command && !chat_id && !username) {
+      return res.status(400).json({ error: "Either 'command', 'chat_id', or 'username' query param is required" });
+    }
+
+    let config = await loadTenantConfig();
+    if (!config) {
+      return res.status(404).json({ error: "Tenant config not found" });
+    }
+
+    let deleted = false;
+
+    if (command) {
+      const cmd = command.toLowerCase().replace(/^\//, "");
+      if (config.channels.telegram?.routing?.command_aliases?.[cmd]) {
+        delete config.channels.telegram.routing.command_aliases[cmd];
+        deleted = true;
+      }
+    } else {
+      const rules = config.channels.telegram?.routing?.rules || [];
+      const initialLength = rules.length;
+
+      config.channels.telegram.routing.rules = rules.filter(r => {
+        if (chat_id && r.chat_id) return String(r.chat_id) !== String(chat_id);
+        if (username && r.username) return r.username !== username.toLowerCase().replace(/^@/, "");
+        return true;
+      });
+
+      deleted = config.channels.telegram.routing.rules.length < initialLength;
+    }
+
+    if (!deleted) {
+      return res.status(404).json({ error: "Rule not found" });
+    }
+
+    config.updatedAt = new Date().toISOString();
+    await saveTenantConfig(config);
+
+    res.json({ deleted: command || chat_id || username });
+  } catch (err) {
+    console.error("[tenant] DELETE telegram rule error:", err);
     res.status(500).json({ error: err.message });
   }
 });

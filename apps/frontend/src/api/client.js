@@ -431,6 +431,23 @@ export async function removeSlackRoutingRule(params) {
   });
 }
 
+export async function addTelegramRoutingRule(rule) {
+  return request('/tenant/channels/telegram/routing/rules', {
+    method: 'POST',
+    body: JSON.stringify(rule)
+  });
+}
+
+export async function removeTelegramRoutingRule(params) {
+  const query = new URLSearchParams();
+  if (params.command) query.append('command', params.command);
+  if (params.chat_id) query.append('chat_id', params.chat_id);
+  if (params.username) query.append('username', params.username);
+  return request(`/tenant/channels/telegram/routing/rules?${query}`, {
+    method: 'DELETE'
+  });
+}
+
 export async function getTenantPolicies() {
   return request('/tenant/policies');
 }
@@ -602,6 +619,8 @@ export default {
   removeEmailRoutingRule,
   addSlackRoutingRule,
   removeSlackRoutingRule,
+  addTelegramRoutingRule,
+  removeTelegramRoutingRule,
   getTenantPolicies,
   updateTenantPolicies,
   listEmailAliases,

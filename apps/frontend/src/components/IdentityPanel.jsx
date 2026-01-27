@@ -297,7 +297,8 @@ export default function IdentityPanel({
     display_name: '',
     channel_identities: {
       email: { from_name: '', from_email: '', signature: '' },
-      slack: { bot_name: '' }
+      slack: { bot_name: '' },
+      telegram: { parse_mode: '' }
     }
   });
   const [activatingSkillActor, setActivatingSkillActor] = useState(false);
@@ -331,7 +332,7 @@ export default function IdentityPanel({
   const [newlyCreatedToken, setNewlyCreatedToken] = useState(null);
 
   // Inbound channels state (routes that send messages TO this skill)
-  const [inboundChannels, setInboundChannels] = useState({ email: [], slack: [] });
+  const [inboundChannels, setInboundChannels] = useState({ email: [], slack: [], telegram: [] });
 
   // Load global connectors and inbound channels
   useEffect(() => {
@@ -381,8 +382,19 @@ export default function IdentityPanel({
             .filter(matchesSkill)
             .map(r => r.channel || r.mention);
 
-          console.log('[IdentityPanel] Found routes:', { emailRoutes, slackRoutes });
-          setInboundChannels({ email: emailRoutes, slack: slackRoutes });
+          // Find telegram command aliases that route to this skill
+          const telegramAliases = channels?.telegram?.routing?.command_aliases || {};
+          const telegramRoutes = Object.entries(telegramAliases)
+            .filter(([, slug]) => slug === skillSlug || slug === skillId)
+            .map(([cmd]) => `/${cmd}`);
+
+          // Also check telegram rules (chat_id, username)
+          const telegramRuleRoutes = (channels?.telegram?.routing?.rules || [])
+            .filter(matchesSkill)
+            .map(r => r.chat_id ? `Chat ${r.chat_id}` : r.username ? `@${r.username}` : '');
+
+          console.log('[IdentityPanel] Found routes:', { emailRoutes, slackRoutes, telegramRoutes });
+          setInboundChannels({ email: emailRoutes, slack: slackRoutes, telegram: [...telegramRoutes, ...telegramRuleRoutes].filter(Boolean) });
         } catch (err) {
           console.error('Failed to load inbound channels:', err);
         }
@@ -743,6 +755,21 @@ export default function IdentityPanel({
           />
         </div>
 
+        {/* Telegram Settings */}
+        <div style={styles.inputGroup}>
+          <label style={styles.inputLabel}>Telegram - Parse Mode</label>
+          <select
+            style={{ ...styles.input, cursor: 'pointer' }}
+            value={localSkillIdentity.channel_identities?.telegram?.parse_mode || ''}
+            onChange={(e) => handleSkillIdentityChange('channel_identities.telegram.parse_mode', e.target.value)}
+          >
+            <option value="">None (plain text)</option>
+            <option value="Markdown">Markdown</option>
+            <option value="MarkdownV2">MarkdownV2</option>
+            <option value="HTML">HTML</option>
+          </select>
+        </div>
+
         {/* Activation Status */}
         <div style={{
           marginTop: '20px',
@@ -826,7 +853,7 @@ export default function IdentityPanel({
             Messages sent to these addresses are routed to this skill.
           </div>
 
-          {inboundChannels.email.length > 0 || inboundChannels.slack.length > 0 ? (
+          {inboundChannels.email.length > 0 || inboundChannels.slack.length > 0 || inboundChannels.telegram.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {inboundChannels.email.map((addr, i) => (
                 <div key={`email-${i}`} style={{
@@ -854,6 +881,20 @@ export default function IdentityPanel({
                 }}>
                   <span style={{ fontSize: '14px' }}>💬</span>
                   <span style={{ color: 'var(--text-primary)' }}>{channel}</span>
+                </div>
+              ))}
+              {inboundChannels.telegram.map((route, i) => (
+                <div key={`telegram-${i}`} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 10px',
+                  background: 'var(--bg-card)',
+                  borderRadius: '6px',
+                  fontSize: '13px'
+                }}>
+                  <span style={{ fontSize: '14px' }}>✈️</span>
+                  <span style={{ color: 'var(--text-primary)' }}>{route}</span>
                 </div>
               ))}
             </div>
