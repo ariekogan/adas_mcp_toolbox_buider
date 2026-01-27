@@ -256,6 +256,12 @@ router.patch("/channels/:channel/enable", async (req, res) => {
       config = createDefaultTenantConfig();
     }
 
+    // Initialize channel structure if missing (e.g., telegram added to older configs)
+    if (!config.channels[channel]) {
+      const defaults = createDefaultTenantConfig();
+      config.channels[channel] = defaults.channels[channel] || { enabled: false, routing: { rules: [] } };
+    }
+
     config.channels[channel].enabled = !!enabled;
     config.updatedAt = new Date().toISOString();
 
