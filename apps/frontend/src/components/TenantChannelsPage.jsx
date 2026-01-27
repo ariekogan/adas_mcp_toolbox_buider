@@ -334,6 +334,24 @@ export default function TenantChannelsPage({ onClose }) {
   const [editingSlackRule, setEditingSlackRule] = useState(null); // { originalHandle, mention_handle, skill_slug }
   const [editingTelegramAlias, setEditingTelegramAlias] = useState(null); // { originalCommand, command, skill_slug }
 
+  // Email config state
+  const [emailCreds, setEmailCreds] = useState({
+    emailUser: '', emailPass: '',
+    smtpHost: 'smtp.gmail.com', smtpPort: 587,
+    imapHost: 'imap.gmail.com', imapPort: 993
+  });
+  const [emailConfigured, setEmailConfigured] = useState(false);
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailTesting, setEmailTesting] = useState(false);
+  const [emailTestResult, setEmailTestResult] = useState(null);
+  const [emailMsg, setEmailMsg] = useState(null); // { type: 'success'|'error', text }
+
+  // Telegram config state
+  const [telegramBotConfig, setTelegramBotConfig] = useState({ botName: '', botToken: '' });
+  const [telegramConfigured, setTelegramConfigured] = useState(false);
+  const [telegramSaving, setTelegramSaving] = useState(false);
+  const [telegramMsg, setTelegramMsg] = useState(null);
+
   // Retention cleanup state
   const [retentionDays, setRetentionDays] = useState(30);
   const [cleanupStats, setCleanupStats] = useState(null);
@@ -345,6 +363,8 @@ export default function TenantChannelsPage({ onClose }) {
     loadTenantConfig();
     loadSkills();
     loadEmailAliases();
+    loadEmailConfig();
+    loadTelegramConfig();
   }, []);
 
   const loadSkills = async () => {
@@ -367,6 +387,105 @@ export default function TenantChannelsPage({ onClose }) {
       console.error('Failed to load email aliases:', err);
     } finally {
       setLoadingAliases(false);
+    }
+  };
+
+  // Load email config from CORE
+  const loadEmailConfig = async () => {
+    try {
+      const result = await api.getEmailConfig();
+      if (result.ok && result.configured && result.config) {
+        setEmailCreds({
+          emailUser: result.config.emailUser || '',
+          emailPass: '',
+          smtpHost: result.config.smtpHost || 'smtp.gmail.com',
+          smtpPort: result.config.smtpPort || 587,
+          imapHost: result.config.imapHost || 'imap.gmail.com',
+          imapPort: result.config.imapPort || 993
+        });
+        setEmailConfigured(true);
+      }
+    } catch (err) {
+      console.error('Failed to load email config:', err);
+    }
+  };
+
+  // Save email config
+  const handleSaveEmailConfig = async () => {
+    if (!emailCreds.emailUser || !emailCreds.emailPass) {
+      setEmailMsg({ type: 'error', text: 'Email and password are required' });
+      return;
+    }
+    try {
+      setEmailSaving(true);
+      setEmailMsg(null);
+      setEmailTestResult(null);
+      const result = await api.setEmailConfig(emailCreds);
+      if (!result.ok) throw new Error(result.error || 'Failed to save');
+      setEmailMsg({ type: 'success', text: 'Email configuration saved' });
+      setEmailConfigured(true);
+      setEmailCreds(prev => ({ ...prev, emailPass: '' }));
+    } catch (err) {
+      setEmailMsg({ type: 'error', text: err.message });
+    } finally {
+      setEmailSaving(false);
+    }
+  };
+
+  // Test email connection
+  const handleTestEmail = async () => {
+    try {
+      setEmailTesting(true);
+      setEmailMsg(null);
+      setEmailTestResult(null);
+      const result = await api.testEmailConnection({ protocol: 'both' });
+      setEmailTestResult(result);
+      if (result.ok) {
+        setEmailMsg({ type: 'success', text: 'Connection test passed!' });
+      } else {
+        setEmailMsg({ type: 'error', text: 'Connection test failed' });
+      }
+    } catch (err) {
+      setEmailMsg({ type: 'error', text: err.message });
+    } finally {
+      setEmailTesting(false);
+    }
+  };
+
+  // Load Telegram config from CORE
+  const loadTelegramConfig = async () => {
+    try {
+      const result = await api.getTelegramBotConfig();
+      if (result.ok && result.configured && result.config) {
+        setTelegramBotConfig({
+          botName: result.config.botName || '',
+          botToken: ''
+        });
+        setTelegramConfigured(true);
+      }
+    } catch (err) {
+      console.error('Failed to load telegram config:', err);
+    }
+  };
+
+  // Save Telegram config
+  const handleSaveTelegramConfig = async () => {
+    if (!telegramBotConfig.botToken) {
+      setTelegramMsg({ type: 'error', text: 'Bot token is required' });
+      return;
+    }
+    try {
+      setTelegramSaving(true);
+      setTelegramMsg(null);
+      const result = await api.setTelegramBotConfig(telegramBotConfig);
+      if (!result.ok) throw new Error(result.error || 'Failed to save');
+      setTelegramMsg({ type: 'success', text: 'Telegram configuration saved' });
+      setTelegramConfigured(true);
+      setTelegramBotConfig(prev => ({ ...prev, botToken: '' }));
+    } catch (err) {
+      setTelegramMsg({ type: 'error', text: err.message });
+    } finally {
+      setTelegramSaving(false);
     }
   };
 
@@ -895,6 +1014,157 @@ export default function TenantChannelsPage({ onClose }) {
             </div>
 
             {emailConfig.enabled && (
+              <>
+              {/* Email Credentials */}
+              <div style={styles.routingSection}>
+                <div style={styles.routingTitle}>Connection Settings</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                  Gmail SMTP/IMAP credentials for sending and receiving email
+                </div>
+
+                {/* Status */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  marginBottom: '12px', padding: '8px 10px',
+                  background: emailConfigured ? 'rgba(34, 197, 94, 0.1)' : 'rgba(251, 191, 36, 0.1)',
+                  border: `1px solid ${emailConfigured ? 'rgba(34, 197, 94, 0.3)' : 'rgba(251, 191, 36, 0.3)'}`,
+                  borderRadius: '6px'
+                }}>
+                  <span style={{ fontSize: '13px', color: emailConfigured ? '#22c55e' : '#fbbf24' }}>
+                    {emailConfigured ? 'Configured' : 'Not configured'}
+                  </span>
+                </div>
+
+                {/* Messages */}
+                {emailMsg && (
+                  <div style={{
+                    padding: '8px 10px', marginBottom: '12px', borderRadius: '6px', fontSize: '13px',
+                    background: emailMsg.type === 'success' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                    border: `1px solid ${emailMsg.type === 'success' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                    color: emailMsg.type === 'success' ? '#4ade80' : '#f87171'
+                  }}>
+                    {emailMsg.text}
+                  </div>
+                )}
+
+                {/* Gmail Address */}
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    Gmail Address
+                  </label>
+                  <input
+                    type="email"
+                    value={emailCreds.emailUser}
+                    onChange={(e) => { setEmailCreds(p => ({ ...p, emailUser: e.target.value })); setEmailMsg(null); }}
+                    placeholder="your.email@gmail.com"
+                    style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                {/* App Password */}
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    App Password
+                  </label>
+                  <input
+                    type="password"
+                    value={emailCreds.emailPass}
+                    onChange={(e) => { setEmailCreds(p => ({ ...p, emailPass: e.target.value })); setEmailMsg(null); }}
+                    placeholder={emailConfigured ? '(unchanged)' : 'Enter app password'}
+                    style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
+                  />
+                  {emailConfigured && (
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Leave blank to keep existing password
+                    </div>
+                  )}
+                </div>
+
+                {/* Advanced SMTP/IMAP settings */}
+                <details style={{ marginBottom: '12px' }}>
+                  <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                    Advanced Settings
+                  </summary>
+                  <div style={{ paddingLeft: '12px' }}>
+                    <div style={{ display: 'flex', gap: '10px', marginBottom: '8px' }}>
+                      <div style={{ flex: 2 }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>SMTP Host</label>
+                        <input type="text" value={emailCreds.smtpHost}
+                          onChange={(e) => setEmailCreds(p => ({ ...p, smtpHost: e.target.value }))}
+                          style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px' }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Port</label>
+                        <input type="number" value={emailCreds.smtpPort}
+                          onChange={(e) => setEmailCreds(p => ({ ...p, smtpPort: parseInt(e.target.value) || 587 }))}
+                          style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px' }} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <div style={{ flex: 2 }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>IMAP Host</label>
+                        <input type="text" value={emailCreds.imapHost}
+                          onChange={(e) => setEmailCreds(p => ({ ...p, imapHost: e.target.value }))}
+                          style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px' }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Port</label>
+                        <input type="number" value={emailCreds.imapPort}
+                          onChange={(e) => setEmailCreds(p => ({ ...p, imapPort: parseInt(e.target.value) || 993 }))}
+                          style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px' }} />
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
+                {/* Action buttons */}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={handleSaveEmailConfig}
+                    disabled={emailSaving || !emailCreds.emailUser || (!emailCreds.emailPass && !emailConfigured)}
+                    style={{
+                      ...styles.addBtn,
+                      flex: 1, textAlign: 'center',
+                      opacity: (emailSaving || !emailCreds.emailUser || (!emailCreds.emailPass && !emailConfigured)) ? 0.5 : 1,
+                      cursor: (emailSaving || !emailCreds.emailUser || (!emailCreds.emailPass && !emailConfigured)) ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {emailSaving ? 'Saving...' : 'Save'}
+                  </button>
+                  {emailConfigured && (
+                    <button
+                      onClick={handleTestEmail}
+                      disabled={emailTesting}
+                      style={{
+                        ...styles.cancelBtn,
+                        opacity: emailTesting ? 0.5 : 1,
+                        cursor: emailTesting ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      {emailTesting ? 'Testing...' : 'Test Connection'}
+                    </button>
+                  )}
+                </div>
+
+                {/* Test Results */}
+                {emailTestResult && (
+                  <div style={{
+                    marginTop: '12px', padding: '10px 12px',
+                    background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: '6px'
+                  }}>
+                    <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: 'var(--text-primary)' }}>
+                      Test Results
+                    </div>
+                    <div style={{ fontSize: '12px', color: emailTestResult.ok ? '#4ade80' : '#f87171' }}>
+                      {emailTestResult.ok
+                        ? `Connected (${emailTestResult.aliasCount || 0} aliases found)`
+                        : (emailTestResult.error || 'Connection failed')}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Routing Rules */}
               <div style={styles.routingSection}>
                 <div style={styles.routingTitle}>Routing Rules</div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
@@ -1017,6 +1287,7 @@ export default function TenantChannelsPage({ onClose }) {
                   </button>
                 </form>
               </div>
+              </>
             )}
           </div>
         </div>
@@ -1175,6 +1446,88 @@ export default function TenantChannelsPage({ onClose }) {
             </div>
 
             {telegramConfig.enabled && (
+              <>
+              {/* Telegram Bot Settings */}
+              <div style={styles.routingSection}>
+                <div style={styles.routingTitle}>Bot Settings</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                  Telegram bot credentials from @BotFather
+                </div>
+
+                {/* Status */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  marginBottom: '12px', padding: '8px 10px',
+                  background: telegramConfigured ? 'rgba(34, 197, 94, 0.1)' : 'rgba(251, 191, 36, 0.1)',
+                  border: `1px solid ${telegramConfigured ? 'rgba(34, 197, 94, 0.3)' : 'rgba(251, 191, 36, 0.3)'}`,
+                  borderRadius: '6px'
+                }}>
+                  <span style={{ fontSize: '13px', color: telegramConfigured ? '#22c55e' : '#fbbf24' }}>
+                    {telegramConfigured ? 'Configured' : 'Not configured'}
+                  </span>
+                </div>
+
+                {/* Messages */}
+                {telegramMsg && (
+                  <div style={{
+                    padding: '8px 10px', marginBottom: '12px', borderRadius: '6px', fontSize: '13px',
+                    background: telegramMsg.type === 'success' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                    border: `1px solid ${telegramMsg.type === 'success' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                    color: telegramMsg.type === 'success' ? '#4ade80' : '#f87171'
+                  }}>
+                    {telegramMsg.text}
+                  </div>
+                )}
+
+                {/* Bot Name */}
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    Bot Name
+                  </label>
+                  <input
+                    type="text"
+                    value={telegramBotConfig.botName}
+                    onChange={(e) => { setTelegramBotConfig(p => ({ ...p, botName: e.target.value })); setTelegramMsg(null); }}
+                    placeholder="e.g., MyAssistantBot"
+                    style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                {/* Bot Token */}
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    Bot Token
+                  </label>
+                  <input
+                    type="password"
+                    value={telegramBotConfig.botToken}
+                    onChange={(e) => { setTelegramBotConfig(p => ({ ...p, botToken: e.target.value })); setTelegramMsg(null); }}
+                    placeholder={telegramConfigured ? '(unchanged)' : 'Enter bot token from @BotFather'}
+                    style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
+                  />
+                  {telegramConfigured && (
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Leave blank to keep existing token
+                    </div>
+                  )}
+                </div>
+
+                {/* Save button */}
+                <button
+                  onClick={handleSaveTelegramConfig}
+                  disabled={telegramSaving || (!telegramBotConfig.botToken && !telegramConfigured)}
+                  style={{
+                    ...styles.addBtn,
+                    width: '100%', textAlign: 'center',
+                    opacity: (telegramSaving || (!telegramBotConfig.botToken && !telegramConfigured)) ? 0.5 : 1,
+                    cursor: (telegramSaving || (!telegramBotConfig.botToken && !telegramConfigured)) ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {telegramSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+
+              {/* Command Aliases */}
               <div style={styles.routingSection}>
                 <div style={styles.routingTitle}>Command Aliases</div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
@@ -1283,6 +1636,7 @@ export default function TenantChannelsPage({ onClose }) {
                   </button>
                 </form>
               </div>
+              </>
             )}
           </div>
         </div>

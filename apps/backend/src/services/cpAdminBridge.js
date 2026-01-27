@@ -231,6 +231,27 @@ export async function testEmailConnection(params = {}) {
 }
 
 // ============================================
+// Telegram Config
+// ============================================
+
+/**
+ * Set Telegram bot configuration
+ * @param {object} params - { botName, botToken }
+ * @returns {Promise<{ ok: boolean, config: TelegramConfig }>}
+ */
+export async function setTelegramConfig(params = {}) {
+  return callAdminApi("setTelegramConfig", params);
+}
+
+/**
+ * Get current Telegram bot configuration (token masked)
+ * @returns {Promise<{ ok: boolean, configured: boolean, config: TelegramConfig }>}
+ */
+export async function getTelegramConfig() {
+  return callAdminApi("getTelegramConfig", {});
+}
+
+// ============================================
 // Trigger Management
 // ============================================
 
@@ -453,6 +474,9 @@ export default {
   setEmailConfig,
   getEmailConfig,
   testEmailConnection,
+  // Telegram Config
+  setTelegramConfig,
+  getTelegramConfig,
   // Triggers
   listTriggers,
   getTrigger,

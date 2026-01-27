@@ -13,7 +13,15 @@ import { Router } from "express";
 import { v4 as uuidv4 } from "uuid";
 import fs from "fs/promises";
 import path from "path";
-import { listEmailAliases, retentionCleanup } from "../services/cpAdminBridge.js";
+import {
+  listEmailAliases,
+  retentionCleanup,
+  setEmailConfig,
+  getEmailConfig,
+  testEmailConnection,
+  setTelegramConfig,
+  getTelegramConfig,
+} from "../services/cpAdminBridge.js";
 
 const router = Router();
 
@@ -606,6 +614,84 @@ router.get("/email-aliases", async (req, res) => {
   } catch (err) {
     console.error("[tenant] GET email-aliases error:", err);
     res.status(500).json({ ok: false, error: err.message, aliases: [] });
+  }
+});
+
+// ============================================
+// Email Config (CORE via cpAdminBridge)
+// ============================================
+
+/**
+ * GET /api/tenant/email/config
+ * Get current email configuration (password masked)
+ */
+router.get("/email/config", async (req, res) => {
+  try {
+    const result = await getEmailConfig();
+    res.json(result);
+  } catch (err) {
+    console.error("[tenant] GET email/config error:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/tenant/email/config
+ * Set email configuration (SMTP/IMAP credentials)
+ */
+router.post("/email/config", async (req, res) => {
+  try {
+    const result = await setEmailConfig(req.body);
+    res.json(result);
+  } catch (err) {
+    console.error("[tenant] POST email/config error:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/tenant/email/test
+ * Test email connection
+ */
+router.post("/email/test", async (req, res) => {
+  try {
+    const result = await testEmailConnection(req.body);
+    res.json(result);
+  } catch (err) {
+    console.error("[tenant] POST email/test error:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ============================================
+// Telegram Config (CORE via cpAdminBridge)
+// ============================================
+
+/**
+ * GET /api/tenant/telegram/config
+ * Get current Telegram bot configuration (token masked)
+ */
+router.get("/telegram/config", async (req, res) => {
+  try {
+    const result = await getTelegramConfig();
+    res.json(result);
+  } catch (err) {
+    console.error("[tenant] GET telegram/config error:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/tenant/telegram/config
+ * Set Telegram bot configuration
+ */
+router.post("/telegram/config", async (req, res) => {
+  try {
+    const result = await setTelegramConfig(req.body);
+    res.json(result);
+  } catch (err) {
+    console.error("[tenant] POST telegram/config error:", err);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

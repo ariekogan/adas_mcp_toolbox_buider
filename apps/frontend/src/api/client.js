@@ -464,6 +464,43 @@ export async function listEmailAliases() {
 }
 
 // ============================================
+// Email Config (CORE bridge)
+// ============================================
+
+export async function getEmailConfig() {
+  return request('/tenant/email/config');
+}
+
+export async function setEmailConfig(config) {
+  return request('/tenant/email/config', {
+    method: 'POST',
+    body: JSON.stringify(config)
+  });
+}
+
+export async function testEmailConnection(params = {}) {
+  return request('/tenant/email/test', {
+    method: 'POST',
+    body: JSON.stringify(params)
+  });
+}
+
+// ============================================
+// Telegram Config (CORE bridge)
+// ============================================
+
+export async function getTelegramBotConfig() {
+  return request('/tenant/telegram/config');
+}
+
+export async function setTelegramBotConfig(config) {
+  return request('/tenant/telegram/config', {
+    method: 'POST',
+    body: JSON.stringify(config)
+  });
+}
+
+// ============================================
 // Retention Cleanup
 // ============================================
 
@@ -639,6 +676,13 @@ export default {
   getTenantPolicies,
   updateTenantPolicies,
   listEmailAliases,
+  // Email Config (CORE bridge)
+  getEmailConfig,
+  setEmailConfig,
+  testEmailConnection,
+  // Telegram Config (CORE bridge)
+  getTelegramBotConfig,
+  setTelegramBotConfig,
   // Retention
   previewRetentionCleanup,
   triggerRetentionCleanup,
