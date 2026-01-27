@@ -12,8 +12,8 @@
  * 5. Skills reference connector IDs, tools are loaded at runtime
  */
 
-// ADAS Core API base URL
-const ADAS_API_URL = process.env.ADAS_API_URL || 'http://localhost:4000';
+// ADAS Core API base URL (same env var as export.js)
+const ADAS_API_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
 
 /**
  * Sync a connector configuration to ADAS.

@@ -4,6 +4,8 @@ import { generateExportFiles, generateAdasExportPayload, generateAdasExportFiles
 import { provisionSkillActor, listTriggers, toggleTrigger, getTriggerHistory } from "../services/cpAdminBridge.js";
 import { generateMCPWithAgent, generateMCPSimple, isAgentSDKAvailable } from "../services/mcpGenerationAgent.js";
 import { MCPDevelopmentSession, analyzeDomainForMCP, MCP_DEV_PHASES } from "../services/mcpDevelopmentAgent.js";
+import { syncConnectorToADAS, startConnectorInADAS } from "../services/adasConnectorSync.js";
+import { PREBUILT_CONNECTORS } from "./connectors.js";
 
 // Store active development sessions (in production, use Redis or similar)
 const activeSessions = new Map();
@@ -1231,6 +1233,49 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
 
       log.info(`[MCP Deploy] Successfully deployed! Skill: ${skillSlug}, MCP: ${result.mcpUri}`);
 
+      // Step 3: Sync linked external connectors to ADAS Core
+      // Same pattern as Skill MCPs: register + start, single instance per connector
+      const connectorResults = [];
+      const linkedConnectors = domain.connectors || [];
+
+      if (linkedConnectors.length > 0) {
+        log.info(`[MCP Deploy] Syncing ${linkedConnectors.length} linked connectors: ${linkedConnectors.join(', ')}`);
+
+        for (const connectorId of linkedConnectors) {
+          const prebuilt = PREBUILT_CONNECTORS[connectorId];
+          if (!prebuilt) {
+            log.warn(`[MCP Deploy] Unknown connector "${connectorId}", skipping`);
+            connectorResults.push({ id: connectorId, ok: false, error: 'unknown connector' });
+            continue;
+          }
+
+          try {
+            // Register connector in ADAS Core ConnectorManager
+            await syncConnectorToADAS({
+              id: connectorId,
+              name: prebuilt.name,
+              type: 'mcp',
+              config: {
+                command: prebuilt.command,
+                args: prebuilt.args || [],
+                env: prebuilt.envDefaults || {}
+              },
+              credentials: {}  // No credentials for prebuilt (user adds later if needed)
+            });
+
+            // Start it (ConnectorManager handles single-instance)
+            const startResult = await startConnectorInADAS(connectorId);
+            const toolCount = startResult?.tools?.length || 0;
+            log.info(`[MCP Deploy] Connector "${connectorId}" started: ${toolCount} tools`);
+            connectorResults.push({ id: connectorId, ok: true, tools: toolCount });
+          } catch (err) {
+            // Don't fail the whole deploy if a connector fails (e.g. needs auth)
+            log.warn(`[MCP Deploy] Connector "${connectorId}" failed: ${err.message}`);
+            connectorResults.push({ id: connectorId, ok: false, error: err.message });
+          }
+        }
+      }
+
       return res.json({
         ok: true,
         status: 'deployed',
@@ -1238,6 +1283,7 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
         mcpUri: result.mcpUri,
         port: result.port,
         connectorId: result.connectorId,
+        connectors: connectorResults,
         adasResponse: result,
         message: `Skill "${skillSlug}" deployed to ADAS Core and running!`
       });

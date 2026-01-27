@@ -504,6 +504,9 @@ const PREBUILT_CONNECTORS = {
   }
 };
 
+// Export for use by export.js (connector sync to ADAS Core)
+export { PREBUILT_CONNECTORS };
+
 /**
  * GET /api/connectors/prebuilt
  * List available pre-built connectors
