@@ -13,7 +13,7 @@ import { Router } from "express";
 import { v4 as uuidv4 } from "uuid";
 import fs from "fs/promises";
 import path from "path";
-import { listEmailAliases } from "../services/cpAdminBridge.js";
+import { listEmailAliases, retentionCleanup } from "../services/cpAdminBridge.js";
 
 const router = Router();
 
@@ -96,6 +96,7 @@ function createDefaultTenantConfig() {
     policies: {
       allow_external_users: true,
       default_skill_slug: null,
+      retention_days: 30,
     },
     createdAt: now,
     updatedAt: now,
@@ -648,6 +649,46 @@ router.patch("/policies", async (req, res) => {
   } catch (err) {
     console.error("[tenant] PATCH policies error:", err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// Retention Cleanup Endpoints
+// ============================================
+
+/**
+ * POST /api/tenant/retention/cleanup
+ * Trigger retention cleanup via CORE
+ */
+router.post("/retention/cleanup", async (req, res) => {
+  try {
+    const { dryRun = false } = req.body || {};
+    // Read retention_days from tenant config
+    const config = await loadTenantConfig();
+    const retention_days = config?.policies?.retention_days ?? 30;
+
+    const result = await retentionCleanup({ retention_days, dryRun });
+    res.json(result);
+  } catch (err) {
+    console.error("[tenant] POST retention/cleanup error:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/tenant/retention/preview
+ * Preview what would be cleaned up (dry run)
+ */
+router.get("/retention/preview", async (req, res) => {
+  try {
+    const config = await loadTenantConfig();
+    const retention_days = config?.policies?.retention_days ?? 30;
+
+    const result = await retentionCleanup({ retention_days, dryRun: true });
+    res.json(result);
+  } catch (err) {
+    console.error("[tenant] GET retention/preview error:", err);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

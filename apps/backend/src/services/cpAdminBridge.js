@@ -418,6 +418,19 @@ export async function provisionSkillActor({ skillSlug, displayName, scopes = ["*
   };
 }
 
+// ============================================
+// Retention Cleanup
+// ============================================
+
+/**
+ * Run retention cleanup via CORE
+ * @param {object} params - { retention_days?, dryRun? }
+ * @returns {Promise<{ ok: boolean, stats: object }>}
+ */
+export async function retentionCleanup(params = {}) {
+  return callAdminApi("retentionCleanup", params);
+}
+
 export default {
   // Actor
   listActors,
@@ -453,4 +466,6 @@ export default {
   // Skill Actors
   findOrCreateSkillActor,
   provisionSkillActor,
+  // Retention
+  retentionCleanup,
 };

@@ -464,6 +464,21 @@ export async function listEmailAliases() {
 }
 
 // ============================================
+// Retention Cleanup
+// ============================================
+
+export async function previewRetentionCleanup() {
+  return request('/tenant/retention/preview');
+}
+
+export async function triggerRetentionCleanup(dryRun = false) {
+  return request('/tenant/retention/cleanup', {
+    method: 'POST',
+    body: JSON.stringify({ dryRun })
+  });
+}
+
+// ============================================
 // MCP Generation (Autonomous Agent)
 // ============================================
 
@@ -624,6 +639,9 @@ export default {
   getTenantPolicies,
   updateTenantPolicies,
   listEmailAliases,
+  // Retention
+  previewRetentionCleanup,
+  triggerRetentionCleanup,
   // Triggers (CORE bridge)
   getTriggersStatus,
   toggleTriggerInCore,

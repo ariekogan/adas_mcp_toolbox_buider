@@ -334,6 +334,12 @@ export default function TenantChannelsPage({ onClose }) {
   const [editingSlackRule, setEditingSlackRule] = useState(null); // { originalHandle, mention_handle, skill_slug }
   const [editingTelegramAlias, setEditingTelegramAlias] = useState(null); // { originalCommand, command, skill_slug }
 
+  // Retention cleanup state
+  const [retentionDays, setRetentionDays] = useState(30);
+  const [cleanupStats, setCleanupStats] = useState(null);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupError, setCleanupError] = useState(null);
+
   // Load tenant config and skills list
   useEffect(() => {
     loadTenantConfig();
@@ -375,6 +381,7 @@ export default function TenantChannelsPage({ onClose }) {
       setError(null);
       const config = await api.getTenantConfig();
       setTenantConfig(config);
+      setRetentionDays(config?.policies?.retention_days ?? 30);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -774,6 +781,52 @@ export default function TenantChannelsPage({ onClose }) {
       setSaving(false);
     }
   }, [tenantConfig]);
+
+  // Save retention days
+  const handleSaveRetentionDays = useCallback(async (days) => {
+    const value = Math.max(1, Math.min(365, Number(days) || 30));
+    try {
+      setSaving(true);
+      await api.updateTenantPolicies({ retention_days: value });
+      setRetentionDays(value);
+      setTenantConfig(prev => ({
+        ...prev,
+        policies: { ...prev.policies, retention_days: value }
+      }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  // Preview cleanup (dry run)
+  const handlePreviewCleanup = useCallback(async () => {
+    try {
+      setCleanupLoading(true);
+      setCleanupError(null);
+      const result = await api.previewRetentionCleanup();
+      setCleanupStats(result.stats);
+    } catch (err) {
+      setCleanupError(err.message);
+    } finally {
+      setCleanupLoading(false);
+    }
+  }, []);
+
+  // Run actual cleanup
+  const handleRunCleanup = useCallback(async () => {
+    try {
+      setCleanupLoading(true);
+      setCleanupError(null);
+      const result = await api.triggerRetentionCleanup(false);
+      setCleanupStats(result.stats);
+    } catch (err) {
+      setCleanupError(err.message);
+    } finally {
+      setCleanupLoading(false);
+    }
+  }, []);
 
   if (loading) {
     return (
@@ -1258,7 +1311,146 @@ export default function TenantChannelsPage({ onClose }) {
             </div>
           </div>
         </div>
+
+        {/* Data Retention */}
+        <div style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <div style={styles.sectionTitle}>
+              Data Retention
+            </div>
+          </div>
+          <div style={styles.policiesCard}>
+            {/* Retention Days Setting */}
+            <div style={styles.policyItem}>
+              <div>
+                <div style={styles.policyLabel}>Keep history</div>
+                <div style={styles.policyDesc}>
+                  Jobs, conversations, logs, and cache older than this are cleaned up daily (relative to latest activity)
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Last</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={retentionDays}
+                  onChange={(e) => setRetentionDays(Number(e.target.value))}
+                  onBlur={(e) => handleSaveRetentionDays(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveRetentionDays(e.target.value); }}
+                  style={{
+                    width: '60px',
+                    padding: '6px 8px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                    textAlign: 'center'
+                  }}
+                />
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>days</span>
+              </div>
+            </div>
+
+            {/* Manual Cleanup Actions */}
+            <div style={{ ...styles.policyItem, borderBottom: 'none' }}>
+              <div>
+                <div style={styles.policyLabel}>Manual cleanup</div>
+                <div style={styles.policyDesc}>
+                  Preview or run cleanup immediately
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={handlePreviewCleanup}
+                  disabled={cleanupLoading || saving}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    background: 'transparent',
+                    color: 'var(--text-secondary)',
+                    cursor: cleanupLoading || saving ? 'not-allowed' : 'pointer',
+                    fontSize: '13px',
+                    opacity: cleanupLoading || saving ? 0.6 : 1
+                  }}
+                >
+                  {cleanupLoading ? 'Scanning...' : 'Preview'}
+                </button>
+                <button
+                  onClick={handleRunCleanup}
+                  disabled={cleanupLoading || saving}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '6px',
+                    border: '1px solid #f59e0b',
+                    background: 'transparent',
+                    color: '#f59e0b',
+                    cursor: cleanupLoading || saving ? 'not-allowed' : 'pointer',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    opacity: cleanupLoading || saving ? 0.6 : 1
+                  }}
+                >
+                  Clean Now
+                </button>
+              </div>
+            </div>
+
+            {/* Cleanup Error */}
+            {cleanupError && (
+              <div style={{
+                marginTop: '12px',
+                padding: '10px 12px',
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: '6px',
+                color: '#f87171',
+                fontSize: '13px'
+              }}>
+                {cleanupError}
+              </div>
+            )}
+
+            {/* Cleanup Stats Display */}
+            {cleanupStats && (
+              <div style={{
+                marginTop: '12px',
+                padding: '12px 16px',
+                background: 'var(--bg-primary)',
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                fontSize: '13px'
+              }}>
+                <div style={{ fontWeight: '600', marginBottom: '8px', color: 'var(--text-primary)' }}>
+                  {cleanupStats.dryRun ? 'Preview' : 'Cleanup Complete'}
+                  {' \u2014 '}
+                  {cleanupStats.dryRun ? 'Would free' : 'Freed'}
+                  {' '}
+                  {formatBytes(cleanupStats.totalFreedBytes)}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', color: 'var(--text-secondary)' }}>
+                  <span>Jobs: {cleanupStats.jobs?.deleted || 0} {cleanupStats.dryRun ? 'to delete' : 'deleted'}</span>
+                  <span>Conversations: {cleanupStats.conversations?.deleted || 0}</span>
+                  <span>Trace logs: {cleanupStats.logs?.deleted || 0}</span>
+                  <span>Focus cache: {cleanupStats.focusCache?.deleted || 0}</span>
+                  <span>Audit logs: {cleanupStats.auditLogs?.deleted || 0}</span>
+                  <span>Skills scanned: {cleanupStats.skills_scanned}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`;
+  return `${(bytes / 1073741824).toFixed(1)} GB`;
 }
