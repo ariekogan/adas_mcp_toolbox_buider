@@ -706,12 +706,30 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
     setExpanded(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
-  // Group connectors by category
+  // Group connectors by category, with connected ones first
   const groupedConnectors = {};
   prebuiltConnectors.forEach(connector => {
     const cat = connector.category || 'other';
     if (!groupedConnectors[cat]) groupedConnectors[cat] = [];
     groupedConnectors[cat].push(connector);
+  });
+
+  // Sort each category: connected connectors first, then by ADAS status (running > not_installed)
+  Object.keys(groupedConnectors).forEach(cat => {
+    groupedConnectors[cat].sort((a, b) => {
+      const aConnected = activeConnections.some(c => c.id === a.id);
+      const bConnected = activeConnections.some(c => c.id === b.id);
+
+      // Connected first
+      if (aConnected && !bConnected) return -1;
+      if (!aConnected && bConnected) return 1;
+
+      // Then sort by ADAS status (running > others > not_installed)
+      const aStatus = adasStatus?.statuses?.[a.id]?.status || 'not_installed';
+      const bStatus = adasStatus?.statuses?.[b.id]?.status || 'not_installed';
+      const statusOrder = { 'connected': 0, 'running': 0, 'stopped': 1, 'error': 2, 'not_installed': 3 };
+      return (statusOrder[aStatus] ?? 3) - (statusOrder[bStatus] ?? 3);
+    });
   });
 
   const categoryNames = {
