@@ -21,6 +21,7 @@ import {
   testEmailConnection,
   setTelegramConfig,
   getTelegramConfig,
+  testTelegramConnection,
 } from "../services/cpAdminBridge.js";
 
 const router = Router();
@@ -691,6 +692,20 @@ router.post("/telegram/config", async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error("[tenant] POST telegram/config error:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/tenant/telegram/test
+ * Test Telegram bot connection
+ */
+router.post("/telegram/test", async (req, res) => {
+  try {
+    const result = await testTelegramConnection();
+    res.json(result);
+  } catch (err) {
+    console.error("[tenant] POST telegram/test error:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

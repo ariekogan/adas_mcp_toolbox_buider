@@ -251,6 +251,14 @@ export async function getTelegramConfig() {
   return callAdminApi("getTelegramConfig", {});
 }
 
+/**
+ * Test Telegram bot connection
+ * @returns {Promise<{ ok: boolean, botInfo?: object }>}
+ */
+export async function testTelegramConnection() {
+  return callAdminApi("testTelegramConnection", {});
+}
+
 // ============================================
 // Trigger Management
 // ============================================
@@ -477,6 +485,7 @@ export default {
   // Telegram Config
   setTelegramConfig,
   getTelegramConfig,
+  testTelegramConnection,
   // Triggers
   listTriggers,
   getTrigger,

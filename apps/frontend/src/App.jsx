@@ -7,6 +7,7 @@ import ExtractionReviewModal from './components/ExtractionReviewModal';
 import ExportModal from './components/ExportModal';
 import ConnectorsPage from './components/ConnectorsPage';
 import TenantChannelsPage from './components/TenantChannelsPage';
+import PoliciesPage from './components/PoliciesPage';
 import { useSkill } from './hooks/useSkill';
 import { useSettings } from './hooks/useSettings';
 import * as api from './api/client';
@@ -52,21 +53,54 @@ const styles = {
     alignItems: 'center',
     gap: '6px'
   },
-  navBtn: {
+  gearBtnWrap: {
+    position: 'relative'
+  },
+  gearBtn: {
     background: 'transparent',
     border: '1px solid var(--border)',
     borderRadius: '6px',
-    padding: '6px 12px',
+    padding: '6px 10px',
     color: 'var(--text-secondary)',
     cursor: 'pointer',
-    fontSize: '13px',
+    fontSize: '18px',
     display: 'flex',
     alignItems: 'center',
-    gap: '6px'
+    justifyContent: 'center',
+    lineHeight: 1
   },
-  navBtnActive: {
-    background: 'var(--accent)',
+  gearBtnActive: {
     borderColor: 'var(--accent)',
+    color: 'var(--accent)'
+  },
+  gearMenu: {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: '6px',
+    background: 'var(--bg-secondary)',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+    minWidth: '220px',
+    zIndex: 100,
+    overflow: 'hidden'
+  },
+  gearMenuItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '10px 16px',
+    fontSize: '13px',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    border: 'none',
+    background: 'transparent',
+    width: '100%',
+    textAlign: 'left'
+  },
+  gearMenuItemActive: {
+    background: 'var(--accent)',
     color: 'white'
   },
   apiStatus: {
@@ -134,8 +168,9 @@ export default function App() {
   // Export state
   const [exportModalOpen, setExportModalOpen] = useState(false);
 
-  // Navigation state - 'skills' or 'connectors'
+  // Navigation state - 'skills', 'connectors', 'channels'
   const [currentView, setCurrentView] = useState('skills');
+  const [gearMenuOpen, setGearMenuOpen] = useState(false);
 
   const messages = currentSkill?.conversation || [];
 
@@ -304,24 +339,6 @@ export default function App() {
           Skill Builder
         </div>
         <div style={styles.topActions}>
-          <button
-            style={{
-              ...styles.navBtn,
-              ...(currentView === 'channels' ? styles.navBtnActive : {})
-            }}
-            onClick={() => setCurrentView('channels')}
-          >
-            📡 Channels
-          </button>
-          <button
-            style={{
-              ...styles.navBtn,
-              ...(currentView === 'connectors' ? styles.navBtnActive : {})
-            }}
-            onClick={() => setCurrentView('connectors')}
-          >
-            🔌 Connectors
-          </button>
           <span style={{
             ...styles.apiStatus,
             background: apiConfigured ? '#10b98120' : '#ef444420',
@@ -332,6 +349,65 @@ export default function App() {
           <button style={styles.settingsBtn} onClick={openSettings}>
             Settings
           </button>
+          <div style={styles.gearBtnWrap}>
+            <button
+              style={{
+                ...styles.gearBtn,
+                ...(gearMenuOpen || currentView !== 'skills' ? styles.gearBtnActive : {})
+              }}
+              onClick={() => setGearMenuOpen(prev => !prev)}
+              title="Administration"
+            >
+              &#9881;
+            </button>
+            {gearMenuOpen && (
+              <>
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+                  onClick={() => setGearMenuOpen(false)}
+                />
+                <div style={styles.gearMenu}>
+                  <button
+                    style={{
+                      ...styles.gearMenuItem,
+                      ...(currentView === 'connectors' ? styles.gearMenuItemActive : {})
+                    }}
+                    onClick={() => { setCurrentView('connectors'); setGearMenuOpen(false); }}
+                  >
+                    MCP-Connectors
+                  </button>
+                  <button
+                    style={{
+                      ...styles.gearMenuItem,
+                      ...(currentView === 'channels' ? styles.gearMenuItemActive : {})
+                    }}
+                    onClick={() => { setCurrentView('channels'); setGearMenuOpen(false); }}
+                  >
+                    Communication Channels
+                  </button>
+                  <button
+                    style={{
+                      ...styles.gearMenuItem,
+                      ...(currentView === 'llm-models' ? styles.gearMenuItemActive : {})
+                    }}
+                    onClick={() => { setCurrentView('llm-models'); setGearMenuOpen(false); }}
+                  >
+                    LLM Models
+                  </button>
+                  <div style={{ height: '1px', background: 'var(--border)', margin: '2px 0' }} />
+                  <button
+                    style={{
+                      ...styles.gearMenuItem,
+                      ...(currentView === 'policies' ? styles.gearMenuItemActive : {})
+                    }}
+                    onClick={() => { setCurrentView('policies'); setGearMenuOpen(false); }}
+                  >
+                    Policies & Retention
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -340,6 +416,21 @@ export default function App() {
           <TenantChannelsPage onClose={() => setCurrentView('skills')} />
         ) : currentView === 'connectors' ? (
           <ConnectorsPage onClose={() => setCurrentView('skills')} />
+        ) : currentView === 'policies' ? (
+          <PoliciesPage onClose={() => setCurrentView('skills')} />
+        ) : currentView === 'llm-models' ? (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '20px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>LLM Models</div>
+              <p style={{ fontSize: '14px' }}>Model configuration coming soon.</p>
+              <button
+                onClick={() => setCurrentView('skills')}
+                style={{ marginTop: '16px', padding: '8px 16px', borderRadius: '6px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '13px' }}
+              >
+                Back to Skills
+              </button>
+            </div>
+          </div>
         ) : (
           <>
             <SkillList

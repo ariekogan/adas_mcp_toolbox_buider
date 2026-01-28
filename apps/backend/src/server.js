@@ -12,6 +12,8 @@ import connectorsRouter from "./routes/connectors.js";
 import actorsRouter from "./routes/actors.js";
 import tenantRouter from "./routes/tenant.js";
 import { isSearchAvailable } from "./services/webSearch.js";
+import mcpManager from "./services/mcpConnector.js";
+import connectorState from "./store/connectorState.js";
 
 const app = express();
 
@@ -89,4 +91,38 @@ app.listen(port, "0.0.0.0", () => {
   log.info(`Backend listening on http://0.0.0.0:${port}`);
   log.info(`LLM Provider: ${process.env.LLM_PROVIDER || "anthropic"}`);
   log.info(`Memory Path: ${process.env.MEMORY_PATH || "/memory"}`);
+
+  // Auto-reconnect saved connectors (fire-and-forget, non-blocking)
+  (async () => {
+    try {
+      await connectorState.init();
+      const connectors = await connectorState.getReconnectableConnectors();
+
+      if (connectors.length === 0) {
+        log.info('[Startup] No saved connectors to reconnect');
+        return;
+      }
+
+      log.info(`[Startup] Reconnecting ${connectors.length} saved connector(s)...`);
+
+      for (const conn of connectors) {
+        try {
+          log.info(`[Startup] Reconnecting: ${conn.name} (${conn.id})`);
+          await mcpManager.connect({
+            id: conn.id,
+            command: conn.command,
+            args: conn.args,
+            env: conn.env,
+            name: conn.name
+          });
+          log.info(`[Startup] Reconnected: ${conn.name} (${conn.id})`);
+        } catch (err) {
+          log.warn(`[Startup] Failed to reconnect ${conn.id}: ${err.message}`);
+          // Don't remove - user may want to retry manually or credentials may need refresh
+        }
+      }
+    } catch (err) {
+      log.error('[Startup] Connector reconnection failed:', err.message);
+    }
+  })();
 });

@@ -280,6 +280,14 @@ export async function importConnectorTools(connectionId, domainId, tools = [], p
   });
 }
 
+export async function getConnectorsADASStatus() {
+  return request('/connectors/adas-status');
+}
+
+export async function getSavedConnectors() {
+  return request('/connectors/saved');
+}
+
 // ============================================
 // Actors (CORE cp.admin_api bridge)
 // ============================================
@@ -500,6 +508,12 @@ export async function setTelegramBotConfig(config) {
   });
 }
 
+export async function testTelegramConnection() {
+  return request('/tenant/telegram/test', {
+    method: 'POST'
+  });
+}
+
 // ============================================
 // Retention Cleanup
 // ============================================
@@ -683,6 +697,7 @@ export default {
   // Telegram Config (CORE bridge)
   getTelegramBotConfig,
   setTelegramBotConfig,
+  testTelegramConnection,
   // Retention
   previewRetentionCleanup,
   triggerRetentionCleanup,

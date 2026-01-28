@@ -15,8 +15,11 @@ import {
   syncConnectorToADAS,
   startConnectorInADAS,
   stopConnectorInADAS,
-  isADASAvailable
+  isADASAvailable,
+  getConnectorsFromADAS
 } from '../services/adasConnectorSync.js';
+import connectorState from '../store/connectorState.js';
+import domains from '../store/domains.js';
 
 const router = Router();
 
@@ -87,6 +90,17 @@ router.post('/connect', async (req, res) => {
       }
     }
 
+    // Save connector state for persistence across restarts
+    await connectorState.saveConnector({
+      id: result.id,
+      name: name || command,
+      prebuiltId: null, // custom connector
+      command,
+      args: args || [],
+      env: env || {},
+      syncedToADAS: adasSynced
+    });
+
     res.json({
       success: true,
       connection: result,
@@ -109,6 +123,9 @@ router.post('/disconnect/:id', async (req, res) => {
 
   const disconnected = mcpManager.disconnect(id);
 
+  // Remove from saved state
+  await connectorState.removeConnector(id);
+
   // Optionally also stop/remove from ADAS
   if (removeFromADAS) {
     try {
@@ -125,7 +142,114 @@ router.post('/disconnect/:id', async (req, res) => {
   if (disconnected) {
     res.json({ success: true, message: `Disconnected from ${id}` });
   } else {
-    res.status(404).json({ success: false, error: 'Connection not found' });
+    // Still return success since we cleaned up state
+    res.json({ success: true, message: `Cleaned up ${id}` });
+  }
+});
+
+/**
+ * GET /api/connectors/adas-status
+ * Get connector status from ADAS Core with skill usage info
+ *
+ * Returns:
+ *   - adasAvailable: boolean - Whether ADAS Core is reachable
+ *   - statuses: { [connectorId]: { installed, status, usedBySkills } }
+ */
+router.get('/adas-status', async (_req, res) => {
+  try {
+    // 1. Check if ADAS is reachable
+    const adasAvailable = await isADASAvailable();
+
+    // 2. Get all connectors from ADAS (returns [] if unavailable)
+    let adasConnectors = [];
+    if (adasAvailable) {
+      adasConnectors = await getConnectorsFromADAS();
+    }
+
+    // 3. Build lookup map: connectorId -> ADAS data
+    const adasMap = new Map();
+    for (const ac of adasConnectors) {
+      adasMap.set(ac.id, {
+        installed: true,
+        status: ac.status || ac.state || 'unknown',
+        toolCount: ac.tools?.length || 0,
+        autoStart: ac.autoStart || false
+      });
+    }
+
+    // 4. Scan all domains to find which skills use each connector
+    const skillsByConnector = new Map(); // connectorId -> [{ id, name }]
+    try {
+      const domainList = await domains.list();
+      for (const domainSummary of domainList) {
+        try {
+          const domain = await domains.load(domainSummary.id);
+          for (const tool of (domain.tools || [])) {
+            if (tool.source?.type === 'mcp_bridge' && tool.source.connection_id) {
+              const connId = tool.source.connection_id;
+              if (!skillsByConnector.has(connId)) {
+                skillsByConnector.set(connId, []);
+              }
+              // Avoid duplicates
+              const existing = skillsByConnector.get(connId);
+              if (!existing.some(s => s.id === domain.id)) {
+                existing.push({ id: domain.id, name: domain.name });
+              }
+            }
+          }
+        } catch (err) {
+          // Skip domains that fail to load
+        }
+      }
+    } catch (err) {
+      console.error('[Connectors] Failed to scan domains for connector usage:', err.message);
+    }
+
+    // 5. Build response: keyed by connector ID
+    const statuses = {};
+
+    // Include all prebuilt connector IDs
+    for (const [id] of Object.entries(PREBUILT_CONNECTORS)) {
+      const adas = adasMap.get(id);
+      statuses[id] = {
+        installed: adas?.installed || false,
+        status: adas?.status || 'not_installed',
+        toolCount: adas?.toolCount || 0,
+        autoStart: adas?.autoStart || false,
+        usedBySkills: skillsByConnector.get(id) || []
+      };
+    }
+
+    // Include any ADAS connectors not in prebuilt list (custom ones)
+    for (const ac of adasConnectors) {
+      if (!statuses[ac.id]) {
+        statuses[ac.id] = {
+          installed: true,
+          status: ac.status || ac.state || 'unknown',
+          toolCount: ac.tools?.length || 0,
+          autoStart: ac.autoStart || false,
+          usedBySkills: skillsByConnector.get(ac.id) || []
+        };
+      }
+    }
+
+    res.json({ adasAvailable, statuses });
+  } catch (err) {
+    console.error('[Connectors] Failed to get ADAS status:', err);
+    res.json({ adasAvailable: false, statuses: {}, error: err.message });
+  }
+});
+
+/**
+ * GET /api/connectors/saved
+ * List saved connector configurations (for debugging/info)
+ */
+router.get('/saved', async (_req, res) => {
+  try {
+    const saved = await connectorState.listSavedConnectors();
+    res.json({ saved });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -566,6 +690,18 @@ router.post('/prebuilt/:connectorId/connect', async (req, res) => {
       args: finalArgs,
       env: finalEnv,
       name: prebuilt.name
+    });
+
+    // Save connector state for persistence across restarts
+    await connectorState.saveConnector({
+      id: connectorId,
+      name: prebuilt.name,
+      prebuiltId: connectorId,
+      command: prebuilt.command,
+      args: finalArgs,
+      env: finalEnv,
+      syncedToADAS: false, // prebuilt connect doesn't sync by default
+      portInfo: portInfo || null
     });
 
     // Include port info in response if auto-assigned

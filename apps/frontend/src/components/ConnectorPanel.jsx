@@ -7,7 +7,8 @@ import {
   disconnectMCP,
   getConnectorTools,
   callConnectorTool,
-  importConnectorTools
+  importConnectorTools,
+  getConnectorsADASStatus
 } from '../api/client';
 
 // Styles matching other panels (IdentityPanel, IntentsPanel, PolicyPanel)
@@ -282,6 +283,46 @@ const styles = {
     fontSize: '11px',
     color: '#f59e0b',
     marginTop: '4px'
+  },
+  adasStatusRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    marginTop: '6px',
+    flexWrap: 'wrap'
+  },
+  adasBadge: {
+    fontSize: '10px',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '3px'
+  },
+  adasRunningBadge: {
+    background: 'rgba(16, 185, 129, 0.12)',
+    color: '#10b981'
+  },
+  adasStoppedBadge: {
+    background: 'rgba(245, 158, 11, 0.12)',
+    color: '#fbbf24'
+  },
+  adasErrorBadge: {
+    background: 'rgba(239, 68, 68, 0.12)',
+    color: '#f87171'
+  },
+  adasNotInstalledBadge: {
+    background: 'rgba(107, 114, 128, 0.12)',
+    color: '#9ca3af'
+  },
+  adasSkillBadge: {
+    background: 'rgba(59, 130, 246, 0.12)',
+    color: '#60a5fa'
+  },
+  adasUnavailableBadge: {
+    background: 'rgba(107, 114, 128, 0.08)',
+    color: '#6b7280',
+    fontStyle: 'italic'
   }
 };
 
@@ -358,9 +399,19 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
   const [expandedEnvForm, setExpandedEnvForm] = useState(null); // connector id
   const [envFormValues, setEnvFormValues] = useState({}); // { connectorId: { VAR_NAME: value } }
 
+  // ADAS Core status
+  const [adasStatus, setAdasStatus] = useState(null); // { adasAvailable, statuses }
+
   // Load connectors on mount
   useEffect(() => {
     loadConnectors();
+  }, []);
+
+  // Load ADAS status on mount and poll every 60 seconds
+  useEffect(() => {
+    loadAdasStatus();
+    const interval = setInterval(loadAdasStatus, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   async function loadConnectors() {
@@ -373,6 +424,16 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
       setPrebuiltConnectors(prebuilt.connectors || []);
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function loadAdasStatus() {
+    try {
+      const data = await getConnectorsADASStatus();
+      setAdasStatus(data);
+    } catch (err) {
+      // ADAS status is non-critical, fail silently
+      console.warn('[ConnectorPanel] Failed to load ADAS status:', err.message);
     }
   }
 
@@ -398,6 +459,8 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
           delete next[connectorId];
           return next;
         });
+        // Refresh ADAS status
+        loadAdasStatus();
       }
     } catch (err) {
       // Try to parse structured error from API
@@ -540,6 +603,8 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
         setSelectedConnection(null);
         setDiscoveredTools([]);
       }
+      // Refresh ADAS status
+      loadAdasStatus();
     } catch (err) {
       setError(err.message);
     }
@@ -667,6 +732,73 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
 
   // Get selected connection name
   const selectedConnectionName = activeConnections.find(c => c.id === selectedConnection)?.name || selectedConnection;
+
+  // ADAS Status Badges Component
+  function ADASStatusBadges({ connectorId }) {
+    if (!adasStatus) return null;
+
+    const status = adasStatus.statuses?.[connectorId];
+    if (!status && !adasStatus.adasAvailable) {
+      return (
+        <div style={styles.adasStatusRow}>
+          <span style={{ ...styles.adasBadge, ...styles.adasUnavailableBadge }}>
+            ADAS unreachable
+          </span>
+        </div>
+      );
+    }
+    if (!status) return null;
+
+    const statusBadgeStyle = {
+      'running': styles.adasRunningBadge,
+      'connected': styles.adasRunningBadge,
+      'stopped': styles.adasStoppedBadge,
+      'disconnected': styles.adasStoppedBadge,
+      'error': styles.adasErrorBadge,
+      'not_installed': styles.adasNotInstalledBadge
+    }[status.status] || styles.adasNotInstalledBadge;
+
+    const statusLabel = {
+      'running': 'Running in ADAS',
+      'connected': 'Running in ADAS',
+      'stopped': 'Stopped in ADAS',
+      'disconnected': 'Stopped in ADAS',
+      'error': 'Error in ADAS',
+      'not_installed': 'Not in ADAS'
+    }[status.status] || status.status;
+
+    const statusDot = {
+      'running': '#10b981',
+      'connected': '#10b981',
+      'stopped': '#f59e0b',
+      'disconnected': '#f59e0b',
+      'error': '#ef4444',
+      'not_installed': '#6b7280'
+    }[status.status] || '#6b7280';
+
+    return (
+      <div style={styles.adasStatusRow}>
+        {/* ADAS status badge */}
+        <span style={{ ...styles.adasBadge, ...statusBadgeStyle }}>
+          <span style={{
+            width: '5px', height: '5px',
+            borderRadius: '50%',
+            background: statusDot,
+            display: 'inline-block'
+          }} />
+          {statusLabel}
+        </span>
+
+        {/* Skills using this connector */}
+        {status.usedBySkills?.length > 0 && (
+          <span style={{ ...styles.adasBadge, ...styles.adasSkillBadge }}
+                title={status.usedBySkills.map(s => s.name).join(', ')}>
+            Used by {status.usedBySkills.length} skill{status.usedBySkills.length > 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
+    );
+  }
 
   // Close tools view and go back to connectors list
   const handleCloseToolsView = () => {
@@ -1181,6 +1313,9 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
                             {connector.authInstructions || 'Requires authentication setup'}
                           </p>
                         )}
+
+                        {/* ADAS Core status indicators */}
+                        <ADASStatusBadges connectorId={connector.id} />
                       </div>
                     );
                   })}
