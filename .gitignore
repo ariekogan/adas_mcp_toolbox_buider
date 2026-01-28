@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Memory/data folder (skill definitions, user data)
+# CRITICAL: Never stash or commit - this is persistent user data
+memory/
+!memory/.gitkeep
+
+# Build outputs
+dist/
+build/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Claude Code local settings
+.claude/settings.local.json
