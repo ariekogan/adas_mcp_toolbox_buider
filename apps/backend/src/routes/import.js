@@ -389,21 +389,34 @@ router.post('/skill', async (req, res) => {
       // Domain doesn't exist, that's fine
     }
 
+    let domainId;
+
     if (existingDomain) {
-      // Update existing domain
+      // Update existing domain - merge skill data into existing domain
       console.log(`[Import] Updating existing skill: ${skillData.id}`);
-      await domainsStore.save(skillData.id, skillData);
+      domainId = existingDomain.id;
+      const updatedDomain = {
+        ...existingDomain,
+        ...skillData,
+        id: existingDomain.id // Keep the existing domain ID
+      };
+      await domainsStore.save(updatedDomain);
     } else {
       // Create new domain - use the skill data directly
-      // The domains store expects a name for create, but we want to use the skill's ID as slug
       const domain = await domainsStore.create(skillData.name, skillData.settings || {});
+      domainId = domain.id;
 
-      // Now update with the full skill data
-      await domainsStore.save(domain.id, {
+      // Now update with the full skill data, keeping the generated ID
+      const fullDomain = {
         ...skillData,
-        id: domain.id // Keep the generated ID
-      });
+        id: domain.id,
+        created_at: domain.created_at,
+        updated_at: new Date().toISOString()
+      };
+      await domainsStore.save(fullDomain);
     }
+
+    skillData.id = domainId;
 
     console.log(`[Import] Skill imported: ${skillData.name}`);
 
@@ -469,13 +482,27 @@ router.post('/skills', async (req, res) => {
           // Domain doesn't exist
         }
 
+        let domainId;
         if (existingDomain) {
-          await domainsStore.save(skillData.id, skillData);
+          domainId = existingDomain.id;
+          const updatedDomain = {
+            ...existingDomain,
+            ...skillData,
+            id: existingDomain.id
+          };
+          await domainsStore.save(updatedDomain);
         } else {
           const domain = await domainsStore.create(skillData.name, skillData.settings || {});
-          await domainsStore.save(domain.id, { ...skillData, id: domain.id });
-          skillData.id = domain.id;
+          domainId = domain.id;
+          const fullDomain = {
+            ...skillData,
+            id: domain.id,
+            created_at: domain.created_at,
+            updated_at: new Date().toISOString()
+          };
+          await domainsStore.save(fullDomain);
         }
+        skillData.id = domainId;
 
         results.push({
           id: skillData.id,
