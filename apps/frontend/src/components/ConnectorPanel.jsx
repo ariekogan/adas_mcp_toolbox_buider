@@ -323,47 +323,6 @@ const styles = {
     background: 'rgba(107, 114, 128, 0.08)',
     color: '#6b7280',
     fontStyle: 'italic'
-  },
-  // Tab styles
-  tabContainer: {
-    display: 'flex',
-    borderBottom: '1px solid var(--border)',
-    marginBottom: '16px'
-  },
-  tab: {
-    flex: 1,
-    padding: '12px 16px',
-    fontSize: '13px',
-    fontWeight: '500',
-    color: 'var(--text-muted)',
-    background: 'transparent',
-    border: 'none',
-    borderBottom: '2px solid transparent',
-    cursor: 'pointer',
-    transition: 'all 0.15s ease',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '8px'
-  },
-  tabActive: {
-    color: 'var(--accent)',
-    borderBottomColor: 'var(--accent)'
-  },
-  tabBadge: {
-    fontSize: '10px',
-    padding: '2px 6px',
-    borderRadius: '10px',
-    background: 'var(--bg-tertiary)',
-    color: 'var(--text-muted)'
-  },
-  tabBadgeActive: {
-    background: 'rgba(99, 102, 241, 0.15)',
-    color: 'var(--accent)'
-  },
-  tabContent: {
-    flex: 1,
-    overflow: 'auto'
   }
 };
 
@@ -406,20 +365,6 @@ if (typeof document !== 'undefined' && !document.getElementById('connector-spinn
   document.head.appendChild(style);
 }
 
-// Skills icon
-const SkillsIcon = () => (
-  <svg style={{ width: '16px', height: '16px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-  </svg>
-);
-
-// External connector icon
-const ExternalIcon = () => (
-  <svg style={{ width: '16px', height: '16px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-  </svg>
-);
-
 export default function ConnectorPanel({ skillId, onToolsImported, standalone = false }) {
   const [activeConnections, setActiveConnections] = useState([]);
   const [prebuiltConnectors, setPrebuiltConnectors] = useState([]);
@@ -432,9 +377,6 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
   const [testingTool, setTestingTool] = useState(null);
   const [testResult, setTestResult] = useState(null);
   const [loadingTools, setLoadingTools] = useState(false);
-
-  // Tab state: 'skills' or 'external'
-  const [activeTab, setActiveTab] = useState('external');
 
   // Section expansion state
   const [expanded, setExpanded] = useState({
@@ -1113,58 +1055,52 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
   // Main connectors view (no connection selected)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Tab navigation */}
-      <div style={styles.tabContainer}>
+      {/* Header */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: '16px',
+        paddingBottom: '12px',
+        borderBottom: '1px solid var(--border)'
+      }}>
+        <div style={{
+          fontSize: '13px',
+          fontWeight: '600',
+          color: 'var(--text-primary)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <PlugIcon />
+          External Connectors
+          {activeConnections.length > 0 && (
+            <span style={{
+              fontSize: '10px',
+              padding: '2px 6px',
+              borderRadius: '10px',
+              background: 'rgba(16, 185, 129, 0.15)',
+              color: '#34d399'
+            }}>
+              {activeConnections.length} connected
+            </span>
+          )}
+        </div>
         <button
+          onClick={loadConnectors}
           style={{
-            ...styles.tab,
-            ...(activeTab === 'skills' ? styles.tabActive : {})
+            padding: '6px',
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            borderRadius: '4px'
           }}
-          onClick={() => setActiveTab('skills')}
+          title="Refresh"
         >
-          <SkillsIcon />
-          Skills MCPs
-          <span style={{
-            ...styles.tabBadge,
-            ...(activeTab === 'skills' ? styles.tabBadgeActive : {})
-          }}>
-            0
-          </span>
-        </button>
-        <button
-          style={{
-            ...styles.tab,
-            ...(activeTab === 'external' ? styles.tabActive : {})
-          }}
-          onClick={() => setActiveTab('external')}
-        >
-          <ExternalIcon />
-          External MCPs
-          <span style={{
-            ...styles.tabBadge,
-            ...(activeTab === 'external' ? styles.tabBadgeActive : {})
-          }}>
-            {activeConnections.length}
-          </span>
+          <RefreshIcon />
         </button>
       </div>
-
-      {/* Tab content */}
-      <div style={styles.tabContent}>
-        {activeTab === 'skills' ? (
-          /* Skills MCPs Tab */
-          <div style={{ padding: '0 4px' }}>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
-              MCPs generated from your deployed skills
-            </p>
-            <div style={styles.empty}>
-              No generated MCPs yet.<br />
-              Export a skill to create one.
-            </div>
-          </div>
-        ) : (
-          /* External MCPs Tab */
-          <div style={{ padding: '0 4px' }}>
 
       {/* Error banner - supports both string and structured errors */}
       {error && (
@@ -1514,9 +1450,6 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
               </div>
             )}
           </>
-        )}
-      </div>
-          </div>
         )}
       </div>
     </div>
