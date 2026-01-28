@@ -706,31 +706,33 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
     setExpanded(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
-  // Group connectors by category, with connected ones first
+  // Get set of connected connector IDs for quick lookup
+  const connectedIds = new Set(activeConnections.map(c => c.id));
+
+  // Group connectors by category, EXCLUDING already connected ones
+  // Connected connectors are shown in the "Active Connections" section at the top
   const groupedConnectors = {};
   prebuiltConnectors.forEach(connector => {
+    // Skip connectors that are already connected
+    if (connectedIds.has(connector.id)) return;
+
     const cat = connector.category || 'other';
     if (!groupedConnectors[cat]) groupedConnectors[cat] = [];
     groupedConnectors[cat].push(connector);
   });
 
-  // Sort each category: connected connectors first, then by ADAS status (running > not_installed)
+  // Sort each category by ADAS status (running > stopped > not_installed)
   Object.keys(groupedConnectors).forEach(cat => {
     groupedConnectors[cat].sort((a, b) => {
-      const aConnected = activeConnections.some(c => c.id === a.id);
-      const bConnected = activeConnections.some(c => c.id === b.id);
-
-      // Connected first
-      if (aConnected && !bConnected) return -1;
-      if (!aConnected && bConnected) return 1;
-
-      // Then sort by ADAS status (running > others > not_installed)
       const aStatus = adasStatus?.statuses?.[a.id]?.status || 'not_installed';
       const bStatus = adasStatus?.statuses?.[b.id]?.status || 'not_installed';
       const statusOrder = { 'connected': 0, 'running': 0, 'stopped': 1, 'error': 2, 'not_installed': 3 };
       return (statusOrder[aStatus] ?? 3) - (statusOrder[bStatus] ?? 3);
     });
   });
+
+  // Count available (not connected) connectors
+  const availableCount = prebuiltConnectors.length - connectedIds.size;
 
   const categoryNames = {
     communication: 'Communication',
@@ -1129,52 +1131,66 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
         </div>
       )}
 
-      {/* Active Connections */}
+      {/* Active Connections - shown at top as dedicated section */}
       {activeConnections.length > 0 && (
-        <div style={styles.section}>
+        <div style={{ ...styles.section, background: 'rgba(16, 185, 129, 0.05)', borderRadius: '8px', padding: '12px', marginBottom: '16px' }}>
           <div style={styles.sectionHeader} onClick={() => toggleSection('active')}>
-            <div style={styles.sectionTitle}>
+            <div style={{ ...styles.sectionTitle, color: '#10b981' }}>
               <span style={{ ...styles.expandIcon, transform: expanded.active ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
-              Active Connections ({activeConnections.length})
+              Connected ({activeConnections.length})
             </div>
           </div>
           {expanded.active && (
             <div>
-              {activeConnections.map(conn => (
-                <div
-                  key={conn.id}
-                  style={{
-                    ...styles.card,
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => handleSelectConnection(conn.id)}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ ...styles.statusDot, ...styles.connectedDot }}></span>
-                      <span style={{ fontSize: '13px', fontWeight: '500' }}>{conn.name}</span>
-                      <span style={styles.tag}>{conn.toolCount} tools</span>
+              {activeConnections.map(conn => {
+                // Find the prebuilt connector info for description
+                const prebuilt = prebuiltConnectors.find(p => p.id === conn.id);
+                return (
+                  <div
+                    key={conn.id}
+                    style={{
+                      ...styles.card,
+                      cursor: 'pointer',
+                      borderColor: 'rgba(16, 185, 129, 0.3)'
+                    }}
+                    onClick={() => handleSelectConnection(conn.id)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ ...styles.statusDot, ...styles.connectedDot }}></span>
+                          <span style={{ fontSize: '13px', fontWeight: '500' }}>{conn.name}</span>
+                          <span style={styles.tag}>{conn.toolCount} tools</span>
+                        </div>
+                        {prebuilt?.description && (
+                          <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '4px 0 0 18px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {prebuilt.description}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDisconnect(conn.id); }}
+                        style={{ ...styles.button, ...styles.dangerButton, padding: '4px 8px', fontSize: '11px' }}
+                      >
+                        Disconnect
+                      </button>
                     </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDisconnect(conn.id); }}
-                      style={{ ...styles.button, ...styles.dangerButton, padding: '4px 8px', fontSize: '11px' }}
-                    >
-                      Disconnect
-                    </button>
+                    {/* ADAS status badges */}
+                    <ADASStatusBadges connectorId={conn.id} />
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
-      {/* Available Connectors */}
+      {/* Available Connectors (excluding already connected ones) */}
       <div style={styles.section}>
         <div style={styles.sectionHeader} onClick={() => toggleSection('available')}>
           <div style={styles.sectionTitle}>
             <span style={{ ...styles.expandIcon, transform: expanded.available ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
-            Available Connectors ({prebuiltConnectors.length})
+            Available Connectors ({availableCount})
           </div>
         </div>
         {expanded.available && (
@@ -1187,7 +1203,7 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
                     {categoryNames[cat] || cat}
                   </div>
                   {groupedConnectors[cat].map(connector => {
-                    const isConnected = activeConnections.some(c => c.id === connector.id);
+                    // Note: connected connectors are filtered out and shown in Active Connections section
                     const isEnvFormExpanded = expandedEnvForm === connector.id;
                     const connectorEnvValues = envFormValues[connector.id] || {};
 
@@ -1200,11 +1216,7 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
                               {connector.description}
                             </p>
                           </div>
-                          {isConnected ? (
-                            <span style={styles.connectedBadge}>
-                              <CheckIcon /> Connected
-                            </span>
-                          ) : connectingId === connector.id ? (
+                          {connectingId === connector.id ? (
                             <span style={styles.connectingBadge}>
                               <span style={styles.spinner}></span>
                               Installing...
@@ -1224,7 +1236,7 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
                         </div>
 
                         {/* Environment variables form */}
-                        {isEnvFormExpanded && !isConnected && (
+                        {isEnvFormExpanded && (
                           <div style={{ marginTop: '12px', padding: '16px', background: 'var(--bg-primary)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                             {/* Setup instructions header */}
                             {connector.authInstructions && (
@@ -1326,7 +1338,7 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
                         )}
 
                         {/* Auth hint - show only when form is not expanded */}
-                        {connector.requiresAuth && !isConnected && !isEnvFormExpanded && (
+                        {connector.requiresAuth && !isEnvFormExpanded && (
                           <p style={styles.authHint}>
                             {connector.authInstructions || 'Requires authentication setup'}
                           </p>
