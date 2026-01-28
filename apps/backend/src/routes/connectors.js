@@ -717,7 +717,7 @@ router.post('/prebuilt/:connectorId/connect', async (req, res) => {
 
     // Resolve port conflicts if connector has portConfig
     let finalEnv = mergedEnv;
-    let finalArgs = [...prebuilt.args, ...extraArgs];
+    let finalArgs = [...(prebuilt.args || []), ...extraArgs];
     let portInfo = null;
 
     if (prebuilt.portConfig) {
