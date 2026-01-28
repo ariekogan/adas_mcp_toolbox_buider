@@ -20,8 +20,10 @@
 
 import { Router } from 'express';
 import { registerImportedConnector, unregisterImportedConnector } from './connectors.js';
+import domainsStore from '../store/domains.js';
 import fs from 'fs';
 import path from 'path';
+import yaml from 'js-yaml';
 
 const router = Router();
 
@@ -341,6 +343,161 @@ router.patch('/packages/:packageName/connectors/:connectorId', async (req, res) 
 
   } catch (err) {
     console.error('[Import] Update failed:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/import/skill
+ * Import a skill YAML into Skill Builder as a domain
+ *
+ * Body: { yaml: string } - skill YAML content
+ *   OR
+ * Body: skill object directly (parsed YAML)
+ */
+router.post('/skill', async (req, res) => {
+  try {
+    let skillData = req.body;
+
+    // If body contains yaml string, parse it
+    if (typeof skillData.yaml === 'string') {
+      try {
+        skillData = yaml.load(skillData.yaml);
+      } catch (parseErr) {
+        return res.status(400).json({
+          ok: false,
+          error: `Invalid YAML: ${parseErr.message}`
+        });
+      }
+    }
+
+    // Validate required fields
+    if (!skillData.id || !skillData.name) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Skill must have id and name fields'
+      });
+    }
+
+    console.log(`[Import] Importing skill: ${skillData.name} (${skillData.id})`);
+
+    // Check if domain already exists
+    let existingDomain = null;
+    try {
+      existingDomain = await domainsStore.load(skillData.id);
+    } catch (err) {
+      // Domain doesn't exist, that's fine
+    }
+
+    if (existingDomain) {
+      // Update existing domain
+      console.log(`[Import] Updating existing skill: ${skillData.id}`);
+      await domainsStore.save(skillData.id, skillData);
+    } else {
+      // Create new domain - use the skill data directly
+      // The domains store expects a name for create, but we want to use the skill's ID as slug
+      const domain = await domainsStore.create(skillData.name, skillData.settings || {});
+
+      // Now update with the full skill data
+      await domainsStore.save(domain.id, {
+        ...skillData,
+        id: domain.id // Keep the generated ID
+      });
+    }
+
+    console.log(`[Import] Skill imported: ${skillData.name}`);
+
+    res.json({
+      ok: true,
+      skill: {
+        id: skillData.id,
+        name: skillData.name,
+        description: skillData.description
+      },
+      message: `Skill "${skillData.name}" imported successfully`
+    });
+
+  } catch (err) {
+    console.error('[Import] Skill import failed:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/import/skills
+ * Import multiple skills from YAML files
+ *
+ * Body: { skills: [{ yaml: string }, ...] }
+ *   OR
+ * Body: { skills: [skillObject, ...] }
+ */
+router.post('/skills', async (req, res) => {
+  try {
+    const { skills } = req.body;
+
+    if (!Array.isArray(skills) || skills.length === 0) {
+      return res.status(400).json({
+        ok: false,
+        error: 'skills array is required'
+      });
+    }
+
+    console.log(`[Import] Importing ${skills.length} skills...`);
+
+    const results = [];
+    const errors = [];
+
+    for (const skill of skills) {
+      try {
+        let skillData = skill;
+
+        // Parse YAML if needed
+        if (typeof skill.yaml === 'string') {
+          skillData = yaml.load(skill.yaml);
+        }
+
+        if (!skillData.id || !skillData.name) {
+          errors.push({ id: skillData.id || 'unknown', error: 'Missing id or name' });
+          continue;
+        }
+
+        // Check if domain exists
+        let existingDomain = null;
+        try {
+          existingDomain = await domainsStore.load(skillData.id);
+        } catch (err) {
+          // Domain doesn't exist
+        }
+
+        if (existingDomain) {
+          await domainsStore.save(skillData.id, skillData);
+        } else {
+          const domain = await domainsStore.create(skillData.name, skillData.settings || {});
+          await domainsStore.save(domain.id, { ...skillData, id: domain.id });
+          skillData.id = domain.id;
+        }
+
+        results.push({
+          id: skillData.id,
+          name: skillData.name,
+          status: 'imported'
+        });
+
+        console.log(`[Import] Imported skill: ${skillData.name}`);
+      } catch (err) {
+        errors.push({ id: skill.id || 'unknown', error: err.message });
+      }
+    }
+
+    res.json({
+      ok: errors.length === 0,
+      imported: results,
+      errors: errors.length > 0 ? errors : undefined,
+      message: `Imported ${results.length} skills${errors.length > 0 ? `, ${errors.length} failed` : ''}`
+    });
+
+  } catch (err) {
+    console.error('[Import] Skills import failed:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
