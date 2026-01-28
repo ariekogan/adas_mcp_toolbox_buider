@@ -735,6 +735,7 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
   const availableCount = prebuiltConnectors.length - connectedIds.size;
 
   const categoryNames = {
+    custom: 'Custom Built',
     communication: 'Communication',
     development: 'Development',
     data: 'Data & Databases',
@@ -748,7 +749,7 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
     other: 'Other'
   };
 
-  const categoryOrder = ['communication', 'development', 'data', 'utilities', 'search', 'automation', 'storage', 'location', 'media', 'reasoning', 'other'];
+  const categoryOrder = ['custom', 'communication', 'development', 'data', 'utilities', 'search', 'automation', 'storage', 'location', 'media', 'reasoning', 'other'];
 
   // Get selected connection name
   const selectedConnectionName = activeConnections.find(c => c.id === selectedConnection)?.name || selectedConnection;

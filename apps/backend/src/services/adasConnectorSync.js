@@ -19,32 +19,53 @@ const ADAS_API_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'h
  * Sync a connector configuration to ADAS.
  * Creates or updates the connector in ADAS ConnectorRegistry.
  *
+ * Supports both transport types:
+ * - stdio: Uses config.command, config.args, config.env
+ * - http: Uses endpoint URL
+ *
  * @param {object} connector - Connector config from DAL
  * @param {string} connector.id - Unique connector ID
  * @param {string} connector.name - Display name
- * @param {string} connector.type - Connector type (e.g., 'gmail', 'github')
- * @param {object} connector.config - { command, args, env }
+ * @param {string} connector.type - Connector type (e.g., 'gmail', 'github', 'mcp')
+ * @param {string} connector.transport - 'stdio' or 'http' (default: 'stdio')
+ * @param {string} connector.endpoint - HTTP endpoint URL (for http transport)
+ * @param {object} connector.config - { command, args, env } (for stdio transport)
  * @param {object} connector.credentials - Decrypted credentials (env vars)
+ * @param {string} connector.layer - 'system' or 'tenant' (default: 'tenant')
  * @returns {Promise<object>} ADAS response
  */
 export async function syncConnectorToADAS(connector) {
-  const { id, name, type, config, credentials } = connector;
+  const { id, name, type, transport, endpoint, config, credentials, layer } = connector;
 
+  // Build payload based on transport type
   const payload = {
     id,
     name,
     type: type || 'mcp',
     enabled: true,
     autoStart: true,
-    // Store command/args in config (for stdio mode)
-    config: {
+    credentials: credentials || {}
+  };
+
+  // Add layer if specified
+  if (layer) {
+    payload.layer = layer;
+  }
+
+  // HTTP transport: uses endpoint
+  if (transport === 'http' || endpoint) {
+    payload.transport = 'http';
+    payload.endpoint = endpoint;
+  }
+  // stdio transport: uses command/args/env
+  else {
+    payload.transport = 'stdio';
+    payload.config = {
       command: config?.command,
       args: config?.args || [],
       env: config?.env || {}
-    },
-    // Credentials are encrypted by ADAS ConnectorRegistry
-    credentials: credentials || {}
-  };
+    };
+  }
 
   try {
     // Check if connector exists

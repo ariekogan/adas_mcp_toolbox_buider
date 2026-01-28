@@ -11,6 +11,7 @@ import validateRouter from "./routes/validate.js";
 import connectorsRouter from "./routes/connectors.js";
 import actorsRouter from "./routes/actors.js";
 import tenantRouter from "./routes/tenant.js";
+import importRouter from "./routes/import.js";
 import { isSearchAvailable } from "./services/webSearch.js";
 import mcpManager from "./services/mcpConnector.js";
 import connectorState from "./store/connectorState.js";
@@ -80,6 +81,7 @@ app.use("/api/validate", validateRouter);
 app.use("/api/connectors", connectorsRouter);
 app.use("/api/actors", actorsRouter);
 app.use("/api/tenant", tenantRouter);
+app.use("/api/import", importRouter);
 
 // Error handler
 app.use((err, req, res, _next) => {

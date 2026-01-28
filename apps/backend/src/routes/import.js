@@ -20,11 +20,76 @@
 
 import { Router } from 'express';
 import { registerImportedConnector, unregisterImportedConnector } from './connectors.js';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
 
+// Persistence file path - use /memory if available (Docker), fallback to local
+const PERSISTENCE_DIR = process.env.MEMORY_DIR || '/memory';
+const PERSISTENCE_FILE = path.join(PERSISTENCE_DIR, 'imported-packages.json');
+
 // Store imported packages (design time tracking)
 const importedPackages = new Map();
+
+/**
+ * Load persisted packages on startup
+ */
+function loadPersistedPackages() {
+  try {
+    if (fs.existsSync(PERSISTENCE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(PERSISTENCE_FILE, 'utf8'));
+      console.log(`[Import] Loading ${data.length} persisted packages...`);
+
+      for (const pkg of data) {
+        importedPackages.set(pkg.name, pkg);
+
+        // Re-register connectors in catalog
+        for (const mcp of pkg.mcps) {
+          registerImportedConnector(mcp.id, {
+            name: mcp.name,
+            description: mcp.description,
+            transport: mcp.transport,
+            command: mcp.command,
+            args: mcp.args,
+            env: mcp.env,
+            endpoint: mcp.endpoint,
+            port: mcp.port,
+            requiresAuth: mcp.requiresAuth,
+            category: mcp.category,
+            layer: mcp.layer,
+            importedFrom: pkg.name
+          });
+          console.log(`[Import] Restored connector: ${mcp.id}`);
+        }
+      }
+      console.log(`[Import] Loaded ${importedPackages.size} packages from persistence`);
+    }
+  } catch (err) {
+    console.error('[Import] Failed to load persisted packages:', err.message);
+  }
+}
+
+/**
+ * Save packages to persistence file
+ */
+function savePackages() {
+  try {
+    // Ensure directory exists
+    if (!fs.existsSync(PERSISTENCE_DIR)) {
+      fs.mkdirSync(PERSISTENCE_DIR, { recursive: true });
+    }
+
+    const data = Array.from(importedPackages.values());
+    fs.writeFileSync(PERSISTENCE_FILE, JSON.stringify(data, null, 2));
+    console.log(`[Import] Saved ${data.length} packages to ${PERSISTENCE_FILE}`);
+  } catch (err) {
+    console.error('[Import] Failed to save packages:', err.message);
+  }
+}
+
+// Load persisted packages on module load
+loadPersistedPackages();
 
 /**
  * GET /api/import/packages
@@ -152,6 +217,9 @@ router.post('/', async (req, res) => {
 
     importedPackages.set(manifest.name, packageInfo);
 
+    // Persist to file
+    savePackages();
+
     console.log(`[Import] Package imported: ${mcps.length} MCPs added to catalog`);
 
     res.json({
@@ -185,6 +253,10 @@ router.delete('/packages/:packageName', async (req, res) => {
     }
 
     importedPackages.delete(packageName);
+
+    // Persist to file
+    savePackages();
+
     console.log(`[Import] Package ${packageName} removed`);
 
     res.json({ ok: true, message: `Package ${packageName} removed` });
@@ -259,6 +331,9 @@ router.patch('/packages/:packageName/connectors/:connectorId', async (req, res) 
       layer: mcp.layer,
       importedFrom: packageName
     });
+
+    // Persist to file
+    savePackages();
 
     console.log(`[Import] Updated connector: ${connectorId}`);
 
