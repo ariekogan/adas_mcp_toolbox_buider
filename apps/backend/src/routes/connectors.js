@@ -625,18 +625,68 @@ const PREBUILT_CONNECTORS = {
       envVar: 'PORT',       // Env var to override port
       range: [4000, 4100]   // Auto-assign range if conflict
     }
-  }
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // CUSTOM CONNECTORS
+  // ═══════════════════════════════════════════════════════════════
+  // Custom connectors (e.g., e-commerce MCPs) are now imported via:
+  //   POST /api/import with manifest.json from external projects (e.g., PB)
+  //
+  // This enables the production workflow:
+  //   1. Develop MCPs in external project
+  //   2. Package with scripts/package.sh
+  //   3. Import via Skill Builder UI
+  //   4. Deploy to ADAS Core
+  //
+  // See GET /api/import/connectors for imported connectors
+  // ═══════════════════════════════════════════════════════════════
+
+  // NOTE: internal-comm-mcp, gmail-mcp, telegram-mcp are system-layer connectors
+  // and are NOT included in the prebuilt catalog (they're platform infrastructure)
 };
 
 // Export for use by export.js (connector sync to ADAS Core)
 export { PREBUILT_CONNECTORS };
 
+// Store for imported connectors (populated via /api/import)
+// This allows dynamic addition of connectors without restarting
+const importedConnectors = new Map();
+
+/**
+ * Register imported connectors (called by import.js)
+ */
+export function registerImportedConnector(id, config) {
+  importedConnectors.set(id, config);
+  console.log(`[Connectors] Registered imported connector: ${id}`);
+}
+
+/**
+ * Unregister imported connector (called by import.js)
+ */
+export function unregisterImportedConnector(id) {
+  importedConnectors.delete(id);
+  console.log(`[Connectors] Unregistered imported connector: ${id}`);
+}
+
+/**
+ * Get all connectors (prebuilt + imported)
+ */
+export function getAllPrebuiltConnectors() {
+  const all = { ...PREBUILT_CONNECTORS };
+  for (const [id, config] of importedConnectors) {
+    all[id] = config;
+  }
+  return all;
+}
+
 /**
  * GET /api/connectors/prebuilt
- * List available pre-built connectors
+ * List available pre-built connectors (includes imported connectors)
  */
 router.get('/prebuilt', (_req, res) => {
-  const connectors = Object.entries(PREBUILT_CONNECTORS).map(([id, config]) => ({
+  const allConnectors = getAllPrebuiltConnectors();
+  const connectors = Object.entries(allConnectors).map(([id, config]) => ({
     id,
     ...config
   }));
@@ -651,9 +701,11 @@ router.post('/prebuilt/:connectorId/connect', async (req, res) => {
   const { connectorId } = req.params;
   const { extraArgs = [], extraEnv = {} } = req.body;
 
-  const prebuilt = PREBUILT_CONNECTORS[connectorId];
+  // Check both prebuilt and imported connectors
+  const allConnectors = getAllPrebuiltConnectors();
+  const prebuilt = allConnectors[connectorId];
   if (!prebuilt) {
-    return res.status(404).json({ error: `Pre-built connector not found: ${connectorId}` });
+    return res.status(404).json({ error: `Connector not found: ${connectorId}` });
   }
 
   try {

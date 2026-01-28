@@ -289,6 +289,44 @@ export async function getSavedConnectors() {
 }
 
 // ============================================
+// Package Import (External MCP Packages)
+// ============================================
+
+/**
+ * Import an MCP package manifest into Skill Builder catalog
+ * @param {object} manifest - The manifest.json content from package.sh
+ */
+export async function importPackage(manifest) {
+  return request('/import', {
+    method: 'POST',
+    body: JSON.stringify(manifest)
+  });
+}
+
+/**
+ * List all imported packages
+ */
+export async function listImportedPackages() {
+  return request('/import/packages');
+}
+
+/**
+ * Get details of a specific imported package
+ */
+export async function getImportedPackage(packageName) {
+  return request(`/import/packages/${encodeURIComponent(packageName)}`);
+}
+
+/**
+ * Remove an imported package from Skill Builder catalog
+ */
+export async function removeImportedPackage(packageName) {
+  return request(`/import/packages/${encodeURIComponent(packageName)}`, {
+    method: 'DELETE'
+  });
+}
+
+// ============================================
 // Actors (CORE cp.admin_api bridge)
 // ============================================
 
@@ -714,5 +752,10 @@ export default {
   startMCPServer,
   stopMCPServer,
   getMCPServerStatus,
-  deployMCPToAdas
+  deployMCPToAdas,
+  // Package Import
+  importPackage,
+  listImportedPackages,
+  getImportedPackage,
+  removeImportedPackage
 };

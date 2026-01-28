@@ -5,7 +5,7 @@ import { provisionSkillActor, listTriggers, toggleTrigger, getTriggerHistory } f
 import { generateMCPWithAgent, generateMCPSimple, isAgentSDKAvailable } from "../services/mcpGenerationAgent.js";
 import { MCPDevelopmentSession, analyzeDomainForMCP, MCP_DEV_PHASES } from "../services/mcpDevelopmentAgent.js";
 import { syncConnectorToADAS, startConnectorInADAS } from "../services/adasConnectorSync.js";
-import { PREBUILT_CONNECTORS } from "./connectors.js";
+import { PREBUILT_CONNECTORS, getAllPrebuiltConnectors } from "./connectors.js";
 
 // Store active development sessions (in production, use Redis or similar)
 const activeSessions = new Map();
@@ -1241,9 +1241,12 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
       if (linkedConnectors.length > 0) {
         log.info(`[MCP Deploy] Syncing ${linkedConnectors.length} linked connectors: ${linkedConnectors.join(', ')}`);
 
+        // Get all connectors (prebuilt + imported)
+        const allConnectors = getAllPrebuiltConnectors();
+
         for (const connectorId of linkedConnectors) {
-          const prebuilt = PREBUILT_CONNECTORS[connectorId];
-          if (!prebuilt) {
+          const connector = allConnectors[connectorId];
+          if (!connector) {
             log.warn(`[MCP Deploy] Unknown connector "${connectorId}", skipping`);
             connectorResults.push({ id: connectorId, ok: false, error: 'unknown connector' });
             continue;
@@ -1251,15 +1254,20 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
 
           try {
             // Register connector in ADAS Core ConnectorManager
+            // Support both stdio (command/args) and http (endpoint) transports
+            const isStdio = connector.transport === 'stdio' || connector.command;
+
             await syncConnectorToADAS({
               id: connectorId,
-              name: prebuilt.name,
+              name: connector.name,
               type: 'mcp',
-              config: {
-                command: prebuilt.command,
-                args: prebuilt.args || [],
-                env: prebuilt.envDefaults || {}
-              },
+              transport: isStdio ? 'stdio' : 'http',
+              endpoint: connector.endpoint,
+              config: isStdio ? {
+                command: connector.command,
+                args: connector.args || [],
+                env: connector.envDefaults || connector.env || {}
+              } : undefined,
               credentials: {}  // No credentials for prebuilt (user adds later if needed)
             });
 
