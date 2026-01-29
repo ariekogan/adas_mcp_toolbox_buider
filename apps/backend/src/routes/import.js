@@ -351,6 +351,12 @@ router.patch('/packages/:packageName/connectors/:connectorId', async (req, res) 
  * POST /api/import/skill
  * Import a skill YAML into Skill Builder as a domain
  *
+ * Duplicate Prevention Strategy:
+ * 1. First, try to find existing domain by skill's original ID (e.g., "support-tier-1")
+ * 2. If not found, search all domains for one with matching original_skill_id field
+ * 3. If not found, search by name (for backwards compatibility)
+ * 4. Only create new domain if no match found
+ *
  * Body: { yaml: string } - skill YAML content
  *   OR
  * Body: skill object directly (parsed YAML)
@@ -379,55 +385,104 @@ router.post('/skill', async (req, res) => {
       });
     }
 
-    console.log(`[Import] Importing skill: ${skillData.name} (${skillData.id})`);
+    const originalSkillId = skillData.id;
+    console.log(`[Import] Importing skill: ${skillData.name} (${originalSkillId})`);
 
-    // Check if domain already exists
+    // Strategy: Find existing domain to update (prevent duplicates)
     let existingDomain = null;
+
+    // 1. Try to load by original skill ID directly (if it was used as domain ID)
     try {
-      existingDomain = await domainsStore.load(skillData.id);
+      existingDomain = await domainsStore.load(originalSkillId);
+      if (existingDomain) {
+        console.log(`[Import] Found existing domain by skill ID: ${originalSkillId}`);
+      }
     } catch (err) {
-      // Domain doesn't exist, that's fine
+      // Domain doesn't exist with that ID
+    }
+
+    // 2. If not found, search all domains for matching original_skill_id or name
+    if (!existingDomain) {
+      try {
+        const allDomains = await domainsStore.list();
+
+        // First try to match by original_skill_id
+        for (const domainSummary of allDomains) {
+          try {
+            const domain = await domainsStore.load(domainSummary.id);
+            if (domain.original_skill_id === originalSkillId) {
+              existingDomain = domain;
+              console.log(`[Import] Found existing domain by original_skill_id: ${domainSummary.id}`);
+              break;
+            }
+          } catch (err) {
+            // Skip domains that can't be loaded
+          }
+        }
+
+        // If still not found, try to match by name (for backwards compatibility)
+        if (!existingDomain) {
+          for (const domainSummary of allDomains) {
+            if (domainSummary.name === skillData.name) {
+              try {
+                existingDomain = await domainsStore.load(domainSummary.id);
+                console.log(`[Import] Found existing domain by name: ${domainSummary.id}`);
+                break;
+              } catch (err) {
+                // Skip domains that can't be loaded
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.log(`[Import] Could not search existing domains: ${err.message}`);
+      }
     }
 
     let domainId;
 
     if (existingDomain) {
       // Update existing domain - merge skill data into existing domain
-      console.log(`[Import] Updating existing skill: ${skillData.id}`);
+      console.log(`[Import] Updating existing domain: ${existingDomain.id}`);
       domainId = existingDomain.id;
       const updatedDomain = {
         ...existingDomain,
         ...skillData,
-        id: existingDomain.id // Keep the existing domain ID
+        id: existingDomain.id, // Keep the existing domain ID
+        original_skill_id: originalSkillId, // Track the original skill ID
+        updated_at: new Date().toISOString()
       };
       await domainsStore.save(updatedDomain);
     } else {
-      // Create new domain - use the skill data directly
+      // Create new domain
+      console.log(`[Import] Creating new domain for skill: ${originalSkillId}`);
       const domain = await domainsStore.create(skillData.name, skillData.settings || {});
       domainId = domain.id;
 
-      // Now update with the full skill data, keeping the generated ID
+      // Save with full skill data and track original skill ID
       const fullDomain = {
         ...skillData,
         id: domain.id,
+        original_skill_id: originalSkillId, // Track the original skill ID for future imports
         created_at: domain.created_at,
         updated_at: new Date().toISOString()
       };
       await domainsStore.save(fullDomain);
     }
 
-    skillData.id = domainId;
-
-    console.log(`[Import] Skill imported: ${skillData.name}`);
+    console.log(`[Import] Skill imported: ${skillData.name} -> ${domainId}`);
 
     res.json({
       ok: true,
       skill: {
-        id: skillData.id,
+        id: domainId,
+        original_skill_id: originalSkillId,
         name: skillData.name,
         description: skillData.description
       },
-      message: `Skill "${skillData.name}" imported successfully`
+      message: existingDomain
+        ? `Skill "${skillData.name}" updated (existing domain: ${domainId})`
+        : `Skill "${skillData.name}" imported as new domain: ${domainId}`
     });
 
   } catch (err) {
@@ -435,6 +490,58 @@ router.post('/skill', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
+/**
+ * Helper: Find existing domain by skill ID, original_skill_id, or name
+ * Returns the existing domain or null if not found
+ */
+async function findExistingDomainForSkill(originalSkillId, skillName) {
+  // 1. Try to load by original skill ID directly
+  try {
+    const domain = await domainsStore.load(originalSkillId);
+    if (domain) {
+      console.log(`[Import] Found existing domain by skill ID: ${originalSkillId}`);
+      return domain;
+    }
+  } catch (err) {
+    // Domain doesn't exist with that ID
+  }
+
+  // 2. Search all domains for matching original_skill_id or name
+  try {
+    const allDomains = await domainsStore.list();
+
+    // First try to match by original_skill_id
+    for (const domainSummary of allDomains) {
+      try {
+        const domain = await domainsStore.load(domainSummary.id);
+        if (domain.original_skill_id === originalSkillId) {
+          console.log(`[Import] Found existing domain by original_skill_id: ${domainSummary.id}`);
+          return domain;
+        }
+      } catch (err) {
+        // Skip domains that can't be loaded
+      }
+    }
+
+    // Try to match by name (for backwards compatibility)
+    for (const domainSummary of allDomains) {
+      if (domainSummary.name === skillName) {
+        try {
+          const domain = await domainsStore.load(domainSummary.id);
+          console.log(`[Import] Found existing domain by name: ${domainSummary.id}`);
+          return domain;
+        } catch (err) {
+          // Skip domains that can't be loaded
+        }
+      }
+    }
+  } catch (err) {
+    console.log(`[Import] Could not search existing domains: ${err.message}`);
+  }
+
+  return null;
+}
 
 /**
  * POST /api/import/skills
@@ -474,21 +581,23 @@ router.post('/skills', async (req, res) => {
           continue;
         }
 
-        // Check if domain exists
-        let existingDomain = null;
-        try {
-          existingDomain = await domainsStore.load(skillData.id);
-        } catch (err) {
-          // Domain doesn't exist
-        }
+        const originalSkillId = skillData.id;
+
+        // Find existing domain to update (prevent duplicates)
+        const existingDomain = await findExistingDomainForSkill(originalSkillId, skillData.name);
 
         let domainId;
+        let isUpdate = false;
+
         if (existingDomain) {
           domainId = existingDomain.id;
+          isUpdate = true;
           const updatedDomain = {
             ...existingDomain,
             ...skillData,
-            id: existingDomain.id
+            id: existingDomain.id,
+            original_skill_id: originalSkillId,
+            updated_at: new Date().toISOString()
           };
           await domainsStore.save(updatedDomain);
         } else {
@@ -497,20 +606,21 @@ router.post('/skills', async (req, res) => {
           const fullDomain = {
             ...skillData,
             id: domain.id,
+            original_skill_id: originalSkillId,
             created_at: domain.created_at,
             updated_at: new Date().toISOString()
           };
           await domainsStore.save(fullDomain);
         }
-        skillData.id = domainId;
 
         results.push({
-          id: skillData.id,
+          id: domainId,
+          original_skill_id: originalSkillId,
           name: skillData.name,
-          status: 'imported'
+          status: isUpdate ? 'updated' : 'imported'
         });
 
-        console.log(`[Import] Imported skill: ${skillData.name}`);
+        console.log(`[Import] ${isUpdate ? 'Updated' : 'Imported'} skill: ${skillData.name} -> ${domainId}`);
       } catch (err) {
         errors.push({ id: skill.id || 'unknown', error: err.message });
       }

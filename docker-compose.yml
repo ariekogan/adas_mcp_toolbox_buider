@@ -11,13 +11,10 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo}
       - MEMORY_PATH=/memory
-      # ADAS CORE connection (uses container name via shared Docker network)
-      - ADAS_CORE_URL=${ADAS_CORE_URL:-http://ai-dev-assistant-backend-1:4000}
-      - CORE_MCP_URL=${CORE_MCP_URL:-http://ai-dev-assistant-adas-mcp-1:4310/mcp}
+      # ADAS CORE connection (uses Tailscale IP for mac1 since services run on different machines)
+      - ADAS_CORE_URL=${ADAS_CORE_URL:-http://100.125.67.116:4100}
+      - CORE_MCP_URL=${CORE_MCP_URL:-http://100.125.67.116:4310/mcp}
       - CORE_MCP_SECRET=${CORE_MCP_SECRET:-7a0cf2318aa65a2b4bbe2e572a4152f7995fe7d8d52269e7201b9488b79cac62}
-    networks:
-      - default
-      - adas_network
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -69,8 +66,3 @@ services:
         max-size: "10m"
         max-file: "3"
 
-# External network to communicate with ADAS Core
-networks:
-  adas_network:
-    external: true
-    name: ai-dev-assistant_default
