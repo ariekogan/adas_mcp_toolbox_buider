@@ -998,8 +998,22 @@ export default function IdentityPanel({
                     {scenario.title || `Scenario ${i + 1}`}
                   </div>
                   <div style={styles.cardMeta}>{scenario.steps?.length || 0} steps</div>
-                  {isExpanded && scenario.description && (
-                    <div style={styles.toolDetails}>{scenario.description}</div>
+                  {isExpanded && (
+                    <div style={styles.toolDetails}>
+                      {scenario.description && (
+                        <div style={{ marginBottom: scenario.steps?.length ? '8px' : 0 }}>{scenario.description}</div>
+                      )}
+                      {scenario.steps?.length > 0 && (
+                        <div>
+                          <div style={styles.fieldLabel}>Steps</div>
+                          {scenario.steps.map((step, idx) => (
+                            <div key={idx} style={{ fontSize: '12px', color: 'var(--text-primary)', marginBottom: '4px', paddingLeft: '8px' }}>
+                              {idx + 1}. {typeof step === 'string' ? step : (step.text || step.description || step.title || JSON.stringify(step))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               );
