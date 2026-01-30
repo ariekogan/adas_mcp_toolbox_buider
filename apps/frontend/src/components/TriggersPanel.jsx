@@ -159,7 +159,8 @@ const styles = {
     border: '1px solid var(--border)',
     borderRadius: '6px',
     color: 'var(--text-primary)',
-    outline: 'none'
+    outline: 'none',
+    boxSizing: 'border-box'
   },
   textarea: {
     width: '100%',
@@ -172,7 +173,8 @@ const styles = {
     outline: 'none',
     resize: 'vertical',
     minHeight: '80px',
-    fontFamily: 'inherit'
+    fontFamily: 'inherit',
+    boxSizing: 'border-box'
   },
   select: {
     width: '100%',
@@ -183,7 +185,8 @@ const styles = {
     borderRadius: '6px',
     color: 'var(--text-primary)',
     outline: 'none',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    boxSizing: 'border-box'
   },
   row: {
     display: 'flex',
@@ -304,14 +307,158 @@ const styles = {
   }
 };
 
-// Event type options for event triggers
-const EVENT_TYPES = [
-  { value: 'email.received', label: 'Email Received' },
-  { value: 'slack.message', label: 'Slack Message' },
-  { value: 'slack.mention', label: 'Slack Mention' },
-  { value: 'webhook', label: 'Webhook' },
-  { value: 'custom', label: 'Custom Event' }
+// ── Event type categories ──────────────────────────────────────────
+// Grouped by source so users understand the mental model
+
+const EVENT_TYPE_CATEGORIES = [
+  {
+    label: 'Domain Events',
+    description: 'Business events from your system',
+    options: [
+      { value: 'order.paid', label: 'Order Paid' },
+      { value: 'order.created', label: 'Order Created' },
+      { value: 'order.cancelled', label: 'Order Cancelled' },
+      { value: 'return.received', label: 'Return Received' },
+      { value: 'return.approved', label: 'Return Approved' },
+      { value: 'fulfillment.exception', label: 'Fulfillment Exception' },
+      { value: 'fulfillment.shipped', label: 'Fulfillment Shipped' },
+      { value: 'fulfillment.delivered', label: 'Fulfillment Delivered' },
+    ]
+  },
+  {
+    label: 'Inter-Skill Messages',
+    description: 'Messages from other skills via the internal queue',
+    options: [
+      { value: 'internal.{self}', label: 'Message to This Skill', isPattern: true },
+    ]
+  },
+  {
+    label: 'Channel Events',
+    description: 'Inbound messages from external channels',
+    options: [
+      { value: 'email.received', label: 'Email Received' },
+      { value: 'telegram.message', label: 'Telegram Message' },
+      { value: 'slack.message', label: 'Slack Message' },
+      { value: 'slack.mention', label: 'Slack Mention' },
+      { value: 'webhook', label: 'Webhook Received' },
+    ]
+  }
 ];
+
+/**
+ * Resolve {self} in event type patterns
+ */
+function resolveEventPattern(value, skillId) {
+  if (!value) return value;
+  return value.replace('{self}', skillId || 'this-skill');
+}
+
+/**
+ * Get display label for an event type value
+ */
+function getEventLabel(value) {
+  if (!value) return 'No event set';
+  for (const cat of EVENT_TYPE_CATEGORIES) {
+    for (const opt of cat.options) {
+      if (opt.value === value) return opt.label;
+      // Match internal.* pattern
+      if (opt.isPattern && value.startsWith('internal.')) {
+        return `Internal: ${value.replace('internal.', '')}`;
+      }
+    }
+  }
+  // Custom event — show the raw value
+  return value;
+}
+
+// ── Flow diagrams (text-based for dark theme) ──────────────────────
+
+function ScheduleFlowBox() {
+  return (
+    <div style={{
+      marginTop: '12px',
+      padding: '12px',
+      background: 'rgba(59, 130, 246, 0.06)',
+      border: '1px solid rgba(59, 130, 246, 0.15)',
+      borderRadius: '8px',
+    }}>
+      <div style={{ fontSize: '11px', fontWeight: '600', color: '#60a5fa', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        How Schedule Triggers Work
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0', flexWrap: 'wrap' }}>
+        <FlowStep icon="&#8986;" label="Timer fires" color="#60a5fa" />
+        <FlowArrow />
+        <FlowStep icon="&#9881;" label="Scheduler creates job" color="#60a5fa" />
+        <FlowArrow />
+        <FlowStep icon="&#9998;" label="Prompt sent as goal" color="#60a5fa" />
+        <FlowArrow />
+        <FlowStep icon="&#9889;" label="Skill executes" color="#60a5fa" />
+      </div>
+      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px', lineHeight: '1.5' }}>
+        Every <strong style={{ color: 'var(--text-secondary)' }}>interval</strong>, the scheduler checks if this trigger is due.
+        If so, it creates a new <strong style={{ color: 'var(--text-secondary)' }}>job</strong> with
+        the <strong style={{ color: 'var(--text-secondary)' }}>prompt</strong> as the goal.
+        The skill then runs autonomously to fulfill that goal using its tools.
+      </div>
+    </div>
+  );
+}
+
+function EventFlowBox({ eventLabel }) {
+  return (
+    <div style={{
+      marginTop: '12px',
+      padding: '12px',
+      background: 'rgba(168, 85, 247, 0.06)',
+      border: '1px solid rgba(168, 85, 247, 0.15)',
+      borderRadius: '8px',
+    }}>
+      <div style={{ fontSize: '11px', fontWeight: '600', color: '#a855f7', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        How Event Triggers Work
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0', flexWrap: 'wrap' }}>
+        <FlowStep icon="&#9889;" label={eventLabel || 'Event arrives'} color="#a855f7" />
+        <FlowArrow />
+        <FlowStep icon="&#9881;" label="Scheduler matches trigger" color="#a855f7" />
+        <FlowArrow />
+        <FlowStep icon="&#9998;" label="Prompt + payload = goal" color="#a855f7" />
+        <FlowArrow />
+        <FlowStep icon="&#128640;" label="Skill executes" color="#a855f7" />
+      </div>
+      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px', lineHeight: '1.5' }}>
+        When an <strong style={{ color: 'var(--text-secondary)' }}>event</strong> matching this type arrives,
+        the scheduler creates a <strong style={{ color: 'var(--text-secondary)' }}>job</strong>.
+        The goal is built from the <strong style={{ color: 'var(--text-secondary)' }}>prompt</strong> below
+        plus the <strong style={{ color: 'var(--text-secondary)' }}>event payload</strong> (appended automatically).
+        If a <strong style={{ color: 'var(--text-secondary)' }}>filter</strong> is set, only matching events fire the trigger.
+      </div>
+    </div>
+  );
+}
+
+function FlowStep({ icon, label, color }) {
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      padding: '6px 10px',
+      minWidth: '80px',
+    }}>
+      <span style={{ fontSize: '16px', marginBottom: '2px' }}>{icon}</span>
+      <span style={{ fontSize: '10px', color, fontWeight: '500', textAlign: 'center', lineHeight: '1.3' }}>{label}</span>
+    </div>
+  );
+}
+
+function FlowArrow() {
+  return (
+    <span style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '0 2px', paddingBottom: '14px' }}>&#8594;</span>
+  );
+}
+
+
+// ── Main component ─────────────────────────────────────────────────
 
 export default function TriggersPanel({
   triggers = [],
@@ -322,6 +469,7 @@ export default function TriggersPanel({
   const [expandedId, setExpandedId] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
   const [newTriggerType, setNewTriggerType] = useState('schedule');
+  const [customEventValue, setCustomEventValue] = useState('');
   const [coreStatus, setCoreStatus] = useState({}); // { triggerId: { active, lastRun, nextRun } }
   const [coreLoading, setCoreLoading] = useState(false);
   const [togglingTrigger, setTogglingTrigger] = useState(null);
@@ -407,11 +555,108 @@ export default function TriggersPanel({
     }
   };
 
+  /**
+   * Check if a value is a known event type in our categories
+   */
+  const isKnownEventType = (value) => {
+    if (!value) return false;
+    for (const cat of EVENT_TYPE_CATEGORIES) {
+      for (const opt of cat.options) {
+        const resolved = resolveEventPattern(opt.value, skillId);
+        if (resolved === value) return true;
+      }
+    }
+    return false;
+  };
+
+  /**
+   * Handle event type selection — supports both dropdown and custom input
+   */
+  const handleEventTypeChange = (triggerId, value) => {
+    if (value === '__custom__') {
+      // Switch to custom mode — don't change the trigger value yet
+      setCustomEventValue('');
+      return;
+    }
+    // Resolve pattern and set
+    const resolved = resolveEventPattern(value, skillId);
+    handleUpdateTrigger(triggerId, 'event', resolved);
+    setCustomEventValue('');
+  };
+
+  const renderEventTypeSelector = (trigger) => {
+    const currentValue = trigger.event || '';
+    const isCustom = currentValue && !isKnownEventType(currentValue);
+    const showCustomInput = isCustom || customEventValue !== '';
+
+    return (
+      <div style={styles.formGroup}>
+        <label style={styles.label}>Event Type</label>
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+          Which event should activate this skill?
+        </div>
+        <select
+          style={{
+            ...styles.select,
+            ...(currentValue ? {} : { color: 'var(--text-muted)' })
+          }}
+          value={isCustom ? '__custom__' : currentValue}
+          onChange={(e) => handleEventTypeChange(trigger.id, e.target.value)}
+        >
+          <option value="">Select event type...</option>
+          {EVENT_TYPE_CATEGORIES.map(cat => (
+            <optgroup key={cat.label} label={`${cat.label} — ${cat.description}`}>
+              {cat.options.map(opt => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+          <optgroup label="Other">
+            <option value="__custom__">Custom event type...</option>
+          </optgroup>
+        </select>
+        {/* Show current value label below */}
+        {currentValue && !showCustomInput && (
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontFamily: 'monospace' }}>
+            Event name: <span style={{ color: 'var(--text-secondary)' }}>{currentValue}</span>
+          </div>
+        )}
+        {/* Custom event input */}
+        {(showCustomInput || isCustom) && (
+          <div style={{ marginTop: '6px' }}>
+            <input
+              type="text"
+              style={styles.input}
+              value={isCustom ? currentValue : customEventValue}
+              onChange={(e) => {
+                handleUpdateTrigger(trigger.id, 'event', e.target.value);
+                if (!isCustom) setCustomEventValue(e.target.value);
+              }}
+              placeholder="e.g., payment.refunded, internal.my-skill"
+            />
+            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Use <span style={{ fontFamily: 'monospace', color: 'var(--text-secondary)' }}>domain.action</span> format.
+              For inter-skill messages use <span style={{ fontFamily: 'monospace', color: 'var(--text-secondary)' }}>internal.{'<'}skill-slug{'>'}</span>.
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderTriggerForm = (trigger) => {
     const isSchedule = trigger.type === 'schedule';
 
     return (
       <div style={styles.triggerBody}>
+        {/* ── How It Works box ── */}
+        {isSchedule
+          ? <ScheduleFlowBox />
+          : <EventFlowBox eventLabel={getEventLabel(trigger.event)} />
+        }
+
         {/* Trigger ID / Name */}
         <div style={styles.formGroup}>
           <label style={styles.label}>Trigger Name / ID</label>
@@ -420,14 +665,20 @@ export default function TriggersPanel({
             style={styles.input}
             value={trigger.id}
             onChange={(e) => handleUpdateTrigger(trigger.id, 'id', e.target.value)}
-            placeholder="e.g., Daily Report, Order Check"
+            placeholder="e.g., daily_report, return_request"
           />
+          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+            Unique identifier for this trigger. Used in logs and state tracking.
+          </div>
         </div>
 
         {/* Schedule-specific: Duration */}
         {isSchedule && (
           <div style={styles.formGroup}>
             <label style={styles.label}>Run Every</label>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+              How often should the scheduler fire this trigger?
+            </div>
             <select
               style={styles.select}
               value={trigger.every || 'PT5M'}
@@ -445,23 +696,12 @@ export default function TriggersPanel({
         {/* Event-specific: Event Type */}
         {!isSchedule && (
           <>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Event Type</label>
-              <select
-                style={styles.select}
-                value={trigger.event || ''}
-                onChange={(e) => handleUpdateTrigger(trigger.id, 'event', e.target.value)}
-              >
-                <option value="">Select event type...</option>
-                {EVENT_TYPES.map(et => (
-                  <option key={et.value} value={et.value}>
-                    {et.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {renderEventTypeSelector(trigger)}
             <div style={styles.formGroup}>
               <label style={styles.label}>Filter (JSON)</label>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                Only fire when the event payload matches these key-value pairs. Leave empty to match all events of this type.
+              </div>
               <input
                 type="text"
                 style={styles.input}
@@ -474,24 +714,58 @@ export default function TriggersPanel({
                     // Invalid JSON, ignore
                   }
                 }}
-                placeholder='e.g., {"from": "support@"}'
+                placeholder='e.g., {"from": "support@", "priority": "high"}'
               />
             </div>
           </>
         )}
 
-        {/* Prompt */}
+        {/* Prompt / Goal — type-aware label */}
         <div style={styles.formGroup}>
-          <label style={styles.label}>Prompt (Goal)</label>
+          <label style={styles.label}>
+            {isSchedule ? 'Goal (Prompt)' : 'Goal (Prompt + Event Payload)'}
+          </label>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+            {isSchedule
+              ? 'This text becomes the job\'s goal. The skill will work toward fulfilling it using its tools.'
+              : 'This text becomes the base goal. The event payload is automatically appended, so the skill sees both the instructions and the event data.'
+            }
+          </div>
           <textarea
             style={styles.textarea}
             value={trigger.prompt || ''}
             onChange={(e) => handleUpdateTrigger(trigger.id, 'prompt', e.target.value)}
-            placeholder="What should the skill do when this trigger fires?"
+            placeholder={isSchedule
+              ? 'e.g., Check all open orders and update their fulfillment status'
+              : 'e.g., Process return request from support or orchestrator'
+            }
           />
+          {/* Show what the final goal will look like */}
+          {!isSchedule && trigger.prompt && (
+            <div style={{
+              marginTop: '6px',
+              padding: '8px',
+              background: 'rgba(168, 85, 247, 0.06)',
+              border: '1px solid rgba(168, 85, 247, 0.1)',
+              borderRadius: '4px',
+              fontSize: '11px',
+              fontFamily: 'monospace',
+              color: 'var(--text-muted)',
+              lineHeight: '1.5',
+            }}>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px', color: '#a855f7', fontFamily: 'inherit' }}>
+                Resulting Job Goal (Preview)
+              </div>
+              <div style={{ color: 'var(--text-secondary)' }}>{trigger.prompt}</div>
+              <div style={{ marginTop: '6px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                Event payload:<br/>
+                {'{'} "organization_id": "...", "ticket_id": "...", ... {'}'}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Concurrency */}
+        {/* Concurrency + Input */}
         <div style={styles.formGroup}>
           <div style={styles.row}>
             <div style={styles.colSmall}>
@@ -504,9 +778,12 @@ export default function TriggersPanel({
                 max="10"
                 onChange={(e) => handleUpdateTrigger(trigger.id, 'concurrency', parseInt(e.target.value) || 1)}
               />
+              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Max parallel jobs
+              </div>
             </div>
             <div style={styles.col}>
-              <label style={styles.label}>Input (JSON)</label>
+              <label style={styles.label}>Static Input (JSON)</label>
               <input
                 type="text"
                 style={styles.input}
@@ -521,6 +798,9 @@ export default function TriggersPanel({
                 }}
                 placeholder='e.g., {"customer_id": "123"}'
               />
+              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Extra context passed to every job from this trigger
+              </div>
             </div>
           </div>
         </div>
@@ -623,8 +903,8 @@ export default function TriggersPanel({
                 </div>
                 <div style={styles.typeOptionDesc}>
                   {type === 'schedule'
-                    ? 'Run at regular intervals'
-                    : 'Run when event occurs'
+                    ? 'Runs at regular intervals (e.g., every 5 minutes). The prompt becomes the job goal each time.'
+                    : 'Runs when a matching event arrives. The prompt + event payload become the job goal.'
                   }
                 </div>
               </div>
@@ -653,7 +933,11 @@ export default function TriggersPanel({
           <div style={styles.emptyIcon}>&#9201;</div>
           <div style={styles.emptyText}>
             No triggers configured.<br />
-            Add a trigger to automate skill execution.
+            Triggers automate skill execution — on a timer or in response to events.
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto', lineHeight: '1.5' }}>
+            <strong style={{ color: 'var(--text-secondary)' }}>Schedule</strong> triggers run periodically (e.g., check orders every 5 min).<br />
+            <strong style={{ color: 'var(--text-secondary)' }}>Event</strong> triggers react to messages from other skills, webhooks, or channels.
           </div>
         </div>
       ) : (
@@ -690,7 +974,7 @@ export default function TriggersPanel({
                     <span style={styles.triggerMeta}>
                       {isSchedule
                         ? formatDuration(trigger.every)
-                        : trigger.event || 'No event set'
+                        : getEventLabel(trigger.event)
                       }
                     </span>
                   </div>
