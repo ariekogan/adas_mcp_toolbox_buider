@@ -494,6 +494,13 @@ export async function removeTelegramRoutingRule(params) {
   });
 }
 
+export async function setChannelDefaultSkill(channel, skillSlug) {
+  return request(`/tenant/channels/${channel}/routing/default-skill`, {
+    method: 'PATCH',
+    body: JSON.stringify({ default_skill: skillSlug || null })
+  });
+}
+
 export async function getTenantPolicies() {
   return request('/tenant/policies');
 }

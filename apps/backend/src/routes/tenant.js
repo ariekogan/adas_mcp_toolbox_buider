@@ -601,6 +601,48 @@ router.delete("/channels/telegram/routing/rules", async (req, res) => {
 });
 
 // ============================================
+// Per-Channel Default Skill
+// ============================================
+
+/**
+ * PATCH /api/tenant/channels/:channel/routing/default-skill
+ * Set or clear the default skill for a channel
+ * Body: { default_skill: "skill-slug" } or { default_skill: null }
+ */
+router.patch("/channels/:channel/routing/default-skill", async (req, res) => {
+  try {
+    const { channel } = req.params;
+    const { default_skill } = req.body;
+
+    let config = await loadTenantConfig();
+    if (!config) {
+      config = createDefaultTenantConfig();
+    }
+
+    if (!config.channels[channel]) {
+      config.channels[channel] = { enabled: false, routing: {} };
+    }
+    if (!config.channels[channel].routing) {
+      config.channels[channel].routing = {};
+    }
+
+    if (default_skill) {
+      config.channels[channel].routing.default_skill = default_skill;
+    } else {
+      delete config.channels[channel].routing.default_skill;
+    }
+
+    config.updatedAt = new Date().toISOString();
+    await saveTenantConfig(config);
+
+    res.json({ ok: true, channel, default_skill: config.channels[channel].routing.default_skill || null });
+  } catch (err) {
+    console.error("[tenant] PATCH default-skill error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
 // Email Aliases (from CORE via cpAdminBridge)
 // ============================================
 

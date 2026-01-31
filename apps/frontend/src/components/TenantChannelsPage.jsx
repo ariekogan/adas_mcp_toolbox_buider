@@ -652,6 +652,31 @@ export default function TenantChannelsPage({ onClose }) {
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   }, [editingTelegramAlias]);
 
+  // Default skill per channel
+  const handleSetDefaultSkill = useCallback(async (channel, skillSlug) => {
+    try {
+      setSaving(true);
+      await api.setChannelDefaultSkill(channel, skillSlug || null);
+      setTenantConfig(prev => ({
+        ...prev,
+        channels: {
+          ...prev.channels,
+          [channel]: {
+            ...prev.channels[channel],
+            routing: {
+              ...prev.channels[channel]?.routing,
+              default_skill: skillSlug || undefined
+            }
+          }
+        }
+      }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
   if (loading) {
     return (
       <div style={styles.container}>
@@ -697,6 +722,41 @@ export default function TenantChannelsPage({ onClose }) {
       {msg.text}
     </div>
   ) : null;
+
+  // Helper to render default skill selector for a channel
+  const DefaultSkillSection = ({ channel, channelConfig }) => {
+    const currentDefault = channelConfig?.routing?.default_skill || '';
+    return (
+      <div style={styles.routingSection}>
+        <div style={styles.routingTitle}>Default Skill</div>
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+          When no routing rule matches, messages will be sent to this skill
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <select
+            style={{ ...styles.select, flex: 1 }}
+            value={currentDefault}
+            onChange={(e) => handleSetDefaultSkill(channel, e.target.value)}
+            disabled={saving}
+          >
+            <option value="">No default (reject unmatched)</option>
+            {skills.map(skill => (
+              <option key={skill.id} value={getSkillSlug(skill)}>{skill.name}</option>
+            ))}
+          </select>
+          {currentDefault && (
+            <span style={{
+              fontSize: '11px', color: '#4ade80', padding: '4px 8px',
+              background: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.3)',
+              borderRadius: '4px', whiteSpace: 'nowrap'
+            }}>
+              Active
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   // Helper to render a routing rule row
   const RuleRow = ({ rule, display, editState, onStartEdit, onSaveEdit, onCancelEdit, onDelete, editFields }) => (
@@ -935,6 +995,9 @@ export default function TenantChannelsPage({ onClose }) {
                     <button type="submit" style={styles.addBtn} disabled={saving || !newEmailAddress || !newEmailSkill}>Add Rule</button>
                   </form>
                 </div>
+
+                {/* Default Skill */}
+                <DefaultSkillSection channel="email" channelConfig={emailConfig} />
               </>
             )}
           </div>
@@ -1011,6 +1074,9 @@ export default function TenantChannelsPage({ onClose }) {
                   <button type="submit" style={styles.addBtn} disabled={saving || !newSlackMention || !newSlackSkill}>Add Rule</button>
                 </form>
               </div>
+
+              {/* Default Skill */}
+              <DefaultSkillSection channel="slack" channelConfig={slackConfig} />
             )}
           </div>
         )}
@@ -1157,6 +1223,9 @@ export default function TenantChannelsPage({ onClose }) {
                     <button type="submit" style={styles.addBtn} disabled={saving || !newTelegramCommand || !newTelegramSkill}>Add Alias</button>
                   </form>
                 </div>
+
+                {/* Default Skill */}
+                <DefaultSkillSection channel="telegram" channelConfig={telegramConfig} />
               </>
             )}
           </div>
