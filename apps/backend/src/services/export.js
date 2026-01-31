@@ -1091,6 +1091,8 @@ const TOOL_IMPLEMENTATIONS = {
 function generateJSTool(tool) {
   const inputs = tool.inputs || [];
   const toolName = tool.name;
+  // Sanitize for use as JS identifier (dots → underscores)
+  const jsName = toolName.replace(/[^a-zA-Z0-9_$]/g, '_').replace(/^[0-9]/, '_$&');
   const impl = TOOL_IMPLEMENTATIONS[toolName];
 
   // Generate JSDoc for args
@@ -1189,11 +1191,11 @@ ${argsDoc || " * @param {object} args - Tool arguments"}
  * @param {object} deps - Dependencies (deps.tools contains ADAS built-in tools)
  * @returns {Promise<object>} Tool result
  */
-async function ${tool.name}(args = {}, job = {}, deps = {}) {
+async function ${jsName}(args = {}, job = {}, deps = {}) {
   ${implementation.trim()}
 }
 
-${tool.name}.meta = {
+${jsName}.meta = {
   name: "${tool.name}",
   description: "${escapeString(tool.purpose || tool.description || "")}",
   args: [
@@ -1202,7 +1204,7 @@ ${metaArgs}
   planner: { visible: true }
 };
 
-export default ${tool.name};
+export default ${jsName};
 `;
 }
 
