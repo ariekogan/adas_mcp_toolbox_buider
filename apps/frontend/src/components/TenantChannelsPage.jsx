@@ -934,6 +934,9 @@ export default function TenantChannelsPage({ onClose }) {
                   )}
                 </div>
 
+                {/* Default Skill */}
+                <DefaultSkillSection channel="email" channelConfig={emailConfig} />
+
                 {/* Routing Rules */}
                 <div style={styles.routingSection}>
                   <div style={styles.routingTitle}>Routing Rules</div>
@@ -1011,9 +1014,6 @@ export default function TenantChannelsPage({ onClose }) {
                     <button type="submit" style={styles.addBtn} disabled={saving || !newEmailAddress || !newEmailSkill}>Add Rule</button>
                   </form>
                 </div>
-
-                {/* Default Skill */}
-                <DefaultSkillSection channel="email" channelConfig={emailConfig} />
               </>
             )}
           </div>
@@ -1039,6 +1039,9 @@ export default function TenantChannelsPage({ onClose }) {
 
             {slackConfig.enabled && (
               <>
+                {/* Default Skill */}
+                <DefaultSkillSection channel="slack" channelConfig={slackConfig} />
+
                 <div style={styles.routingSection}>
                   <div style={styles.routingTitle}>Routing Rules</div>
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
@@ -1091,9 +1094,6 @@ export default function TenantChannelsPage({ onClose }) {
                     <button type="submit" style={styles.addBtn} disabled={saving || !newSlackMention || !newSlackSkill}>Add Rule</button>
                   </form>
                 </div>
-
-                {/* Default Skill */}
-                <DefaultSkillSection channel="slack" channelConfig={slackConfig} />
               </>
             )}
           </div>
@@ -1190,6 +1190,9 @@ export default function TenantChannelsPage({ onClose }) {
                   )}
                 </div>
 
+                {/* Default Skill */}
+                <DefaultSkillSection channel="telegram" channelConfig={telegramConfig} />
+
                 {/* Command Aliases */}
                 <div style={styles.routingSection}>
                   <div style={styles.routingTitle}>Command Aliases</div>
@@ -1241,9 +1244,6 @@ export default function TenantChannelsPage({ onClose }) {
                     <button type="submit" style={styles.addBtn} disabled={saving || !newTelegramCommand || !newTelegramSkill}>Add Alias</button>
                   </form>
                 </div>
-
-                {/* Default Skill */}
-                <DefaultSkillSection channel="telegram" channelConfig={telegramConfig} />
               </>
             )}
           </div>
