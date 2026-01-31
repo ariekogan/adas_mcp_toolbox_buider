@@ -947,10 +947,17 @@ export default function TenantChannelsPage({ onClose }) {
                         {editingEmailRule?.originalAddress === rule.address ? (
                           <>
                             <div style={styles.editForm}>
-                              <select style={styles.editSelect} value={editingEmailRule.address} onChange={(e) => setEditingEmailRule(prev => ({ ...prev, address: e.target.value }))}>
-                                <option value="">Select email...</option>
+                              <input
+                                type="email"
+                                list="email-aliases-edit-list"
+                                style={styles.editInput}
+                                placeholder="Type email address..."
+                                value={editingEmailRule.address}
+                                onChange={(e) => setEditingEmailRule(prev => ({ ...prev, address: e.target.value }))}
+                              />
+                              <datalist id="email-aliases-edit-list">
                                 {emailAliases.map(alias => (<option key={alias.sendAsEmail} value={alias.sendAsEmail}>{alias.sendAsEmail}</option>))}
-                              </select>
+                              </datalist>
                               <span style={styles.ruleArrow}>&rarr;</span>
                               <select style={styles.editSelect} value={editingEmailRule.skill_slug} onChange={(e) => setEditingEmailRule(prev => ({ ...prev, skill_slug: e.target.value }))}>
                                 <option value="">Select skill...</option>
@@ -980,14 +987,23 @@ export default function TenantChannelsPage({ onClose }) {
                   </div>
 
                   <form style={styles.addRuleForm} onSubmit={handleAddEmailRule}>
-                    <select style={styles.select} value={newEmailAddress} onChange={(e) => setNewEmailAddress(e.target.value)}>
-                      <option value="">{loadingAliases ? 'Loading emails...' : 'Select email address...'}</option>
-                      {emailAliases.map(alias => (
-                        <option key={alias.sendAsEmail} value={alias.sendAsEmail}>
-                          {alias.sendAsEmail}{alias.displayName ? ` (${alias.displayName})` : ''}{alias.isPrimary ? ' [Primary]' : ''}
-                        </option>
-                      ))}
-                    </select>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <input
+                        type="email"
+                        list="email-aliases-list"
+                        style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
+                        placeholder="Type email address..."
+                        value={newEmailAddress}
+                        onChange={(e) => setNewEmailAddress(e.target.value)}
+                      />
+                      <datalist id="email-aliases-list">
+                        {emailAliases.map(alias => (
+                          <option key={alias.sendAsEmail} value={alias.sendAsEmail}>
+                            {alias.displayName || alias.sendAsEmail}
+                          </option>
+                        ))}
+                      </datalist>
+                    </div>
                     <select style={styles.select} value={newEmailSkill} onChange={(e) => setNewEmailSkill(e.target.value)}>
                       <option value="">Select skill...</option>
                       {skills.map(skill => (<option key={skill.id} value={getSkillSlug(skill)}>{skill.name}</option>))}
@@ -1022,61 +1038,63 @@ export default function TenantChannelsPage({ onClose }) {
             </div>
 
             {slackConfig.enabled && (
-              <div style={styles.routingSection}>
-                <div style={styles.routingTitle}>Routing Rules</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                  Route Slack messages to skills based on @mention handle
+              <>
+                <div style={styles.routingSection}>
+                  <div style={styles.routingTitle}>Routing Rules</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                    Route Slack messages to skills based on @mention handle
+                  </div>
+
+                  <div style={styles.rulesList}>
+                    {(slackConfig.routing?.rules || []).map((rule, idx) => (
+                      <div key={idx} style={styles.ruleItem}>
+                        {editingSlackRule?.originalHandle === rule.mention_handle ? (
+                          <>
+                            <div style={styles.editForm}>
+                              <input style={styles.editInput} value={editingSlackRule.mention_handle} onChange={(e) => setEditingSlackRule(prev => ({ ...prev, mention_handle: e.target.value }))} placeholder="Mention handle (e.g., @support)" />
+                              <span style={styles.ruleArrow}>&rarr;</span>
+                              <select style={styles.editSelect} value={editingSlackRule.skill_slug} onChange={(e) => setEditingSlackRule(prev => ({ ...prev, skill_slug: e.target.value }))}>
+                                <option value="">Select skill...</option>
+                                {skills.map(skill => (<option key={skill.id} value={getSkillSlug(skill)}>{skill.name}</option>))}
+                              </select>
+                            </div>
+                            <div style={styles.ruleActions}>
+                              <button style={styles.saveBtn} onClick={handleSaveEditSlackRule} disabled={saving || !editingSlackRule.mention_handle || !editingSlackRule.skill_slug}>Save</button>
+                              <button style={styles.cancelBtn} onClick={handleCancelEditSlackRule} disabled={saving}>Cancel</button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              <span style={styles.ruleText}>{rule.mention_handle || rule.channel_id}</span>
+                              <span style={styles.ruleArrow}>&rarr;</span>
+                              <span style={styles.ruleSkill}>{rule.skill_slug}</span>
+                            </div>
+                            <div style={styles.ruleActions}>
+                              {rule.mention_handle && (
+                                <button style={styles.editBtn} onClick={() => handleStartEditSlackRule(rule)} disabled={saving || editingSlackRule !== null} title="Edit rule">&#9999;&#65039;</button>
+                              )}
+                              <button style={styles.deleteBtn} onClick={() => handleRemoveSlackRule(rule)} disabled={saving || editingSlackRule !== null} title="Delete rule">&#128465;&#65039;</button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <form style={styles.addRuleForm} onSubmit={handleAddSlackRule}>
+                    <input style={styles.input} placeholder="Mention handle (e.g., @support)" value={newSlackMention} onChange={(e) => setNewSlackMention(e.target.value)} />
+                    <select style={styles.select} value={newSlackSkill} onChange={(e) => setNewSlackSkill(e.target.value)}>
+                      <option value="">Select skill...</option>
+                      {skills.map(skill => (<option key={skill.id} value={getSkillSlug(skill)}>{skill.name}</option>))}
+                    </select>
+                    <button type="submit" style={styles.addBtn} disabled={saving || !newSlackMention || !newSlackSkill}>Add Rule</button>
+                  </form>
                 </div>
 
-                <div style={styles.rulesList}>
-                  {(slackConfig.routing?.rules || []).map((rule, idx) => (
-                    <div key={idx} style={styles.ruleItem}>
-                      {editingSlackRule?.originalHandle === rule.mention_handle ? (
-                        <>
-                          <div style={styles.editForm}>
-                            <input style={styles.editInput} value={editingSlackRule.mention_handle} onChange={(e) => setEditingSlackRule(prev => ({ ...prev, mention_handle: e.target.value }))} placeholder="Mention handle (e.g., @support)" />
-                            <span style={styles.ruleArrow}>&rarr;</span>
-                            <select style={styles.editSelect} value={editingSlackRule.skill_slug} onChange={(e) => setEditingSlackRule(prev => ({ ...prev, skill_slug: e.target.value }))}>
-                              <option value="">Select skill...</option>
-                              {skills.map(skill => (<option key={skill.id} value={getSkillSlug(skill)}>{skill.name}</option>))}
-                            </select>
-                          </div>
-                          <div style={styles.ruleActions}>
-                            <button style={styles.saveBtn} onClick={handleSaveEditSlackRule} disabled={saving || !editingSlackRule.mention_handle || !editingSlackRule.skill_slug}>Save</button>
-                            <button style={styles.cancelBtn} onClick={handleCancelEditSlackRule} disabled={saving}>Cancel</button>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div>
-                            <span style={styles.ruleText}>{rule.mention_handle || rule.channel_id}</span>
-                            <span style={styles.ruleArrow}>&rarr;</span>
-                            <span style={styles.ruleSkill}>{rule.skill_slug}</span>
-                          </div>
-                          <div style={styles.ruleActions}>
-                            {rule.mention_handle && (
-                              <button style={styles.editBtn} onClick={() => handleStartEditSlackRule(rule)} disabled={saving || editingSlackRule !== null} title="Edit rule">&#9999;&#65039;</button>
-                            )}
-                            <button style={styles.deleteBtn} onClick={() => handleRemoveSlackRule(rule)} disabled={saving || editingSlackRule !== null} title="Delete rule">&#128465;&#65039;</button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <form style={styles.addRuleForm} onSubmit={handleAddSlackRule}>
-                  <input style={styles.input} placeholder="Mention handle (e.g., @support)" value={newSlackMention} onChange={(e) => setNewSlackMention(e.target.value)} />
-                  <select style={styles.select} value={newSlackSkill} onChange={(e) => setNewSlackSkill(e.target.value)}>
-                    <option value="">Select skill...</option>
-                    {skills.map(skill => (<option key={skill.id} value={getSkillSlug(skill)}>{skill.name}</option>))}
-                  </select>
-                  <button type="submit" style={styles.addBtn} disabled={saving || !newSlackMention || !newSlackSkill}>Add Rule</button>
-                </form>
-              </div>
-
-              {/* Default Skill */}
-              <DefaultSkillSection channel="slack" channelConfig={slackConfig} />
+                {/* Default Skill */}
+                <DefaultSkillSection channel="slack" channelConfig={slackConfig} />
+              </>
             )}
           </div>
         )}
