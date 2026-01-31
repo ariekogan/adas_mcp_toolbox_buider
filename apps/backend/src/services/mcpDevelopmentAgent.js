@@ -59,10 +59,9 @@ function getLLMConfig() {
  * Call LLM with tool use support - works with both Anthropic and OpenAI
  */
 async function callLLMWithTools({ systemPrompt, messages, tools, maxTokens = 8192, llmConfig }) {
-  // OpenAI gpt-4-turbo and gpt-4o support up to 16384 output tokens
-  // Only limit to 4096 for older gpt-3.5 models
-  const isOlderModel = llmConfig.model?.includes("gpt-3.5");
-  const effectiveMaxTokens = llmConfig.provider === "openai" && isOlderModel ? Math.min(maxTokens, 4096) : maxTokens;
+  // gpt-4o supports 16384 output tokens, gpt-4-turbo only 4096, gpt-3.5 only 4096
+  const isLimitedModel = llmConfig.model?.includes("gpt-3.5") || llmConfig.model === "gpt-4-turbo";
+  const effectiveMaxTokens = llmConfig.provider === "openai" && isLimitedModel ? Math.min(maxTokens, 4096) : maxTokens;
   if (llmConfig.provider === "openai") {
     return callOpenAIWithTools({ systemPrompt, messages, tools, maxTokens: effectiveMaxTokens, llmConfig });
   } else {
