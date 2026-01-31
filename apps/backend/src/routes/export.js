@@ -37,8 +37,10 @@ router.get("/mcps", async (req, res, next) => {
       try {
         const domain = await domainsStore.load(domainSummary.id);
 
-        // Check if this domain has an MCP export
-        if (domain.version && domain.lastExportType?.startsWith('mcp')) {
+        // Include skills with MCP exports OR deployed via "Deploy to ADAS" (JS path)
+        const hasMcpExport = domain.version && domain.lastExportType?.startsWith('mcp');
+        const isDeployed = domain.phase === "DEPLOYED" && domain.deployedAt;
+        if (hasMcpExport || isDeployed) {
           // Get export files
           let exportFiles = [];
           try {
@@ -66,8 +68,8 @@ router.get("/mcps", async (req, res, next) => {
             name: domain.name,
             description,
             version: domain.version,
-            exportType: domain.lastExportType,
-            exportedAt: domain.lastExportedAt,
+            exportType: domain.lastExportType || (isDeployed ? "adas-js" : null),
+            exportedAt: domain.lastExportedAt || domain.deployedAt,
             phase: domain.phase,
             toolsCount: tools.length,
             tools,
