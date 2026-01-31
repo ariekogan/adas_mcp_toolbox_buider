@@ -376,8 +376,9 @@ router.post("/:domainId/mcp/develop", async (req, res, next) => {
       });
     }
 
-    // Create output directory
-    const version = (domain.version || 0) + 1;
+    // Create output directory - parse version as integer (handles semver strings like "2.0.0")
+    const prevVersion = typeof domain.version === "string" ? parseInt(domain.version, 10) || 0 : (domain.version || 0);
+    const version = prevVersion + 1;
     const outputDir = await domainsStore.getExportPath(domainId, version);
 
     // Create session

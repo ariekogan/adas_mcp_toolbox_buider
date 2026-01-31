@@ -145,20 +145,25 @@ async function callOpenAIWithTools({ systemPrompt, messages, tools, maxTokens, l
     }).flat(),
   ];
 
-  const response = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${llmConfig.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: llmConfig.model,
-      messages: openaiMessages,
-      max_tokens: maxTokens,
-      tools: openaiTools.length > 0 ? openaiTools : undefined,
-      tool_choice: openaiTools.length > 0 ? "auto" : undefined,
-    }),
-  });
+  let response;
+  try {
+    response = await fetch(`${llmConfig.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${llmConfig.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: llmConfig.model,
+        messages: openaiMessages,
+        max_tokens: maxTokens,
+        tools: openaiTools.length > 0 ? openaiTools : undefined,
+        tool_choice: openaiTools.length > 0 ? "auto" : undefined,
+      }),
+    });
+  } catch (fetchErr) {
+    throw new Error(`OpenAI API fetch failed: ${fetchErr.message} (url: ${llmConfig.baseUrl}, model: ${llmConfig.model})`);
+  }
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -585,10 +590,7 @@ export class MCPDevelopmentSession {
     // Run the generation agent
     for await (const event of this.runGenerationAgent(context)) {
       yield event;
-
-      if (event.type === "file_written") {
-        this.generatedFiles.push(event.filename);
-      }
+      // Note: file tracking is handled in executeTool() to avoid duplicates
     }
 
     // Validate
