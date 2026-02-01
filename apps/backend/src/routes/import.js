@@ -71,6 +71,7 @@ function loadPersistedPackages() {
             requiresAuth: mcp.requiresAuth,
             category: mcp.category,
             layer: mcp.layer,
+            mcp_store_included: !!pkg.mcp_store_included,
             importedFrom: pkg.name
           });
           console.log(`[Import] Restored connector: ${mcp.id}`);
@@ -790,6 +791,7 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
 
       registerImportedConnector(mcp.id, {
         ...connectorConfig,
+        mcp_store_included: !!manifest.mcp_store_included,
         importedFrom: manifest.name
       });
       console.log(`[Import] Registered connector: ${mcp.id}`);

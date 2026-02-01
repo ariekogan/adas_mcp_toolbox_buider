@@ -122,10 +122,25 @@ export async function deploySkillToADAS(domainId, log, onProgress) {
       }
       try {
         const isStdio = connector.transport === 'stdio' || connector.command;
+        // For stdio connectors with mcp-store code, use /mcp-store/ path
+        // (the original args from the catalog point to bare "server.js")
+        const stdioCfg = isStdio ? {
+          command: connector.command,
+          args: connector.args || [],
+          env: connector.envDefaults || connector.env || {}
+        } : undefined;
+        // If connector has mcp_store code, OR if args is just "server.js" (no path),
+        // use the /mcp-store/ path so ADAS Core can find the code
+        if (stdioCfg) {
+          const hasBarePath = stdioCfg.args?.length === 1 && !stdioCfg.args[0].includes('/');
+          if (connector.mcp_store_included || hasBarePath) {
+            stdioCfg.args = [`/mcp-store/${connectorId}/server.js`];
+          }
+        }
         await syncConnectorToADAS({
           id: connectorId, name: connector.name, type: 'mcp',
           transport: isStdio ? 'stdio' : 'http', endpoint: connector.endpoint,
-          config: isStdio ? { command: connector.command, args: connector.args || [], env: connector.envDefaults || connector.env || {} } : undefined,
+          config: stdioCfg,
           credentials: {}
         });
         const startResult = await startConnectorInADAS(connectorId);
