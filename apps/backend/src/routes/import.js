@@ -19,6 +19,7 @@
  */
 
 import { Router } from 'express';
+import multer from 'multer';
 import { registerImportedConnector, unregisterImportedConnector, getAllPrebuiltConnectors } from './connectors.js';
 import domainsStore from '../store/domains.js';
 import fs from 'fs';
@@ -30,6 +31,9 @@ import {
   startConnectorInADAS,
   uploadMcpCodeToADAS
 } from '../services/adasConnectorSync.js';
+
+// Multer config: store uploaded files in /tmp, accept .tar.gz up to 50MB
+const upload = multer({ dest: '/tmp/solution-pack-uploads', limits: { fileSize: 50 * 1024 * 1024 } });
 
 const router = Router();
 
@@ -662,28 +666,18 @@ const SOLUTION_PACKS_DIR = path.join(PERSISTENCE_DIR, 'solution-packs');
  *   mcpStore: { "id": [{ path, content }] } // connector id -> files map
  * }
  */
-router.post('/solution-pack', async (req, res) => {
+router.post('/solution-pack', upload.single('file'), async (req, res) => {
   try {
     let manifest, skillFiles, mcpStoreFiles;
 
-    // Check content type
-    const contentType = req.headers['content-type'] || '';
-
-    if (contentType.includes('multipart') || contentType.includes('octet-stream')) {
-      // Handle file upload: expect tar.gz
-      // Collect the raw body
-      const chunks = [];
-      for await (const chunk of req) {
-        chunks.push(chunk);
-      }
-      const buffer = Buffer.concat(chunks);
-
-      // Extract tar.gz to temp directory
+    // Check if file was uploaded via multipart
+    if (req.file) {
+      // Multer saved the uploaded file — move it and extract
       const extractDir = path.join(SOLUTION_PACKS_DIR, `_extract_${Date.now()}`);
       fs.mkdirSync(extractDir, { recursive: true });
 
       const tarPath = path.join(extractDir, 'pack.tar.gz');
-      fs.writeFileSync(tarPath, buffer);
+      fs.renameSync(req.file.path, tarPath);
 
       try {
         execSync(`tar -xzf pack.tar.gz`, { cwd: extractDir });
@@ -748,11 +742,13 @@ router.post('/solution-pack', async (req, res) => {
         mcpStoreFiles[mcpId] = path.join(permanentDir, 'mcp-store', mcpId);
       }
 
-    } else {
+    } else if (req.body && (req.body.manifest || req.body.name)) {
       // JSON body
       manifest = req.body.manifest || req.body;
       skillFiles = req.body.skills || {};
       mcpStoreFiles = req.body.mcpStore || {};
+    } else {
+      return res.status(400).json({ ok: false, error: 'No file uploaded and no JSON body provided' });
     }
 
     if (!manifest || !manifest.name) {
