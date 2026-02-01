@@ -677,7 +677,9 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
       fs.mkdirSync(extractDir, { recursive: true });
 
       const tarPath = path.join(extractDir, 'pack.tar.gz');
-      fs.renameSync(req.file.path, tarPath);
+      // copyFile + unlink instead of rename to avoid EXDEV across Docker volumes
+      fs.copyFileSync(req.file.path, tarPath);
+      try { fs.unlinkSync(req.file.path); } catch { /* ok */ }
 
       try {
         execSync(`tar -xzf pack.tar.gz`, { cwd: extractDir });
