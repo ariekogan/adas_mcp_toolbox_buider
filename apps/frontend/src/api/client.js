@@ -304,6 +304,30 @@ export async function importPackage(manifest) {
 }
 
 /**
+ * Import a solution pack (.tar.gz) into Skill Builder.
+ * Handles skills, connectors, and MCP source code.
+ * @param {File} file - The .tar.gz file
+ * @returns {Promise<object>} Import result with summary
+ */
+export async function importSolutionPack(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE}/import/solution-pack`, {
+    method: 'POST',
+    body: formData
+    // Don't set Content-Type - browser sets it with boundary
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `Import failed: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
  * List all imported packages
  */
 export async function listImportedPackages() {
@@ -324,6 +348,51 @@ export async function removeImportedPackage(packageName) {
   return request(`/import/packages/${encodeURIComponent(packageName)}`, {
     method: 'DELETE'
   });
+}
+
+/**
+ * Deploy all connectors and skills from an imported package to ADAS Core.
+ * Returns an SSE stream with progress events.
+ *
+ * @param {string} packageName - Package name
+ * @param {function} onEvent - Callback for each SSE event: { type, ... }
+ *   Types: start, connector_progress, skill_progress, complete, error
+ * @returns {Promise<void>} Resolves when stream ends
+ */
+export async function deployAllPackage(packageName, onEvent) {
+  const response = await fetch(
+    `${API_BASE}/import/packages/${encodeURIComponent(packageName)}/deploy-all`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' } }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `Deploy failed: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // Keep incomplete line
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          onEvent(data);
+        } catch (e) {
+          // Skip invalid JSON
+        }
+      }
+    }
+  }
 }
 
 // ============================================
@@ -762,7 +831,9 @@ export default {
   deployMCPToAdas,
   // Package Import
   importPackage,
+  importSolutionPack,
   listImportedPackages,
   getImportedPackage,
-  removeImportedPackage
+  removeImportedPackage,
+  deployAllPackage
 };
