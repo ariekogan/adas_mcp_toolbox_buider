@@ -69,14 +69,17 @@ export async function syncConnectorToADAS(connector) {
 
   try {
     // Check if connector exists
-    const checkRes = await fetch(`${ADAS_API_URL}/api/connectors/${id}`);
+    const checkRes = await fetch(`${ADAS_API_URL}/api/connectors/${id}`, {
+      signal: AbortSignal.timeout(15000)
+    });
 
     if (checkRes.ok) {
       // Update existing connector
       const updateRes = await fetch(`${ADAS_API_URL}/api/connectors/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000)
       });
 
       if (!updateRes.ok) {
@@ -91,7 +94,8 @@ export async function syncConnectorToADAS(connector) {
       const createRes = await fetch(`${ADAS_API_URL}/api/connectors`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000)
       });
 
       if (!createRes.ok) {
@@ -118,7 +122,8 @@ export async function startConnectorInADAS(connectorId) {
   try {
     const res = await fetch(`${ADAS_API_URL}/api/connectors/${connectorId}/connect`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(30000) // 30s — connector start can be slow
     });
 
     if (!res.ok) {
@@ -145,7 +150,8 @@ export async function stopConnectorInADAS(connectorId) {
   try {
     const res = await fetch(`${ADAS_API_URL}/api/connectors/${connectorId}/disconnect`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(15000)
     });
 
     if (!res.ok) {
@@ -280,7 +286,8 @@ export async function uploadMcpCodeToADAS(connectorId, sourceDir) {
         connectorId,
         files,
         installDeps: true
-      })
+      }),
+      signal: AbortSignal.timeout(60000) // 60s — npm install can be slow
     });
 
     if (!res.ok) {

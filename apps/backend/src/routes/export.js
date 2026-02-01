@@ -10,6 +10,115 @@ import { PREBUILT_CONNECTORS, getAllPrebuiltConnectors } from "./connectors.js";
 // Store active development sessions (in production, use Redis or similar)
 const activeSessions = new Map();
 
+/**
+ * Deploy a skill MCP to ADAS Core (shared logic used by both the HTTP route and deploy-all).
+ * Reads the generated MCP files, sends to ADAS Core, and syncs linked connectors.
+ *
+ * @param {string} domainId - Domain ID to deploy
+ * @param {object} log - Logger (console-compatible)
+ * @returns {Promise<object>} Deploy result
+ */
+export async function deploySkillToADAS(domainId, log) {
+  const domain = await domainsStore.load(domainId);
+  const version = domain.version;
+
+  if (!version) {
+    throw Object.assign(new Error('No MCP export found'), { code: 'NO_EXPORT' });
+  }
+
+  log.info(`[MCP Deploy] Starting deploy for ${domainId} (version ${version})`);
+
+  const exportPath = await domainsStore.getExportPath(domainId, version);
+  const fs = await import('fs/promises');
+  const path = await import('path');
+  const files = await fs.readdir(exportPath);
+  const serverFile = files.find(f => f === 'server.py' || f === 'mcp_server.py');
+
+  if (!serverFile) {
+    throw Object.assign(new Error('No server.py found in export'), { code: 'NO_SERVER' });
+  }
+
+  const serverPath = path.join(exportPath, serverFile);
+  const mcpServer = await fs.readFile(serverPath, 'utf8');
+
+  let requirements = null;
+  try {
+    requirements = await fs.readFile(path.join(exportPath, 'requirements.txt'), 'utf8');
+  } catch { /* optional */ }
+
+  log.info(`[MCP Deploy] Read MCP files (${mcpServer.length} bytes)`);
+
+  const skillSlug = domain.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || domainId;
+  const adasUrl = process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
+  const deployUrl = `${adasUrl}/api/skills/deploy-mcp`;
+
+  log.info(`[MCP Deploy] Sending to ADAS Core: ${deployUrl}`);
+
+  const response = await fetch(deployUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ skillSlug, mcpServer, requirements }),
+    signal: AbortSignal.timeout(120000) // 2 min timeout
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    log.error(`[MCP Deploy] ADAS Core deployment failed: ${JSON.stringify(result)}`);
+    throw new Error(result.error || `Deploy failed: ${response.status}`);
+  }
+
+  // Update domain status
+  domain.phase = "DEPLOYED";
+  domain.deployedAt = new Date().toISOString();
+  domain.deployedTo = adasUrl;
+  domain.mcpUri = result.mcpUri;
+  domain.connectorId = result.connectorId;
+  await domainsStore.save(domain);
+
+  log.info(`[MCP Deploy] Successfully deployed! Skill: ${skillSlug}, MCP: ${result.mcpUri}`);
+
+  // Sync linked connectors
+  const connectorResults = [];
+  const linkedConnectors = domain.connectors || [];
+
+  if (linkedConnectors.length > 0) {
+    log.info(`[MCP Deploy] Syncing ${linkedConnectors.length} linked connectors: ${linkedConnectors.join(', ')}`);
+    const allConnectors = getAllPrebuiltConnectors();
+
+    for (const connectorId of linkedConnectors) {
+      const connector = allConnectors[connectorId];
+      if (!connector) {
+        connectorResults.push({ id: connectorId, ok: false, error: 'unknown connector' });
+        continue;
+      }
+      try {
+        const isStdio = connector.transport === 'stdio' || connector.command;
+        await syncConnectorToADAS({
+          id: connectorId, name: connector.name, type: 'mcp',
+          transport: isStdio ? 'stdio' : 'http', endpoint: connector.endpoint,
+          config: isStdio ? { command: connector.command, args: connector.args || [], env: connector.envDefaults || connector.env || {} } : undefined,
+          credentials: {}
+        });
+        const startResult = await startConnectorInADAS(connectorId);
+        const toolCount = startResult?.tools?.length || 0;
+        log.info(`[MCP Deploy] Connector "${connectorId}" started: ${toolCount} tools`);
+        connectorResults.push({ id: connectorId, ok: true, tools: toolCount });
+      } catch (err) {
+        log.warn(`[MCP Deploy] Connector "${connectorId}" failed: ${err.message}`);
+        connectorResults.push({ id: connectorId, ok: false, error: err.message });
+      }
+    }
+  }
+
+  return {
+    ok: true, status: 'deployed', skillSlug,
+    mcpUri: result.mcpUri, port: result.port, connectorId: result.connectorId,
+    connectors: connectorResults, adasResponse: result,
+    message: `Skill "${skillSlug}" deployed to ADAS Core and running!`
+  };
+}
+
 const router = Router();
 
 // ============================================================================
@@ -1156,161 +1265,21 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
     const { domainId } = req.params;
     const log = req.app.locals.log;
 
-    const domain = await domainsStore.load(domainId);
-    const version = domain.version;
-
-    if (!version) {
-      return res.status(400).json({
-        error: "No MCP export found",
-        hint: "Generate an MCP first using the Export dialog"
-      });
-    }
-
-    log.info(`[MCP Deploy] Starting deploy for ${domainId} (version ${version})`);
-
-    // Step 1: Read the generated MCP files
-    const exportPath = await domainsStore.getExportPath(domainId, version);
-    const fs = await import('fs/promises');
-    const path = await import('path');
-    const files = await fs.readdir(exportPath);
-    const serverFile = files.find(f => f === 'server.py' || f === 'mcp_server.py');
-
-    if (!serverFile) {
-      return res.status(400).json({
-        error: "No server.py found in export",
-        hint: "Generate MCP first",
-        files
-      });
-    }
-
-    // Read the MCP server code
-    const serverPath = path.join(exportPath, serverFile);
-    const mcpServer = await fs.readFile(serverPath, 'utf8');
-
-    // Read requirements if exists
-    let requirements = null;
-    try {
-      requirements = await fs.readFile(path.join(exportPath, 'requirements.txt'), 'utf8');
-    } catch { /* optional */ }
-
-    log.info(`[MCP Deploy] Read MCP files (${mcpServer.length} bytes)`);
-
-    // Generate skill slug from domain name
-    const skillSlug = domain.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || domainId;
-
-    // Step 2: Send to ADAS Core for deployment
-    // ADAS Core will save the files and run the MCP server
-    const adasUrl = process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
-    const deployUrl = `${adasUrl}/api/skills/deploy-mcp`;
-
-    log.info(`[MCP Deploy] Sending to ADAS Core: ${deployUrl}`);
-
-    try {
-      const response = await fetch(deployUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          skillSlug,
-          mcpServer,
-          requirements
-        })
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        log.error(`[MCP Deploy] ADAS Core deployment failed: ${JSON.stringify(result)}`);
-        return res.status(response.status).json({
-          error: "ADAS Core deployment failed",
-          details: result
-        });
-      }
-
-      // Update domain status
-      domain.phase = "DEPLOYED";
-      domain.deployedAt = new Date().toISOString();
-      domain.deployedTo = adasUrl;
-      domain.mcpUri = result.mcpUri;
-      domain.connectorId = result.connectorId;
-      await domainsStore.save(domain);
-
-      log.info(`[MCP Deploy] Successfully deployed! Skill: ${skillSlug}, MCP: ${result.mcpUri}`);
-
-      // Step 3: Sync linked external connectors to ADAS Core
-      // Same pattern as Skill MCPs: register + start, single instance per connector
-      const connectorResults = [];
-      const linkedConnectors = domain.connectors || [];
-
-      if (linkedConnectors.length > 0) {
-        log.info(`[MCP Deploy] Syncing ${linkedConnectors.length} linked connectors: ${linkedConnectors.join(', ')}`);
-
-        // Get all connectors (prebuilt + imported)
-        const allConnectors = getAllPrebuiltConnectors();
-
-        for (const connectorId of linkedConnectors) {
-          const connector = allConnectors[connectorId];
-          if (!connector) {
-            log.warn(`[MCP Deploy] Unknown connector "${connectorId}", skipping`);
-            connectorResults.push({ id: connectorId, ok: false, error: 'unknown connector' });
-            continue;
-          }
-
-          try {
-            // Register connector in ADAS Core ConnectorManager
-            // Support both stdio (command/args) and http (endpoint) transports
-            const isStdio = connector.transport === 'stdio' || connector.command;
-
-            await syncConnectorToADAS({
-              id: connectorId,
-              name: connector.name,
-              type: 'mcp',
-              transport: isStdio ? 'stdio' : 'http',
-              endpoint: connector.endpoint,
-              config: isStdio ? {
-                command: connector.command,
-                args: connector.args || [],
-                env: connector.envDefaults || connector.env || {}
-              } : undefined,
-              credentials: {}  // No credentials for prebuilt (user adds later if needed)
-            });
-
-            // Start it (ConnectorManager handles single-instance)
-            const startResult = await startConnectorInADAS(connectorId);
-            const toolCount = startResult?.tools?.length || 0;
-            log.info(`[MCP Deploy] Connector "${connectorId}" started: ${toolCount} tools`);
-            connectorResults.push({ id: connectorId, ok: true, tools: toolCount });
-          } catch (err) {
-            // Don't fail the whole deploy if a connector fails (e.g. needs auth)
-            log.warn(`[MCP Deploy] Connector "${connectorId}" failed: ${err.message}`);
-            connectorResults.push({ id: connectorId, ok: false, error: err.message });
-          }
-        }
-      }
-
-      return res.json({
-        ok: true,
-        status: 'deployed',
-        skillSlug,
-        mcpUri: result.mcpUri,
-        port: result.port,
-        connectorId: result.connectorId,
-        connectors: connectorResults,
-        adasResponse: result,
-        message: `Skill "${skillSlug}" deployed to ADAS Core and running!`
-      });
-
-    } catch (fetchErr) {
-      log.error(`[MCP Deploy] Failed to connect to ADAS Core: ${fetchErr.message}`);
-      return res.status(502).json({
-        error: "Failed to connect to ADAS Core",
-        details: fetchErr.message,
-        hint: "Check ADAS Core is running and ADAS_CORE_URL is correct"
-      });
-    }
+    const result = await deploySkillToADAS(domainId, log);
+    return res.json(result);
 
   } catch (err) {
+    if (err.code === 'NO_EXPORT') {
+      return res.status(400).json({ error: err.message, hint: "Generate an MCP first using the Export dialog" });
+    }
+    if (err.code === 'NO_SERVER') {
+      return res.status(400).json({ error: err.message, hint: "Generate MCP first" });
+    }
     if (err.message?.includes('not found') || err.code === "ENOENT") {
       return res.status(404).json({ error: "Domain not found" });
+    }
+    if (err.message?.includes('Failed to fetch') || err.message?.includes('fetch failed')) {
+      return res.status(502).json({ error: "Failed to connect to ADAS Core", details: err.message });
     }
     next(err);
   }

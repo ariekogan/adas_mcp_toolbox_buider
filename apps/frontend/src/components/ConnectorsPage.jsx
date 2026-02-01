@@ -276,12 +276,27 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
-    whiteSpace: 'nowrap'
+    whiteSpace: 'nowrap',
+    transition: 'all 0.2s ease'
+  },
+  deployAllBtnActive: {
+    background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+    cursor: 'pointer',
+    animation: 'none'
   },
   deployAllBtnDisabled: {
     background: '#374151',
     cursor: 'not-allowed',
     opacity: 0.6
+  },
+  spinner: {
+    width: '12px',
+    height: '12px',
+    border: '2px solid rgba(255,255,255,0.3)',
+    borderTop: '2px solid white',
+    borderRadius: '50%',
+    animation: 'spin 0.8s linear infinite',
+    flexShrink: 0
   },
   // Deploy Modal
   deployOverlay: {
@@ -664,14 +679,29 @@ export default function ConnectorsPage({ onClose }) {
               <button
                 style={{
                   ...styles.deployAllBtn,
-                  ...(deployingPackage ? styles.deployAllBtnDisabled : {})
+                  ...(deployingPackage?.name === pkg.name && !deployDone ? styles.deployAllBtnActive : {}),
+                  ...(deployingPackage && deployingPackage.name !== pkg.name ? styles.deployAllBtnDisabled : {})
                 }}
-                onClick={() => handleDeployAll(pkg)}
-                disabled={!!deployingPackage}
-                title="Deploy all connectors and skills to ADAS Core"
+                onClick={() => deployingPackage?.name === pkg.name ? setShowDeployModal(true) : handleDeployAll(pkg)}
+                disabled={!!deployingPackage && deployingPackage.name !== pkg.name}
+                title={deployingPackage?.name === pkg.name ? 'Click to view progress' : 'Deploy all connectors and skills to ADAS Core'}
               >
-                <RocketIcon />
-                Deploy All
+                {deployingPackage?.name === pkg.name && !deployDone ? (
+                  <>
+                    <div style={styles.spinner} />
+                    Deploying {deployCompleted}/{deployTotal}...
+                  </>
+                ) : deployingPackage?.name === pkg.name && deployDone ? (
+                  <>
+                    <RocketIcon />
+                    {deployError ? 'Deploy had errors' : 'Deployed'}
+                  </>
+                ) : (
+                  <>
+                    <RocketIcon />
+                    Deploy All
+                  </>
+                )}
               </button>
             </div>
           ))}
@@ -707,6 +737,7 @@ export default function ConnectorsPage({ onClose }) {
       {/* Deploy All Modal */}
       {showDeployModal && deployingPackage && (
         <div style={styles.deployOverlay} onClick={deployDone ? closeDeployModal : undefined}>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           <div style={styles.deployModal} onClick={e => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <div style={styles.modalTitle}>
@@ -741,13 +772,22 @@ export default function ConnectorsPage({ onClose }) {
                   Connectors
                 </div>
                 {deployProgress.filter(i => i.type === 'connector').map(item => (
-                  <div key={item.id} style={styles.deployItem}>
-                    <div style={{ ...styles.statusDot, background: statusColor(item.status) }} />
+                  <div key={item.id} style={{
+                    ...styles.deployItem,
+                    ...(item.status === 'deploying' ? { border: '1px solid rgba(59, 130, 246, 0.3)', background: 'rgba(59, 130, 246, 0.05)' } : {}),
+                    ...(item.status === 'done' ? { border: '1px solid rgba(16, 185, 129, 0.2)' } : {}),
+                    ...(item.status === 'error' ? { border: '1px solid rgba(239, 68, 68, 0.2)' } : {})
+                  }}>
+                    {item.status === 'deploying' ? (
+                      <div style={{ ...styles.spinner, borderColor: 'rgba(59,130,246,0.3)', borderTopColor: '#3b82f6' }} />
+                    ) : (
+                      <div style={{ ...styles.statusDot, background: statusColor(item.status) }} />
+                    )}
                     <span style={{ flex: 1, color: 'var(--text-primary)' }}>{item.name}</span>
                     <span style={{ fontSize: '11px', color: statusColor(item.status) }}>
                       {item.status === 'pending' && 'Waiting...'}
                       {item.status === 'deploying' && (item.message || 'Deploying...')}
-                      {item.status === 'done' && '✓ Deployed'}
+                      {item.status === 'done' && `✓ ${item.message || 'Deployed'}`}
                       {item.status === 'error' && `✗ ${item.message || 'Failed'}`}
                     </span>
                   </div>
@@ -762,13 +802,22 @@ export default function ConnectorsPage({ onClose }) {
                   Skills
                 </div>
                 {deployProgress.filter(i => i.type === 'skill').map(item => (
-                  <div key={item.id} style={styles.deployItem}>
-                    <div style={{ ...styles.statusDot, background: statusColor(item.status) }} />
+                  <div key={item.id} style={{
+                    ...styles.deployItem,
+                    ...(item.status === 'deploying' ? { border: '1px solid rgba(59, 130, 246, 0.3)', background: 'rgba(59, 130, 246, 0.05)' } : {}),
+                    ...(item.status === 'done' ? { border: '1px solid rgba(16, 185, 129, 0.2)' } : {}),
+                    ...(item.status === 'error' ? { border: '1px solid rgba(239, 68, 68, 0.2)' } : {})
+                  }}>
+                    {item.status === 'deploying' ? (
+                      <div style={{ ...styles.spinner, borderColor: 'rgba(59,130,246,0.3)', borderTopColor: '#3b82f6' }} />
+                    ) : (
+                      <div style={{ ...styles.statusDot, background: statusColor(item.status) }} />
+                    )}
                     <span style={{ flex: 1, color: 'var(--text-primary)' }}>{item.name}</span>
                     <span style={{ fontSize: '11px', color: statusColor(item.status) }}>
                       {item.status === 'pending' && 'Waiting...'}
                       {item.status === 'deploying' && (item.message || 'Deploying...')}
-                      {item.status === 'done' && '✓ Deployed'}
+                      {item.status === 'done' && `✓ ${item.message || 'Deployed'}`}
                       {item.status === 'error' && `✗ ${item.message || 'Failed'}`}
                     </span>
                   </div>

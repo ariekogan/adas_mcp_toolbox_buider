@@ -31,6 +31,7 @@ import {
   startConnectorInADAS,
   uploadMcpCodeToADAS
 } from '../services/adasConnectorSync.js';
+import { deploySkillToADAS } from './export.js';
 
 // Multer config: store uploaded files in /tmp, accept .tar.gz up to 50MB
 const upload = multer({ dest: '/tmp/solution-pack-uploads', limits: { fileSize: 50 * 1024 * 1024 } });
@@ -915,14 +916,14 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
     // ── Phase 1: Deploy connectors ──────────────────────────────────
     for (let i = 0; i < totalConnectors; i++) {
       const mcp = pkg.mcps[i];
-      sendEvent('connector_progress', { connectorId: mcp.id, name: mcp.name, index: i + 1, total: totalConnectors, step: 'starting' });
+      sendEvent('connector_progress', { connectorId: mcp.id, name: mcp.name, index: i + 1, total: totalConnectors, status: 'deploying', step: 'starting', message: 'Starting...' });
 
       try {
         // Upload MCP code if we have it
         if (pkg.mcp_store_included && pkg.mcpStorePath) {
           const mcpCodeDir = path.join(pkg.mcpStorePath, mcp.id);
           if (fs.existsSync(mcpCodeDir)) {
-            sendEvent('connector_progress', { connectorId: mcp.id, step: 'uploading_code' });
+            sendEvent('connector_progress', { connectorId: mcp.id, status: 'deploying', step: 'uploading_code', message: 'Uploading code...' });
             await uploadMcpCodeToADAS(mcp.id, mcpCodeDir);
           }
         }
@@ -948,34 +949,34 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
           connectorPayload.config.args = [`/mcp-store/${mcp.id}/server.js`];
         }
 
-        sendEvent('connector_progress', { connectorId: mcp.id, step: 'registering' });
+        sendEvent('connector_progress', { connectorId: mcp.id, status: 'deploying', step: 'registering', message: 'Registering in ADAS...' });
         await syncConnectorToADAS(connectorPayload);
 
-        sendEvent('connector_progress', { connectorId: mcp.id, step: 'starting' });
+        sendEvent('connector_progress', { connectorId: mcp.id, status: 'deploying', step: 'connecting', message: 'Connecting...' });
         const startResult = await startConnectorInADAS(mcp.id);
         const toolCount = startResult?.tools?.length || 0;
 
         connectorResults.push({ id: mcp.id, ok: true, tools: toolCount });
-        sendEvent('connector_progress', { connectorId: mcp.id, step: 'done', tools: toolCount });
+        sendEvent('connector_progress', { connectorId: mcp.id, status: 'done', step: 'done', tools: toolCount, message: `${toolCount} tools` });
 
       } catch (err) {
         connectorResults.push({ id: mcp.id, ok: false, error: err.message });
-        sendEvent('connector_progress', { connectorId: mcp.id, step: 'error', error: err.message });
+        sendEvent('connector_progress', { connectorId: mcp.id, status: 'error', step: 'error', error: err.message, message: err.message });
       }
     }
 
-    // ── Phase 2: Deploy skills ──────────────────────────────────────
+    // ── Phase 2: Deploy skills (direct call, no self-referential HTTP) ──
     for (let i = 0; i < totalSkills; i++) {
       const skillRef = pkg.skills[i];
       const domainId = skillRef.domainId;
 
       if (!domainId) {
         skillResults.push({ id: skillRef.id, ok: false, error: 'No domain ID (skill not imported)' });
-        sendEvent('skill_progress', { skillId: skillRef.id, name: skillRef.name, index: i + 1, total: totalSkills, step: 'skipped', error: 'no domain' });
+        sendEvent('skill_progress', { skillId: skillRef.id, name: skillRef.name, index: i + 1, total: totalSkills, status: 'error', step: 'skipped', message: 'No domain', error: 'no domain' });
         continue;
       }
 
-      sendEvent('skill_progress', { skillId: skillRef.id, domainId, name: skillRef.name, index: i + 1, total: totalSkills, step: 'starting' });
+      sendEvent('skill_progress', { skillId: skillRef.id, domainId, name: skillRef.name, index: i + 1, total: totalSkills, status: 'deploying', step: 'starting', message: 'Starting...' });
 
       try {
         // Check if domain has a generated MCP export
@@ -983,47 +984,22 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
         const version = domain?.version;
 
         if (!version) {
-          // Need to generate MCP first — use the generation endpoint internally
-          sendEvent('skill_progress', { skillId: skillRef.id, step: 'generating_mcp' });
-
-          const genUrl = `http://localhost:${process.env.PORT || 3000}/api/export/${domainId}/mcp/develop`;
-          const genRes = await fetch(genUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ forceRegenerate: false })
-          });
-
-          if (!genRes.ok) {
-            const err = await genRes.json().catch(() => ({}));
-            throw new Error(err.error || `MCP generation failed: ${genRes.status}`);
-          }
-
-          // Wait for generation to complete (it might return SSE)
-          const genData = await genRes.text();
-          console.log(`[DeployAll] Generated MCP for ${skillRef.id}`);
+          sendEvent('skill_progress', { skillId: skillRef.id, status: 'deploying', step: 'generating_mcp', message: 'Generating MCP...' });
+          // Skip skills without MCP exports — they need generation first
+          throw new Error('No MCP export found — generate MCP first');
         }
 
-        // Deploy to ADAS Core
-        sendEvent('skill_progress', { skillId: skillRef.id, step: 'deploying' });
+        // Deploy directly using the shared function (no HTTP self-call)
+        sendEvent('skill_progress', { skillId: skillRef.id, status: 'deploying', step: 'deploying', message: 'Deploying to ADAS...' });
 
-        const deployUrl = `http://localhost:${process.env.PORT || 3000}/api/export/${domainId}/mcp/deploy`;
-        const deployRes = await fetch(deployUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
+        const deployResult = await deploySkillToADAS(domainId, console);
 
-        if (!deployRes.ok) {
-          const err = await deployRes.json().catch(() => ({}));
-          throw new Error(err.error || `Deploy failed: ${deployRes.status}`);
-        }
-
-        const deployData = await deployRes.json();
-        skillResults.push({ id: skillRef.id, domainId, ok: true, mcpUri: deployData.mcpUri });
-        sendEvent('skill_progress', { skillId: skillRef.id, step: 'done', mcpUri: deployData.mcpUri });
+        skillResults.push({ id: skillRef.id, domainId, ok: true, mcpUri: deployResult.mcpUri });
+        sendEvent('skill_progress', { skillId: skillRef.id, status: 'done', step: 'done', mcpUri: deployResult.mcpUri, message: 'Deployed' });
 
       } catch (err) {
         skillResults.push({ id: skillRef.id, domainId, ok: false, error: err.message });
-        sendEvent('skill_progress', { skillId: skillRef.id, step: 'error', error: err.message });
+        sendEvent('skill_progress', { skillId: skillRef.id, status: 'error', step: 'error', error: err.message, message: err.message });
       }
     }
 
