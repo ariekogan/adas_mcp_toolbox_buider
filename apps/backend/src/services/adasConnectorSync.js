@@ -237,6 +237,67 @@ export async function callConnectorTool(connectorId, toolName, args = {}) {
 }
 
 /**
+ * Upload connector MCP code files to ADAS Core's /mcp-store.
+ * This places Node.js (or other) MCP source files on the ADAS runtime
+ * so stdio connectors can be spawned.
+ *
+ * @param {string} connectorId - Connector ID (e.g., "orders-mcp")
+ * @param {string} sourceDir - Path to directory containing connector source files
+ * @returns {Promise<object>} ADAS response { ok, connectorId, filesWritten, depsInstalled }
+ */
+export async function uploadMcpCodeToADAS(connectorId, sourceDir) {
+  const fs = await import('fs');
+  const path = await import('path');
+
+  // Recursively read all files (skip node_modules)
+  const files = [];
+  function walk(dir, prefix = '') {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === '.git') continue;
+        walk(path.join(dir, entry.name), relPath);
+      } else {
+        const content = fs.readFileSync(path.join(dir, entry.name), 'utf-8');
+        files.push({ path: relPath, content });
+      }
+    }
+  }
+
+  walk(sourceDir);
+
+  if (files.length === 0) {
+    throw new Error(`No files found in ${sourceDir}`);
+  }
+
+  console.log(`[ADASSync] Uploading ${files.length} files for connector ${connectorId} to ADAS mcp-store`);
+
+  try {
+    const res = await fetch(`${ADAS_API_URL}/api/mcp-store/upload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        connectorId,
+        files,
+        installDeps: true
+      })
+    });
+
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || `Upload failed: ${res.status}`);
+    }
+
+    const data = await res.json();
+    console.log(`[ADASSync] Uploaded connector ${connectorId}: ${data.filesWritten?.length || 0} files, deps=${data.depsInstalled}`);
+    return data;
+  } catch (err) {
+    console.error(`[ADASSync] Failed to upload MCP code for ${connectorId}:`, err.message);
+    throw err;
+  }
+}
+
+/**
  * Check if ADAS is reachable.
  *
  * @returns {Promise<boolean>}
