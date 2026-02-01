@@ -979,20 +979,11 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
       sendEvent('skill_progress', { skillId: skillRef.id, domainId, name: skillRef.name, index: i + 1, total: totalSkills, status: 'deploying', step: 'starting', message: 'Starting...' });
 
       try {
-        // Check if domain has a generated MCP export
-        const domain = await domainsStore.load(domainId);
-        const version = domain?.version;
-
-        if (!version) {
-          sendEvent('skill_progress', { skillId: skillRef.id, status: 'deploying', step: 'generating_mcp', message: 'Generating MCP...' });
-          // Skip skills without MCP exports — they need generation first
-          throw new Error('No MCP export found — generate MCP first');
-        }
-
         // Deploy directly using the shared function (no HTTP self-call)
-        sendEvent('skill_progress', { skillId: skillRef.id, status: 'deploying', step: 'deploying', message: 'Deploying to ADAS...' });
-
-        const deployResult = await deploySkillToADAS(domainId, console);
+        // deploySkillToADAS auto-generates MCP if server.py is missing
+        const deployResult = await deploySkillToADAS(domainId, console, (step, message) => {
+          sendEvent('skill_progress', { skillId: skillRef.id, status: 'deploying', step, message });
+        });
 
         skillResults.push({ id: skillRef.id, domainId, ok: true, mcpUri: deployResult.mcpUri });
         sendEvent('skill_progress', { skillId: skillRef.id, status: 'done', step: 'done', mcpUri: deployResult.mcpUri, message: 'Deployed' });
