@@ -17,8 +17,7 @@ import { validateDraftDomain } from '../validators/index.js';
 import { migrateToV2 } from '../services/migrate.js';
 import templatesStore from './templates.js';
 
-// /memory is mounted per-tenant, slugs are direct children
-const MEMORY_PATH = process.env.MEMORY_PATH || '/memory';
+import { getMemoryRoot } from '../utils/tenantContext.js';
 
 /**
  * @typedef {import('../types/DraftDomain.js').DraftDomain} DraftDomain
@@ -173,7 +172,7 @@ async function writeJson(filePath, data) {
  * Initialize storage
  */
 async function init() {
-  await ensureDir(MEMORY_PATH);
+  await ensureDir(getMemoryRoot());
 }
 
 /**
@@ -186,11 +185,11 @@ async function list() {
   const domains = [];
 
   try {
-    const slugs = await fs.readdir(MEMORY_PATH);
+    const slugs = await fs.readdir(getMemoryRoot());
 
     for (const slug of slugs) {
       try {
-        const slugDir = path.join(MEMORY_PATH, slug);
+        const slugDir = path.join(getMemoryRoot(), slug);
         const stat = await fs.stat(slugDir);
         if (!stat.isDirectory()) continue;
 
@@ -256,7 +255,7 @@ async function create(name, settings = {}, template = null) {
   await init();
 
   const slug = `dom_${uuidv4().slice(0, 8)}`;
-  const slugDir = path.join(MEMORY_PATH, slug);
+  const slugDir = path.join(getMemoryRoot(), slug);
 
   await ensureDir(slugDir);
   await ensureDir(path.join(slugDir, 'exports'));
@@ -297,7 +296,7 @@ async function create(name, settings = {}, template = null) {
  * @returns {Promise<DraftDomain>}
  */
 async function load(slug) {
-  const slugDir = path.join(MEMORY_PATH, slug);
+  const slugDir = path.join(getMemoryRoot(), slug);
 
   // Try new format first (domain.json)
   const domainPath = path.join(slugDir, 'domain.json');
@@ -369,7 +368,7 @@ async function load(slug) {
  * @returns {Promise<void>}
  */
 async function save(domain) {
-  const slugDir = path.join(MEMORY_PATH, domain.id);
+  const slugDir = path.join(getMemoryRoot(), domain.id);
   await ensureDir(slugDir);
   await ensureDir(path.join(slugDir, 'exports'));
 
@@ -581,7 +580,7 @@ async function updateSettings(slug, settings) {
  * @param {string} slug
  */
 async function remove(slug) {
-  const slugDir = path.join(MEMORY_PATH, slug);
+  const slugDir = path.join(getMemoryRoot(), slug);
   await fs.rm(slugDir, { recursive: true, force: true }).catch(() => {});
 }
 
@@ -593,7 +592,7 @@ async function remove(slug) {
  * @returns {Promise<string>} Export directory path
  */
 async function saveExport(slug, version, files) {
-  const exportDir = path.join(MEMORY_PATH, slug, 'exports', `v${version}`);
+  const exportDir = path.join(getMemoryRoot(), slug, 'exports', `v${version}`);
   await ensureDir(exportDir);
 
   for (const file of files) {
@@ -610,7 +609,7 @@ async function saveExport(slug, version, files) {
  * @returns {Promise<Array<{name: string, content: string}>>}
  */
 async function getExport(slug, version) {
-  const exportDir = path.join(MEMORY_PATH, slug, 'exports', `v${version}`);
+  const exportDir = path.join(getMemoryRoot(), slug, 'exports', `v${version}`);
   const files = await fs.readdir(exportDir);
 
   const result = [];
@@ -629,7 +628,7 @@ async function getExport(slug, version) {
  * @returns {Promise<string>} Export directory path
  */
 async function getExportPath(slug, version) {
-  const exportDir = path.join(MEMORY_PATH, slug, 'exports', `v${version}`);
+  const exportDir = path.join(getMemoryRoot(), slug, 'exports', `v${version}`);
   await ensureDir(exportDir);
   return exportDir;
 }

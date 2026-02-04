@@ -13,7 +13,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-const MEMORY_PATH = process.env.MEMORY_PATH || '/memory';
+import { getMemoryRoot } from '../utils/tenantContext.js';
 const CONNECTORS_DIR = '_connectors';
 const STATE_FILE = 'state.json';
 
@@ -68,11 +68,11 @@ async function writeJson(filePath, data) {
 }
 
 function getStatePath() {
-  return path.join(MEMORY_PATH, CONNECTORS_DIR, STATE_FILE);
+  return path.join(getMemoryRoot(), CONNECTORS_DIR, STATE_FILE);
 }
 
 function getConnectorsDir() {
-  return path.join(MEMORY_PATH, CONNECTORS_DIR);
+  return path.join(getMemoryRoot(), CONNECTORS_DIR);
 }
 
 /**

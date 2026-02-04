@@ -38,9 +38,10 @@ const upload = multer({ dest: '/tmp/solution-pack-uploads', limits: { fileSize: 
 
 const router = Router();
 
-// Persistence file path - use /memory if available (Docker), fallback to local
-const PERSISTENCE_DIR = process.env.MEMORY_DIR || '/memory';
-const PERSISTENCE_FILE = path.join(PERSISTENCE_DIR, 'imported-packages.json');
+import { getMemoryRoot } from '../utils/tenantContext.js';
+// Persistence: resolved per-tenant
+function getPersistenceDir() { return getMemoryRoot(); }
+function getPersistenceFile() { return path.join(getMemoryRoot(), 'imported-packages.json'); }
 
 // Store imported packages (design time tracking)
 const importedPackages = new Map();
@@ -50,8 +51,8 @@ const importedPackages = new Map();
  */
 function loadPersistedPackages() {
   try {
-    if (fs.existsSync(PERSISTENCE_FILE)) {
-      const data = JSON.parse(fs.readFileSync(PERSISTENCE_FILE, 'utf8'));
+    if (fs.existsSync(getPersistenceFile())) {
+      const data = JSON.parse(fs.readFileSync(getPersistenceFile(), 'utf8'));
       console.log(`[Import] Loading ${data.length} persisted packages...`);
 
       for (const pkg of data) {
@@ -90,13 +91,13 @@ function loadPersistedPackages() {
 function savePackages() {
   try {
     // Ensure directory exists
-    if (!fs.existsSync(PERSISTENCE_DIR)) {
-      fs.mkdirSync(PERSISTENCE_DIR, { recursive: true });
+    if (!fs.existsSync(getPersistenceDir())) {
+      fs.mkdirSync(getPersistenceDir(), { recursive: true });
     }
 
     const data = Array.from(importedPackages.values());
-    fs.writeFileSync(PERSISTENCE_FILE, JSON.stringify(data, null, 2));
-    console.log(`[Import] Saved ${data.length} packages to ${PERSISTENCE_FILE}`);
+    fs.writeFileSync(getPersistenceFile(), JSON.stringify(data, null, 2));
+    console.log(`[Import] Saved ${data.length} packages to ${getPersistenceFile()}`);
   } catch (err) {
     console.error('[Import] Failed to save packages:', err.message);
   }
@@ -655,7 +656,7 @@ router.post('/skills', async (req, res) => {
 // Solution Pack Support
 // ============================================================================
 
-const SOLUTION_PACKS_DIR = path.join(PERSISTENCE_DIR, 'solution-packs');
+function getSolutionPacksDir() { return path.join(getPersistenceDir(), 'solution-packs'); }
 
 /**
  * POST /api/import/solution-pack
@@ -675,7 +676,7 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
     // Check if file was uploaded via multipart
     if (req.file) {
       // Multer saved the uploaded file — move it and extract
-      const extractDir = path.join(SOLUTION_PACKS_DIR, `_extract_${Date.now()}`);
+      const extractDir = path.join(getSolutionPacksDir(), `_extract_${Date.now()}`);
       fs.mkdirSync(extractDir, { recursive: true });
 
       const tarPath = path.join(extractDir, 'pack.tar.gz');
@@ -731,7 +732,7 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
       }
 
       // Move extracted pack to permanent location
-      const permanentDir = path.join(SOLUTION_PACKS_DIR, manifest.name);
+      const permanentDir = path.join(getSolutionPacksDir(), manifest.name);
       if (fs.existsSync(permanentDir)) {
         fs.rmSync(permanentDir, { recursive: true });
       }
@@ -853,7 +854,7 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
       version: manifest.version,
       description: manifest.description,
       mcp_store_included: manifest.mcp_store_included || Object.keys(mcpStoreFiles).length > 0,
-      mcpStorePath: path.join(SOLUTION_PACKS_DIR, manifest.name, 'mcp-store'),
+      mcpStorePath: path.join(getSolutionPacksDir(), manifest.name, 'mcp-store'),
       importedAt: new Date().toISOString(),
       mcps: connectorConfigs,
       skills: skills.map(s => {

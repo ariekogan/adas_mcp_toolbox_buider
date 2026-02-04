@@ -30,8 +30,8 @@ const router = Router();
 // Storage Path
 // ============================================
 
-const MEMORY_PATH = process.env.MEMORY_PATH || "/memory";
-const TENANT_FILE = path.join(MEMORY_PATH, "tenant.json");
+import { getMemoryRoot } from "../utils/tenantContext.js";
+function getTenantFile() { return path.join(getMemoryRoot(), "tenant.json"); }
 
 // ============================================
 // Helper Functions
@@ -43,7 +43,7 @@ const TENANT_FILE = path.join(MEMORY_PATH, "tenant.json");
  */
 async function loadTenantConfig() {
   try {
-    const data = await fs.readFile(TENANT_FILE, "utf-8");
+    const data = await fs.readFile(getTenantFile(), "utf-8");
     return JSON.parse(data);
   } catch (err) {
     if (err.code === "ENOENT") {
@@ -59,8 +59,8 @@ async function loadTenantConfig() {
  */
 async function saveTenantConfig(config) {
   // Ensure directory exists
-  await fs.mkdir(path.dirname(TENANT_FILE), { recursive: true });
-  await fs.writeFile(TENANT_FILE, JSON.stringify(config, null, 2));
+  await fs.mkdir(path.dirname(getTenantFile()), { recursive: true });
+  await fs.writeFile(getTenantFile(), JSON.stringify(config, null, 2));
   // Note: Actual routing is handled by CORE, not DAL
   // DAL just persists the config for UI and deploys it with skills
 }
