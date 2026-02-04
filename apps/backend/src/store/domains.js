@@ -115,6 +115,13 @@ function normalizeDomain(domain) {
     }
   }
 
+  // Ensure conversation array exists (domains created by import may lack it)
+  if (!Array.isArray(domain.conversation)) {
+    domain.conversation = [];
+    modified = true;
+    console.log(`[Store] Initialized missing conversation array for domain ${domain.id || '?'}`);
+  }
+
   // Fix missing meta_tool IDs
   if (domain.meta_tools) {
     for (const metaTool of domain.meta_tools) {

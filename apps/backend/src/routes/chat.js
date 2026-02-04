@@ -80,6 +80,11 @@ router.post("/domain", async (req, res, next) => {
       throw err;
     }
 
+    // Ensure conversation array exists (safety net)
+    if (!Array.isArray(domain.conversation)) {
+      domain.conversation = [];
+    }
+
     // Save user message to domain conversation (original message)
     domain.conversation.push({
       id: `msg_${Date.now()}`,
