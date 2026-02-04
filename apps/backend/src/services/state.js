@@ -13,7 +13,11 @@ import { PHASES } from "../types/DraftDomain.js";
 
 // Protected array fields - these can ONLY be modified via _push/_delete/_update/_rename operations
 // Direct replacement is blocked to prevent accidental data loss from LLM mistakes
-const PROTECTED_ARRAYS = ['tools', 'intents.supported', 'policy.guardrails.always', 'policy.guardrails.never', 'scenarios'];
+const PROTECTED_ARRAYS = [
+  'tools', 'intents.supported', 'policy.guardrails.always', 'policy.guardrails.never', 'scenarios',
+  // Identity & Access Control arrays — prevent accidental overwrite by LLM
+  'grant_mappings', 'access_policy.rules', 'response_filters',
+];
 
 /**
  * Apply state updates to toolbox or domain

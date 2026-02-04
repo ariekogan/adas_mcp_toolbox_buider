@@ -21,6 +21,7 @@ export const COVERAGE = [
   { section: 'policy', field: 'policy.guardrails', check: 'At least 1 guardrail (never or always)', type: 'completeness' },
   { section: 'mocks', field: 'tools[].mock_status', check: 'All tools tested or skipped', type: 'completeness' },
   { section: 'identity', field: 'skill_identity', check: 'Has display_name and outbound email configured', type: 'completeness' },
+  { section: 'security', field: 'access_policy + grant_mappings', check: 'All high-risk tools have access policies', type: 'completeness' },
 ];
 
 /**
@@ -39,6 +40,8 @@ export function checkCompleteness(domain) {
     engine: true, // Engine always has defaults
     mocks_tested: areMocksTested(domain),
     identity: isIdentityComplete(domain),
+    // Identity & Access Control: security completeness
+    security: isSecuritySectionComplete(domain),
   };
 }
 
@@ -256,14 +259,70 @@ export function getCompletenessReport(domain) {
         is_activated: Boolean(domain.skill_identity?.actor_id),
       },
     },
+    // Identity & Access Control: Security section
+    security: {
+      complete: isSecuritySectionComplete(domain),
+      details: {
+        has_tool_classifications: Boolean(domain.tools?.some(t => t.security?.classification)),
+        has_access_policy: Boolean(domain.access_policy?.rules?.length > 0),
+        has_grant_mappings: Boolean(domain.grant_mappings?.length > 0),
+        has_response_filters: Boolean(domain.response_filters?.length > 0),
+        high_risk_count: domain.tools?.filter(t => ['pii_write', 'financial', 'destructive'].includes(t.security?.classification)).length || 0,
+        classified_count: domain.tools?.filter(t => t.security?.classification).length || 0,
+        total_tools: domain.tools?.length || 0,
+      },
+    },
   };
 
   // Calculate overall progress percentage
-  const sections = ['problem', 'scenarios', 'role', 'intents', 'tools', 'policy', 'mocks', 'identity'];
+  const sections = ['problem', 'scenarios', 'role', 'intents', 'tools', 'policy', 'mocks', 'identity', 'security'];
   const completedCount = sections.filter(s => report[s].complete).length;
   report.overall_progress = Math.round((completedCount / sections.length) * 100);
 
   return report;
+}
+
+/**
+ * Check if security section is complete.
+ *
+ * Security is complete when:
+ * - All high-risk tools (pii_write, financial, destructive) have access policies, OR
+ * - There are no high-risk tools (vacuously complete)
+ *
+ * Note: Security is NOT required for export — it's a recommendation.
+ * But high-risk tools without policies will generate validation errors.
+ *
+ * @param {DraftDomain} domain
+ * @returns {boolean}
+ */
+export function isSecuritySectionComplete(domain) {
+  const tools = domain.tools || [];
+
+  // If no tools, security is vacuously complete
+  if (tools.length === 0) return true;
+
+  // Find high-risk tools
+  const HIGH_RISK = ['pii_write', 'financial', 'destructive'];
+  const highRiskTools = tools.filter(t => HIGH_RISK.includes(t.security?.classification));
+
+  // If no high-risk tools, security is complete
+  if (highRiskTools.length === 0) return true;
+
+  // Check that each high-risk tool has an access policy
+  const policyRules = domain.access_policy?.rules || [];
+  const coveredTools = new Set();
+
+  for (const rule of policyRules) {
+    for (const toolRef of (rule.tools || [])) {
+      if (toolRef === '*') {
+        // Wildcard covers all tools
+        return true;
+      }
+      coveredTools.add(toolRef);
+    }
+  }
+
+  return highRiskTools.every(t => coveredTools.has(t.name));
 }
 
 /**
@@ -283,6 +342,7 @@ export function getIncompleteSections(domain) {
   if (!completeness.policy) incomplete.push('policy');
   if (!completeness.mocks_tested) incomplete.push('mocks');
   if (!completeness.identity) incomplete.push('identity');
+  if (!completeness.security) incomplete.push('security');
 
   return incomplete;
 }

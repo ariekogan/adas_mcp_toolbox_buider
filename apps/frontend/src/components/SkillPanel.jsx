@@ -18,11 +18,12 @@ import EnginePanel from './EnginePanel';
 import IdentityPanel from './IdentityPanel';
 import SkillConnectorsPanel from './SkillConnectorsPanel';
 import TriggersPanel from './TriggersPanel';
+import SecurityPanel from './SecurityPanel';
 import ValidationBanner from './ValidationBanner';
 import ValidationList from './ValidationList';
 import ValidationMicroDashboard from './ValidationMicroDashboard';
 import { useValidation } from '../hooks/useValidation';
-import { validateToolsConsistency, validatePolicyConsistency, validateIntentsConsistency, validateIdentityConsistency, validateAll } from '../api/client';
+import { validateToolsConsistency, validatePolicyConsistency, validateIntentsConsistency, validateIdentityConsistency, validateSecurityConsistency, validateAll } from '../api/client';
 
 const styles = {
   container: {
@@ -363,6 +364,7 @@ const TABS = [
   { id: 'tools', label: 'Tools' },
   { id: 'connectors', label: 'Connectors' },
   { id: 'policy', label: 'Policy' },
+  { id: 'security', label: 'Security' },
   { id: 'engine', label: 'Engine' },
   { id: 'triggers', label: 'Triggers' }
 ];
@@ -466,6 +468,34 @@ function getTabBadge(tabId, skill) {
         style: getBadgeStyle(total, 2, 1) // 2+ = green, 1 = yellow, 0 = gray
       };
     }
+    case 'security': {
+      // Security: classified tools / total tools + policy coverage
+      const tools = skill.tools || [];
+      if (tools.length === 0) {
+        return { text: '—', style: styles.badgeGray };
+      }
+      const classified = tools.filter(t => t.security?.classification).length;
+      const highRisk = tools.filter(t =>
+        ['pii_write', 'financial', 'destructive'].includes(t.security?.classification)
+      );
+      const rules = skill.access_policy?.rules || [];
+      const coveredTools = new Set(rules.flatMap(r => r.tools || []));
+      const uncoveredHighRisk = highRisk.filter(t => !coveredTools.has(t.name) && !coveredTools.has('*'));
+
+      if (classified === 0) {
+        return { text: '0/' + tools.length, style: styles.badgeGray };
+      }
+      if (uncoveredHighRisk.length > 0) {
+        // High-risk tools without access policies = red
+        return { text: classified + '/' + tools.length, style: styles.badgeRed };
+      }
+      if (classified < tools.length) {
+        // Some classified but not all = yellow
+        return { text: classified + '/' + tools.length, style: styles.badgeYellow };
+      }
+      // All classified + high-risk covered = green
+      return { text: classified + '/' + tools.length, style: styles.badgeGreen };
+    }
     case 'engine': {
       // Engine: check if custom settings exist
       const hasCustom = skill.engine && (
@@ -548,6 +578,9 @@ function ValidateButton({ section, skillId, onValidationResults, disabled }) {
       } else if (section === 'identity') {
         result = await validateIdentityConsistency(skillId);
         console.log('Identity validation result:', result);
+      } else if (section === 'security') {
+        result = await validateSecurityConsistency(skillId);
+        console.log('Security validation result:', result);
       }
 
       if (result) {
@@ -727,7 +760,7 @@ export default function SkillPanel({
 
       // Collect all issues from all sections
       const allIssues = [];
-      const sections = ['identity', 'intents', 'tools', 'policy'];
+      const sections = ['identity', 'intents', 'tools', 'policy', 'security'];
 
       sections.forEach(section => {
         const sectionResult = results[section];
@@ -776,7 +809,7 @@ export default function SkillPanel({
       } else {
         // All checks passed
         if (onAskAbout) {
-          onAskAbout(`All consistency checks passed! ✓ Identity, Intents, Tools, and Policy are all consistent.`, true);
+          onAskAbout(`All consistency checks passed! ✓ Identity, Intents, Tools, Policy, and Security are all consistent.`, true);
         }
       }
     } catch (error) {
@@ -1404,6 +1437,23 @@ export default function SkillPanel({
                   ((skill.policy?.guardrails?.never?.length || 0) +
                    (skill.policy?.guardrails?.always?.length || 0)) < 1
                 }
+              />
+            }
+          />
+        )}
+
+        {/* Security Tab */}
+        {activeTab === 'security' && (
+          <SecurityPanel
+            skill={skill}
+            onAskAbout={onAskAbout}
+            focus={focus?.tab === 'security' ? focus : null}
+            validateButton={
+              <ValidateButton
+                section="security"
+                skillId={skill?.id}
+                onValidationResults={handleValidationResults}
+                disabled={(skill.tools?.length || 0) < 1}
               />
             }
           />

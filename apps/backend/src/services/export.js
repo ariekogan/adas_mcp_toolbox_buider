@@ -534,6 +534,20 @@ export function generateDomainYaml(domain) {
         }
       }
 
+      // Security classification
+      if (tool.security) {
+        lines.push(`    security:`);
+        if (tool.security.classification) {
+          lines.push(`      classification: ${yamlString(tool.security.classification)}`);
+        }
+        if (tool.security.data_owner_field) {
+          lines.push(`      data_owner_field: ${yamlString(tool.security.data_owner_field)}`);
+        }
+        if (tool.security.risk) {
+          lines.push(`      risk: ${yamlString(tool.security.risk)}`);
+        }
+      }
+
       // Composition metadata (for documentation/debugging)
       if (tool._meta?.is_composition) {
         lines.push(`    # Meta tool - composes: ${tool._meta.composes.join(', ')}`);
@@ -617,6 +631,122 @@ export function generateDomainYaml(domain) {
     }
   }
   lines.push(``);
+
+  // Identity & Access Control - Grant Mappings
+  if (domain.grant_mappings?.length > 0) {
+    lines.push(`# Identity & Access Control`);
+    lines.push(`grant_mappings:`);
+    for (const mapping of domain.grant_mappings) {
+      lines.push(`  - tool: ${yamlString(mapping.tool || '')}`);
+      if (mapping.on_success !== undefined) {
+        lines.push(`    on_success: ${mapping.on_success}`);
+      }
+      if (mapping.grants?.length > 0) {
+        lines.push(`    grants:`);
+        for (const grant of mapping.grants) {
+          lines.push(`      - key: ${yamlString(grant.key || '')}`);
+          if (grant.value_from) {
+            lines.push(`        value_from: ${yamlString(grant.value_from)}`);
+          }
+          if (grant.ttl_seconds !== undefined) {
+            lines.push(`        ttl_seconds: ${grant.ttl_seconds}`);
+          }
+        }
+      }
+    }
+    lines.push(``);
+  }
+
+  // Access Policy
+  if (domain.access_policy?.rules?.length > 0) {
+    lines.push(`access_policy:`);
+    lines.push(`  rules:`);
+    for (const rule of domain.access_policy.rules) {
+      if (rule.tools?.length > 0) {
+        lines.push(`    - tools: [${rule.tools.map(t => yamlString(t)).join(', ')}]`);
+      } else {
+        lines.push(`    - tools: []`);
+      }
+      if (rule.when) {
+        lines.push(`      when:`);
+        for (const [key, value] of Object.entries(rule.when)) {
+          lines.push(`        ${key}: ${yamlString(value)}`);
+        }
+      }
+      if (rule.require) {
+        lines.push(`      require:`);
+        for (const [key, value] of Object.entries(rule.require)) {
+          lines.push(`        ${key}: ${yamlString(value)}`);
+        }
+      }
+      if (rule.effect) {
+        lines.push(`      effect: ${yamlString(rule.effect)}`);
+      }
+      if (rule.constrain) {
+        lines.push(`      constrain:`);
+        if (rule.constrain.inject_args) {
+          lines.push(`        inject_args:`);
+          for (const [key, value] of Object.entries(rule.constrain.inject_args)) {
+            lines.push(`          ${key}: ${yamlString(value)}`);
+          }
+        }
+        if (rule.constrain.response_filter) {
+          lines.push(`        response_filter: ${yamlString(rule.constrain.response_filter)}`);
+        }
+      }
+    }
+    lines.push(``);
+  }
+
+  // Response Filters
+  if (domain.response_filters?.length > 0) {
+    lines.push(`response_filters:`);
+    for (const filter of domain.response_filters) {
+      lines.push(`  - id: ${yamlString(filter.id || '')}`);
+      if (filter.description) {
+        lines.push(`    description: ${yamlString(filter.description)}`);
+      }
+      if (filter.unless_grant) {
+        lines.push(`    unless_grant: ${yamlString(filter.unless_grant)}`);
+      }
+      if (filter.strip_fields?.length > 0) {
+        lines.push(`    strip_fields:`);
+        for (const field of filter.strip_fields) {
+          lines.push(`      - ${yamlString(field)}`);
+        }
+      }
+      if (filter.mask_fields?.length > 0) {
+        lines.push(`    mask_fields:`);
+        for (const mf of filter.mask_fields) {
+          lines.push(`      - field: ${yamlString(mf.field || '')}`);
+          if (mf.mask) {
+            lines.push(`        mask: ${yamlString(mf.mask)}`);
+          }
+        }
+      }
+    }
+    lines.push(``);
+  }
+
+  // Context Propagation
+  if (domain.context_propagation?.on_handoff) {
+    lines.push(`context_propagation:`);
+    lines.push(`  on_handoff:`);
+    const handoff = domain.context_propagation.on_handoff;
+    if (handoff.propagate_grants?.length > 0) {
+      lines.push(`    propagate_grants:`);
+      for (const grant of handoff.propagate_grants) {
+        lines.push(`      - ${yamlString(grant)}`);
+      }
+    }
+    if (handoff.drop_grants?.length > 0) {
+      lines.push(`    drop_grants:`);
+      for (const grant of handoff.drop_grants) {
+        lines.push(`      - ${yamlString(grant)}`);
+      }
+    }
+    lines.push(``);
+  }
 
   // Engine settings
   lines.push(`# Engine Configuration`);
@@ -1241,7 +1371,7 @@ function jsType(type) {
  */
 export function generateSkillYaml(toolbox) {
   const lines = [];
-  const slug = toSlug(toolbox.name || toolbox.id || "untitled");
+  const slug = toolbox.original_skill_id || toSlug(toolbox.name || toolbox.id || "untitled");
 
   lines.push(`# Skill Configuration for ADAS Core`);
   lines.push(`# Generated by ADAS MCP Toolbox Builder`);
@@ -1421,11 +1551,152 @@ export function generateSkillYaml(toolbox) {
     lines.push(``);
   }
 
+  // Tools with security classification
+  if (toolbox.tools?.length > 0) {
+    lines.push(`# Available Tools`);
+    lines.push(`tools:`);
+    for (const tool of toolbox.tools) {
+      lines.push(`  - name: ${yamlString(tool.name || '')}`);
+      if (tool.description) {
+        lines.push(`    description: ${yamlString(tool.description)}`);
+      }
+      if (tool.security) {
+        lines.push(`    security:`);
+        if (tool.security.classification) {
+          lines.push(`      classification: ${yamlString(tool.security.classification)}`);
+        }
+        if (tool.security.data_owner_field) {
+          lines.push(`      data_owner_field: ${yamlString(tool.security.data_owner_field)}`);
+        }
+        if (tool.security.risk) {
+          lines.push(`      risk: ${yamlString(tool.security.risk)}`);
+        }
+      }
+    }
+    lines.push(``);
+  }
+
   // Policy - allow all tools by default
   lines.push(`policy:`);
   lines.push(`  tools:`);
   lines.push(`    allowed: ["*"]`);
   lines.push(``);
+
+  // Identity & Access Control - Grant Mappings
+  if (toolbox.grant_mappings?.length > 0) {
+    lines.push(`# Identity & Access Control`);
+    lines.push(`grant_mappings:`);
+    for (const mapping of toolbox.grant_mappings) {
+      lines.push(`  - tool: ${yamlString(mapping.tool || '')}`);
+      if (mapping.on_success !== undefined) {
+        lines.push(`    on_success: ${mapping.on_success}`);
+      }
+      if (mapping.grants?.length > 0) {
+        lines.push(`    grants:`);
+        for (const grant of mapping.grants) {
+          lines.push(`      - key: ${yamlString(grant.key || '')}`);
+          if (grant.value_from) {
+            lines.push(`        value_from: ${yamlString(grant.value_from)}`);
+          }
+          if (grant.ttl_seconds !== undefined) {
+            lines.push(`        ttl_seconds: ${grant.ttl_seconds}`);
+          }
+        }
+      }
+    }
+    lines.push(``);
+  }
+
+  // Access Policy
+  if (toolbox.access_policy?.rules?.length > 0) {
+    lines.push(`access_policy:`);
+    lines.push(`  rules:`);
+    for (const rule of toolbox.access_policy.rules) {
+      if (rule.tools?.length > 0) {
+        lines.push(`    - tools: [${rule.tools.map(t => yamlString(t)).join(', ')}]`);
+      } else {
+        lines.push(`    - tools: []`);
+      }
+      if (rule.when) {
+        lines.push(`      when:`);
+        for (const [key, value] of Object.entries(rule.when)) {
+          lines.push(`        ${key}: ${yamlString(value)}`);
+        }
+      }
+      if (rule.require) {
+        lines.push(`      require:`);
+        for (const [key, value] of Object.entries(rule.require)) {
+          lines.push(`        ${key}: ${yamlString(value)}`);
+        }
+      }
+      if (rule.effect) {
+        lines.push(`      effect: ${yamlString(rule.effect)}`);
+      }
+      if (rule.constrain) {
+        lines.push(`      constrain:`);
+        if (rule.constrain.inject_args) {
+          lines.push(`        inject_args:`);
+          for (const [key, value] of Object.entries(rule.constrain.inject_args)) {
+            lines.push(`          ${key}: ${yamlString(value)}`);
+          }
+        }
+        if (rule.constrain.response_filter) {
+          lines.push(`        response_filter: ${yamlString(rule.constrain.response_filter)}`);
+        }
+      }
+    }
+    lines.push(``);
+  }
+
+  // Response Filters
+  if (toolbox.response_filters?.length > 0) {
+    lines.push(`response_filters:`);
+    for (const filter of toolbox.response_filters) {
+      lines.push(`  - id: ${yamlString(filter.id || '')}`);
+      if (filter.description) {
+        lines.push(`    description: ${yamlString(filter.description)}`);
+      }
+      if (filter.unless_grant) {
+        lines.push(`    unless_grant: ${yamlString(filter.unless_grant)}`);
+      }
+      if (filter.strip_fields?.length > 0) {
+        lines.push(`    strip_fields:`);
+        for (const field of filter.strip_fields) {
+          lines.push(`      - ${yamlString(field)}`);
+        }
+      }
+      if (filter.mask_fields?.length > 0) {
+        lines.push(`    mask_fields:`);
+        for (const mf of filter.mask_fields) {
+          lines.push(`      - field: ${yamlString(mf.field || '')}`);
+          if (mf.mask) {
+            lines.push(`        mask: ${yamlString(mf.mask)}`);
+          }
+        }
+      }
+    }
+    lines.push(``);
+  }
+
+  // Context Propagation
+  if (toolbox.context_propagation?.on_handoff) {
+    lines.push(`context_propagation:`);
+    lines.push(`  on_handoff:`);
+    const handoff = toolbox.context_propagation.on_handoff;
+    if (handoff.propagate_grants?.length > 0) {
+      lines.push(`    propagate_grants:`);
+      for (const grant of handoff.propagate_grants) {
+        lines.push(`      - ${yamlString(grant)}`);
+      }
+    }
+    if (handoff.drop_grants?.length > 0) {
+      lines.push(`    drop_grants:`);
+      for (const grant of handoff.drop_grants) {
+        lines.push(`      - ${yamlString(grant)}`);
+      }
+    }
+    lines.push(``);
+  }
 
   return lines.join("\n");
 }
@@ -1555,7 +1826,7 @@ function getAllToolsWithMetaCompiled(toolbox) {
  * The planner will call the composed tools directly based on the description.
  */
 export function generateAdasExportPayload(toolbox) {
-  const slug = toSlug(toolbox.name || toolbox.id || "untitled");
+  const slug = toolbox.original_skill_id || toSlug(toolbox.name || toolbox.id || "untitled");
   const tools = toolbox.tools || [];
   const approvedMetaTools = (toolbox.meta_tools || []).filter(mt => mt.status === 'approved');
 

@@ -363,6 +363,113 @@ export const HELP_DOCS = {
       'Development/testing': 'May increase thresholds to allow more experimentation',
       'Critical operations': 'Keep strict settings (threshold: 1) for immediate error handling'
     }
+  },
+
+  // === SECURITY TAB ===
+  'security': {
+    title: 'Identity & Access Control',
+    description: `Security configuration protects sensitive data and operations by controlling who can call which tools and what data they can see.`,
+    purpose: `It ensures that external users (customers, partners) cannot access sensitive operations without proving their identity, and that PII is masked until identity verification is completed.`,
+    components: {
+      'tool classification': 'Categorize each tool by risk level (public, pii_read, pii_write, financial, destructive)',
+      'access policy': 'Rules that gate tool access based on provenance and earned grants',
+      'grant mappings': 'Auto-issue context grants from tool responses (e.g., customer_id after identity search)',
+      'response filters': 'Strip or mask sensitive fields from tool responses based on verification level',
+      'context propagation': 'Control which grants are inherited when handing off to another skill'
+    },
+    bestPractices: [
+      'Start by classifying every tool — this drives all other security decisions',
+      'High-risk tools (pii_write, financial, destructive) MUST have access policies',
+      'Use grant mappings to connect identity verification to access decisions',
+      'Apply response filters to mask PII until the user has verified their identity',
+      'Always propagate customer_id and assurance_level to child skills'
+    ]
+  },
+
+  'tool classification': {
+    title: 'Tool Security Classification',
+    description: `Every tool should be classified by the sensitivity of the data it accesses or the actions it performs.`,
+    purpose: `Classifications drive automatic security enforcement — high-risk tools get access policies, PII tools get response filters.`,
+    levels: {
+      'public': 'No sensitive data, no side effects. Examples: search FAQ, get store hours, list product categories',
+      'pii_read': 'Reads personal data (names, emails, addresses, orders). Examples: get order details, view customer profile',
+      'pii_write': 'Modifies personal data. Examples: update shipping address, change email, update profile',
+      'financial': 'Handles money or financial data. Examples: process refund, charge card, view payment history',
+      'destructive': 'Permanent or high-impact actions. Examples: cancel order, delete account, close ticket permanently'
+    },
+    bestPractices: [
+      'When in doubt, classify higher rather than lower',
+      'A tool that reads AND writes PII should be classified as pii_write',
+      'Financial tools that also write PII should be classified as financial (higher risk wins)',
+      'Set data_owner_field to the field name that identifies whose data this is (e.g., customer_id)',
+      'Identity/verification tools should be classified as public — they need to be accessible before verification'
+    ]
+  },
+
+  'access policy': {
+    title: 'Access Policy Rules',
+    description: `Access policies are pre-tool gates that check who is calling and what proof they have before allowing a tool to execute.`,
+    purpose: `They enforce the principle of least privilege — tools are only accessible when the caller has earned the right through identity verification.`,
+    components: {
+      'tools': 'Which tools this rule applies to (exact name or "*" for all)',
+      'when': 'Provenance conditions — origin_type (channel/trigger/skill_handoff) or root_origin_type',
+      'require': 'Grant requirements — has_grant (grant must exist) and grant_value (grant must have specific value)',
+      'effect': 'What happens: allow (proceed), deny (block), constrain (proceed with injected args and/or response filtering)'
+    },
+    bestPractices: [
+      'Rules are evaluated in order — first match wins',
+      'Put specific rules before general ones (e.g., cancel before all-orders)',
+      'Use root_origin_type for trust decisions — even in skill handoffs, the ROOT origin matters',
+      'Always allow identity/verification tools — they must be accessible before verification',
+      'Use constrain with inject_args to force customer_id from grants (prevents cross-customer access)',
+      'Always give trigger-origin and internal tools full access (first rule: tools=["*"], when: origin_type="trigger", effect="allow")'
+    ],
+    examples: [
+      'Order lookup: require customer_id grant, inject it, apply PII filter',
+      'Address change: require customer_id + assurance_level L1+',
+      'Order cancellation: require customer_id + assurance_level L2'
+    ]
+  },
+
+  'grant mappings': {
+    title: 'Grant Mappings',
+    description: `Grant mappings automatically issue context grants from tool responses. When a tool returns data, the platform extracts values and stores them as grants on the job.`,
+    purpose: `They connect the identity verification flow to access decisions. For example: identity search → customer_id grant → order lookup becomes possible.`,
+    fields: {
+      'tool': 'Which tool triggers this mapping (e.g., "identity.candidates.search")',
+      'on_success': 'If true, only fires when tool returns ok !== false',
+      'grants[].key': 'The grant key to issue (e.g., "ecom.customer_id")',
+      'grants[].value_from': 'JSONPath to extract from tool response (e.g., "$.candidates[0].customer_id")',
+      'grants[].condition': 'Optional JSONPath condition (e.g., "$.candidates.length == 1" — only issue if exactly one match)',
+      'grants[].ttl_seconds': 'Optional time-to-live — grant expires after this many seconds'
+    },
+    bestPractices: [
+      'Use conditions to prevent ambiguous grants (e.g., only issue customer_id on single-match search)',
+      'Set TTL on session tokens and temporary grants',
+      'Grant keys should use dot notation namespaces (e.g., ecom.customer_id, ecom.assurance_level)',
+      'Avoid the "p.*" namespace — it is reserved for platform-only grants'
+    ]
+  },
+
+  'response filters': {
+    title: 'Response Filters',
+    description: `Response filters strip or mask sensitive fields from tool responses based on what grants the user has earned.`,
+    purpose: `They ensure that even if a tool returns full data, the agent only sees what the caller's verification level allows. This is defense-in-depth.`,
+    fields: {
+      'id': 'Unique identifier for this filter (e.g., "pii_mask_below_l1")',
+      'unless_grant': 'Skip this filter if the caller has this grant (e.g., "ecom.assurance_level")',
+      'unless_grant_value': 'Skip if grant has specific value (key + values array)',
+      'strip_fields': 'JSONPath fields to completely remove (e.g., "$.customer.email")',
+      'mask_fields': 'JSONPath fields to replace with mask string (e.g., field: "$.customer.name", mask: "*** (verification required)")',
+      'tools': 'Which tools this filter applies to (empty = all tools)'
+    },
+    bestPractices: [
+      'Strip highly sensitive fields (email, phone, SSN) — dont just mask them',
+      'Mask less sensitive fields (name) so the agent knows the data exists but cant see it',
+      'Use unless_grant to skip the filter once the user has verified their identity',
+      'Apply filters to all pii_read and pii_write tools',
+      'Filters never modify the original response — they operate on a deep clone'
+    ]
   }
 };
 

@@ -6,6 +6,8 @@
 import { validateSchema } from './schemaValidator.js';
 import { resolveReferences, areAllReferencesResolved } from './referenceResolver.js';
 import { checkCompleteness, getCompletenessReport } from './completenessChecker.js';
+// Identity & Access Control: Security validation
+import { validateSecurity, getSecurityReport } from './securityValidator.js';
 
 /**
  * @typedef {import('../types/DraftDomain.js').DraftDomain} DraftDomain
@@ -47,7 +49,12 @@ export function validateDraftDomain(domain) {
   // 3. Completeness check
   const completeness = checkCompleteness(domain);
 
-  // 4. Ready-to-export calculation
+  // 4. Security validation (Identity & Access Control)
+  const securityIssues = validateSecurity(domain);
+  errors.push(...securityIssues.filter(i => i.severity === 'error'));
+  warnings.push(...securityIssues.filter(i => i.severity === 'warning'));
+
+  // 5. Ready-to-export calculation
   const ready_to_export = calculateReadiness(errors, unresolved, completeness);
 
   return {
@@ -285,6 +292,8 @@ export function validateSection(domain, section) {
 export function getValidationSummary(domain) {
   const result = validateDraftDomain(domain);
   const report = getCompletenessReport(domain);
+  // Identity & Access Control: Security coverage report
+  const securityReport = getSecurityReport(domain);
 
   return {
     valid: result.valid,
@@ -306,6 +315,7 @@ export function getValidationSummary(domain) {
       policy: { complete: result.completeness.policy, ...report.policy?.details },
       mocks: { complete: result.completeness.mocks_tested, ...report.mocks?.details },
       identity: { complete: result.completeness.identity, ...report.identity?.details },
+      security: { complete: result.completeness.security, ...securityReport },
     },
   };
 }
@@ -314,3 +324,5 @@ export function getValidationSummary(domain) {
 export { validateSchema } from './schemaValidator.js';
 export { resolveReferences, areAllReferencesResolved } from './referenceResolver.js';
 export { checkCompleteness, getCompletenessReport, getIncompleteSections } from './completenessChecker.js';
+// Identity & Access Control
+export { validateSecurity, isSecurityComplete, getSecurityReport } from './securityValidator.js';

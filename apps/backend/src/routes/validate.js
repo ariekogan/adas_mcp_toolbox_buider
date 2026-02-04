@@ -21,6 +21,14 @@ export const COVERAGE = [
   { section: 'tools', field: 'tools[].description', check: 'Ambiguous descriptions', type: 'consistency', method: 'llm' },
   { section: 'tools', field: 'tools', check: 'Overlapping functionality', type: 'consistency', method: 'llm' },
 
+  // Security consistency (on-demand)
+  { section: 'security', field: 'tools[].security.classification', check: 'All tools have security classification', type: 'consistency', method: 'deterministic' },
+  { section: 'security', field: 'access_policy.rules', check: 'High-risk tools covered by access policy', type: 'consistency', method: 'deterministic' },
+  { section: 'security', field: 'grant_mappings[].tool', check: 'Grant mapping tool references exist', type: 'consistency', method: 'deterministic' },
+  { section: 'security', field: 'access_policy.rules[].tools', check: 'Access policy tool references exist', type: 'consistency', method: 'deterministic' },
+  { section: 'security', field: 'response_filters[].strip_fields', check: 'Response filter field paths valid', type: 'consistency', method: 'deterministic' },
+  { section: 'security', field: 'response_filters', check: 'PII tools have response filters', type: 'consistency', method: 'deterministic' },
+
   // Policy consistency (on-demand)
   { section: 'policy', field: 'policy.guardrails', check: 'Conflicting never/always rules', type: 'consistency', method: 'llm' },
   { section: 'policy', field: 'policy.guardrails', check: 'Duplicate rules', type: 'consistency', method: 'llm' },
@@ -866,6 +874,281 @@ Return ONLY the JSON response.`;
     log.debug(`Found ${result.issues?.length || 0} identity issues`);
 
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// SECURITY CONSISTENCY (deterministic — no LLM needed)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Security consistency check — validates Identity & Access Control configuration.
+ * POST /api/validate/security-consistency
+ *
+ * Deterministic checks only (no LLM):
+ * - All tools have security classification
+ * - High-risk tools (pii_write, financial, destructive) have access policy coverage
+ * - Grant mapping tool references exist
+ * - Access policy tool references exist (or wildcard)
+ * - Response filter field paths are syntactically valid
+ * - PII tools have response filters
+ * - No duplicate response filter IDs
+ * - Tools with data_owner_field have constrain policies
+ */
+router.post('/security-consistency', async (req, res, next) => {
+  try {
+    const { domain_id } = req.body;
+    const log = req.app.locals.log;
+
+    if (!domain_id) {
+      return res.status(400).json({ error: 'domain_id is required' });
+    }
+
+    let domain;
+    try {
+      domain = await domainsStore.load(domain_id);
+    } catch (err) {
+      if (err.message?.includes('not found') || err.code === 'ENOENT') {
+        return res.status(404).json({ error: 'Domain not found' });
+      }
+      throw err;
+    }
+
+    log.debug(`Security consistency check for ${domain_id}`);
+
+    const issues = [];
+    const tools = domain.tools || [];
+    const toolNames = new Set(tools.map(t => t.name));
+    const accessRules = domain.access_policy?.rules || [];
+    const grantMappings = domain.grant_mappings || [];
+    const responseFilters = domain.response_filters || [];
+
+    const HIGH_RISK = ['pii_write', 'financial', 'destructive'];
+    const PII_CLASSIFICATIONS = ['pii_read', 'pii_write'];
+    const VALID_CLASSIFICATIONS = ['public', 'pii_read', 'pii_write', 'financial', 'destructive'];
+    const VALID_EFFECTS = ['allow', 'deny', 'constrain'];
+
+    // Build a set of tools covered by access policy rules
+    const policyCoveredTools = new Set();
+    for (const rule of accessRules) {
+      for (const toolRef of (rule.tools || [])) {
+        if (toolRef === '*') {
+          // Wildcard covers all tools
+          tools.forEach(t => policyCoveredTools.add(t.name));
+        } else {
+          policyCoveredTools.add(toolRef);
+        }
+      }
+    }
+
+    // Build a set of tools covered by response filters
+    const filterCoveredTools = new Set();
+    for (const filter of responseFilters) {
+      if (!filter.tools || filter.tools.length === 0) {
+        // Wildcard filter — covers all tools
+        tools.forEach(t => filterCoveredTools.add(t.name));
+      } else {
+        filter.tools.forEach(t => filterCoveredTools.add(t));
+      }
+    }
+
+    // ── 1. Tool classification checks ──────────────────────────────
+    for (const tool of tools) {
+      const classification = tool.security?.classification;
+
+      if (!classification) {
+        issues.push({
+          type: 'security',
+          severity: 'warning',
+          description: `Tool "${tool.name}" has no security classification`,
+          suggestion: 'Classify this tool as public, pii_read, pii_write, financial, or destructive',
+          tools: [tool.name]
+        });
+        continue;
+      }
+
+      if (!VALID_CLASSIFICATIONS.includes(classification)) {
+        issues.push({
+          type: 'security',
+          severity: 'error',
+          description: `Tool "${tool.name}" has invalid classification: "${classification}"`,
+          suggestion: `Use one of: ${VALID_CLASSIFICATIONS.join(', ')}`,
+          tools: [tool.name]
+        });
+      }
+
+      // High-risk tools MUST have access policy
+      if (HIGH_RISK.includes(classification) && !policyCoveredTools.has(tool.name)) {
+        issues.push({
+          type: 'security',
+          severity: 'error',
+          description: `High-risk tool "${tool.name}" (${classification}) has no access policy rule`,
+          suggestion: 'Add an access policy rule that gates this tool behind identity verification',
+          tools: [tool.name]
+        });
+      }
+
+      // PII tools SHOULD have response filters
+      if (PII_CLASSIFICATIONS.includes(classification) && !filterCoveredTools.has(tool.name)) {
+        issues.push({
+          type: 'security',
+          severity: 'warning',
+          description: `PII tool "${tool.name}" (${classification}) has no response filter`,
+          suggestion: 'Add a response filter to mask sensitive fields until identity verification',
+          tools: [tool.name]
+        });
+      }
+
+      // Tools with data_owner_field should have constrain policies
+      if (tool.security?.data_owner_field && !policyCoveredTools.has(tool.name)) {
+        issues.push({
+          type: 'security',
+          severity: 'warning',
+          description: `Tool "${tool.name}" has data_owner_field "${tool.security.data_owner_field}" but no access policy`,
+          suggestion: 'Add a constrain policy that injects the data owner from grants to prevent cross-customer access',
+          tools: [tool.name]
+        });
+      }
+    }
+
+    // ── 2. Grant mapping validation ────────────────────────────────
+    for (const mapping of grantMappings) {
+      if (!mapping.tool) {
+        issues.push({
+          type: 'security',
+          severity: 'error',
+          description: 'Grant mapping is missing tool reference',
+          suggestion: 'Specify which tool triggers this grant mapping'
+        });
+        continue;
+      }
+
+      if (!toolNames.has(mapping.tool)) {
+        issues.push({
+          type: 'security',
+          severity: 'error',
+          description: `Grant mapping references non-existent tool: "${mapping.tool}"`,
+          suggestion: `Available tools: ${[...toolNames].join(', ')}`,
+          tools: [mapping.tool]
+        });
+      }
+
+      // Check that grants have key and value_from
+      for (const grant of (mapping.grants || [])) {
+        if (!grant.key) {
+          issues.push({
+            type: 'security',
+            severity: 'error',
+            description: `Grant mapping for "${mapping.tool}" has a grant without a key`,
+            suggestion: 'Every grant needs a key (e.g., "ecom.customer_id")',
+            tools: [mapping.tool]
+          });
+        }
+        if (!grant.value_from) {
+          issues.push({
+            type: 'security',
+            severity: 'error',
+            description: `Grant mapping for "${mapping.tool}", key "${grant.key}" is missing value_from`,
+            suggestion: 'Specify JSONPath to extract from tool response (e.g., "$.candidates[0].customer_id")',
+            tools: [mapping.tool]
+          });
+        }
+      }
+    }
+
+    // ── 3. Access policy validation ────────────────────────────────
+    for (let i = 0; i < accessRules.length; i++) {
+      const rule = accessRules[i];
+
+      if (!rule.tools || rule.tools.length === 0) {
+        issues.push({
+          type: 'security',
+          severity: 'error',
+          description: `Access policy rule #${i + 1} has no tool references`,
+          suggestion: 'Specify which tools this rule applies to (or use "*" for all)'
+        });
+        continue;
+      }
+
+      // Check tool references
+      for (const toolRef of rule.tools) {
+        if (toolRef !== '*' && !toolNames.has(toolRef)) {
+          issues.push({
+            type: 'security',
+            severity: 'error',
+            description: `Access policy rule #${i + 1} references non-existent tool: "${toolRef}"`,
+            suggestion: `Available tools: ${[...toolNames].join(', ')}`,
+            tools: [toolRef]
+          });
+        }
+      }
+
+      // Check effect is valid
+      if (rule.effect && !VALID_EFFECTS.includes(rule.effect)) {
+        issues.push({
+          type: 'security',
+          severity: 'error',
+          description: `Access policy rule #${i + 1} has invalid effect: "${rule.effect}"`,
+          suggestion: `Use one of: ${VALID_EFFECTS.join(', ')}`
+        });
+      }
+    }
+
+    // ── 4. Response filter validation ──────────────────────────────
+    const filterIds = new Set();
+    const fieldPathRegex = /^\$\.[\w[\]*]+(\.\w[\w[\]*]*)*$/;
+
+    for (const filter of responseFilters) {
+      if (!filter.id) {
+        issues.push({
+          type: 'security',
+          severity: 'error',
+          description: 'Response filter is missing an ID',
+          suggestion: 'Give this filter a unique identifier (e.g., "pii_mask_below_l1")'
+        });
+        continue;
+      }
+
+      // Duplicate ID check
+      if (filterIds.has(filter.id)) {
+        issues.push({
+          type: 'security',
+          severity: 'error',
+          description: `Duplicate response filter ID: "${filter.id}"`,
+          suggestion: 'Each filter must have a unique ID'
+        });
+      }
+      filterIds.add(filter.id);
+
+      // Validate field paths
+      for (const path of (filter.strip_fields || [])) {
+        if (typeof path === 'string' && !fieldPathRegex.test(path)) {
+          issues.push({
+            type: 'security',
+            severity: 'warning',
+            description: `Response filter "${filter.id}" has an unusual field path: "${path}"`,
+            suggestion: 'Field paths should follow JSONPath format like "$.customer.email" or "$.items[*].gift_message"'
+          });
+        }
+      }
+
+      for (const maskDef of (filter.mask_fields || [])) {
+        if (maskDef?.field && typeof maskDef.field === 'string' && !fieldPathRegex.test(maskDef.field)) {
+          issues.push({
+            type: 'security',
+            severity: 'warning',
+            description: `Response filter "${filter.id}" mask field has unusual path: "${maskDef.field}"`,
+            suggestion: 'Field paths should follow JSONPath format like "$.customer.name"'
+          });
+        }
+      }
+    }
+
+    log.debug(`Security consistency: found ${issues.length} issues`);
+
+    res.json({ issues });
   } catch (err) {
     next(err);
   }

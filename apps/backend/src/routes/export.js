@@ -76,7 +76,7 @@ export async function deploySkillToADAS(domainId, log, onProgress) {
 
   log.info(`[MCP Deploy] Read MCP files (${mcpServer.length} bytes)`);
 
-  const skillSlug = domain.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || domainId;
+  const skillSlug = domain.original_skill_id || domain.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || domainId;
   const adasUrl = process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
   const deployUrl = `${adasUrl}/api/skills/deploy-mcp`;
 
@@ -913,7 +913,7 @@ router.get("/:domainId/adas/preview", async (req, res, next) => {
  * Helper to get skillSlug from domain
  */
 function getSkillSlug(domain, domainId) {
-  return domain.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || domainId;
+  return domain.original_skill_id || domain.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || domainId;
 }
 
 /**

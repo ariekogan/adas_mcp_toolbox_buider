@@ -186,13 +186,23 @@ export async function validateIdentityConsistency(skillId) {
   });
 }
 
+export async function validateSecurityConsistency(skillId) {
+  return request('/validate/security-consistency', {
+    method: 'POST',
+    body: JSON.stringify({
+      domain_id: skillId
+    })
+  });
+}
+
 export async function validateAll(skillId) {
   // Run all validations in parallel
-  const [identity, intents, tools, policy] = await Promise.all([
+  const [identity, intents, tools, policy, security] = await Promise.all([
     validateIdentityConsistency(skillId).catch(e => ({ error: e.message, issues: [] })),
     validateIntentsConsistency(skillId).catch(e => ({ error: e.message, issues: [] })),
     validateToolsConsistency(skillId).catch(e => ({ error: e.message, issues: [] })),
-    validatePolicyConsistency(skillId).catch(e => ({ error: e.message, issues: [] }))
+    validatePolicyConsistency(skillId).catch(e => ({ error: e.message, issues: [] })),
+    validateSecurityConsistency(skillId).catch(e => ({ error: e.message, issues: [] }))
   ]);
 
   return {
@@ -200,10 +210,12 @@ export async function validateAll(skillId) {
     intents,
     tools,
     policy,
+    security,
     totalIssues: (identity.issues?.length || 0) +
                  (intents.issues?.length || 0) +
                  (tools.issues?.length || 0) +
-                 (policy.issues?.length || 0)
+                 (policy.issues?.length || 0) +
+                 (security.issues?.length || 0)
   };
 }
 
@@ -758,6 +770,7 @@ export default {
   validatePolicyConsistency,
   validateIntentsConsistency,
   validateIdentityConsistency,
+  validateSecurityConsistency,
   validateAll,
   exportSkill,
   previewExport,

@@ -350,6 +350,27 @@ Updating meta tool status (user approves/rejects):
 Deleting a meta tool:
 { "meta_tools_delete": "verify_refund_eligibility" }
 
+Classifying a tool's security level:
+{ "tools_update": { "name": "get_order", "security": { "classification": "pii_read", "data_owner_field": "customer_id" } } }
+
+Adding a grant mapping (auto-issue grants from tool responses):
+{ "grant_mappings_push": { "tool": "identity.candidates.search", "grants": [{ "key": "ecom.customer_id", "value_from": "$.candidates[0].customer_id", "condition": "$.candidates.length == 1" }] } }
+
+Adding an access policy rule:
+{ "access_policy.rules_push": { "tools": ["orders.order.get"], "when": { "root_origin_type": "channel" }, "require": { "has_grant": "ecom.customer_id" }, "effect": "constrain", "constrain": { "inject_args": { "customer_id": "$grant:ecom.customer_id" }, "response_filter": "pii_mask" } } }
+
+Adding a response filter:
+{ "response_filters_push": { "id": "pii_mask", "description": "Mask PII unless verified", "unless_grant": "ecom.assurance_level", "strip_fields": ["$.customer.email", "$.customer.phone"], "mask_fields": [{ "field": "$.customer.name", "mask": "*** (verification required)" }] } }
+
+Deleting an access policy rule (by first tool name):
+{ "access_policy.rules_delete": "orders.order.get" }
+
+Deleting a grant mapping (by tool name):
+{ "grant_mappings_delete": "identity.candidates.search" }
+
+Setting context propagation:
+{ "context_propagation": { "on_handoff": { "propagate_grants": ["ecom.customer_id", "ecom.assurance_level"], "drop_grants": ["ecom.session_token"] } } }
+
 Changing phase:
 { "phase": "INTENT_DEFINITION" }
 
@@ -565,6 +586,12 @@ Progress:
     case 'POLICY_DEFINITION':
       const neverCount = domain.policy?.guardrails?.never?.length || 0;
       const alwaysCount = domain.policy?.guardrails?.always?.length || 0;
+      const classifiedTools = domain.tools?.filter(t => t.security?.classification).length || 0;
+      const totalTools = domain.tools?.length || 0;
+      const highRiskTools = domain.tools?.filter(t => ['pii_write', 'financial', 'destructive'].includes(t.security?.classification)).length || 0;
+      const accessRules = domain.access_policy?.rules?.length || 0;
+      const grantMappingsCount = domain.grant_mappings?.length || 0;
+      const responseFiltersCount = domain.response_filters?.length || 0;
       return `
 ## CURRENT PHASE: POLICY_DEFINITION
 
@@ -575,6 +602,13 @@ Guardrails:
 Workflows: ${domain.policy?.workflows?.length || 0}
 Approval rules: ${domain.policy?.approvals?.length || 0}
 
+Security:
+- Tool classifications: ${classifiedTools}/${totalTools}
+- High-risk tools: ${highRiskTools}
+- Access policy rules: ${accessRules}
+- Grant mappings: ${grantMappingsCount}
+- Response filters: ${responseFiltersCount}
+
 Guide users to define:
 1. **Never** - Things agent must NEVER do
    Example: "Never share payment details"
@@ -583,7 +617,43 @@ Guide users to define:
    Example: "Always verify identity first"
 
 3. **Workflows** (optional) - Required sequences
-4. **Approvals** (optional) - When human approval needed`;
+4. **Approvals** (optional) - When human approval needed
+
+5. **Security** (after guardrails are done) - Identity & Access Control
+   Guide the user through these steps IN ORDER:
+
+   **Step 1: Tool Classification** - For each tool, assign a security classification:
+   - \`public\` — no sensitive data (FAQ, store info)
+   - \`pii_read\` — reads personal data (order details, customer profile)
+   - \`pii_write\` — modifies personal data (update address, change email)
+   - \`financial\` — handles money (process refund, charge card)
+   - \`destructive\` — permanent actions (cancel order, delete account)
+
+   Present all tools and suggest classifications. Use selection mode for each tool.
+
+   **Step 2: Grant Mappings** - For tools that produce identity context:
+   - Identity search → auto-issue \`customer_id\` grant
+   - Identity verification → auto-issue \`assurance_level\` + \`verified_scope\` grants
+   - Session issuance → auto-issue \`session_token\` grant (with TTL)
+
+   **Step 3: Access Policy Rules** - For high-risk tools, define who can call them:
+   - Allow trigger/internal origins full access
+   - Require customer_id grant for read operations
+   - Require assurance_level L1+ for pii_write operations
+   - Require assurance_level L2 for destructive/financial operations
+   - Use constrain effect with inject_args for customer_id scoping
+   - Always allow identity/verification tools (they must be accessible before verification)
+
+   **Step 4: Response Filters** - For PII tools, mask data until verified:
+   - Strip email, phone, address unless assurance_level grant present
+   - Mask customer name with placeholder text
+
+   **Step 5: Context Propagation** - For skill-to-skill handoffs:
+   - Propagate: customer_id, assurance_level, platform grants
+   - Drop: session tokens, scoped tokens
+
+   IMPORTANT: Only start security configuration AFTER guardrails are defined.
+   Use selection mode to let users pick classifications and approve policy suggestions.`;
 
     case 'MOCK_TESTING':
       const tested = domain.tools?.filter(t => t.mock_status === 'tested').length || 0;
@@ -651,6 +721,11 @@ export function buildDALSystemPrompt(domain) {
     role: domain.role,
     engine: domain.engine,
     validation: domain.validation,
+    // Identity & Access Control
+    grant_mappings: domain.grant_mappings,
+    access_policy: domain.access_policy,
+    response_filters: domain.response_filters,
+    context_propagation: domain.context_propagation,
     // Explicitly EXCLUDE: conversation, _settings, created_at, updated_at
   };
 
@@ -660,11 +735,19 @@ export function buildDALSystemPrompt(domain) {
     problem: domain.problem?.statement ? domain.problem.statement.substring(0, 100) : null,
     scenarios: domain.scenarios?.length || 0,
     intents: domain.intents?.supported?.length || 0,
-    tools: domain.tools?.map(t => ({ name: t.name, status: t.mock_status })) || [],
+    tools: domain.tools?.map(t => ({ name: t.name, status: t.mock_status, classification: t.security?.classification || null })) || [],
     policy: {
       never: domain.policy?.guardrails?.never?.length || 0,
       always: domain.policy?.guardrails?.always?.length || 0,
       workflows: domain.policy?.workflows?.length || 0,
+    },
+    security: {
+      classified_tools: domain.tools?.filter(t => t.security?.classification).length || 0,
+      unclassified_tools: domain.tools?.filter(t => !t.security?.classification).length || 0,
+      high_risk_tools: domain.tools?.filter(t => ['pii_write', 'financial', 'destructive'].includes(t.security?.classification)).length || 0,
+      grant_mappings: domain.grant_mappings?.length || 0,
+      access_rules: domain.access_policy?.rules?.length || 0,
+      response_filters: domain.response_filters?.length || 0,
     },
     validation: {
       valid: domain.validation?.valid,
