@@ -82,9 +82,10 @@ export async function deploySkillToADAS(domainId, log, onProgress) {
 
   log.info(`[MCP Deploy] Sending to ADAS Core: ${deployUrl}`);
 
+  const tenant = (process.env.SB_TENANT || 'main').trim().toLowerCase();
   const response = await fetch(deployUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-ADAS-TENANT": tenant },
     body: JSON.stringify({ skillSlug, mcpServer, requirements }),
     signal: AbortSignal.timeout(120000) // 2 min timeout
   });
@@ -819,9 +820,10 @@ router.post("/:domainId/adas", async (req, res, next) => {
       log.info(`Deploying to ADAS Core: ${importUrl}`);
 
       try {
+        const tenantHeader = (process.env.SB_TENANT || 'main').trim().toLowerCase();
         const response = await fetch(importUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-ADAS-TENANT": tenantHeader },
           body: JSON.stringify(payload)
         });
 

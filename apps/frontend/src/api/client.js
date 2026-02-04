@@ -1,10 +1,28 @@
 const API_BASE = '/api';
 
+// Tenant management — fixed allow-list
+const VALID_TENANTS = ['main', 'testing', 'dev'];
+const TENANT_STORAGE_KEY = 'sb.tenant';
+
+export function getTenant() {
+  const stored = localStorage.getItem(TENANT_STORAGE_KEY);
+  return VALID_TENANTS.includes(stored) ? stored : 'main';
+}
+
+export function setTenant(tenant) {
+  if (VALID_TENANTS.includes(tenant)) {
+    localStorage.setItem(TENANT_STORAGE_KEY, tenant);
+  }
+}
+
+export { VALID_TENANTS };
+
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      'X-ADAS-TENANT': getTenant(),
       ...options.headers
     }
   });

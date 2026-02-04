@@ -15,6 +15,19 @@
 // ADAS Core API base URL (same env var as export.js)
 const ADAS_API_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
 
+// Tenant header — injected into all outbound ADAS Core requests
+const TENANT = (process.env.SB_TENANT || 'main').trim().toLowerCase();
+
+/** Build headers with tenant context for ADAS Core calls */
+function adasHeaders(extra = {}) {
+  return { 'X-ADAS-TENANT': TENANT, ...extra };
+}
+
+/** Build JSON headers with tenant context */
+function adasJsonHeaders() {
+  return adasHeaders({ 'Content-Type': 'application/json' });
+}
+
 /**
  * Sync a connector configuration to ADAS.
  * Creates or updates the connector in ADAS ConnectorRegistry.
@@ -70,6 +83,7 @@ export async function syncConnectorToADAS(connector) {
   try {
     // Check if connector exists
     const checkRes = await fetch(`${ADAS_API_URL}/api/connectors/${id}`, {
+      headers: adasHeaders(),
       signal: AbortSignal.timeout(15000)
     });
 
@@ -77,7 +91,7 @@ export async function syncConnectorToADAS(connector) {
       // Update existing connector
       const updateRes = await fetch(`${ADAS_API_URL}/api/connectors/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: adasJsonHeaders(),
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(15000)
       });
@@ -93,7 +107,7 @@ export async function syncConnectorToADAS(connector) {
       // Create new connector
       const createRes = await fetch(`${ADAS_API_URL}/api/connectors`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: adasJsonHeaders(),
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(15000)
       });
@@ -122,7 +136,7 @@ export async function startConnectorInADAS(connectorId) {
   try {
     const res = await fetch(`${ADAS_API_URL}/api/connectors/${connectorId}/connect`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: adasJsonHeaders(),
       signal: AbortSignal.timeout(30000) // 30s — connector start can be slow
     });
 
@@ -150,7 +164,7 @@ export async function stopConnectorInADAS(connectorId) {
   try {
     const res = await fetch(`${ADAS_API_URL}/api/connectors/${connectorId}/disconnect`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: adasJsonHeaders(),
       signal: AbortSignal.timeout(15000)
     });
 
@@ -176,7 +190,8 @@ export async function stopConnectorInADAS(connectorId) {
 export async function deleteConnectorFromADAS(connectorId) {
   try {
     const res = await fetch(`${ADAS_API_URL}/api/connectors/${connectorId}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: adasHeaders()
     });
 
     if (!res.ok && res.status !== 404) {
@@ -199,7 +214,9 @@ export async function deleteConnectorFromADAS(connectorId) {
  */
 export async function getConnectorsFromADAS() {
   try {
-    const res = await fetch(`${ADAS_API_URL}/api/connectors`);
+    const res = await fetch(`${ADAS_API_URL}/api/connectors`, {
+      headers: adasHeaders()
+    });
 
     if (!res.ok) {
       throw new Error(`Failed to get connectors: ${res.status}`);
@@ -225,7 +242,7 @@ export async function callConnectorTool(connectorId, toolName, args = {}) {
   try {
     const res = await fetch(`${ADAS_API_URL}/api/connectors/${connectorId}/call`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: adasJsonHeaders(),
       body: JSON.stringify({ tool: toolName, args })
     });
 
@@ -281,7 +298,7 @@ export async function uploadMcpCodeToADAS(connectorId, sourceDir) {
   try {
     const res = await fetch(`${ADAS_API_URL}/api/mcp-store/upload`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: adasJsonHeaders(),
       body: JSON.stringify({
         connectorId,
         files,
@@ -313,6 +330,7 @@ export async function isADASAvailable() {
   try {
     const res = await fetch(`${ADAS_API_URL}/api/connectors`, {
       method: 'GET',
+      headers: adasHeaders(),
       signal: AbortSignal.timeout(5000)
     });
     return res.ok;

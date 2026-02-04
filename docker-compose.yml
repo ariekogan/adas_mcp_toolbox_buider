@@ -11,6 +11,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo}
       - MEMORY_PATH=/memory
+      - SB_TENANT=${SB_TENANT:-main}
       # ADAS CORE connection (uses Tailscale IP for mac1 since services run on different machines)
       - ADAS_CORE_URL=${ADAS_CORE_URL:-http://100.125.67.116:4100}
       - CORE_MCP_URL=${CORE_MCP_URL:-http://100.125.67.116:4310/mcp}
@@ -18,7 +19,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ${MEMORY_PATH:-./memory}:/memory
+      - ${MEMORY_PATH:-./memory}/${SB_TENANT:-main}:/memory
     ports:
       - "${BACKEND_PORT:-4311}:4000"
       # Expose port range for dynamically spawned MCP servers

@@ -11,6 +11,7 @@ import PoliciesPage from './components/PoliciesPage';
 import { useSkill } from './hooks/useSkill';
 import { useSettings } from './hooks/useSettings';
 import * as api from './api/client';
+import { getTenant, setTenant, VALID_TENANTS } from './api/client';
 // Force rebuild - triggers and channels update
 
 const styles = {
@@ -171,6 +172,16 @@ export default function App() {
   // Navigation state - 'skills', 'connectors', 'channels'
   const [currentView, setCurrentView] = useState('skills');
   const [gearMenuOpen, setGearMenuOpen] = useState(false);
+
+  // Tenant state
+  const [tenant, setTenantState] = useState(getTenant());
+  const handleTenantChange = useCallback((e) => {
+    const newTenant = e.target.value;
+    setTenant(newTenant);
+    setTenantState(newTenant);
+    // Reload skills for the new tenant
+    loadSkills();
+  }, [loadSkills]);
 
   const messages = currentSkill?.conversation || [];
 
@@ -337,6 +348,25 @@ export default function App() {
       <div style={styles.topBar}>
         <div style={styles.logo}>
           Skill Builder
+          <select
+            value={tenant}
+            onChange={handleTenantChange}
+            style={{
+              marginLeft: '12px',
+              padding: '3px 8px',
+              fontSize: '11px',
+              fontWeight: '500',
+              background: tenant === 'main' ? 'rgba(16,185,129,0.15)' : tenant === 'testing' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)',
+              color: tenant === 'main' ? '#10b981' : tenant === 'testing' ? '#3b82f6' : '#f59e0b',
+              border: `1px solid ${tenant === 'main' ? 'rgba(16,185,129,0.3)' : tenant === 'testing' ? 'rgba(59,130,246,0.3)' : 'rgba(245,158,11,0.3)'}`,
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            {VALID_TENANTS.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
         </div>
         <div style={styles.topActions}>
           <span style={{

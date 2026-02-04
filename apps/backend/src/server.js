@@ -12,14 +12,21 @@ import connectorsRouter from "./routes/connectors.js";
 import actorsRouter from "./routes/actors.js";
 import tenantRouter from "./routes/tenant.js";
 import importRouter from "./routes/import.js";
+import { attachTenant } from "./middleware/attachTenant.js";
 import { isSearchAvailable } from "./services/webSearch.js";
 import mcpManager from "./services/mcpConnector.js";
 import connectorState from "./store/connectorState.js";
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  exposedHeaders: ["X-ADAS-TENANT"],
+  allowedHeaders: ["Content-Type", "X-ADAS-TENANT"],
+}));
 app.use(express.json({ limit: "10mb" }));
+
+// Multi-Tenant: Attach tenant from X-ADAS-TENANT header
+app.use(attachTenant);
 
 // Configure multer for file uploads (text files only)
 const upload = multer({
@@ -93,6 +100,7 @@ app.listen(port, "0.0.0.0", () => {
   log.info(`Backend listening on http://0.0.0.0:${port}`);
   log.info(`LLM Provider: ${process.env.LLM_PROVIDER || "anthropic"}`);
   log.info(`Memory Path: ${process.env.MEMORY_PATH || "/memory"}`);
+  log.info(`Tenant: ${process.env.SB_TENANT || "main"}`);
 
   // Auto-reconnect saved connectors (fire-and-forget, non-blocking)
   (async () => {
