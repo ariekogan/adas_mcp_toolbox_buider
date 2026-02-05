@@ -1367,9 +1367,9 @@ function jsType(type) {
 }
 
 /**
- * Generate skill.yaml for ADAS Core (simplified from skill.yaml)
+ * Generate skill.yaml for ADAS Core (simplified)
  */
-export function generateSkillYaml(toolbox) {
+export function generateSkillYamlForAdasCore(toolbox) {
   const lines = [];
   const slug = toolbox.original_skill_id || toSlug(toolbox.name || toolbox.id || "untitled");
 
@@ -1947,7 +1947,7 @@ export function generateAdasExportFiles(toolbox) {
   const tools = toolbox.tools || [];
   const approvedMetaTools = (toolbox.meta_tools || []).filter(mt => mt.status === 'approved');
   const files = [
-    { name: "skill.yaml", content: generateSkillYaml(toolbox) }
+    { name: "skill.yaml", content: generateSkillYamlForAdasCore(toolbox) }
   ];
 
   // Add each regular tool as a separate .mjs file
@@ -1982,7 +1982,7 @@ export default {
   generateSkillYaml,
   generateExportFiles,
   // ADAS Core export functions
-  generateSkillYaml,
+  generateSkillYamlForAdasCore,
   generateAdasExportPayload,
   generateAdasExportFiles
 };
