@@ -9,6 +9,7 @@ import ConnectorsPage from './components/ConnectorsPage';
 import TenantChannelsPage from './components/TenantChannelsPage';
 import PoliciesPage from './components/PoliciesPage';
 import SolutionPanel from './components/SolutionPanel';
+import ResizableSplit from './components/ResizableSplit';
 import { useSkill } from './hooks/useSkill';
 import { useSolution } from './hooks/useSolution';
 import { useSettings } from './hooks/useSettings';
@@ -177,6 +178,7 @@ export default function App() {
   const [inputHint, setInputHint] = useState(null);
   // Track whether user selected a skill or solution
   const [selectedType, setSelectedType] = useState('skill'); // 'skill' | 'solution'
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // File upload extraction state
   const [extraction, setExtraction] = useState(null);
@@ -571,56 +573,65 @@ export default function App() {
               onCreateSolution={handleCreateSolution}
               onDeleteSolution={deleteSolution}
               selectedType={selectedType}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={() => setSidebarCollapsed(c => !c)}
             />
 
             {selectedType === 'solution' && currentSolution ? (
-              <div style={styles.mainContent}>
-                <ChatPanel
-                  messages={solutionMessages}
-                  onSendMessage={handleSendSolutionMessage}
-                  sending={sending}
-                  skillName={currentSolution.name}
-                  inputHint={inputHint}
-                  domain={currentSolution}
-                />
-                <SolutionPanel solution={currentSolution} />
-              </div>
+              <ResizableSplit
+                initialLeftPercent={50}
+                left={
+                  <ChatPanel
+                    messages={solutionMessages}
+                    onSendMessage={handleSendSolutionMessage}
+                    sending={sending}
+                    skillName={currentSolution.name}
+                    inputHint={inputHint}
+                    domain={currentSolution}
+                  />
+                }
+                right={
+                  <SolutionPanel solution={currentSolution} />
+                }
+              />
             ) : currentSkill ? (
-              <div style={styles.mainContent}>
-                <ChatPanel
-                  messages={messages}
-                  onSendMessage={handleSendMessage}
-                  onFileUpload={handleFileUpload}
-                  sending={sending}
-                  skillName={currentSkill.name}
-                  inputHint={inputHint}
-                  domain={currentSkill}
-                  onFocusChange={setUiFocus}
-                />
-                <SkillPanel
-                  skill={currentSkill}
-                  focus={uiFocus}
-                  onFocusChange={setUiFocus}
-                  onExport={handleExport}
-                  onAskAbout={(topicOrPrompt, isRawPrompt) => {
-                    if (isRawPrompt) {
-                      // Validation list sends raw prompts directly
-                      handleSendMessage(topicOrPrompt);
-                    } else {
-                      // Explain buttons send topics to be wrapped
-                      handleSendMessage(`Tell me about the "${topicOrPrompt}" section - what's the current status, what's missing, and how can I improve it?`);
-                    }
-                  }}
-                  onIssuesChange={(issues) => {
-                    // Persist cascading validation issues to backend
-                    api.updateSkill(currentSkill.id, { cascading_issues: issues }).catch(err => {
-                      console.error('Failed to persist validation issues:', err);
-                    });
-                  }}
-                  onSkillUpdate={updateSkill}
-                  skillId={currentSkill.id}
-                />
-              </div>
+              <ResizableSplit
+                initialLeftPercent={50}
+                left={
+                  <ChatPanel
+                    messages={messages}
+                    onSendMessage={handleSendMessage}
+                    onFileUpload={handleFileUpload}
+                    sending={sending}
+                    skillName={currentSkill.name}
+                    inputHint={inputHint}
+                    domain={currentSkill}
+                    onFocusChange={setUiFocus}
+                  />
+                }
+                right={
+                  <SkillPanel
+                    skill={currentSkill}
+                    focus={uiFocus}
+                    onFocusChange={setUiFocus}
+                    onExport={handleExport}
+                    onAskAbout={(topicOrPrompt, isRawPrompt) => {
+                      if (isRawPrompt) {
+                        handleSendMessage(topicOrPrompt);
+                      } else {
+                        handleSendMessage(`Tell me about the "${topicOrPrompt}" section - what's the current status, what's missing, and how can I improve it?`);
+                      }
+                    }}
+                    onIssuesChange={(issues) => {
+                      api.updateSkill(currentSkill.id, { cascading_issues: issues }).catch(err => {
+                        console.error('Failed to persist validation issues:', err);
+                      });
+                    }}
+                    onSkillUpdate={updateSkill}
+                    skillId={currentSkill.id}
+                  />
+                }
+              />
             ) : (
               <div style={styles.welcome}>
                 <div style={styles.welcomeTitle}>Welcome to Skill Builder</div>

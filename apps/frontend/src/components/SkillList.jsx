@@ -49,12 +49,12 @@ const solutionStyles = {
 
 const styles = {
   container: {
-    width: '240px',
     height: '100%',
     background: 'var(--bg-secondary)',
     borderRight: '1px solid var(--border)',
     display: 'flex',
-    flexDirection: 'column'
+    flexDirection: 'column',
+    overflow: 'hidden',
   },
   header: {
     padding: '16px',
@@ -307,6 +307,9 @@ export default function SkillList({
   onCreateSolution,
   onDeleteSolution,
   selectedType = 'skill', // 'skill' | 'solution'
+  // Collapse props
+  collapsed = false,
+  onToggleCollapse,
 }) {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
@@ -345,27 +348,59 @@ export default function SkillList({
     setShowNew(false);
   };
 
-  // Build a set of skill IDs that belong to solutions (by original_skill_id)
-  const solutionSkillIds = new Set();
+  // Build a map: skillId → solutionId (unified matching logic)
+  const skillToSolution = new Map();
   for (const sol of solutions) {
-    for (const solSkill of (sol.skills || [])) {
-      solutionSkillIds.add(solSkill.id);
+    for (const ref of (sol.skills || [])) {
+      const matched = skills.find(s =>
+        s.id === ref.id ||
+        s.original_skill_id === ref.id ||
+        s.name?.toLowerCase().replace(/\s+/g, '-') === ref.id
+      );
+      if (matched) skillToSolution.set(matched.id, sol.id);
     }
   }
 
   // Skills NOT in any solution
-  const standaloneSkills = skills.filter(s => {
-    const origId = s.original_skill_id || s.id;
-    return !solutionSkillIds.has(origId) && !solutionSkillIds.has(s.name?.toLowerCase().replace(/\s+/g, '-'));
-  });
+  const standaloneSkills = skills.filter(s => !skillToSolution.has(s.id));
 
   const renderSkillItem = (skill, indent = false) => {
     const phaseStyle = getPhaseStyle(skill.phase);
     const isHovered = hoveredSkill === skill.id;
     const isActive = selectedType === 'skill' && skill.id === currentId;
+
+    if (collapsed) {
+      const initial = (skill.name || '?')[0].toUpperCase();
+      return (
+        <div
+          key={skill.id}
+          title={skill.name}
+          style={{
+            ...styles.skill,
+            textAlign: 'center',
+            padding: '8px 4px',
+            ...(isActive || isHovered ? styles.skillActive : {})
+          }}
+          onClick={() => onSelect(skill.id)}
+          onMouseEnter={() => setHoveredSkill(skill.id)}
+          onMouseLeave={() => { setHoveredSkill(null); setHoveredDelete(false); }}
+        >
+          <div style={{
+            width: '28px', height: '28px', borderRadius: '50%',
+            background: phaseStyle.bg, color: phaseStyle.color,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '12px', fontWeight: '600', margin: '0 auto',
+          }}>
+            {initial}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div
         key={skill.id}
+        title={skill.name}
         style={{
           ...styles.skill,
           ...(indent ? solutionStyles.childSkill : {}),
@@ -414,17 +449,63 @@ export default function SkillList({
     );
   };
 
+  const collapseTextStyle = {
+    opacity: collapsed ? 0 : 1,
+    transition: 'opacity 0.15s ease',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+  };
+
   return (
-    <div style={styles.container}>
+    <div style={{
+      ...styles.container,
+      width: collapsed ? '48px' : '240px',
+      transition: 'width 0.2s ease',
+      minWidth: collapsed ? '48px' : '240px',
+    }}>
       <div style={styles.header}>
-        <span style={styles.title}>Builder</span>
-        <button style={styles.newBtn} onClick={() => setShowNew(true)}>
-          + New
+        {!collapsed && <span style={styles.title}>Builder</span>}
+        <button
+          onClick={onToggleCollapse}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            padding: '4px 6px',
+            borderRadius: '4px',
+            fontSize: '14px',
+            lineHeight: 1,
+            transition: 'color 0.2s',
+          }}
+        >
+          {collapsed ? '»' : '«'}
         </button>
       </div>
 
       <div style={styles.list}>
         {loading && <div style={styles.empty}>Loading...</div>}
+
+        {/* New Solution button — always at the top */}
+        {onCreateSolution && (
+          <div
+            title="New Solution"
+            style={{
+              ...solutionStyles.solutionItem,
+              color: 'var(--text-muted)',
+              fontSize: '13px',
+              cursor: 'pointer',
+              textAlign: collapsed ? 'center' : 'left',
+            }}
+            onClick={() => {
+              const name = prompt('Solution name:');
+              if (name?.trim()) onCreateSolution(name.trim());
+            }}
+          >
+            {collapsed ? '★' : '★ + New Solution'}
+          </div>
+        )}
 
         {/* Solutions Section */}
         {solutions.length > 0 && (
@@ -432,14 +513,8 @@ export default function SkillList({
             {solutions.map(sol => {
               const isActive = selectedType === 'solution' && sol.id === currentSolutionId;
               const isHovered = hoveredSkill === `sol_${sol.id}`;
-              // Find matching skills for this solution
               const solSkillRefs = sol.skills || [];
-              const matchedSkills = solSkillRefs.map(ref => {
-                return skills.find(s =>
-                  s.original_skill_id === ref.id ||
-                  s.name?.toLowerCase().replace(/\s+/g, '-') === ref.id
-                );
-              }).filter(Boolean);
+              const matchedSkills = skills.filter(s => skillToSolution.get(s.id) === sol.id);
 
               return (
                 <div key={sol.id}>
@@ -452,37 +527,25 @@ export default function SkillList({
                     onMouseEnter={() => setHoveredSkill(`sol_${sol.id}`)}
                     onMouseLeave={() => setHoveredSkill(null)}
                   >
-                    <div style={solutionStyles.solutionName}>
-                      ★ {sol.name}
-                    </div>
-                    <div style={solutionStyles.solutionMeta}>
-                      {sol.skills_count || solSkillRefs.length} skills · {sol.grants_count || 0} grants
-                    </div>
+                    {collapsed ? (
+                      <div style={{ textAlign: 'center', fontSize: '16px', color: 'var(--accent)' }}>★</div>
+                    ) : (
+                      <>
+                        <div style={solutionStyles.solutionName}>
+                          ★ {sol.name}
+                        </div>
+                        <div style={solutionStyles.solutionMeta}>
+                          {sol.skills_count || solSkillRefs.length} skills · {sol.grants_count || 0} grants
+                        </div>
+                      </>
+                    )}
                   </div>
                   {/* Child skills */}
-                  {matchedSkills.map(skill => renderSkillItem(skill, true))}
+                  {!collapsed && matchedSkills.map(skill => renderSkillItem(skill, true))}
                 </div>
               );
             })}
           </>
-        )}
-
-        {/* New Solution button — always visible */}
-        {onCreateSolution && (
-          <div
-            style={{
-              ...solutionStyles.solutionItem,
-              color: 'var(--text-muted)',
-              fontSize: '13px',
-              cursor: 'pointer',
-            }}
-            onClick={() => {
-              const name = prompt('Solution name:');
-              if (name?.trim()) onCreateSolution(name.trim());
-            }}
-          >
-            ★ + New Solution
-          </div>
         )}
 
         {/* Separator between solutions and standalone skills */}
@@ -498,6 +561,25 @@ export default function SkillList({
         )}
 
         {standaloneSkills.map(skill => renderSkillItem(skill, false))}
+
+        {/* New Skill ghost card at the bottom */}
+        <div
+          title="New Skill"
+          style={{
+            padding: collapsed ? '8px 4px' : '12px',
+            borderRadius: '8px',
+            border: '2px dashed var(--border)',
+            cursor: 'pointer',
+            textAlign: 'center',
+            color: 'var(--text-muted)',
+            fontSize: '13px',
+            marginTop: '8px',
+            transition: 'border-color 0.2s',
+          }}
+          onClick={() => setShowNew(true)}
+        >
+          {collapsed ? '+' : '+ New Skill'}
+        </div>
       </div>
 
       {showNew && (

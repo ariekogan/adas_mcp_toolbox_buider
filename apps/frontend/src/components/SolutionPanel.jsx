@@ -1,13 +1,18 @@
 /**
  * SolutionPanel — Displays solution-level architecture
  *
- * Replaces SkillPanel when a solution is selected.
- * Shows topology view, grants, handoffs, routing, security contracts, and validation.
+ * Three tabs:
+ *   1. Topology — SVG graph of skills, handoffs, and channel entries
+ *   2. Architecture — Skills + connectors diagram with links
+ *   3. Access & Grants — Grant economy table + security contracts
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import * as api from '../api/client';
 
+// ═══════════════════════════════════════════════════════════════
+// Styles
+// ═══════════════════════════════════════════════════════════════
 const styles = {
   container: {
     flex: 1,
@@ -15,7 +20,6 @@ const styles = {
     flexDirection: 'column',
     overflow: 'hidden',
     background: 'var(--bg-primary)',
-    borderLeft: '1px solid var(--border)',
   },
   header: {
     padding: '16px 20px',
@@ -59,13 +63,13 @@ const styles = {
     padding: '16px 20px',
   },
   section: {
-    marginBottom: '20px',
+    marginBottom: '24px',
   },
   sectionTitle: {
-    fontSize: '13px',
+    fontSize: '12px',
     fontWeight: '600',
-    color: 'var(--text-secondary)',
-    marginBottom: '8px',
+    color: 'var(--text-muted)',
+    marginBottom: '12px',
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
   },
@@ -84,6 +88,7 @@ const styles = {
   cardMeta: {
     fontSize: '12px',
     color: 'var(--text-muted)',
+    lineHeight: '1.5',
   },
   badge: {
     display: 'inline-block',
@@ -99,99 +104,22 @@ const styles = {
     color: 'var(--text-muted)',
     fontSize: '13px',
   },
-  // Topology
-  topologyContainer: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: '16px',
-    padding: '16px 0',
-  },
-  skillBox: {
-    background: 'var(--bg-card)',
-    border: '2px solid var(--border)',
-    borderRadius: '12px',
-    padding: '16px',
-    minWidth: '180px',
-    position: 'relative',
-  },
-  skillBoxName: {
-    fontSize: '14px',
-    fontWeight: '600',
-    marginBottom: '4px',
-  },
-  skillBoxRole: {
-    fontSize: '11px',
-    fontWeight: '500',
-    textTransform: 'uppercase',
-  },
-  skillBoxChannels: {
-    fontSize: '11px',
-    color: 'var(--text-muted)',
-    marginTop: '4px',
-  },
-  // Arrows
-  arrowContainer: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '8px 0',
-  },
-  arrow: {
-    fontSize: '18px',
-    color: 'var(--accent)',
-  },
-  arrowLabel: {
-    fontSize: '11px',
-    color: 'var(--text-muted)',
-  },
-  // Validation
-  validationError: {
-    background: 'var(--error)10',
-    border: '1px solid var(--error)30',
-    borderRadius: '6px',
-    padding: '8px 12px',
-    marginBottom: '6px',
-    fontSize: '13px',
-    color: 'var(--error)',
-  },
-  validationWarning: {
-    background: '#f59e0b10',
-    border: '1px solid #f59e0b30',
-    borderRadius: '6px',
-    padding: '8px 12px',
-    marginBottom: '6px',
-    fontSize: '13px',
-    color: '#f59e0b',
-  },
-  validationOk: {
-    background: '#10b98110',
-    border: '1px solid #10b98130',
-    borderRadius: '6px',
-    padding: '12px',
-    fontSize: '14px',
-    color: '#10b981',
-    textAlign: 'center',
-  },
 };
 
 const ROLE_COLORS = {
-  gateway: { bg: '#f59e0b20', color: '#f59e0b' },
-  worker: { bg: '#3b82f620', color: '#60a5fa' },
-  orchestrator: { bg: '#8b5cf620', color: '#a78bfa' },
-  approval: { bg: '#10b98120', color: '#34d399' },
+  gateway: { bg: '#f59e0b20', color: '#f59e0b', stroke: '#f59e0b' },
+  worker: { bg: '#3b82f620', color: '#60a5fa', stroke: '#3b82f6' },
+  orchestrator: { bg: '#8b5cf620', color: '#a78bfa', stroke: '#8b5cf6' },
+  approval: { bg: '#10b98120', color: '#34d399', stroke: '#10b981' },
 };
 
-const TABS = ['Topology', 'Skills', 'Grants', 'Handoffs', 'Routing', 'Security', 'Validation'];
+const TABS = ['Topology', 'Architecture', 'Access & Grants'];
 
+// ═══════════════════════════════════════════════════════════════
+// Main Component
+// ═══════════════════════════════════════════════════════════════
 export default function SolutionPanel({ solution }) {
   const [activeTab, setActiveTab] = useState('Topology');
-  const [validation, setValidation] = useState(null);
-
-  useEffect(() => {
-    if (solution?.id && activeTab === 'Validation') {
-      api.validateSolution(solution.id).then(setValidation).catch(console.error);
-    }
-  }, [solution?.id, activeTab]);
 
   if (!solution) {
     return (
@@ -206,6 +134,7 @@ export default function SolutionPanel({ solution }) {
   const handoffs = solution.handoffs || [];
   const routing = solution.routing || {};
   const contracts = solution.security_contracts || [];
+  const connectors = solution.platform_connectors || [];
 
   return (
     <div style={styles.container}>
@@ -232,45 +161,312 @@ export default function SolutionPanel({ solution }) {
       </div>
 
       <div style={styles.content}>
-        {activeTab === 'Topology' && <TopologyView skills={skills} handoffs={handoffs} routing={routing} />}
-        {activeTab === 'Skills' && <SkillsView skills={skills} />}
-        {activeTab === 'Grants' && <GrantsView grants={grants} />}
-        {activeTab === 'Handoffs' && <HandoffsView handoffs={handoffs} />}
-        {activeTab === 'Routing' && <RoutingView routing={routing} />}
-        {activeTab === 'Security' && <SecurityView contracts={contracts} />}
-        {activeTab === 'Validation' && <ValidationView solution={solution} validation={validation} />}
+        {activeTab === 'Topology' && (
+          <TopologyView skills={skills} handoffs={handoffs} routing={routing} />
+        )}
+        {activeTab === 'Architecture' && (
+          <ArchitectureView skills={skills} connectors={connectors} />
+        )}
+        {activeTab === 'Access & Grants' && (
+          <AccessGrantsView grants={grants} contracts={contracts} skills={skills} />
+        )}
       </div>
     </div>
   );
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Tab 1: Topology — SVG skill graph
+// ═══════════════════════════════════════════════════════════════
 function TopologyView({ skills, handoffs, routing }) {
+  if (skills.length === 0) {
+    return <div style={styles.empty}>No skills defined yet. Start a conversation to add skills.</div>;
+  }
+
+  // Layout: arrange by role rows
+  const ROW_ORDER = ['gateway', 'orchestrator', 'worker', 'approval'];
+  const rows = {};
+  ROW_ORDER.forEach(r => rows[r] = []);
+  skills.forEach(s => {
+    const role = s.role || 'worker';
+    if (!rows[role]) rows[role] = [];
+    rows[role].push(s);
+  });
+
+  // Node dimensions
+  const NODE_W = 160, NODE_H = 70, PAD_X = 50, PAD_Y = 100;
+  const CHANNEL_ROW_H = 50; // space for channel/user icons at top
+
+  // Compute positions
+  const nodePositions = {};
+  let y = CHANNEL_ROW_H;
+  let maxRowWidth = 0;
+  const activeRows = ROW_ORDER.filter(r => rows[r].length > 0);
+
+  activeRows.forEach(role => {
+    const row = rows[role];
+    const rowWidth = row.length * NODE_W + (row.length - 1) * PAD_X;
+    if (rowWidth > maxRowWidth) maxRowWidth = rowWidth;
+    row.forEach((skill, i) => {
+      nodePositions[skill.id] = {
+        x: i * (NODE_W + PAD_X),
+        y: y,
+        role: skill.role || 'worker',
+      };
+    });
+    y += NODE_H + PAD_Y;
+  });
+
+  // Center rows horizontally
+  activeRows.forEach(role => {
+    const row = rows[role];
+    const rowWidth = row.length * NODE_W + (row.length - 1) * PAD_X;
+    const offset = (maxRowWidth - rowWidth) / 2;
+    row.forEach(skill => {
+      nodePositions[skill.id].x += offset;
+    });
+  });
+
+  const svgW = maxRowWidth + 40; // padding
+  const svgH = y + 20;
+
+  // Channel entry points
+  const channelEntries = Object.entries(routing).map(([channel, config]) => ({
+    channel,
+    targetSkill: config.default_skill,
+  }));
+
   return (
-    <div>
-      <div style={styles.sectionTitle}>Skill Topology</div>
-      <div style={styles.topologyContainer}>
+    <div style={{ overflow: 'auto' }}>
+      <svg
+        width="100%"
+        viewBox={`-20 -10 ${svgW} ${svgH}`}
+        style={{ minHeight: '300px' }}
+      >
+        {/* Arrowhead marker */}
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="var(--accent)" />
+          </marker>
+          <marker id="arrowhead-muted" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#6b7280" />
+          </marker>
+        </defs>
+
+        {/* Channel entry arrows from top */}
+        {channelEntries.map(({ channel, targetSkill }) => {
+          const target = nodePositions[targetSkill];
+          if (!target) return null;
+          const tx = target.x + NODE_W / 2;
+          const ty = target.y;
+          return (
+            <g key={`ch-${channel}`}>
+              {/* User icon at top */}
+              <text x={tx} y={8} textAnchor="middle" fontSize="16" fill="#6b7280">👤</text>
+              <text x={tx} y={25} textAnchor="middle" fontSize="10" fill="#6b7280">{channel}</text>
+              <line
+                x1={tx} y1={30}
+                x2={tx} y2={ty}
+                stroke="#6b7280" strokeWidth="1.5" strokeDasharray="4 3"
+                markerEnd="url(#arrowhead-muted)"
+              />
+            </g>
+          );
+        })}
+
+        {/* Handoff arrows */}
+        {handoffs.map(handoff => {
+          const from = nodePositions[handoff.from];
+          const to = nodePositions[handoff.to];
+          if (!from || !to) return null;
+
+          const x1 = from.x + NODE_W / 2;
+          const y1 = from.y + NODE_H;
+          const x2 = to.x + NODE_W / 2;
+          const y2 = to.y;
+
+          // Bezier curve
+          const midY = (y1 + y2) / 2;
+          const path = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
+
+          const grantsLabel = (handoff.grants_passed || []).length > 0
+            ? (handoff.grants_passed || []).map(g => g.split('.').pop()).join(', ')
+            : '';
+
+          return (
+            <g key={handoff.id}>
+              <path
+                d={path}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth="2"
+                markerEnd="url(#arrowhead)"
+                opacity="0.7"
+              />
+              {grantsLabel && (
+                <text
+                  x={(x1 + x2) / 2 + 8}
+                  y={midY}
+                  fontSize="9"
+                  fill="var(--text-muted)"
+                  dominantBaseline="middle"
+                >
+                  {grantsLabel}
+                </text>
+              )}
+            </g>
+          );
+        })}
+
+        {/* Skill nodes */}
+        {skills.map(skill => {
+          const pos = nodePositions[skill.id];
+          if (!pos) return null;
+          const roleColor = ROLE_COLORS[pos.role] || ROLE_COLORS.worker;
+
+          return (
+            <g key={skill.id}>
+              <rect
+                x={pos.x} y={pos.y}
+                width={NODE_W} height={NODE_H}
+                rx="10" ry="10"
+                fill="var(--bg-card)"
+                stroke={roleColor.stroke}
+                strokeWidth="2"
+              />
+              <text
+                x={pos.x + NODE_W / 2}
+                y={pos.y + 24}
+                textAnchor="middle"
+                fontSize="12"
+                fontWeight="600"
+                fill="var(--text-primary)"
+              >
+                {skill.id.length > 18 ? skill.id.slice(0, 16) + '…' : skill.id}
+              </text>
+              {/* Role badge */}
+              <rect
+                x={pos.x + NODE_W / 2 - 28}
+                y={pos.y + 36}
+                width="56" height="18"
+                rx="4"
+                fill={roleColor.bg}
+              />
+              <text
+                x={pos.x + NODE_W / 2}
+                y={pos.y + 49}
+                textAnchor="middle"
+                fontSize="9"
+                fontWeight="500"
+                fill={roleColor.color}
+              >
+                {(skill.role || 'worker').toUpperCase()}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Tab 2: Architecture — Skills at top, Connectors at bottom, links between
+// ═══════════════════════════════════════════════════════════════
+function ArchitectureView({ skills, connectors }) {
+  const containerRef = useRef(null);
+  const skillRefs = useRef({});
+  const connectorRefs = useRef({});
+  const [lines, setLines] = useState([]);
+
+  // Derive all connectors: from platform_connectors + from skill.connectors
+  const platformIds = new Set(connectors.map(c => c.id));
+  const customConnectorIds = new Set();
+  skills.forEach(s => {
+    (s.connectors || []).forEach(cId => {
+      if (!platformIds.has(cId)) customConnectorIds.add(cId);
+    });
+  });
+
+  const platformList = connectors;
+  const customList = [...customConnectorIds].map(id => ({ id, description: 'Custom connector' }));
+
+  // Compute lines after render
+  const computeLines = useCallback(() => {
+    if (!containerRef.current) return;
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const newLines = [];
+
+    skills.forEach(skill => {
+      const skillEl = skillRefs.current[skill.id];
+      if (!skillEl) return;
+      const skillRect = skillEl.getBoundingClientRect();
+      const sx = skillRect.left + skillRect.width / 2 - containerRect.left;
+      const sy = skillRect.bottom - containerRect.top;
+
+      (skill.connectors || []).forEach(cId => {
+        const connEl = connectorRefs.current[cId];
+        if (!connEl) return;
+        const connRect = connEl.getBoundingClientRect();
+        const cx = connRect.left + connRect.width / 2 - containerRect.left;
+        const cy = connRect.top - containerRect.top;
+
+        const isPlatform = platformIds.has(cId);
+        newLines.push({ sx, sy, cx, cy, isPlatform, skillId: skill.id, connId: cId });
+      });
+    });
+
+    setLines(newLines);
+  }, [skills, connectors]);
+
+  useEffect(() => {
+    // Compute after a small delay to let DOM settle
+    const timer = setTimeout(computeLines, 100);
+    return () => clearTimeout(timer);
+  }, [computeLines]);
+
+  if (skills.length === 0) {
+    return <div style={styles.empty}>No skills defined yet. Start a conversation to add skills.</div>;
+  }
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', minHeight: '400px' }}>
+      {/* Skills row */}
+      <div style={styles.sectionTitle}>Skills</div>
+      <div style={{
+        display: 'flex', flexWrap: 'wrap', gap: '12px',
+        marginBottom: '60px', position: 'relative', zIndex: 1,
+      }}>
         {skills.map(skill => {
           const roleColor = ROLE_COLORS[skill.role] || ROLE_COLORS.worker;
           return (
-            <div key={skill.id} style={styles.skillBox}>
-              <div style={styles.skillBoxName}>{skill.id}</div>
+            <div
+              key={skill.id}
+              ref={el => { skillRefs.current[skill.id] = el; }}
+              style={{
+                ...styles.card,
+                borderColor: roleColor.stroke,
+                borderWidth: '2px',
+                minWidth: '140px',
+                maxWidth: '200px',
+                flex: '1 0 140px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                <span style={{ fontSize: '13px', fontWeight: '600' }}>{skill.id}</span>
+              </div>
               <span style={{
-                ...styles.skillBoxRole,
                 ...styles.badge,
                 background: roleColor.bg,
                 color: roleColor.color,
                 marginLeft: 0,
+                fontSize: '10px',
               }}>
-                {skill.role}
+                {(skill.role || 'worker').toUpperCase()}
               </span>
               {skill.description && (
-                <div style={{ ...styles.cardMeta, marginTop: '8px' }}>
-                  {skill.description}
-                </div>
-              )}
-              {skill.entry_channels?.length > 0 && (
-                <div style={styles.skillBoxChannels}>
-                  📡 {skill.entry_channels.join(', ')}
+                <div style={{ ...styles.cardMeta, marginTop: '6px', fontSize: '11px' }}>
+                  {skill.description.length > 60 ? skill.description.slice(0, 58) + '…' : skill.description}
                 </div>
               )}
             </div>
@@ -278,218 +474,274 @@ function TopologyView({ skills, handoffs, routing }) {
         })}
       </div>
 
-      {handoffs.length > 0 && (
+      {/* SVG overlay for lines */}
+      <svg style={{
+        position: 'absolute', top: 0, left: 0,
+        width: '100%', height: '100%',
+        pointerEvents: 'none', zIndex: 0,
+      }}>
+        {lines.map((line, i) => {
+          const midY = (line.sy + line.cy) / 2;
+          const path = `M ${line.sx} ${line.sy} C ${line.sx} ${midY}, ${line.cx} ${midY}, ${line.cx} ${line.cy}`;
+          return (
+            <path
+              key={i}
+              d={path}
+              fill="none"
+              stroke={line.isPlatform ? '#14b8a6' : '#f59e0b'}
+              strokeWidth="1.5"
+              opacity="0.5"
+              strokeDasharray={line.isPlatform ? 'none' : '4 3'}
+            />
+          );
+        })}
+      </svg>
+
+      {/* Connectors row */}
+      {(platformList.length > 0 || customList.length > 0) && (
         <>
-          <div style={{ ...styles.sectionTitle, marginTop: '16px' }}>Handoff Flows</div>
-          {handoffs.map(handoff => (
-            <div key={handoff.id} style={styles.arrowContainer}>
-              <strong>{handoff.from}</strong>
-              <span style={styles.arrow}>→</span>
-              <strong>{handoff.to}</strong>
-              <span style={styles.arrowLabel}>
-                ({(handoff.grants_passed || []).join(', ')})
-              </span>
+          {platformList.length > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={styles.sectionTitle}>Platform Connectors</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', position: 'relative', zIndex: 1 }}>
+                {platformList.map(conn => (
+                  <div
+                    key={conn.id}
+                    ref={el => { connectorRefs.current[conn.id] = el; }}
+                    style={{
+                      ...styles.card,
+                      borderColor: '#14b8a650',
+                      borderWidth: '2px',
+                      minWidth: '130px',
+                      flex: '0 1 auto',
+                      background: '#14b8a608',
+                    }}
+                  >
+                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#14b8a6' }}>{conn.id}</div>
+                    {conn.description && (
+                      <div style={{ ...styles.cardMeta, fontSize: '10px', marginTop: '2px' }}>
+                        {conn.description.length > 50 ? conn.description.slice(0, 48) + '…' : conn.description}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
+          )}
+
+          {customList.length > 0 && (
+            <div>
+              <div style={styles.sectionTitle}>Custom Connectors</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', position: 'relative', zIndex: 1 }}>
+                {customList.map(conn => (
+                  <div
+                    key={conn.id}
+                    ref={el => { connectorRefs.current[conn.id] = el; }}
+                    style={{
+                      ...styles.card,
+                      borderColor: '#f59e0b50',
+                      borderWidth: '2px',
+                      minWidth: '130px',
+                      flex: '0 1 auto',
+                      background: '#f59e0b08',
+                    }}
+                  >
+                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#f59e0b' }}>{conn.id}</div>
+                    <div style={{ ...styles.cardMeta, fontSize: '10px', marginTop: '2px' }}>
+                      {conn.description}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
 
-      {Object.keys(routing).length > 0 && (
-        <>
-          <div style={{ ...styles.sectionTitle, marginTop: '16px' }}>Channel Entry Points</div>
-          {Object.entries(routing).map(([channel, config]) => (
-            <div key={channel} style={styles.arrowContainer}>
-              <span>📡 {channel}</span>
-              <span style={styles.arrow}>→</span>
-              <strong>{config.default_skill}</strong>
-            </div>
-          ))}
-        </>
+      {platformList.length === 0 && customList.length === 0 && (
+        <div style={{ ...styles.empty, paddingTop: '0' }}>
+          No connectors configured yet
+        </div>
       )}
     </div>
   );
 }
 
-function SkillsView({ skills }) {
-  if (skills.length === 0) return <div style={styles.empty}>No skills defined yet</div>;
+// ═══════════════════════════════════════════════════════════════
+// Tab 3: Access & Grants — Grant table + Security contracts
+// ═══════════════════════════════════════════════════════════════
+function AccessGrantsView({ grants, contracts, skills }) {
+  // Build a role lookup for skill pills
+  const skillRoles = {};
+  skills.forEach(s => { skillRoles[s.id] = s.role || 'worker'; });
 
-  return (
-    <div>
-      {skills.map(skill => {
-        const roleColor = ROLE_COLORS[skill.role] || ROLE_COLORS.worker;
-        return (
-          <div key={skill.id} style={styles.card}>
-            <div style={styles.cardTitle}>
-              {skill.id}
-              <span style={{
-                ...styles.badge,
-                background: roleColor.bg,
-                color: roleColor.color,
-              }}>
-                {skill.role}
-              </span>
-            </div>
-            <div style={styles.cardMeta}>
-              {skill.description}
-              {skill.entry_channels?.length > 0 && (
-                <span> · Channels: {skill.entry_channels.join(', ')}</span>
-              )}
-              {skill.connectors?.length > 0 && (
-                <span> · Connectors: {skill.connectors.join(', ')}</span>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
+  const renderSkillPill = (skillId) => {
+    const roleColor = ROLE_COLORS[skillRoles[skillId]] || ROLE_COLORS.worker;
+    return (
+      <span key={skillId} style={{
+        display: 'inline-block',
+        padding: '1px 6px',
+        borderRadius: '3px',
+        fontSize: '10px',
+        fontWeight: '500',
+        background: roleColor.bg,
+        color: roleColor.color,
+        marginRight: '4px',
+        marginBottom: '2px',
+      }}>
+        {skillId}
+      </span>
+    );
+  };
+
+  const renderGrantPill = (grantKey) => (
+    <span key={grantKey} style={{
+      display: 'inline-block',
+      padding: '1px 6px',
+      borderRadius: '3px',
+      fontSize: '10px',
+      fontFamily: 'monospace',
+      background: 'var(--bg-tertiary)',
+      color: 'var(--text-secondary)',
+      marginRight: '4px',
+      marginBottom: '2px',
+    }}>
+      {grantKey}
+    </span>
   );
-}
-
-function GrantsView({ grants }) {
-  if (grants.length === 0) return <div style={styles.empty}>No grants defined yet</div>;
 
   return (
     <div>
-      {grants.map(grant => (
-        <div key={grant.key} style={styles.card}>
-          <div style={styles.cardTitle}>
-            <code>{grant.key}</code>
-            {grant.internal && (
-              <span style={{ ...styles.badge, background: '#6b728020', color: '#9ca3af' }}>
-                internal
-              </span>
-            )}
-          </div>
-          <div style={styles.cardMeta}>
-            {grant.description}
-            <br />
-            Issued by: {(grant.issued_by || []).join(', ') || 'none'} ·
-            Consumed by: {(grant.consumed_by || []).join(', ') || 'none'}
-            {grant.ttl_seconds && <span> · TTL: {grant.ttl_seconds}s</span>}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function HandoffsView({ handoffs }) {
-  if (handoffs.length === 0) return <div style={styles.empty}>No handoffs defined yet</div>;
-
-  return (
-    <div>
-      {handoffs.map(handoff => (
-        <div key={handoff.id} style={styles.card}>
-          <div style={styles.cardTitle}>
-            {handoff.from} → {handoff.to}
-            <span style={{ ...styles.badge, background: '#3b82f620', color: '#60a5fa' }}>
-              {handoff.mechanism || 'internal'}
-            </span>
-          </div>
-          <div style={styles.cardMeta}>
-            Trigger: {handoff.trigger}
-            <br />
-            Passes: {(handoff.grants_passed || []).join(', ') || 'none'}
-            {handoff.grants_dropped?.length > 0 && (
-              <span> · Drops: {handoff.grants_dropped.join(', ')}</span>
-            )}
-            {handoff.ttl_seconds && <span> · TTL: {handoff.ttl_seconds}s</span>}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function RoutingView({ routing }) {
-  const entries = Object.entries(routing);
-  if (entries.length === 0) return <div style={styles.empty}>No routing configured yet</div>;
-
-  return (
-    <div>
-      {entries.map(([channel, config]) => (
-        <div key={channel} style={styles.card}>
-          <div style={styles.cardTitle}>
-            📡 {channel}
-          </div>
-          <div style={styles.cardMeta}>
-            Default skill: <strong>{config.default_skill}</strong>
-            {config.description && <span> · {config.description}</span>}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SecurityView({ contracts }) {
-  if (contracts.length === 0) return <div style={styles.empty}>No security contracts defined yet</div>;
-
-  return (
-    <div>
-      {contracts.map((contract, i) => (
-        <div key={i} style={styles.card}>
-          <div style={styles.cardTitle}>
-            {contract.name}
-          </div>
-          <div style={styles.cardMeta}>
-            Consumer: {contract.consumer} · Provider: {contract.provider}
-            <br />
-            Requires: {(contract.requires_grants || []).join(', ')}
-            {contract.for_tools?.length > 0 && (
-              <span> · Tools: {contract.for_tools.join(', ')}</span>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ValidationView({ solution, validation }) {
-  if (!validation) return <div style={styles.empty}>Loading validation...</div>;
-
-  const { errors, warnings, summary } = validation;
-
-  return (
-    <div>
+      {/* Grant Economy Section */}
       <div style={styles.section}>
-        <div style={styles.sectionTitle}>Summary</div>
-        <div style={styles.card}>
-          <div style={styles.cardMeta}>
-            {summary.skills} skills · {summary.grants} grants · {summary.handoffs} handoffs ·
-            {summary.channels} channels · {summary.security_contracts} contracts
+        <div style={styles.sectionTitle}>Grant Economy</div>
+
+        {grants.length === 0 ? (
+          <div style={styles.empty}>No grants defined yet</div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 2fr 1fr 1fr 70px',
+            gap: '1px',
+            background: 'var(--border)',
+            borderRadius: '8px',
+            overflow: 'hidden',
+          }}>
+            {/* Header */}
+            {['Key', 'Description', 'Issued By', 'Consumed By', 'TTL'].map(h => (
+              <div key={h} style={{
+                background: 'var(--bg-secondary)',
+                padding: '8px 10px',
+                fontSize: '11px',
+                fontWeight: '600',
+                color: 'var(--text-muted)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.3px',
+              }}>
+                {h}
+              </div>
+            ))}
+
+            {/* Rows */}
+            {grants.map(grant => (
+              <>
+                <div key={`${grant.key}-key`} style={{
+                  background: 'var(--bg-card)',
+                  padding: '8px 10px',
+                  fontSize: '12px',
+                  fontFamily: 'monospace',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}>
+                  {grant.key}
+                  {grant.internal && (
+                    <span style={{
+                      fontSize: '9px', padding: '1px 4px',
+                      borderRadius: '3px', background: '#6b728020',
+                      color: '#9ca3af',
+                    }}>int</span>
+                  )}
+                </div>
+                <div key={`${grant.key}-desc`} style={{
+                  background: 'var(--bg-card)',
+                  padding: '8px 10px',
+                  fontSize: '12px',
+                  color: 'var(--text-muted)',
+                }}>
+                  {grant.description || '—'}
+                </div>
+                <div key={`${grant.key}-issued`} style={{
+                  background: 'var(--bg-card)',
+                  padding: '8px 10px',
+                }}>
+                  {(grant.issued_by || []).map(id => renderSkillPill(id))}
+                  {(!grant.issued_by || grant.issued_by.length === 0) && (
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>—</span>
+                  )}
+                </div>
+                <div key={`${grant.key}-consumed`} style={{
+                  background: 'var(--bg-card)',
+                  padding: '8px 10px',
+                }}>
+                  {(grant.consumed_by || []).map(id => renderSkillPill(id))}
+                  {(!grant.consumed_by || grant.consumed_by.length === 0) && (
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>—</span>
+                  )}
+                </div>
+                <div key={`${grant.key}-ttl`} style={{
+                  background: 'var(--bg-card)',
+                  padding: '8px 10px',
+                  fontSize: '11px',
+                  color: 'var(--text-muted)',
+                }}>
+                  {grant.ttl_seconds ? `${grant.ttl_seconds}s` : '—'}
+                </div>
+              </>
+            ))}
           </div>
-        </div>
+        )}
       </div>
 
-      {errors.length === 0 && warnings.length === 0 && (
-        <div style={styles.validationOk}>
-          ✓ All cross-skill contracts are valid
-        </div>
-      )}
+      {/* Security Contracts Section */}
+      <div style={styles.section}>
+        <div style={styles.sectionTitle}>Security Contracts</div>
 
-      {errors.length > 0 && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Errors ({errors.length})</div>
-          {errors.map((error, i) => (
-            <div key={i} style={styles.validationError}>
-              ✕ {error.message}
+        {contracts.length === 0 ? (
+          <div style={styles.empty}>No security contracts defined yet</div>
+        ) : (
+          contracts.map((contract, i) => (
+            <div key={i} style={styles.card}>
+              <div style={styles.cardTitle}>{contract.name}</div>
+              <div style={{ ...styles.cardMeta, marginTop: '6px' }}>
+                <div style={{ marginBottom: '4px' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>Consumer:</span>{' '}
+                  {renderSkillPill(contract.consumer)}
+                  {contract.provider && (
+                    <>
+                      <span style={{ margin: '0 6px', color: 'var(--text-muted)' }}>←</span>
+                      <span style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>Provider:</span>{' '}
+                      {renderSkillPill(contract.provider)}
+                    </>
+                  )}
+                </div>
+                <div style={{ marginBottom: '4px' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>Requires:</span>{' '}
+                  {(contract.requires_grants || []).map(g => renderGrantPill(g))}
+                </div>
+                {contract.for_tools?.length > 0 && (
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>Protected tools:</span>{' '}
+                    <span style={{ fontFamily: 'monospace', fontSize: '11px' }}>
+                      {contract.for_tools.join(', ')}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
-          ))}
-        </div>
-      )}
-
-      {warnings.length > 0 && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Warnings ({warnings.length})</div>
-          {warnings.map((warning, i) => (
-            <div key={i} style={styles.validationWarning}>
-              ⚠ {warning.message}
-            </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
     </div>
   );
 }

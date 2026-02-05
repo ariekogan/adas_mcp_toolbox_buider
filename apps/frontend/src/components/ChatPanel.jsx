@@ -220,11 +220,10 @@ const dashboardStyles = {
 
 const styles = {
   container: {
-    flex: '1 1 60%',
+    flex: 1,
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    borderRight: '1px solid var(--border)'
   },
   header: {
     padding: '16px',

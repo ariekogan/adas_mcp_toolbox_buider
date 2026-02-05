@@ -27,7 +27,7 @@ import { validateToolsConsistency, validatePolicyConsistency, validateIntentsCon
 
 const styles = {
   container: {
-    flex: '1 1 40%',
+    flex: 1,
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
