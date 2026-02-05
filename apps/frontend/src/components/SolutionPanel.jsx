@@ -7,7 +7,7 @@
  *   3. Access & Grants — Grant economy table + security contracts
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as api from '../api/client';
 
 // ═══════════════════════════════════════════════════════════════
@@ -289,7 +289,7 @@ function Legend({ items }) {
 // ═══════════════════════════════════════════════════════════════
 // Main Component
 // ═══════════════════════════════════════════════════════════════
-export default function SolutionPanel({ solution }) {
+export default function SolutionPanel({ solution, sidebarSkills = [] }) {
   const [activeTab, setActiveTab] = useState('Topology');
 
   if (!solution) {
@@ -306,6 +306,42 @@ export default function SolutionPanel({ solution }) {
   const routing = solution.routing || {};
   const contracts = solution.security_contracts || [];
   const connectors = solution.platform_connectors || [];
+
+  // Enrich solution skills with connector data from sidebar skills (fuzzy name match)
+  const enrichedSkills = useMemo(() => {
+    if (!sidebarSkills || sidebarSkills.length === 0) return skills;
+
+    const norm = (str) => str.toLowerCase().replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // Build lookup: normalized name/id → connectors[]
+    const lookup = {};
+    sidebarSkills.forEach(ss => {
+      if (ss.connectors && ss.connectors.length > 0) {
+        lookup[norm(ss.name)] = ss.connectors;
+        lookup[norm(ss.id)] = ss.connectors;
+      }
+    });
+
+    return skills.map(s => {
+      if (s.connectors && s.connectors.length > 0) return s;
+      const nId = norm(s.id);
+      // Exact match
+      if (lookup[nId]) return { ...s, connectors: lookup[nId] };
+      // Substring match
+      for (const [key, conns] of Object.entries(lookup)) {
+        if (key.includes(nId) || nId.includes(key)) return { ...s, connectors: conns };
+      }
+      // Token overlap (at least 2 matching tokens, or all tokens if only 1)
+      const idTokens = nId.split(' ');
+      const minOverlap = Math.min(idTokens.length, 2);
+      for (const [key, conns] of Object.entries(lookup)) {
+        const keyTokens = key.split(' ');
+        const overlap = idTokens.filter(t => keyTokens.includes(t)).length;
+        if (overlap >= minOverlap) return { ...s, connectors: conns };
+      }
+      return s;
+    });
+  }, [skills, sidebarSkills]);
 
   return (
     <div style={styles.container}>
@@ -333,10 +369,10 @@ export default function SolutionPanel({ solution }) {
 
       <div style={styles.content}>
         {activeTab === 'Topology' && (
-          <TopologyView skills={skills} handoffs={handoffs} routing={routing} />
+          <TopologyView skills={enrichedSkills} handoffs={handoffs} routing={routing} />
         )}
         {activeTab === 'Architecture' && (
-          <ArchitectureView skills={skills} connectors={connectors} handoffs={handoffs} />
+          <ArchitectureView skills={enrichedSkills} connectors={connectors} handoffs={handoffs} />
         )}
         {activeTab === 'Access & Grants' && (
           <AccessGrantsView grants={grants} contracts={contracts} skills={skills} />
@@ -827,7 +863,15 @@ function ArchitectureView({ skills, connectors, handoffs }) {
     });
   });
   const platformList = connectors;
-  const customList = [...customConnectorIds].map(id => ({ id, description: 'Custom connector' }));
+  const CONNECTOR_LABELS = {
+    'orders-mcp': 'Order management',
+    'fulfillment-mcp': 'Fulfillment tracking',
+    'support-mcp': 'Support tickets',
+    'returns-mcp': 'Returns processing',
+    'identity-mcp': 'Identity verification',
+    'handoff-controller-mcp': 'Handoff sessions',
+  };
+  const customList = [...customConnectorIds].map(id => ({ id, description: CONNECTOR_LABELS[id] || 'Custom connector' }));
   const allConnectors = [...platformList, ...customList];
 
   // Count how many skills use each connector

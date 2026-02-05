@@ -591,7 +591,7 @@ export default function App() {
                   />
                 }
                 right={
-                  <SolutionPanel solution={currentSolution} />
+                  <SolutionPanel solution={currentSolution} sidebarSkills={skills} />
                 }
               />
             ) : currentSkill ? (

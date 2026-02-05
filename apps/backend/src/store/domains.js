@@ -204,6 +204,7 @@ async function list() {
             created_at: domain.created_at,
             updated_at: domain.updated_at,
             tools_count: domain.tools?.length || 0,
+            connectors: domain.connectors || [],
             progress: domain.validation?.completeness
               ? calculateOverallProgress(domain.validation.completeness)
               : 0,
