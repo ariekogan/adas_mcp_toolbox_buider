@@ -332,12 +332,12 @@ export default function SolutionPanel({ solution, sidebarSkills = [] }) {
       for (const [key, conns] of Object.entries(lookup)) {
         if (key.includes(nId) || nId.includes(key)) return conns;
       }
-      // Token overlap with prefix matching (e.g. "ops" matches "operations")
-      const idTokens = nId.split(' ').filter(t => t.length > 1);
+      // Token overlap: a single significant token match is enough (e.g. "returns" in "returns ops" matches "returns operations")
+      const idTokens = nId.split(' ').filter(t => t.length > 2);
       for (const [key, conns] of Object.entries(lookup)) {
-        const keyTokens = key.split(' ').filter(t => t.length > 1);
+        const keyTokens = key.split(' ').filter(t => t.length > 2);
         const overlap = idTokens.filter(t => keyTokens.some(kt => tokenMatch(t, kt))).length;
-        if (overlap >= Math.min(idTokens.length, 2)) return conns;
+        if (overlap >= 1) return conns;
       }
       return [];
     };
