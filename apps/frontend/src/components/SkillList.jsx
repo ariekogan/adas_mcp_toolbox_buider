@@ -464,28 +464,30 @@ export default function SkillList({
                 </div>
               );
             })}
-
-            {/* New Solution button */}
-            {onCreateSolution && (
-              <div
-                style={{
-                  ...solutionStyles.solutionItem,
-                  color: 'var(--text-muted)',
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                }}
-                onClick={() => {
-                  const name = prompt('Solution name:');
-                  if (name?.trim()) onCreateSolution(name.trim());
-                }}
-              >
-                ★ + New Solution
-              </div>
-            )}
-
-            {/* Separator if there are standalone skills */}
-            {standaloneSkills.length > 0 && <div style={solutionStyles.separator} />}
           </>
+        )}
+
+        {/* New Solution button — always visible */}
+        {onCreateSolution && (
+          <div
+            style={{
+              ...solutionStyles.solutionItem,
+              color: 'var(--text-muted)',
+              fontSize: '13px',
+              cursor: 'pointer',
+            }}
+            onClick={() => {
+              const name = prompt('Solution name:');
+              if (name?.trim()) onCreateSolution(name.trim());
+            }}
+          >
+            ★ + New Solution
+          </div>
+        )}
+
+        {/* Separator between solutions and standalone skills */}
+        {(solutions.length > 0 || onCreateSolution) && standaloneSkills.length > 0 && (
+          <div style={solutionStyles.separator} />
         )}
 
         {/* Standalone Skills */}
