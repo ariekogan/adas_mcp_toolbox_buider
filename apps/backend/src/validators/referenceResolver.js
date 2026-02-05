@@ -1,12 +1,12 @@
 /**
- * Reference Resolver - validates cross-references in DraftDomain
+ * Reference Resolver - validates cross-references in DraftSkill
  * @module validators/referenceResolver
  */
 
 /**
- * @typedef {import('../types/DraftDomain.js').ValidationIssue} ValidationIssue
- * @typedef {import('../types/DraftDomain.js').DraftDomain} DraftDomain
- * @typedef {import('../types/DraftDomain.js').ValidationUnresolved} ValidationUnresolved
+ * @typedef {import('../types/DraftSkill.js').ValidationIssue} ValidationIssue
+ * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill
+ * @typedef {import('../types/DraftSkill.js').ValidationUnresolved} ValidationUnresolved
  */
 
 /**
@@ -28,31 +28,31 @@ export const COVERAGE = [
 ];
 
 /**
- * Resolve and validate all cross-references in the domain
- * @param {DraftDomain} domain
+ * Resolve and validate all cross-references in the skill
+ * @param {DraftSkill} skill
  * @param {ValidationUnresolved} unresolved - Object to populate with unresolved refs
  * @returns {ValidationIssue[]}
  */
-export function resolveReferences(domain, unresolved) {
+export function resolveReferences(skill, unresolved) {
   const issues = [];
 
   // Build lookup sets (filter out tools without names)
   // Include both regular tools AND meta_tools in the lookup
-  const toolIds = new Set(domain.tools.map(t => t.id).filter(Boolean));
-  const toolNames = new Set(domain.tools.filter(t => t.name).map(t => t.name.toLowerCase()));
+  const toolIds = new Set(skill.tools.map(t => t.id).filter(Boolean));
+  const toolNames = new Set(skill.tools.filter(t => t.name).map(t => t.name.toLowerCase()));
 
   // Also include meta_tools in the lookup (they are valid tool references)
-  if (Array.isArray(domain.meta_tools)) {
-    for (const mt of domain.meta_tools) {
+  if (Array.isArray(skill.meta_tools)) {
+    for (const mt of skill.meta_tools) {
       if (mt.id) toolIds.add(mt.id);
       if (mt.name) toolNames.add(mt.name.toLowerCase());
     }
   }
 
-  const workflows = domain.policy?.workflows || [];
-  const approvals = domain.policy?.approvals || [];
+  const workflows = skill.policy?.workflows || [];
+  const approvals = skill.policy?.approvals || [];
   const workflowIds = new Set(workflows.map(w => w.id));
-  const intentIds = new Set(domain.intents?.supported?.map(i => i.id) || []);
+  const intentIds = new Set(skill.intents?.supported?.map(i => i.id) || []);
 
   // Check workflow steps reference valid tools
   workflows.forEach((workflow, wi) => {
@@ -82,7 +82,7 @@ export function resolveReferences(domain, unresolved) {
   });
 
   // Check intent maps_to_workflow references valid workflow
-  (domain.intents?.supported || []).forEach((intent, ii) => {
+  (skill.intents?.supported || []).forEach((intent, ii) => {
     if (intent.maps_to_workflow) {
       const resolved = workflowIds.has(intent.maps_to_workflow);
       intent.maps_to_workflow_resolved = resolved;
@@ -126,7 +126,7 @@ export function resolveReferences(domain, unresolved) {
 
   // Check for duplicate tool IDs
   const seenToolIds = new Set();
-  (domain.tools || []).forEach((tool, ti) => {
+  (skill.tools || []).forEach((tool, ti) => {
     if (seenToolIds.has(tool.id)) {
       issues.push({
         code: 'DUPLICATE_TOOL_ID',
@@ -141,7 +141,7 @@ export function resolveReferences(domain, unresolved) {
 
   // Check for duplicate tool names
   const seenToolNames = new Set();
-  (domain.tools || []).forEach((tool, ti) => {
+  (skill.tools || []).forEach((tool, ti) => {
     const lowerName = (tool.name || '').toLowerCase();
     if (seenToolNames.has(lowerName)) {
       issues.push({
@@ -172,7 +172,7 @@ export function resolveReferences(domain, unresolved) {
 
   // Check for duplicate intent IDs
   const seenIntentIds = new Set();
-  (domain.intents?.supported || []).forEach((intent, ii) => {
+  (skill.intents?.supported || []).forEach((intent, ii) => {
     if (seenIntentIds.has(intent.id)) {
       issues.push({
         code: 'DUPLICATE_INTENT_ID',
@@ -187,7 +187,7 @@ export function resolveReferences(domain, unresolved) {
 
   // Check for duplicate scenario IDs
   const seenScenarioIds = new Set();
-  (domain.scenarios || []).forEach((scenario, si) => {
+  (skill.scenarios || []).forEach((scenario, si) => {
     if (seenScenarioIds.has(scenario.id)) {
       issues.push({
         code: 'DUPLICATE_SCENARIO_ID',
@@ -204,27 +204,27 @@ export function resolveReferences(domain, unresolved) {
 }
 
 /**
- * Check if all references in the domain are resolved
- * @param {DraftDomain} domain
+ * Check if all references in the skill are resolved
+ * @param {DraftSkill} skill
  * @returns {boolean}
  */
-export function areAllReferencesResolved(domain) {
+export function areAllReferencesResolved(skill) {
   // Check workflow steps
-  for (const workflow of (domain.policy?.workflows || [])) {
+  for (const workflow of (skill.policy?.workflows || [])) {
     if (workflow.steps_resolved?.some(r => !r)) {
       return false;
     }
   }
 
   // Check intent workflow mappings
-  for (const intent of (domain.intents?.supported || [])) {
+  for (const intent of (skill.intents?.supported || [])) {
     if (intent.maps_to_workflow && !intent.maps_to_workflow_resolved) {
       return false;
     }
   }
 
   // Check approval rules
-  for (const approval of (domain.policy?.approvals || [])) {
+  for (const approval of (skill.policy?.approvals || [])) {
     if (approval.tool_id && !approval.tool_id_resolved) {
       return false;
     }
@@ -235,16 +235,16 @@ export function areAllReferencesResolved(domain) {
 
 /**
  * Get list of all unresolved tool references
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {string[]}
  */
-export function getUnresolvedToolRefs(domain) {
-  const toolIds = new Set((domain.tools || []).map(t => t.id));
-  const toolNames = new Set((domain.tools || []).map(t => (t.name || '').toLowerCase()));
+export function getUnresolvedToolRefs(skill) {
+  const toolIds = new Set((skill.tools || []).map(t => t.id));
+  const toolNames = new Set((skill.tools || []).map(t => (t.name || '').toLowerCase()));
 
   // Also include meta_tools in the lookup
-  if (Array.isArray(domain.meta_tools)) {
-    for (const mt of domain.meta_tools) {
+  if (Array.isArray(skill.meta_tools)) {
+    for (const mt of skill.meta_tools) {
       if (mt.id) toolIds.add(mt.id);
       if (mt.name) toolNames.add(mt.name.toLowerCase());
     }
@@ -253,7 +253,7 @@ export function getUnresolvedToolRefs(domain) {
   const unresolved = new Set();
 
   // From workflows
-  for (const workflow of (domain.policy?.workflows || [])) {
+  for (const workflow of (skill.policy?.workflows || [])) {
     for (const stepId of (workflow.steps || [])) {
       if (!toolIds.has(stepId) && !toolNames.has(stepId.toLowerCase())) {
         unresolved.add(stepId);
@@ -262,7 +262,7 @@ export function getUnresolvedToolRefs(domain) {
   }
 
   // From approval rules
-  for (const approval of (domain.policy?.approvals || [])) {
+  for (const approval of (skill.policy?.approvals || [])) {
     if (approval.tool_id && !toolIds.has(approval.tool_id) && !toolNames.has(approval.tool_id.toLowerCase())) {
       unresolved.add(approval.tool_id);
     }
@@ -273,15 +273,15 @@ export function getUnresolvedToolRefs(domain) {
 
 /**
  * Get list of all unresolved workflow references
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {string[]}
  */
-export function getUnresolvedWorkflowRefs(domain) {
-  const workflowIds = new Set((domain.policy?.workflows || []).map(w => w.id));
+export function getUnresolvedWorkflowRefs(skill) {
+  const workflowIds = new Set((skill.policy?.workflows || []).map(w => w.id));
   const unresolved = new Set();
 
   // From intents
-  for (const intent of (domain.intents?.supported || [])) {
+  for (const intent of (skill.intents?.supported || [])) {
     if (intent.maps_to_workflow && !workflowIds.has(intent.maps_to_workflow)) {
       unresolved.add(intent.maps_to_workflow);
     }

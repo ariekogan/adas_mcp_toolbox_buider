@@ -1,8 +1,8 @@
 /**
- * DraftDomain Types for Frontend
+ * DraftSkill Types for Frontend
  *
- * These match the backend types in apps/backend/src/types/DraftDomain.js
- * @module types/DraftDomain
+ * These match the backend types in apps/backend/src/types/DraftSkill.js
+ * @module types/DraftSkill
  */
 
 /**
@@ -49,8 +49,8 @@ export const PHASE_DESCRIPTIONS = {
   TOOL_DEFINITION: 'Define tool details and mock data',
   POLICY_DEFINITION: 'Set guardrails and workflows',
   MOCK_TESTING: 'Test tools with sample data',
-  READY_TO_EXPORT: 'Review and export domain',
-  EXPORTED: 'Domain exported successfully'
+  READY_TO_EXPORT: 'Review and export skill',
+  EXPORTED: 'Skill exported successfully'
 };
 
 /**
@@ -84,12 +84,12 @@ export function getPhaseProgress(phase) {
 }
 
 /**
- * Check if domain is in new format (DraftDomain) vs legacy
+ * Check if skill is in new format (DraftSkill) vs legacy
  * @param {Object} data
  * @returns {boolean}
  */
-export function isDraftDomain(data) {
-  // DraftDomain has 'phase' and 'validation', legacy has 'status'
+export function isDraftSkill(data) {
+  // DraftSkill has 'phase' and 'validation', legacy has 'status'
   return data.phase !== undefined && data.validation !== undefined;
 }
 
@@ -329,7 +329,7 @@ export default {
   getPhaseIndex,
   isPhaseBefore,
   getPhaseProgress,
-  isDraftDomain,
+  isDraftSkill,
   getValidationColor,
   getCompletenessPercent,
   FOCUS_PANELS,

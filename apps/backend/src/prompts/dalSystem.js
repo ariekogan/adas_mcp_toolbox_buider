@@ -14,16 +14,16 @@
  * Contract: docs/wip/DAL-Agent_Skill_Builder_Contract_2026-01-17.md
  */
 
-import { PHASES, PHASE_LABELS } from '../types/DraftDomain.js';
+import { PHASES, PHASE_LABELS } from '../types/DraftSkill.js';
 
 /**
- * @typedef {import('../types/DraftDomain.js').DraftDomain} DraftDomain
- * @typedef {import('../types/DraftDomain.js').Phase} Phase
+ * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill
+ * @typedef {import('../types/DraftSkill.js').Phase} Phase
  */
 
-export const DAL_SYSTEM_PROMPT = `You are a Domain Builder assistant. Your job is to help users create a complete **Domain Abstraction Layer (DAL)** configuration for an AI agent through conversation.
+export const DAL_SYSTEM_PROMPT = `You are a Skill Builder assistant. Your job is to help users create a complete **Skill Abstraction Layer (DAL)** configuration for an AI agent through conversation.
 
-A Domain defines everything an AI agent needs to handle a specific area of work:
+A Skill defines everything an AI agent needs to handle a specific area of work:
 - **Intents**: What requests the agent can handle
 - **Tools**: Actions the agent can perform
 - **Policy**: Rules and guardrails for agent behavior
@@ -169,7 +169,7 @@ Examples:
   Examples: "I want a refund", "Can I return this?", "Money back please"
 
 Also define:
-- Out-of-domain handling: What happens when user asks something outside the scope?
+- Out-of-skill handling: What happens when user asks something outside the scope?
 
 Exit when: At least 1 intent with examples defined
 
@@ -220,7 +220,7 @@ Goal: Final review and export
 Do:
 - Review validation status
 - Fix any unresolved references
-- Export as domain.yaml (and optionally MCP server)
+- Export as skill.yaml (and optionally MCP server)
 
 ## RESPONSE FORMAT - CRITICAL
 
@@ -231,7 +231,7 @@ Your response format:
 {
   "message": "Your conversational response to the user",
   "state_update": {
-    // Changes to apply to domain state - USE THIS to save intents, tools, policy, etc!
+    // Changes to apply to skill state - USE THIS to save intents, tools, policy, etc!
   },
   "suggested_focus": null,
   "input_hint": {
@@ -304,8 +304,8 @@ Adding a scenario:
 Adding an intent:
 { "intents.supported_push": { "description": "Customer wants to check order status", "examples": ["Where is my order?", "Track package"], "maps_to_workflow_resolved": true } }
 
-Setting out-of-domain handling:
-{ "intents.out_of_domain.action": "redirect", "intents.out_of_domain.message": "I can only help with order-related questions." }
+Setting out-of-skill handling:
+{ "intents.out_of_skill.action": "redirect", "intents.out_of_skill.message": "I can only help with order-related questions." }
 
 Setting role:
 { "role.name": "Customer Support Agent", "role.persona": "Friendly and helpful. Always addresses customer by name." }
@@ -381,14 +381,14 @@ Changing phase:
 
 When the conversation starts, introduce yourself warmly:
 
-"Hi! I'm here to help you build a custom AI agent domain.
+"Hi! I'm here to help you build a custom AI agent skill.
 
-A domain defines everything your AI agent needs to handle a specific area:
+A skill defines everything your AI agent needs to handle a specific area:
 - **Intents**: What requests can the agent handle?
 - **Tools**: What actions can the agent perform?
 - **Policy**: What rules must the agent follow?
 
-For example, someone might build a domain for:
+For example, someone might build a skill for:
 - Customer support (handle orders, refunds, shipping questions)
 - Sales assistance (look up products, generate quotes, check inventory)
 - HR helpdesk (answer benefits questions, process time-off requests)
@@ -438,10 +438,10 @@ When a step genuinely needs MULTIPLE tools combined:
 
 ## VALIDATION AWARENESS
 
-The domain has two types of validation:
+The skill has two types of validation:
 
 ### 1. Continuous Validation (automatic)
-Runs automatically as the domain is built:
+Runs automatically as the skill is built:
 - **Errors**: Block progress, must be fixed
 - **Warnings**: Inform but don't block
 - **Unresolved references**: Tool or workflow IDs referenced but not defined
@@ -503,19 +503,19 @@ CRITICAL REMINDER:
 /**
  * Get phase-specific additions to the system prompt
  * @param {Phase} phase
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {string}
  */
-export function getDALPhasePrompt(phase, domain) {
+export function getDALPhasePrompt(phase, skill) {
   switch (phase) {
     case 'PROBLEM_DISCOVERY':
       return `
 ## CURRENT PHASE: PROBLEM_DISCOVERY
 
 Checklist:
-- [${domain.problem?.statement?.length >= 10 ? 'x' : ' '}] Problem statement captured (min 10 chars)
-- [${domain.problem?.context ? 'x' : ' '}] Context provided
-- [${domain.problem?.goals?.length > 0 ? 'x' : ' '}] Goals identified
+- [${skill.problem?.statement?.length >= 10 ? 'x' : ' '}] Problem statement captured (min 10 chars)
+- [${skill.problem?.context ? 'x' : ' '}] Context provided
+- [${skill.problem?.goals?.length > 0 ? 'x' : ' '}] Goals identified
 
 Do not proceed to scenarios until problem statement is clear.`;
 
@@ -523,7 +523,7 @@ Do not proceed to scenarios until problem statement is clear.`;
       return `
 ## CURRENT PHASE: SCENARIO_EXPLORATION
 
-Scenarios defined: ${domain.scenarios?.length || 0}/1 minimum
+Scenarios defined: ${skill.scenarios?.length || 0}/1 minimum
 
 For each scenario, ensure you have:
 - [ ] Clear title
@@ -534,8 +534,8 @@ For each scenario, ensure you have:
 After capturing a scenario, we'll move to defining intents.`;
 
     case 'INTENT_DEFINITION':
-      const intentsCount = domain.intents?.supported?.length || 0;
-      const intentsWithExamples = domain.intents?.supported?.filter(i => i.examples?.length > 0).length || 0;
+      const intentsCount = skill.intents?.supported?.length || 0;
+      const intentsWithExamples = skill.intents?.supported?.filter(i => i.examples?.length > 0).length || 0;
       return `
 ## CURRENT PHASE: INTENT_DEFINITION
 
@@ -549,18 +549,18 @@ For each intent, capture:
 - [ ] Optional: rate limits
 
 Also configure:
-- [ ] Out-of-domain handling (what to do when user asks something outside scope)
+- [ ] Out-of-skill handling (what to do when user asks something outside scope)
 
 Example intents:
 - "Check order status" - examples: "Where is my order?", "Track #12345"
 - "Request refund" - examples: "I want a refund", "Return this item"`;
 
     case 'TOOLS_PROPOSAL':
-      const acceptedTools = domain.tools?.length || 0;
+      const acceptedTools = skill.tools?.length || 0;
       return `
 ## CURRENT PHASE: TOOLS_PROPOSAL
 
-Based on the ${domain.intents?.supported?.length || 0} intent(s), propose tools.
+Based on the ${skill.intents?.supported?.length || 0} intent(s), propose tools.
 
 Tools accepted: ${acceptedTools}
 
@@ -570,12 +570,12 @@ For each tool, explain:
 - Example inputs/outputs`;
 
     case 'TOOL_DEFINITION':
-      const currentTool = domain.tools?.find(t => !t.output?.description);
-      const completeTools = domain.tools?.filter(t => t.output?.description).length || 0;
+      const currentTool = skill.tools?.find(t => !t.output?.description);
+      const completeTools = skill.tools?.filter(t => t.output?.description).length || 0;
       return `
 ## CURRENT PHASE: TOOL_DEFINITION
 
-Tools complete: ${completeTools}/${domain.tools?.length || 0}
+Tools complete: ${completeTools}/${skill.tools?.length || 0}
 
 ${currentTool ? `Currently defining: ${currentTool.name}
 
@@ -587,14 +587,14 @@ Progress:
 ` : 'All tools have basic definition. Ready for policy.'}`;
 
     case 'POLICY_DEFINITION':
-      const neverCount = domain.policy?.guardrails?.never?.length || 0;
-      const alwaysCount = domain.policy?.guardrails?.always?.length || 0;
-      const classifiedTools = domain.tools?.filter(t => t.security?.classification).length || 0;
-      const totalTools = domain.tools?.length || 0;
-      const highRiskTools = domain.tools?.filter(t => ['pii_write', 'financial', 'destructive'].includes(t.security?.classification)).length || 0;
-      const accessRules = domain.access_policy?.rules?.length || 0;
-      const grantMappingsCount = domain.grant_mappings?.length || 0;
-      const responseFiltersCount = domain.response_filters?.length || 0;
+      const neverCount = skill.policy?.guardrails?.never?.length || 0;
+      const alwaysCount = skill.policy?.guardrails?.always?.length || 0;
+      const classifiedTools = skill.tools?.filter(t => t.security?.classification).length || 0;
+      const totalTools = skill.tools?.length || 0;
+      const highRiskTools = skill.tools?.filter(t => ['pii_write', 'financial', 'destructive'].includes(t.security?.classification)).length || 0;
+      const accessRules = skill.access_policy?.rules?.length || 0;
+      const grantMappingsCount = skill.grant_mappings?.length || 0;
+      const responseFiltersCount = skill.response_filters?.length || 0;
       return `
 ## CURRENT PHASE: POLICY_DEFINITION
 
@@ -602,8 +602,8 @@ Guardrails:
 - Never rules: ${neverCount}
 - Always rules: ${alwaysCount}
 
-Workflows: ${domain.policy?.workflows?.length || 0}
-Approval rules: ${domain.policy?.approvals?.length || 0}
+Workflows: ${skill.policy?.workflows?.length || 0}
+Approval rules: ${skill.policy?.approvals?.length || 0}
 
 Security:
 - Tool classifications: ${classifiedTools}/${totalTools}
@@ -613,8 +613,8 @@ Security:
 - Response filters: ${responseFiltersCount}
 
 Handoff:
-- Context propagation: ${domain.context_propagation ? 'configured' : 'not configured'}
-- Has handoff.transfer tool: ${domain.tools?.some(t => t.name === 'handoff.transfer') ? 'yes' : 'no'}
+- Context propagation: ${skill.context_propagation ? 'configured' : 'not configured'}
+- Has handoff.transfer tool: ${skill.tools?.some(t => t.name === 'handoff.transfer') ? 'yes' : 'no'}
 
 Guide users to define:
 1. **Never** - Things agent must NEVER do
@@ -690,9 +690,9 @@ Guide users to define:
    Use selection mode to let users pick classifications and approve policy suggestions.`;
 
     case 'MOCK_TESTING':
-      const tested = domain.tools?.filter(t => t.mock_status === 'tested').length || 0;
-      const skipped = domain.tools?.filter(t => t.mock_status === 'skipped').length || 0;
-      const untested = domain.tools?.filter(t => t.mock_status === 'untested').length || 0;
+      const tested = skill.tools?.filter(t => t.mock_status === 'tested').length || 0;
+      const skipped = skill.tools?.filter(t => t.mock_status === 'skipped').length || 0;
+      const untested = skill.tools?.filter(t => t.mock_status === 'untested').length || 0;
       return `
 ## CURRENT PHASE: MOCK_TESTING
 
@@ -713,19 +713,19 @@ For each test, ask: "Does this output look right?"`;
       return `
 ## CURRENT PHASE: EXPORT
 
-${domain.validation?.ready_to_export
-    ? 'The domain is READY to export!'
-    : `The domain is NOT ready to export yet.
+${skill.validation?.ready_to_export
+    ? 'The skill is READY to export!'
+    : `The skill is NOT ready to export yet.
 
 Issues:
-${domain.validation?.errors?.map(e => `- ERROR: ${e.message}`).join('\n') || '- None'}
+${skill.validation?.errors?.map(e => `- ERROR: ${e.message}`).join('\n') || '- None'}
 
 Unresolved:
-- Tools: ${domain.validation?.unresolved?.tools?.join(', ') || 'None'}
-- Workflows: ${domain.validation?.unresolved?.workflows?.join(', ') || 'None'}`}
+- Tools: ${skill.validation?.unresolved?.tools?.join(', ') || 'None'}
+- Workflows: ${skill.validation?.unresolved?.workflows?.join(', ') || 'None'}`}
 
 Export options:
-1. **domain.yaml** - Complete domain configuration for ADAS
+1. **skill.yaml** - Complete skill configuration for ADAS
 2. **MCP server** (optional) - Python code for tool implementations`;
 
     default:
@@ -734,60 +734,60 @@ Export options:
 }
 
 /**
- * Build complete system prompt for a DraftDomain request
- * @param {DraftDomain} domain
+ * Build complete system prompt for a DraftSkill request
+ * @param {DraftSkill} skill
  * @returns {string}
  */
-export function buildDALSystemPrompt(domain) {
-  const phasePrompt = getDALPhasePrompt(domain.phase, domain);
+export function buildDALSystemPrompt(skill) {
+  const phasePrompt = getDALPhasePrompt(skill.phase, skill);
 
   // Create a state object WITHOUT conversation history to avoid token explosion
   // Conversation is already passed as the messages array
-  const domainForPrompt = {
-    id: domain.id,
-    name: domain.name,
-    phase: domain.phase,
-    problem: domain.problem,
-    scenarios: domain.scenarios,
-    intents: domain.intents,
-    tools: domain.tools,
-    policy: domain.policy,
-    role: domain.role,
-    engine: domain.engine,
-    validation: domain.validation,
+  const skillForPrompt = {
+    id: skill.id,
+    name: skill.name,
+    phase: skill.phase,
+    problem: skill.problem,
+    scenarios: skill.scenarios,
+    intents: skill.intents,
+    tools: skill.tools,
+    policy: skill.policy,
+    role: skill.role,
+    engine: skill.engine,
+    validation: skill.validation,
     // Identity & Access Control
-    grant_mappings: domain.grant_mappings,
-    access_policy: domain.access_policy,
-    response_filters: domain.response_filters,
-    context_propagation: domain.context_propagation,
+    grant_mappings: skill.grant_mappings,
+    access_policy: skill.access_policy,
+    response_filters: skill.response_filters,
+    context_propagation: skill.context_propagation,
     // Explicitly EXCLUDE: conversation, _settings, created_at, updated_at
   };
 
-  // Create a summary of the domain state
+  // Create a summary of the skill state
   const stateSummary = {
-    phase: domain.phase,
-    problem: domain.problem?.statement ? domain.problem.statement.substring(0, 100) : null,
-    scenarios: domain.scenarios?.length || 0,
-    intents: domain.intents?.supported?.length || 0,
-    tools: domain.tools?.map(t => ({ name: t.name, status: t.mock_status, classification: t.security?.classification || null })) || [],
+    phase: skill.phase,
+    problem: skill.problem?.statement ? skill.problem.statement.substring(0, 100) : null,
+    scenarios: skill.scenarios?.length || 0,
+    intents: skill.intents?.supported?.length || 0,
+    tools: skill.tools?.map(t => ({ name: t.name, status: t.mock_status, classification: t.security?.classification || null })) || [],
     policy: {
-      never: domain.policy?.guardrails?.never?.length || 0,
-      always: domain.policy?.guardrails?.always?.length || 0,
-      workflows: domain.policy?.workflows?.length || 0,
+      never: skill.policy?.guardrails?.never?.length || 0,
+      always: skill.policy?.guardrails?.always?.length || 0,
+      workflows: skill.policy?.workflows?.length || 0,
     },
     security: {
-      classified_tools: domain.tools?.filter(t => t.security?.classification).length || 0,
-      unclassified_tools: domain.tools?.filter(t => !t.security?.classification).length || 0,
-      high_risk_tools: domain.tools?.filter(t => ['pii_write', 'financial', 'destructive'].includes(t.security?.classification)).length || 0,
-      grant_mappings: domain.grant_mappings?.length || 0,
-      access_rules: domain.access_policy?.rules?.length || 0,
-      response_filters: domain.response_filters?.length || 0,
+      classified_tools: skill.tools?.filter(t => t.security?.classification).length || 0,
+      unclassified_tools: skill.tools?.filter(t => !t.security?.classification).length || 0,
+      high_risk_tools: skill.tools?.filter(t => ['pii_write', 'financial', 'destructive'].includes(t.security?.classification)).length || 0,
+      grant_mappings: skill.grant_mappings?.length || 0,
+      access_rules: skill.access_policy?.rules?.length || 0,
+      response_filters: skill.response_filters?.length || 0,
     },
     validation: {
-      valid: domain.validation?.valid,
-      ready_to_export: domain.validation?.ready_to_export,
-      errors: domain.validation?.errors?.length || 0,
-      warnings: domain.validation?.warnings?.length || 0,
+      valid: skill.validation?.valid,
+      ready_to_export: skill.validation?.ready_to_export,
+      errors: skill.validation?.errors?.length || 0,
+      warnings: skill.validation?.warnings?.length || 0,
     },
   };
 
@@ -795,16 +795,16 @@ export function buildDALSystemPrompt(domain) {
 
 ${phasePrompt}
 
-## CURRENT DOMAIN STATE SUMMARY
+## CURRENT SKILL STATE SUMMARY
 
 \`\`\`json
 ${JSON.stringify(stateSummary, null, 2)}
 \`\`\`
 
-## DOMAIN STATE (excluding conversation history)
+## SKILL STATE (excluding conversation history)
 
 \`\`\`json
-${JSON.stringify(domainForPrompt, null, 2)}
+${JSON.stringify(skillForPrompt, null, 2)}
 \`\`\`
 `;
 }

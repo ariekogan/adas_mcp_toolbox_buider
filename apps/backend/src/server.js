@@ -3,7 +3,7 @@ import cors from "cors";
 import multer from "multer";
 
 import chatRouter from "./routes/chat.js";
-import domainsRouter from "./routes/domains.js";
+import skillsRouter from "./routes/skills.js";
 import templatesRouter from "./routes/templates.js";
 import mockRouter from "./routes/mock.js";
 import exportRouter from "./routes/export.js";
@@ -80,7 +80,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 // Routes
-app.use("/api/domains", domainsRouter);
+app.use("/api/skills", skillsRouter);
 app.use("/api/templates", templatesRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/mock", mockRouter);

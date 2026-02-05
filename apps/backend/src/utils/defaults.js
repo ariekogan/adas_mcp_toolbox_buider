@@ -1,17 +1,17 @@
 /**
- * Default values for DraftDomain
+ * Default values for DraftSkill
  * @module utils/defaults
  */
 
 import { v4 as uuidv4 } from 'uuid';
 
 /**
- * Create an empty DraftDomain with default values
+ * Create an empty DraftSkill with default values
  * @param {string} id - Domain ID
  * @param {string} name - Domain name
- * @returns {import('../types/DraftDomain.js').DraftDomain}
+ * @returns {import('../types/DraftSkill.js').DraftSkill}
  */
-export function createEmptyDraftDomain(id, name) {
+export function createEmptyDraftSkill(id, name) {
   const now = new Date().toISOString();
 
   return {
@@ -127,7 +127,7 @@ export function createEmptyDraftDomain(id, name) {
 
 /**
  * Create empty validation result
- * @returns {import('../types/DraftDomain.js').ValidationResult}
+ * @returns {import('../types/DraftSkill.js').ValidationResult}
  */
 export function createEmptyValidation() {
   return {
@@ -155,8 +155,8 @@ export function createEmptyValidation() {
 
 /**
  * Create a new empty scenario
- * @param {Partial<import('../types/DraftDomain.js').Scenario>} [overrides]
- * @returns {import('../types/DraftDomain.js').Scenario}
+ * @param {Partial<import('../types/DraftSkill.js').Scenario>} [overrides]
+ * @returns {import('../types/DraftSkill.js').Scenario}
  */
 export function createEmptyScenario(overrides = {}) {
   return {
@@ -171,8 +171,8 @@ export function createEmptyScenario(overrides = {}) {
 
 /**
  * Create a new empty intent
- * @param {Partial<import('../types/DraftDomain.js').Intent>} [overrides]
- * @returns {import('../types/DraftDomain.js').Intent}
+ * @param {Partial<import('../types/DraftSkill.js').Intent>} [overrides]
+ * @returns {import('../types/DraftSkill.js').Intent}
  */
 export function createEmptyIntent(overrides = {}) {
   return {
@@ -188,8 +188,8 @@ export function createEmptyIntent(overrides = {}) {
 
 /**
  * Create a new empty tool
- * @param {Partial<import('../types/DraftDomain.js').Tool>} [overrides]
- * @returns {import('../types/DraftDomain.js').Tool}
+ * @param {Partial<import('../types/DraftSkill.js').Tool>} [overrides]
+ * @returns {import('../types/DraftSkill.js').Tool}
  */
 export function createEmptyTool(overrides = {}) {
   return {
@@ -218,8 +218,8 @@ export function createEmptyTool(overrides = {}) {
 
 /**
  * Create a new tool input
- * @param {Partial<import('../types/DraftDomain.js').ToolInput>} [overrides]
- * @returns {import('../types/DraftDomain.js').ToolInput}
+ * @param {Partial<import('../types/DraftSkill.js').ToolInput>} [overrides]
+ * @returns {import('../types/DraftSkill.js').ToolInput}
  */
 export function createEmptyToolInput(overrides = {}) {
   return {
@@ -233,8 +233,8 @@ export function createEmptyToolInput(overrides = {}) {
 
 /**
  * Create a new mock example
- * @param {Partial<import('../types/DraftDomain.js').MockExample>} [overrides]
- * @returns {import('../types/DraftDomain.js').MockExample}
+ * @param {Partial<import('../types/DraftSkill.js').MockExample>} [overrides]
+ * @returns {import('../types/DraftSkill.js').MockExample}
  */
 export function createEmptyMockExample(overrides = {}) {
   return {
@@ -248,8 +248,8 @@ export function createEmptyMockExample(overrides = {}) {
 
 /**
  * Create a new meta tool (DAL-generated composition)
- * @param {Partial<import('../types/DraftDomain.js').MetaTool>} [overrides]
- * @returns {import('../types/DraftDomain.js').MetaTool}
+ * @param {Partial<import('../types/DraftSkill.js').MetaTool>} [overrides]
+ * @returns {import('../types/DraftSkill.js').MetaTool}
  */
 export function createEmptyMetaTool(overrides = {}) {
   return {
@@ -268,8 +268,8 @@ export function createEmptyMetaTool(overrides = {}) {
 
 /**
  * Create a new workflow
- * @param {Partial<import('../types/DraftDomain.js').Workflow>} [overrides]
- * @returns {import('../types/DraftDomain.js').Workflow}
+ * @param {Partial<import('../types/DraftSkill.js').Workflow>} [overrides]
+ * @returns {import('../types/DraftSkill.js').Workflow}
  */
 export function createEmptyWorkflow(overrides = {}) {
   return {
@@ -286,8 +286,8 @@ export function createEmptyWorkflow(overrides = {}) {
 
 /**
  * Create a new approval rule
- * @param {Partial<import('../types/DraftDomain.js').ApprovalRule>} [overrides]
- * @returns {import('../types/DraftDomain.js').ApprovalRule}
+ * @param {Partial<import('../types/DraftSkill.js').ApprovalRule>} [overrides]
+ * @returns {import('../types/DraftSkill.js').ApprovalRule}
  */
 export function createEmptyApprovalRule(overrides = {}) {
   return {
@@ -301,8 +301,8 @@ export function createEmptyApprovalRule(overrides = {}) {
 
 /**
  * Create a new policy condition
- * @param {Partial<import('../types/DraftDomain.js').PolicyCondition>} [overrides]
- * @returns {import('../types/DraftDomain.js').PolicyCondition}
+ * @param {Partial<import('../types/DraftSkill.js').PolicyCondition>} [overrides]
+ * @returns {import('../types/DraftSkill.js').PolicyCondition}
  */
 export function createEmptyPolicyCondition(overrides = {}) {
   return {
@@ -327,8 +327,8 @@ export function generateId() {
 
 /**
  * Create a new schedule trigger
- * @param {Partial<import('../types/DraftDomain.js').ScheduleTrigger>} [overrides]
- * @returns {import('../types/DraftDomain.js').ScheduleTrigger}
+ * @param {Partial<import('../types/DraftSkill.js').ScheduleTrigger>} [overrides]
+ * @returns {import('../types/DraftSkill.js').ScheduleTrigger}
  */
 export function createEmptyScheduleTrigger(overrides = {}) {
   return {
@@ -345,8 +345,8 @@ export function createEmptyScheduleTrigger(overrides = {}) {
 
 /**
  * Create a new event trigger
- * @param {Partial<import('../types/DraftDomain.js').EventTrigger>} [overrides]
- * @returns {import('../types/DraftDomain.js').EventTrigger}
+ * @param {Partial<import('../types/DraftSkill.js').EventTrigger>} [overrides]
+ * @returns {import('../types/DraftSkill.js').EventTrigger}
  */
 export function createEmptyEventTrigger(overrides = {}) {
   return {
@@ -366,7 +366,7 @@ export function createEmptyEventTrigger(overrides = {}) {
  * Create an empty trigger (defaults to schedule type)
  * @param {'schedule' | 'event'} [type='schedule']
  * @param {Object} [overrides]
- * @returns {import('../types/DraftDomain.js').Trigger}
+ * @returns {import('../types/DraftSkill.js').Trigger}
  */
 export function createEmptyTrigger(type = 'schedule', overrides = {}) {
   if (type === 'event') {

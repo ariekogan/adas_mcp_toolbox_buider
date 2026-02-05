@@ -1,9 +1,9 @@
 import { Router } from "express";
-import domainsStore from "../store/domains.js";
+import skillsStore from "../store/skills.js";
 import { generateExportFiles, generateAdasExportPayload, generateAdasExportFiles } from "../services/export.js";
 import { provisionSkillActor, listTriggers, toggleTrigger, getTriggerHistory } from "../services/cpAdminBridge.js";
 import { generateMCPWithAgent, generateMCPSimple, isAgentSDKAvailable } from "../services/mcpGenerationAgent.js";
-import { MCPDevelopmentSession, analyzeDomainForMCP, MCP_DEV_PHASES } from "../services/mcpDevelopmentAgent.js";
+import { MCPDevelopmentSession, analyzeSkillForMCP, MCP_DEV_PHASES } from "../services/mcpDevelopmentAgent.js";
 import { syncConnectorToADAS, startConnectorInADAS } from "../services/adasConnectorSync.js";
 import { PREBUILT_CONNECTORS, getAllPrebuiltConnectors } from "./connectors.js";
 
@@ -14,21 +14,21 @@ const activeSessions = new Map();
  * Deploy a skill MCP to ADAS Core (shared logic used by both the HTTP route and deploy-all).
  * Reads the generated MCP files, sends to ADAS Core, and syncs linked connectors.
  *
- * @param {string} domainId - Domain ID to deploy
+ * @param {string} skillId - Skill ID to deploy
  * @param {object} log - Logger (console-compatible)
  * @returns {Promise<object>} Deploy result
  */
-export async function deploySkillToADAS(domainId, log, onProgress) {
-  const domain = await domainsStore.load(domainId);
-  let version = domain.version;
+export async function deploySkillToADAS(skillId, log, onProgress) {
+  const skill = await skillsStore.load(skillId);
+  let version = skill.version;
 
   if (!version) {
     throw Object.assign(new Error('No MCP export found'), { code: 'NO_EXPORT' });
   }
 
-  log.info(`[MCP Deploy] Starting deploy for ${domainId} (version ${version})`);
+  log.info(`[MCP Deploy] Starting deploy for ${skillId} (version ${version})`);
 
-  const exportPath = await domainsStore.getExportPath(domainId, version);
+  const exportPath = await skillsStore.getExportPath(skillId, version);
   const fs = await import('fs/promises');
   const path = await import('path');
   let files = await fs.readdir(exportPath);
@@ -36,26 +36,26 @@ export async function deploySkillToADAS(domainId, log, onProgress) {
 
   // Auto-generate MCP if server.py is missing
   if (!serverFile) {
-    log.info(`[MCP Deploy] No server.py in export for ${domainId} — auto-generating MCP`);
+    log.info(`[MCP Deploy] No server.py in export for ${skillId} — auto-generating MCP`);
     if (onProgress) onProgress('generating_mcp', 'Generating MCP...');
 
     try {
-      const genFiles = await generateMCPSimple(domain);
+      const genFiles = await generateMCPSimple(skill);
       const fileList = Object.entries(genFiles).map(([name, content]) => ({ name, content }));
-      await domainsStore.saveExport(domainId, version, fileList);
+      await skillsStore.saveExport(skillId, version, fileList);
 
-      domain.phase = "EXPORTED";
-      domain.lastExportedAt = new Date().toISOString();
-      domain.lastExportType = "mcp-simple";
-      await domainsStore.save(domain);
+      skill.phase = "EXPORTED";
+      skill.lastExportedAt = new Date().toISOString();
+      skill.lastExportType = "mcp-simple";
+      await skillsStore.save(skill);
 
-      log.info(`[MCP Deploy] Auto-generated MCP for ${domainId}: ${fileList.map(f => f.name).join(', ')}`);
+      log.info(`[MCP Deploy] Auto-generated MCP for ${skillId}: ${fileList.map(f => f.name).join(', ')}`);
 
       // Re-read after generation
       files = await fs.readdir(exportPath);
       serverFile = files.find(f => f === 'server.py' || f === 'mcp_server.py');
     } catch (genErr) {
-      log.error(`[MCP Deploy] MCP generation failed for ${domainId}: ${genErr.message}`);
+      log.error(`[MCP Deploy] MCP generation failed for ${skillId}: ${genErr.message}`);
       throw Object.assign(new Error(`MCP generation failed: ${genErr.message}`), { code: 'GEN_FAILED' });
     }
   }
@@ -76,7 +76,7 @@ export async function deploySkillToADAS(domainId, log, onProgress) {
 
   log.info(`[MCP Deploy] Read MCP files (${mcpServer.length} bytes)`);
 
-  const skillSlug = domain.original_skill_id || domain.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || domainId;
+  const skillSlug = skill.original_skill_id || skill.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || skillId;
   const adasUrl = process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
   const deployUrl = `${adasUrl}/api/skills/deploy-mcp`;
 
@@ -97,19 +97,19 @@ export async function deploySkillToADAS(domainId, log, onProgress) {
     throw new Error(result.error || `Deploy failed: ${response.status}`);
   }
 
-  // Update domain status
-  domain.phase = "DEPLOYED";
-  domain.deployedAt = new Date().toISOString();
-  domain.deployedTo = adasUrl;
-  domain.mcpUri = result.mcpUri;
-  domain.connectorId = result.connectorId;
-  await domainsStore.save(domain);
+  // Update skill status
+  skill.phase = "DEPLOYED";
+  skill.deployedAt = new Date().toISOString();
+  skill.deployedTo = adasUrl;
+  skill.mcpUri = result.mcpUri;
+  skill.connectorId = result.connectorId;
+  await skillsStore.save(skill);
 
   log.info(`[MCP Deploy] Successfully deployed! Skill: ${skillSlug}, MCP: ${result.mcpUri}`);
 
   // Sync linked connectors
   const connectorResults = [];
-  const linkedConnectors = domain.connectors || [];
+  const linkedConnectors = skill.connectors || [];
 
   if (linkedConnectors.length > 0) {
     log.info(`[MCP Deploy] Syncing ${linkedConnectors.length} linked connectors: ${linkedConnectors.join(', ')}`);
@@ -180,35 +180,35 @@ router.get("/mcps", async (req, res, next) => {
     const log = req.app.locals.log;
     log.info("Listing all skill MCP exports");
 
-    // Get all domains
-    const domains = await domainsStore.list();
+    // Get all skills
+    const skills = await skillsStore.list();
 
     // Filter and enrich with export info
     const skillMcps = [];
 
-    for (const domainSummary of domains) {
+    for (const skillSummary of skills) {
       try {
-        const domain = await domainsStore.load(domainSummary.id);
+        const skill = await skillsStore.load(skillSummary.id);
 
         // Include skills with MCP exports OR deployed via "Deploy to ADAS" (JS path)
-        const hasMcpExport = domain.version && domain.lastExportType?.startsWith('mcp');
-        const isDeployed = domain.phase === "DEPLOYED" && domain.deployedAt;
+        const hasMcpExport = skill.version && skill.lastExportType?.startsWith('mcp');
+        const isDeployed = skill.phase === "DEPLOYED" && skill.deployedAt;
         if (hasMcpExport || isDeployed) {
           // Get export files
           let exportFiles = [];
           try {
-            exportFiles = await domainsStore.getExport(domain.id, domain.version);
+            exportFiles = await skillsStore.getExport(skill.id, skill.version);
           } catch {
             // No export files found
           }
 
           // Extract description from problem statement or identity
-          const description = domain.problem?.statement ||
-                             domain.identity?.role_description ||
-                             `MCP server for ${domain.name}`;
+          const description = skill.problem?.statement ||
+                             skill.identity?.role_description ||
+                             `MCP server for ${skill.name}`;
 
           // Include full tool details
-          const tools = (domain.tools || []).map(t => ({
+          const tools = (skill.tools || []).map(t => ({
             name: t.name,
             description: t.description || 'No description',
             parameters: t.parameters || [],
@@ -217,23 +217,23 @@ router.get("/mcps", async (req, res, next) => {
           }));
 
           skillMcps.push({
-            id: domain.id,
-            name: domain.name,
+            id: skill.id,
+            name: skill.name,
             description,
-            version: domain.version,
-            exportType: domain.lastExportType || (isDeployed ? "adas-js" : null),
-            exportedAt: domain.lastExportedAt || domain.deployedAt,
-            phase: domain.phase,
+            version: skill.version,
+            exportType: skill.lastExportType || (isDeployed ? "adas-js" : null),
+            exportedAt: skill.lastExportedAt || skill.deployedAt,
+            phase: skill.phase,
             toolsCount: tools.length,
             tools,
             files: exportFiles.map(f => ({ name: f.name, size: f.content?.length || 0 })),
             hasServerPy: exportFiles.some(f => f.name === 'server.py' || f.name === 'mcp_server.py'),
-            downloadUrl: `/api/export/${domain.id}/download/${domain.version}`
+            downloadUrl: `/api/export/${skill.id}/download/${skill.version}`
           });
         }
       } catch (err) {
-        // Skip domains that fail to load
-        log.warn(`Failed to load domain ${domainSummary.id}: ${err.message}`);
+        // Skip skills that fail to load
+        log.warn(`Failed to load skill ${skillSummary.id}: ${err.message}`);
       }
     }
 
@@ -246,25 +246,25 @@ router.get("/mcps", async (req, res, next) => {
   }
 });
 
-// Export domain as MCP server
-router.get("/:domainId", async (req, res, next) => {
+// Export skill as MCP server
+router.get("/:skillId", async (req, res, next) => {
   try {
-    const { domainId } = req.params;
+    const { skillId } = req.params;
     const log = req.app.locals.log;
 
-    log.info(`Exporting domain ${domainId}`);
+    log.info(`Exporting skill ${skillId}`);
 
-    // Load domain
-    const domain = await domainsStore.load(domainId);
+    // Load skill
+    const skill = await skillsStore.load(skillId);
 
     // Debug: log tools
-    log.info(`Domain has ${domain.tools?.length || 0} tools`);
-    domain.tools?.forEach((t, i) => {
+    log.info(`Skill has ${skill.tools?.length || 0} tools`);
+    skill.tools?.forEach((t, i) => {
       log.info(`Tool ${i}: name=${t.name}, hasDesc=${!!t.description}`);
     });
 
     // Check if tools have minimum required fields (name, description)
-    const incompleteTool = domain.tools?.find(t => !t.name || !t.description);
+    const incompleteTool = skill.tools?.find(t => !t.name || !t.description);
     if (incompleteTool) {
       log.info(`Incomplete tool found: ${JSON.stringify(incompleteTool)}`);
       return res.status(400).json({
@@ -275,15 +275,15 @@ router.get("/:domainId", async (req, res, next) => {
     }
 
     // Generate files
-    const files = generateExportFiles(domain);
+    const files = generateExportFiles(skill);
 
     // Save export
-    const version = domain.version || 1;
-    await domainsStore.saveExport(domainId, version, files);
+    const version = skill.version || 1;
+    await skillsStore.saveExport(skillId, version, files);
 
-    // Update domain status
-    domain.phase = "EXPORTED";
-    await domainsStore.save(domain);
+    // Update skill status
+    skill.phase = "EXPORTED";
+    await skillsStore.save(skill);
 
     res.json({
       version,
@@ -292,23 +292,23 @@ router.get("/:domainId", async (req, res, next) => {
         size: f.content.length,
         preview: f.content.slice(0, 200) + (f.content.length > 200 ? "..." : "")
       })),
-      download_url: `/api/export/${domainId}/download/${version}`
+      download_url: `/api/export/${skillId}/download/${version}`
     });
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
 });
 
 // Download export as files (returns JSON with file contents)
-router.get("/:domainId/download/:version", async (req, res, next) => {
+router.get("/:skillId/download/:version", async (req, res, next) => {
   try {
-    const { domainId, version } = req.params;
+    const { skillId, version } = req.params;
 
-    const files = await domainsStore.getExport(domainId, version);
+    const files = await skillsStore.getExport(skillId, version);
 
     res.json({ files });
 
@@ -321,12 +321,12 @@ router.get("/:domainId/download/:version", async (req, res, next) => {
 });
 
 // Preview generated code without saving
-router.get("/:domainId/preview", async (req, res, next) => {
+router.get("/:skillId/preview", async (req, res, next) => {
   try {
-    const { domainId } = req.params;
+    const { skillId } = req.params;
 
-    const domain = await domainsStore.load(domainId);
-    const files = generateExportFiles(domain);
+    const skill = await skillsStore.load(skillId);
+    const files = generateExportFiles(skill);
 
     res.json({
       files: files.map(f => ({
@@ -337,7 +337,7 @@ router.get("/:domainId/preview", async (req, res, next) => {
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
@@ -348,7 +348,7 @@ router.get("/:domainId/preview", async (req, res, next) => {
 // ============================================================================
 
 /**
- * POST /api/export/:domainId/mcp/generate
+ * POST /api/export/:skillId/mcp/generate
  *
  * Generate a complete MCP server using the Claude Agent SDK.
  * Streams progress events via Server-Sent Events (SSE).
@@ -359,22 +359,22 @@ router.get("/:domainId/preview", async (req, res, next) => {
  * - Create proper error handling
  * - Research APIs when needed
  */
-router.post("/:domainId/mcp/generate", async (req, res, next) => {
+router.post("/:skillId/mcp/generate", async (req, res, next) => {
   try {
-    const { domainId } = req.params;
+    const { skillId } = req.params;
     const { useAgent = "true" } = req.query;
     const log = req.app.locals.log;
 
-    log.info(`Generating MCP for domain ${domainId} (useAgent=${useAgent})`);
+    log.info(`Generating MCP for skill ${skillId} (useAgent=${useAgent})`);
 
-    // Load domain
-    const domain = await domainsStore.load(domainId);
+    // Load skill
+    const skill = await skillsStore.load(skillId);
 
     // Check if tools exist
-    if (!domain.tools || domain.tools.length === 0) {
+    if (!skill.tools || skill.tools.length === 0) {
       return res.status(400).json({
-        error: "Domain has no tools defined",
-        hint: "Add tools to the domain before generating MCP"
+        error: "Skill has no tools defined",
+        hint: "Add tools to the skill before generating MCP"
       });
     }
 
@@ -386,8 +386,8 @@ router.post("/:domainId/mcp/generate", async (req, res, next) => {
     }
 
     // Prepare output directory
-    const version = (domain.version || 0) + 1;
-    const outputDir = await domainsStore.getExportPath(domainId, version);
+    const version = (skill.version || 0) + 1;
+    const outputDir = await skillsStore.getExportPath(skillId, version);
 
     if (useAgent === "true" && agentAvailable) {
       // Use Agent SDK with streaming
@@ -401,26 +401,26 @@ router.post("/:domainId/mcp/generate", async (req, res, next) => {
       };
 
       sendEvent("start", {
-        domainId,
+        skillId,
         version,
-        toolsCount: domain.tools.length,
+        toolsCount: skill.tools.length,
         timestamp: new Date().toISOString()
       });
 
       try {
-        for await (const message of generateMCPWithAgent(domain, {
+        for await (const message of generateMCPWithAgent(skill, {
           outputDir,
           onProgress: (msg) => log.info(`[MCPAgent] ${msg}`)
         })) {
           sendEvent("progress", message);
 
           if (message.type === "complete") {
-            // Update domain
-            domain.version = version;
-            domain.phase = "EXPORTED";
-            domain.lastExportedAt = new Date().toISOString();
-            domain.lastExportType = "mcp-agent";
-            await domainsStore.save(domain);
+            // Update skill
+            skill.version = version;
+            skill.phase = "EXPORTED";
+            skill.lastExportedAt = new Date().toISOString();
+            skill.lastExportType = "mcp-agent";
+            await skillsStore.save(skill);
 
             sendEvent("complete", {
               version,
@@ -440,21 +440,21 @@ router.post("/:domainId/mcp/generate", async (req, res, next) => {
       // Use simple generation (no agent)
       log.info("Using simple MCP generation (no agent)");
 
-      const files = await generateMCPSimple(domain);
+      const files = await generateMCPSimple(skill);
 
       // Save files
       const fileList = Object.entries(files).map(([name, content]) => ({
         name,
         content
       }));
-      await domainsStore.saveExport(domainId, version, fileList);
+      await skillsStore.saveExport(skillId, version, fileList);
 
-      // Update domain
-      domain.version = version;
-      domain.phase = "EXPORTED";
-      domain.lastExportedAt = new Date().toISOString();
-      domain.lastExportType = "mcp-simple";
-      await domainsStore.save(domain);
+      // Update skill
+      skill.version = version;
+      skill.phase = "EXPORTED";
+      skill.lastExportedAt = new Date().toISOString();
+      skill.lastExportType = "mcp-simple";
+      await skillsStore.save(skill);
 
       res.json({
         ok: true,
@@ -464,24 +464,24 @@ router.post("/:domainId/mcp/generate", async (req, res, next) => {
           name: f.name,
           size: f.content.length
         })),
-        download_url: `/api/export/${domainId}/download/${version}`
+        download_url: `/api/export/${skillId}/download/${version}`
       });
     }
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
 });
 
 /**
- * GET /api/export/:domainId/mcp/status
+ * GET /api/export/:skillId/mcp/status
  *
  * Check if Agent SDK is available and get generation capabilities.
  */
-router.get("/:domainId/mcp/status", async (req, res) => {
+router.get("/:skillId/mcp/status", async (req, res) => {
   const agentAvailable = await isAgentSDKAvailable();
 
   res.json({
@@ -505,39 +505,39 @@ router.get("/:domainId/mcp/status", async (req, res) => {
 // ============================================================================
 
 /**
- * POST /api/export/:domainId/mcp/develop
+ * POST /api/export/:skillId/mcp/develop
  *
  * ONE-SHOT MCP generation. No questions, no sessions to manage.
  *
- * 1. Analyzes domain and infers missing details
+ * 1. Analyzes skill and infers missing details
  * 2. Generates complete MCP server
  * 3. Returns files
  *
  * User can optionally refine after by calling /mcp/develop/refine
  */
-router.post("/:domainId/mcp/develop", async (req, res, next) => {
+router.post("/:skillId/mcp/develop", async (req, res, next) => {
   try {
-    const { domainId } = req.params;
+    const { skillId } = req.params;
     const log = req.app.locals.log;
 
-    log.info(`Starting autonomous MCP generation for ${domainId}`);
+    log.info(`Starting autonomous MCP generation for ${skillId}`);
 
-    const domain = await domainsStore.load(domainId);
+    const skill = await skillsStore.load(skillId);
 
-    if (!domain.tools || domain.tools.length === 0) {
+    if (!skill.tools || skill.tools.length === 0) {
       return res.status(400).json({
-        error: "Domain has no tools defined",
+        error: "Skill has no tools defined",
         hint: "Add at least one tool before generating MCP"
       });
     }
 
     // Create output directory - parse version as integer (handles semver strings like "2.0.0")
-    const prevVersion = typeof domain.version === "string" ? parseInt(domain.version, 10) || 0 : (domain.version || 0);
+    const prevVersion = typeof skill.version === "string" ? parseInt(skill.version, 10) || 0 : (skill.version || 0);
     const version = prevVersion + 1;
-    const outputDir = await domainsStore.getExportPath(domainId, version);
+    const outputDir = await skillsStore.getExportPath(skillId, version);
 
     // Create session
-    const session = new MCPDevelopmentSession(domain, {
+    const session = new MCPDevelopmentSession(skill, {
       outputDir,
       onProgress: (msg) => log.info(`[MCPDev] ${JSON.stringify(msg)}`)
     });
@@ -547,8 +547,8 @@ router.post("/:domainId/mcp/develop", async (req, res, next) => {
     log.info(`Enriched ${enrichment.toolsCount} tools with inferences`);
 
     // Store session for potential refinement
-    const sessionId = `${domainId}_${Date.now()}`;
-    activeSessions.set(sessionId, { session, domainId, version });
+    const sessionId = `${skillId}_${Date.now()}`;
+    activeSessions.set(sessionId, { session, skillId, version });
 
     // Set up SSE streaming
     res.setHeader("Content-Type", "text/event-stream");
@@ -562,9 +562,9 @@ router.post("/:domainId/mcp/develop", async (req, res, next) => {
 
     sendEvent("start", {
       sessionId,
-      domainId,
+      skillId,
       version,
-      toolsCount: domain.tools.length,
+      toolsCount: skill.tools.length,
       inferences: enrichment.inferences,
       message: "Starting generation (no questions - we figured it out!)"
     });
@@ -574,19 +574,19 @@ router.post("/:domainId/mcp/develop", async (req, res, next) => {
         sendEvent("progress", event);
 
         if (event.type === "complete") {
-          // Update domain
-          domain.version = version;
-          domain.phase = "EXPORTED";
-          domain.lastExportedAt = new Date().toISOString();
-          domain.lastExportType = "mcp-autonomous";
-          await domainsStore.save(domain);
+          // Update skill
+          skill.version = version;
+          skill.phase = "EXPORTED";
+          skill.lastExportedAt = new Date().toISOString();
+          skill.lastExportType = "mcp-autonomous";
+          await skillsStore.save(skill);
 
           sendEvent("complete", {
             sessionId,
             version,
             files: event.files,
             validation: event.validation,
-            download_url: `/api/export/${domainId}/download/${version}`,
+            download_url: `/api/export/${skillId}/download/${version}`,
             message: "MCP generated! Use /mcp/develop/refine if you want changes."
           });
         }
@@ -600,21 +600,21 @@ router.post("/:domainId/mcp/develop", async (req, res, next) => {
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
 });
 
 /**
- * POST /api/export/:domainId/mcp/develop/refine
+ * POST /api/export/:skillId/mcp/develop/refine
  *
  * Refine a previously generated MCP based on feedback.
  * Just tell us what to change, we'll do it.
  */
-router.post("/:domainId/mcp/develop/refine", async (req, res, next) => {
+router.post("/:skillId/mcp/develop/refine", async (req, res, next) => {
   try {
-    const { domainId } = req.params;
+    const { skillId } = req.params;
     const { sessionId, feedback } = req.body;
     const log = req.app.locals.log;
 
@@ -632,18 +632,18 @@ router.post("/:domainId/mcp/develop/refine", async (req, res, next) => {
       ({ session, version } = activeSessions.get(sessionId));
     } else {
       // No session - create one from the latest export
-      const domain = await domainsStore.load(domainId);
-      version = domain.version || 1;
-      const outputDir = await domainsStore.getExportPath(domainId, version);
+      const skill = await skillsStore.load(skillId);
+      version = skill.version || 1;
+      const outputDir = await skillsStore.getExportPath(skillId, version);
 
-      session = new MCPDevelopmentSession(domain, {
+      session = new MCPDevelopmentSession(skill, {
         outputDir,
         onProgress: (msg) => log.info(`[MCPDev] ${JSON.stringify(msg)}`)
       });
 
       // Load existing files
       try {
-        const existingFiles = await domainsStore.getExport(domainId, version);
+        const existingFiles = await skillsStore.getExport(skillId, version);
         session.generatedFiles = existingFiles.map(f => f.name);
       } catch {
         return res.status(400).json({
@@ -664,7 +664,7 @@ router.post("/:domainId/mcp/develop/refine", async (req, res, next) => {
     };
 
     sendEvent("start", {
-      domainId,
+      skillId,
       version,
       feedback,
       message: "Applying your changes..."
@@ -679,7 +679,7 @@ router.post("/:domainId/mcp/develop/refine", async (req, res, next) => {
             version,
             files: session.generatedFiles,
             validation: session.validationResults,
-            download_url: `/api/export/${domainId}/download/${version}`
+            download_url: `/api/export/${skillId}/download/${version}`
           });
         }
       }
@@ -692,28 +692,28 @@ router.post("/:domainId/mcp/develop/refine", async (req, res, next) => {
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
 });
 
 /**
- * GET /api/export/:domainId/mcp/develop/preview
+ * GET /api/export/:skillId/mcp/develop/preview
  *
  * Preview what will be inferred before generating.
  * Shows the inferences without actually generating.
  */
-router.get("/:domainId/mcp/develop/preview", async (req, res, next) => {
+router.get("/:skillId/mcp/develop/preview", async (req, res, next) => {
   try {
-    const { domainId } = req.params;
+    const { skillId } = req.params;
 
-    const domain = await domainsStore.load(domainId);
-    const analysis = analyzeDomainForMCP(domain);
+    const skill = await skillsStore.load(skillId);
+    const analysis = analyzeSkillForMCP(skill);
 
     res.json({
-      domainId,
-      domainName: domain.name,
+      skillId,
+      skillName: skill.name,
       ready: analysis.ready,
       toolsCount: analysis.toolsCount,
       inferences: analysis.inferences,
@@ -725,7 +725,7 @@ router.get("/:domainId/mcp/develop/preview", async (req, res, next) => {
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
@@ -736,27 +736,27 @@ router.get("/:domainId/mcp/develop/preview", async (req, res, next) => {
 // ============================================================================
 
 /**
- * POST /api/export/:domainId/adas
+ * POST /api/export/:skillId/adas
  *
- * Export domain to ADAS Core format and optionally deploy directly.
+ * Export skill to ADAS Core format and optionally deploy directly.
  *
  * Query params:
  *   - deploy=true: Send directly to ADAS Core import endpoint
  *   - adasUrl: ADAS Core URL (default: http://adas-backend:4000)
  */
-router.post("/:domainId/adas", async (req, res, next) => {
+router.post("/:skillId/adas", async (req, res, next) => {
   try {
-    const { domainId } = req.params;
+    const { skillId } = req.params;
     const { deploy, adasUrl } = req.query;
     const log = req.app.locals.log;
 
-    log.info(`Exporting domain ${domainId} to ADAS Core format`);
+    log.info(`Exporting skill ${skillId} to ADAS Core format`);
 
-    // Load domain
-    const domain = await domainsStore.load(domainId);
+    // Load skill
+    const skill = await skillsStore.load(skillId);
 
     // Check if tools have minimum required fields
-    const incompleteTool = domain.tools?.find(t => !t.name);
+    const incompleteTool = skill.tools?.find(t => !t.name);
     if (incompleteTool) {
       return res.status(400).json({
         error: "Not all tools are complete",
@@ -765,7 +765,7 @@ router.post("/:domainId/adas", async (req, res, next) => {
     }
 
     // Generate ADAS export payload
-    const payload = generateAdasExportPayload(domain);
+    const payload = generateAdasExportPayload(skill);
 
     log.info(`Generated ADAS payload: skillSlug=${payload.skillSlug}, tools=${payload.tools.length}`);
 
@@ -775,7 +775,7 @@ router.post("/:domainId/adas", async (req, res, next) => {
       log.info(`Provisioning skill actor for: ${payload.skillSlug}`);
       const { actor, token, tokenId, created } = await provisionSkillActor({
         skillSlug: payload.skillSlug,
-        displayName: domain.name || payload.skillSlug,
+        displayName: skill.name || payload.skillSlug,
       });
 
       skillActorInfo = {
@@ -790,14 +790,14 @@ router.post("/:domainId/adas", async (req, res, next) => {
 
       log.info(`Skill actor ${created ? "created" : "found"}: ${actor.actorId}`);
 
-      // Update domain with skill identity info
-      if (!domain.skill_identity) {
-        domain.skill_identity = {};
+      // Update skill with skill identity info
+      if (!skill.skill_identity) {
+        skill.skill_identity = {};
       }
-      domain.skill_identity.actor_id = actor.actorId;
-      domain.skill_identity.actor_ref = `agent::${payload.skillSlug}`;
-      domain.skill_identity.display_name = actor.displayName;
-      domain.skill_identity.activated_at = new Date().toISOString();
+      skill.skill_identity.actor_id = actor.actorId;
+      skill.skill_identity.actor_ref = `agent::${payload.skillSlug}`;
+      skill.skill_identity.display_name = actor.displayName;
+      skill.skill_identity.activated_at = new Date().toISOString();
 
       // Include actor info in payload for CORE
       payload.skillActor = {
@@ -836,11 +836,11 @@ router.post("/:domainId/adas", async (req, res, next) => {
           });
         }
 
-        // Update domain status
-        domain.phase = "DEPLOYED";
-        domain.deployedAt = new Date().toISOString();
-        domain.deployedTo = targetUrl;
-        await domainsStore.save(domain);
+        // Update skill status
+        skill.phase = "DEPLOYED";
+        skill.deployedAt = new Date().toISOString();
+        skill.deployedTo = targetUrl;
+        await skillsStore.save(skill);
 
         return res.json({
           ok: true,
@@ -873,23 +873,23 @@ router.post("/:domainId/adas", async (req, res, next) => {
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
 });
 
 /**
- * GET /api/export/:domainId/adas/preview
+ * GET /api/export/:skillId/adas/preview
  *
  * Preview ADAS Core export files without deploying.
  */
-router.get("/:domainId/adas/preview", async (req, res, next) => {
+router.get("/:skillId/adas/preview", async (req, res, next) => {
   try {
-    const { domainId } = req.params;
+    const { skillId } = req.params;
 
-    const domain = await domainsStore.load(domainId);
-    const files = generateAdasExportFiles(domain);
+    const skill = await skillsStore.load(skillId);
+    const files = generateAdasExportFiles(skill);
 
     res.json({
       files: files.map(f => ({
@@ -901,7 +901,7 @@ router.get("/:domainId/adas/preview", async (req, res, next) => {
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
@@ -912,25 +912,25 @@ router.get("/:domainId/adas/preview", async (req, res, next) => {
 // ============================================================================
 
 /**
- * Helper to get skillSlug from domain
+ * Helper to get skillSlug from skill
  */
-function getSkillSlug(domain, domainId) {
-  return domain.original_skill_id || domain.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || domainId;
+function getSkillSlug(skill, skillId) {
+  return skill.original_skill_id || skill.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || skillId;
 }
 
 /**
- * GET /api/export/:domainId/triggers/status
+ * GET /api/export/:skillId/triggers/status
  *
  * Get the status of triggers in CORE for a deployed skill.
  * Uses cp.admin_api listTriggers method.
  */
-router.get("/:domainId/triggers/status", async (req, res, next) => {
+router.get("/:skillId/triggers/status", async (req, res, next) => {
   try {
-    const { domainId } = req.params;
+    const { skillId } = req.params;
     const log = req.app.locals.log;
 
-    const domain = await domainsStore.load(domainId);
-    const skillSlug = getSkillSlug(domain, domainId);
+    const skill = await skillsStore.load(skillId);
+    const skillSlug = getSkillSlug(skill, skillId);
 
     log.info(`Fetching trigger status from CORE via cp.admin_api for skill: ${skillSlug}`);
 
@@ -939,7 +939,7 @@ router.get("/:domainId/triggers/status", async (req, res, next) => {
       const result = await listTriggers({ skillSlug });
 
       // Merge CORE status with local triggers
-      const localTriggers = domain.triggers || [];
+      const localTriggers = skill.triggers || [];
       const coreTriggers = result.triggers || [];
 
       const mergedTriggers = localTriggers.map(local => {
@@ -970,7 +970,7 @@ router.get("/:domainId/triggers/status", async (req, res, next) => {
       return res.json({
         source: "local",
         skillSlug,
-        triggers: (domain.triggers || []).map(t => ({
+        triggers: (skill.triggers || []).map(t => ({
           id: t.id,
           type: t.type,
           enabled: t.enabled,
@@ -984,27 +984,27 @@ router.get("/:domainId/triggers/status", async (req, res, next) => {
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
 });
 
 /**
- * POST /api/export/:domainId/triggers/:triggerId/toggle
+ * POST /api/export/:skillId/triggers/:triggerId/toggle
  *
  * Toggle a trigger's active state in CORE.
  * Uses cp.admin_api enableTrigger/disableTrigger methods.
  * Body: { active: boolean }
  */
-router.post("/:domainId/triggers/:triggerId/toggle", async (req, res, next) => {
+router.post("/:skillId/triggers/:triggerId/toggle", async (req, res, next) => {
   try {
-    const { domainId, triggerId } = req.params;
+    const { skillId, triggerId } = req.params;
     const { active } = req.body;
     const log = req.app.locals.log;
 
-    const domain = await domainsStore.load(domainId);
-    const skillSlug = getSkillSlug(domain, domainId);
+    const skill = await skillsStore.load(skillId);
+    const skillSlug = getSkillSlug(skill, skillId);
 
     log.info(`Toggling trigger in CORE via cp.admin_api: skill=${skillSlug}, trigger=${triggerId}, active=${active}`);
 
@@ -1013,10 +1013,10 @@ router.post("/:domainId/triggers/:triggerId/toggle", async (req, res, next) => {
       const result = await toggleTrigger(skillSlug, triggerId, active);
 
       // Also update local state to stay in sync
-      const triggerIndex = domain.triggers?.findIndex(t => t.id === triggerId);
+      const triggerIndex = skill.triggers?.findIndex(t => t.id === triggerId);
       if (triggerIndex >= 0) {
-        domain.triggers[triggerIndex].enabled = active;
-        await domainsStore.save(domain);
+        skill.triggers[triggerIndex].enabled = active;
+        await skillsStore.save(skill);
       }
 
       return res.json({
@@ -1032,10 +1032,10 @@ router.post("/:domainId/triggers/:triggerId/toggle", async (req, res, next) => {
       log.warn(`Failed to toggle trigger in CORE: ${coreErr.message}`);
 
       // Update local state as fallback
-      const triggerIndex = domain.triggers?.findIndex(t => t.id === triggerId);
+      const triggerIndex = skill.triggers?.findIndex(t => t.id === triggerId);
       if (triggerIndex >= 0) {
-        domain.triggers[triggerIndex].enabled = active;
-        await domainsStore.save(domain);
+        skill.triggers[triggerIndex].enabled = active;
+        await skillsStore.save(skill);
       }
 
       return res.json({
@@ -1050,26 +1050,26 @@ router.post("/:domainId/triggers/:triggerId/toggle", async (req, res, next) => {
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
 });
 
 /**
- * GET /api/export/:domainId/triggers/:triggerId/history
+ * GET /api/export/:skillId/triggers/:triggerId/history
  *
  * Get execution history for a trigger.
  * Uses cp.admin_api getTriggerHistory method.
  */
-router.get("/:domainId/triggers/:triggerId/history", async (req, res, next) => {
+router.get("/:skillId/triggers/:triggerId/history", async (req, res, next) => {
   try {
-    const { domainId, triggerId } = req.params;
+    const { skillId, triggerId } = req.params;
     const { limit = 20 } = req.query;
     const log = req.app.locals.log;
 
-    const domain = await domainsStore.load(domainId);
-    const skillSlug = getSkillSlug(domain, domainId);
+    const skill = await skillsStore.load(skillId);
+    const skillSlug = getSkillSlug(skill, skillId);
 
     log.info(`Fetching trigger history from CORE: skill=${skillSlug}, trigger=${triggerId}`);
 
@@ -1094,7 +1094,7 @@ router.get("/:domainId/triggers/:triggerId/history", async (req, res, next) => {
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
@@ -1108,19 +1108,19 @@ router.get("/:domainId/triggers/:triggerId/history", async (req, res, next) => {
 const runningMCPs = new Map();
 
 /**
- * POST /api/export/:domainId/mcp/run
+ * POST /api/export/:skillId/mcp/run
  *
  * Start the generated MCP server.
  * Returns the server status and port.
  */
-router.post("/:domainId/mcp/run", async (req, res, next) => {
+router.post("/:skillId/mcp/run", async (req, res, next) => {
   try {
-    const { domainId } = req.params;
+    const { skillId } = req.params;
     const log = req.app.locals.log;
 
     // Check if already running
-    if (runningMCPs.has(domainId)) {
-      const existing = runningMCPs.get(domainId);
+    if (runningMCPs.has(skillId)) {
+      const existing = runningMCPs.get(skillId);
       return res.json({
         ok: true,
         status: 'already_running',
@@ -1130,8 +1130,8 @@ router.post("/:domainId/mcp/run", async (req, res, next) => {
       });
     }
 
-    const domain = await domainsStore.load(domainId);
-    const version = domain.version;
+    const skill = await skillsStore.load(skillId);
+    const version = skill.version;
 
     if (!version) {
       return res.status(400).json({
@@ -1141,9 +1141,9 @@ router.post("/:domainId/mcp/run", async (req, res, next) => {
     }
 
     // Get export path
-    const exportPath = await domainsStore.getExportPath(domainId, version);
+    const exportPath = await skillsStore.getExportPath(skillId, version);
 
-    log.info(`Starting MCP server for ${domainId} from ${exportPath}`);
+    log.info(`Starting MCP server for ${skillId} from ${exportPath}`);
 
     // Find the server file
     const fs = await import('fs/promises');
@@ -1180,22 +1180,22 @@ router.post("/:domainId/mcp/run", async (req, res, next) => {
 
     proc.stdout.on('data', (data) => {
       output += data.toString();
-      log.info(`[MCP:${domainId}] ${data.toString().trim()}`);
+      log.info(`[MCP:${skillId}] ${data.toString().trim()}`);
     });
 
     proc.stderr.on('data', (data) => {
       errorOutput += data.toString();
-      log.warn(`[MCP:${domainId}] ${data.toString().trim()}`);
+      log.warn(`[MCP:${skillId}] ${data.toString().trim()}`);
     });
 
     proc.on('error', (err) => {
-      log.error(`[MCP:${domainId}] Process error: ${err.message}`);
-      runningMCPs.delete(domainId);
+      log.error(`[MCP:${skillId}] Process error: ${err.message}`);
+      runningMCPs.delete(skillId);
     });
 
     proc.on('exit', (code) => {
-      log.info(`[MCP:${domainId}] Process exited with code ${code}`);
-      runningMCPs.delete(domainId);
+      log.info(`[MCP:${skillId}] Process exited with code ${code}`);
+      runningMCPs.delete(skillId);
     });
 
     // Store process info
@@ -1204,16 +1204,16 @@ router.post("/:domainId/mcp/run", async (req, res, next) => {
       port: basePort,
       startedAt: new Date().toISOString(),
       process: proc,
-      domainId,
+      skillId,
       version
     };
-    runningMCPs.set(domainId, mcpInfo);
+    runningMCPs.set(skillId, mcpInfo);
 
     // Wait a moment for server to start
     await new Promise(resolve => setTimeout(resolve, 1500));
 
     // Check if still running
-    if (!runningMCPs.has(domainId)) {
+    if (!runningMCPs.has(skillId)) {
       return res.status(500).json({
         error: "MCP server failed to start",
         output,
@@ -1232,34 +1232,34 @@ router.post("/:domainId/mcp/run", async (req, res, next) => {
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
 });
 
 /**
- * POST /api/export/:domainId/mcp/stop
+ * POST /api/export/:skillId/mcp/stop
  *
  * Stop the running MCP server.
  */
-router.post("/:domainId/mcp/stop", async (req, res, next) => {
+router.post("/:skillId/mcp/stop", async (req, res, next) => {
   try {
-    const { domainId } = req.params;
+    const { skillId } = req.params;
     const log = req.app.locals.log;
 
-    if (!runningMCPs.has(domainId)) {
+    if (!runningMCPs.has(skillId)) {
       return res.json({
         ok: true,
         status: 'not_running'
       });
     }
 
-    const mcpInfo = runningMCPs.get(domainId);
-    log.info(`Stopping MCP server for ${domainId} (pid: ${mcpInfo.pid})`);
+    const mcpInfo = runningMCPs.get(skillId);
+    log.info(`Stopping MCP server for ${skillId} (pid: ${mcpInfo.pid})`);
 
     mcpInfo.process.kill('SIGTERM');
-    runningMCPs.delete(domainId);
+    runningMCPs.delete(skillId);
 
     res.json({
       ok: true,
@@ -1273,15 +1273,15 @@ router.post("/:domainId/mcp/stop", async (req, res, next) => {
 });
 
 /**
- * GET /api/export/:domainId/mcp/status
+ * GET /api/export/:skillId/mcp/status
  *
  * Get MCP server running status.
  */
-router.get("/:domainId/mcp/running", async (req, res) => {
-  const { domainId } = req.params;
+router.get("/:skillId/mcp/running", async (req, res) => {
+  const { skillId } = req.params;
 
-  if (runningMCPs.has(domainId)) {
-    const info = runningMCPs.get(domainId);
+  if (runningMCPs.has(skillId)) {
+    const info = runningMCPs.get(skillId);
     return res.json({
       running: true,
       pid: info.pid,
@@ -1296,7 +1296,7 @@ router.get("/:domainId/mcp/running", async (req, res) => {
 });
 
 /**
- * POST /api/export/:domainId/mcp/deploy
+ * POST /api/export/:skillId/mcp/deploy
  *
  * ONE-CLICK DEPLOY: Start MCP server + Register with ADAS Core
  *
@@ -1305,12 +1305,12 @@ router.get("/:domainId/mcp/running", async (req, res) => {
  * 2. Register MCP URI with ADAS Core via /api/skills/install-mcp
  * 3. Skill is now available in ADAS Core (loaded fresh from MCP)
  */
-router.post("/:domainId/mcp/deploy", async (req, res, next) => {
+router.post("/:skillId/mcp/deploy", async (req, res, next) => {
   try {
-    const { domainId } = req.params;
+    const { skillId } = req.params;
     const log = req.app.locals.log;
 
-    const result = await deploySkillToADAS(domainId, log);
+    const result = await deploySkillToADAS(skillId, log);
     return res.json(result);
 
   } catch (err) {
@@ -1321,7 +1321,7 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
       return res.status(400).json({ error: err.message, hint: "Generate MCP first" });
     }
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     if (err.message?.includes('Failed to fetch') || err.message?.includes('fetch failed')) {
       return res.status(502).json({ error: "Failed to connect to ADAS Core", details: err.message });
@@ -1331,15 +1331,15 @@ router.post("/:domainId/mcp/deploy", async (req, res, next) => {
 });
 
 /**
- * GET /api/export/:domainId/files/:version/:filename
+ * GET /api/export/:skillId/files/:version/:filename
  *
  * Get content of a specific export file.
  */
-router.get("/:domainId/files/:version/:filename", async (req, res, next) => {
+router.get("/:skillId/files/:version/:filename", async (req, res, next) => {
   try {
-    const { domainId, version, filename } = req.params;
+    const { skillId, version, filename } = req.params;
 
-    const files = await domainsStore.getExport(domainId, version);
+    const files = await skillsStore.getExport(skillId, version);
     const file = files.find(f => f.name === filename);
 
     if (!file) {

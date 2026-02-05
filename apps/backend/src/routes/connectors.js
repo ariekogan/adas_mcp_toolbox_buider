@@ -19,7 +19,7 @@ import {
   getConnectorsFromADAS
 } from '../services/adasConnectorSync.js';
 import connectorState from '../store/connectorState.js';
-import domains from '../store/domains.js';
+import skills from '../store/skills.js';
 
 const router = Router();
 
@@ -177,14 +177,14 @@ router.get('/adas-status', async (_req, res) => {
       });
     }
 
-    // 4. Scan all domains to find which skills use each connector
+    // 4. Scan all skills to find which skills use each connector
     const skillsByConnector = new Map(); // connectorId -> [{ id, name }]
     try {
-      const domainList = await domains.list();
-      for (const domainSummary of domainList) {
+      const skillList = await skills.list();
+      for (const skillSummary of skillList) {
         try {
-          const domain = await domains.load(domainSummary.id);
-          for (const tool of (domain.tools || [])) {
+          const skill = await skills.load(skillSummary.id);
+          for (const tool of (skill.tools || [])) {
             if (tool.source?.type === 'mcp_bridge' && tool.source.connection_id) {
               const connId = tool.source.connection_id;
               if (!skillsByConnector.has(connId)) {
@@ -192,17 +192,17 @@ router.get('/adas-status', async (_req, res) => {
               }
               // Avoid duplicates
               const existing = skillsByConnector.get(connId);
-              if (!existing.some(s => s.id === domain.id)) {
-                existing.push({ id: domain.id, name: domain.name });
+              if (!existing.some(s => s.id === skill.id)) {
+                existing.push({ id: skill.id, name: skill.name });
               }
             }
           }
         } catch (err) {
-          // Skip domains that fail to load
+          // Skip skills that fail to load
         }
       }
     } catch (err) {
-      console.error('[Connectors] Failed to scan domains for connector usage:', err.message);
+      console.error('[Connectors] Failed to scan skills for connector usage:', err.message);
     }
 
     // 5. Build response: keyed by connector ID
@@ -310,20 +310,20 @@ router.post('/:id/call', async (req, res) => {
 });
 
 /**
- * POST /api/connectors/:id/import-to-domain
- * Import discovered tools into a DAL domain
+ * POST /api/connectors/:id/import-to-skill
+ * Import discovered tools into a DAL skill
  *
  * Body:
- *   - domainId: string
+ *   - skillId: string
  *   - tools: string[] (tool names to import, or empty for all)
  *   - policies: object (optional default policies)
  */
-router.post('/:id/import-to-domain', async (req, res) => {
+router.post('/:id/import-to-skill', async (req, res) => {
   const { id } = req.params;
-  const { domainId, tools: toolsToImport, policies } = req.body;
+  const { skillId, tools: toolsToImport, policies } = req.body;
 
-  if (!domainId) {
-    return res.status(400).json({ error: 'Domain ID is required' });
+  if (!skillId) {
+    return res.status(400).json({ error: 'Skill ID is required' });
   }
 
   const status = mcpManager.getStatus(id);
@@ -344,7 +344,7 @@ router.post('/:id/import-to-domain', async (req, res) => {
   res.json({
     success: true,
     importedTools: dalTools,
-    message: `Ready to import ${dalTools.length} tools into domain ${domainId}`
+    message: `Ready to import ${dalTools.length} tools into skill ${skillId}`
   });
 });
 

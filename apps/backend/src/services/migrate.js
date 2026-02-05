@@ -1,18 +1,18 @@
 /**
- * Migration Service - migrates legacy projects to DraftDomain format
+ * Migration Service - migrates legacy projects to DraftSkill format
  * @module services/migrate
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { createEmptyDraftDomain, createEmptyValidation } from '../utils/defaults.js';
-import { validateDraftDomain } from '../validators/index.js';
+import { createEmptyDraftSkill, createEmptyValidation } from '../utils/defaults.js';
+import { validateDraftSkill } from '../validators/index.js';
 
 /**
- * @typedef {import('../types/DraftDomain.js').DraftDomain} DraftDomain
- * @typedef {import('../types/DraftDomain.js').Phase} Phase
- * @typedef {import('../types/DraftDomain.js').Tool} Tool
- * @typedef {import('../types/DraftDomain.js').Scenario} Scenario
- * @typedef {import('../types/DraftDomain.js').Message} Message
+ * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill
+ * @typedef {import('../types/DraftSkill.js').Phase} Phase
+ * @typedef {import('../types/DraftSkill.js').Tool} Tool
+ * @typedef {import('../types/DraftSkill.js').Scenario} Scenario
+ * @typedef {import('../types/DraftSkill.js').Message} Message
  */
 
 /**
@@ -65,30 +65,30 @@ const PHASE_MAP = {
 };
 
 /**
- * Migrate legacy project/toolbox/conversation to DraftDomain format
+ * Migrate legacy project/toolbox/conversation to DraftSkill format
  * @param {LegacyProject} project
  * @param {LegacyToolbox} toolbox
  * @param {LegacyConversation} conversation
- * @returns {DraftDomain}
+ * @returns {DraftSkill}
  */
 export function migrateToV2(project, toolbox, conversation) {
-  // Start with empty domain
-  const domain = createEmptyDraftDomain(project.id, project.name);
+  // Start with empty skill
+  const skill = createEmptyDraftSkill(project.id, project.name);
 
   // ─────────────────────────────────────────────────────────────────
   // MIGRATE METADATA
   // ─────────────────────────────────────────────────────────────────
-  domain.description = project.description || '';
-  domain.phase = mapPhase(toolbox.status);
-  domain.version = `0.${toolbox.version || 1}.0`;
-  domain.created_at = project.created_at;
-  domain.updated_at = new Date().toISOString();
+  skill.description = project.description || '';
+  skill.phase = mapPhase(toolbox.status);
+  skill.version = `0.${toolbox.version || 1}.0`;
+  skill.created_at = project.created_at;
+  skill.updated_at = new Date().toISOString();
 
   // ─────────────────────────────────────────────────────────────────
   // MIGRATE PROBLEM
   // ─────────────────────────────────────────────────────────────────
   if (toolbox.problem) {
-    domain.problem.statement = toolbox.problem.statement || '';
+    skill.problem.statement = toolbox.problem.statement || '';
 
     // Build context from target_user and systems_involved
     const contextParts = [];
@@ -98,31 +98,31 @@ export function migrateToV2(project, toolbox, conversation) {
     if (toolbox.problem.systems_involved?.length > 0) {
       contextParts.push(`Systems involved: ${toolbox.problem.systems_involved.join(', ')}`);
     }
-    domain.problem.context = contextParts.join('\n');
+    skill.problem.context = contextParts.join('\n');
 
     // If confirmed, the problem is considered complete
     if (toolbox.problem.confirmed) {
-      domain.problem.goals.push('Problem confirmed by user');
+      skill.problem.goals.push('Problem confirmed by user');
     }
   }
 
   // ─────────────────────────────────────────────────────────────────
   // MIGRATE SCENARIOS
   // ─────────────────────────────────────────────────────────────────
-  domain.scenarios = (toolbox.scenarios || []).map(migrateScenario);
+  skill.scenarios = (toolbox.scenarios || []).map(migrateScenario);
 
   // ─────────────────────────────────────────────────────────────────
   // MIGRATE TOOLS
   // ─────────────────────────────────────────────────────────────────
-  domain.tools = (toolbox.tools || []).map(migrateTool);
+  skill.tools = (toolbox.tools || []).map(migrateTool);
 
   // Also migrate proposed tools that were accepted
   const proposedTools = (toolbox.proposed_tools || [])
     .filter(pt => pt.accepted)
-    .filter(pt => !domain.tools.some(t => t.name === pt.name)); // Avoid duplicates
+    .filter(pt => !skill.tools.some(t => t.name === pt.name)); // Avoid duplicates
 
   for (const proposed of proposedTools) {
-    domain.tools.push({
+    skill.tools.push({
       id: uuidv4(),
       id_status: 'temporary',
       name: proposed.name,
@@ -139,7 +139,7 @@ export function migrateToV2(project, toolbox, conversation) {
   // MIGRATE WORKFLOWS (if any)
   // ─────────────────────────────────────────────────────────────────
   if (toolbox.workflows?.length > 0) {
-    domain.policy.workflows = toolbox.workflows.map((wf, i) => ({
+    skill.policy.workflows = toolbox.workflows.map((wf, i) => ({
       id: wf.id || uuidv4(),
       name: wf.name || `Workflow ${i + 1}`,
       description: '',
@@ -153,22 +153,22 @@ export function migrateToV2(project, toolbox, conversation) {
   // ─────────────────────────────────────────────────────────────────
   // MIGRATE CONVERSATION
   // ─────────────────────────────────────────────────────────────────
-  domain.conversation = (conversation.messages || []).map(migrateMessage);
+  skill.conversation = (conversation.messages || []).map(migrateMessage);
 
   // ─────────────────────────────────────────────────────────────────
   // INFER ADDITIONAL FIELDS
   // ─────────────────────────────────────────────────────────────────
 
   // Infer role from conversation context (simple heuristic)
-  if (domain.tools.length > 0) {
-    const toolNames = domain.tools.map(t => t.name).join(', ');
-    domain.role.persona = `Assistant with access to: ${toolNames}`;
+  if (skill.tools.length > 0) {
+    const toolNames = skill.tools.map(t => t.name).join(', ');
+    skill.role.persona = `Assistant with access to: ${toolNames}`;
   }
 
   // Create default intents based on tools
-  if (domain.tools.length > 0 && domain.intents.supported.length === 0) {
+  if (skill.tools.length > 0 && skill.intents.supported.length === 0) {
     // Each tool gets a basic intent
-    domain.intents.supported = domain.tools.slice(0, 5).map(tool => ({
+    skill.intents.supported = skill.tools.slice(0, 5).map(tool => ({
       id: `intent_${tool.id}`,
       description: `User wants to ${tool.description || tool.name}`,
       examples: [`I need to ${tool.name}`, `Can you ${tool.name}?`],
@@ -181,9 +181,9 @@ export function migrateToV2(project, toolbox, conversation) {
   // ─────────────────────────────────────────────────────────────────
   // RUN VALIDATION
   // ─────────────────────────────────────────────────────────────────
-  domain.validation = validateDraftDomain(domain);
+  skill.validation = validateDraftSkill(skill);
 
-  return domain;
+  return skill;
 }
 
 /**
@@ -279,7 +279,7 @@ function migrateMessage(oldMessage) {
 
 /**
  * Check if data is in legacy format
- * @param {Object} data - Either a domain or project/toolbox combo
+ * @param {Object} data - Either a skill or project/toolbox combo
  * @returns {boolean}
  */
 export function isLegacyFormat(data) {
@@ -319,7 +319,7 @@ export function getMigrationInfo(project, toolbox) {
       'Tools enhanced with policy and mock_status',
       'Added intents, role, engine sections',
       'Added continuous validation',
-      'Conversation merged into single domain.json',
+      'Conversation merged into single skill.json',
     ],
   };
 }

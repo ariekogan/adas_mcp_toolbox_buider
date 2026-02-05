@@ -52,70 +52,70 @@ export async function getTemplate(id) {
   return data.template;
 }
 
-// Skills (mapped to domains backend)
+// Skills (mapped to skills backend)
 export async function listSkills() {
-  const data = await request('/domains');
-  return data.domains;
+  const data = await request('/skills');
+  return data.skills;
 }
 
 export async function createSkill(name, settings = {}, templateId = null) {
-  const data = await request('/domains', {
+  const data = await request('/skills', {
     method: 'POST',
     body: JSON.stringify({ name, settings, templateId })
   });
-  return data.domain;
+  return data.skill;
 }
 
 export async function getSkill(id) {
-  const data = await request(`/domains/${id}`);
-  return data.domain;
+  const data = await request(`/skills/${id}`);
+  return data.skill;
 }
 
 export async function updateSkill(id, updates) {
-  const data = await request(`/domains/${id}`, {
+  const data = await request(`/skills/${id}`, {
     method: 'PATCH',
     body: JSON.stringify({ updates })
   });
-  return data.domain;
+  return data.skill;
 }
 
 export async function updateSkillSettings(id, settings) {
-  const data = await request(`/domains/${id}/settings`, {
+  const data = await request(`/skills/${id}/settings`, {
     method: 'PATCH',
     body: JSON.stringify(settings)
   });
-  return data.domain;
+  return data.skill;
 }
 
 export async function deleteSkill(id) {
-  return request(`/domains/${id}`, { method: 'DELETE' });
+  return request(`/skills/${id}`, { method: 'DELETE' });
 }
 
 export async function getSkillValidation(id) {
-  const data = await request(`/domains/${id}/validation`);
+  const data = await request(`/skills/${id}/validation`);
   return data.validation;
 }
 
 // Chat
 export async function sendSkillMessage(skillId, message, uiFocus = null) {
-  const response = await request('/chat/domain', {
+  const response = await request('/chat/skill', {
     method: 'POST',
     body: JSON.stringify({
-      domain_id: skillId,
+      skill_id: skillId,
       message,
       ui_focus: uiFocus
     })
   });
-  // Rename domain to skill in response
-  if (response.domain) {
-    response.skill = response.domain;
-    delete response.domain;
+  // Rename skill to skill in response
+  if (response.skill) {
+    response.skill = response.skill;
+    delete response.skill;
   }
   return response;
 }
 
 export async function getSkillGreeting() {
-  const data = await request('/chat/domain/greeting');
+  const data = await request('/chat/skill/greeting');
   return {
     message: data.message,
     inputHint: data.input_hint
@@ -126,9 +126,9 @@ export async function getSkillGreeting() {
 export async function digestFile(skillId, file) {
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('domain_id', skillId);
+  formData.append('skill_id', skillId);
 
-  const response = await fetch(`${API_BASE}/chat/domain/digest`, {
+  const response = await fetch(`${API_BASE}/chat/skill/digest`, {
     method: 'POST',
     body: formData
     // Don't set Content-Type - browser sets it with boundary
@@ -143,17 +143,17 @@ export async function digestFile(skillId, file) {
 }
 
 export async function applyExtraction(skillId, extraction) {
-  const response = await request('/chat/domain/digest/apply', {
+  const response = await request('/chat/skill/digest/apply', {
     method: 'POST',
     body: JSON.stringify({
-      domain_id: skillId,
+      skill_id: skillId,
       extraction
     })
   });
 
-  if (response.domain) {
-    response.skill = response.domain;
-    delete response.domain;
+  if (response.skill) {
+    response.skill = response.skill;
+    delete response.skill;
   }
   return response;
 }
@@ -171,7 +171,7 @@ export async function validateToolsConsistency(skillId, newTool = null) {
   return request('/validate/tools-consistency', {
     method: 'POST',
     body: JSON.stringify({
-      domain_id: skillId,
+      skill_id: skillId,
       new_tool: newTool
     })
   });
@@ -181,7 +181,7 @@ export async function validatePolicyConsistency(skillId) {
   return request('/validate/policy-consistency', {
     method: 'POST',
     body: JSON.stringify({
-      domain_id: skillId
+      skill_id: skillId
     })
   });
 }
@@ -190,7 +190,7 @@ export async function validateIntentsConsistency(skillId) {
   return request('/validate/intents-consistency', {
     method: 'POST',
     body: JSON.stringify({
-      domain_id: skillId
+      skill_id: skillId
     })
   });
 }
@@ -199,7 +199,7 @@ export async function validateIdentityConsistency(skillId) {
   return request('/validate/identity-consistency', {
     method: 'POST',
     body: JSON.stringify({
-      domain_id: skillId
+      skill_id: skillId
     })
   });
 }
@@ -208,7 +208,7 @@ export async function validateSecurityConsistency(skillId) {
   return request('/validate/security-consistency', {
     method: 'POST',
     body: JSON.stringify({
-      domain_id: skillId
+      skill_id: skillId
     })
   });
 }
@@ -303,10 +303,10 @@ export async function callConnectorTool(connectionId, tool, args = {}) {
   });
 }
 
-export async function importConnectorTools(connectionId, domainId, tools = [], policies = {}) {
-  return request(`/connectors/${connectionId}/import-to-domain`, {
+export async function importConnectorTools(connectionId, skillId, tools = [], policies = {}) {
+  return request(`/connectors/${connectionId}/import-to-skill`, {
     method: 'POST',
-    body: JSON.stringify({ domainId, tools, policies })
+    body: JSON.stringify({ skillId, tools, policies })
   });
 }
 

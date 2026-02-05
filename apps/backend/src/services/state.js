@@ -1,14 +1,14 @@
 import { v4 as uuidv4 } from "uuid";
-import { validateDraftDomain } from "../validators/index.js";
-import { PHASES } from "../types/DraftDomain.js";
+import { validateDraftSkill } from "../validators/index.js";
+import { PHASES } from "../types/DraftSkill.js";
 
 /**
- * @typedef {import('../types/DraftDomain.js').DraftDomain} DraftDomain
- * @typedef {import('../types/DraftDomain.js').Phase} Phase
+ * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill
+ * @typedef {import('../types/DraftSkill.js').Phase} Phase
  */
 
 // ═══════════════════════════════════════════════════════════════
-// STATE UPDATE (supports both legacy toolbox and new DraftDomain)
+// STATE UPDATE (supports both legacy toolbox and new DraftSkill)
 // ═══════════════════════════════════════════════════════════════
 
 // Protected array fields - these can ONLY be modified via _push/_delete/_update/_rename operations
@@ -20,9 +20,9 @@ const PROTECTED_ARRAYS = [
 ];
 
 /**
- * Apply state updates to toolbox or domain
+ * Apply state updates to toolbox or skill
  * Supports dot notation (e.g., "problem.statement") and array operations
- * @param {Object} state - Either toolbox (legacy) or DraftDomain (new)
+ * @param {Object} state - Either toolbox (legacy) or DraftSkill (new)
  * @param {Object} updates - Updates to apply
  * @returns {Object} Updated state
  */
@@ -170,22 +170,22 @@ export function applyStateUpdate(state, updates) {
 }
 
 /**
- * Apply state update with validation (for DraftDomain)
- * @param {DraftDomain} domain
+ * Apply state update with validation (for DraftSkill)
+ * @param {DraftSkill} skill
  * @param {Object} updates
- * @returns {DraftDomain}
+ * @returns {DraftSkill}
  */
-export function applyStateUpdateWithValidation(domain, updates) {
+export function applyStateUpdateWithValidation(skill, updates) {
   // Apply updates
-  const updatedDomain = applyStateUpdate(domain, updates);
+  const updatedSkill = applyStateUpdate(skill, updates);
 
   // Update timestamp
-  updatedDomain.updated_at = new Date().toISOString();
+  updatedSkill.updated_at = new Date().toISOString();
 
   // Run validation pipeline
-  updatedDomain.validation = validateDraftDomain(updatedDomain);
+  updatedSkill.validation = validateDraftSkill(updatedSkill);
 
-  return updatedDomain;
+  return updatedSkill;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -241,9 +241,9 @@ function setNestedValue(obj, path, value) {
  * @returns {number}
  */
 export function calculateProgress(toolbox) {
-  // If it's a DraftDomain, use the new calculation
+  // If it's a DraftSkill, use the new calculation
   if (toolbox.validation?.completeness) {
-    return calculateDomainProgress(toolbox);
+    return calculateSkillProgress(toolbox);
   }
 
   // Legacy calculation
@@ -284,12 +284,12 @@ export function calculateProgress(toolbox) {
 }
 
 /**
- * Calculate progress for DraftDomain based on completeness
- * @param {DraftDomain} domain
+ * Calculate progress for DraftSkill based on completeness
+ * @param {DraftSkill} skill
  * @returns {number}
  */
-export function calculateDomainProgress(domain) {
-  const completeness = domain.validation?.completeness;
+export function calculateSkillProgress(skill) {
+  const completeness = skill.validation?.completeness;
   if (!completeness) return 0;
 
   const sections = [
@@ -318,7 +318,7 @@ export function calculateDomainProgress(domain) {
  * @returns {boolean}
  */
 export function canTransitionTo(toolbox, targetPhase) {
-  // If it's a DraftDomain, use the new logic
+  // If it's a DraftSkill, use the new logic
   if (toolbox.phase !== undefined && toolbox.validation) {
     return canTransitionToPhase(toolbox, targetPhase);
   }
@@ -347,43 +347,43 @@ export function canTransitionTo(toolbox, targetPhase) {
 }
 
 /**
- * Check if domain can transition to target phase (new format)
- * @param {DraftDomain} domain
+ * Check if skill can transition to target phase (new format)
+ * @param {DraftSkill} skill
  * @param {Phase} targetPhase
  * @returns {boolean}
  */
-export function canTransitionToPhase(domain, targetPhase) {
+export function canTransitionToPhase(skill, targetPhase) {
   const checks = {
     PROBLEM_DISCOVERY: () => true, // Always can go back
 
     SCENARIO_EXPLORATION: () =>
-      domain.problem?.statement?.length >= 10,
+      skill.problem?.statement?.length >= 10,
 
     INTENT_DEFINITION: () =>
-      domain.scenarios?.length >= 1,
+      skill.scenarios?.length >= 1,
 
     TOOLS_PROPOSAL: () =>
-      domain.intents?.supported?.length >= 1 &&
-      domain.intents?.supported?.every(i => i.examples?.length >= 1),
+      skill.intents?.supported?.length >= 1 &&
+      skill.intents?.supported?.every(i => i.examples?.length >= 1),
 
     TOOL_DEFINITION: () =>
-      domain.tools?.length >= 1,
+      skill.tools?.length >= 1,
 
     POLICY_DEFINITION: () =>
-      domain.tools?.every(t =>
+      skill.tools?.every(t =>
         t.inputs?.length >= 0 && // At least defined (can be empty)
         t.output?.description
       ),
 
     MOCK_TESTING: () =>
-      (domain.policy?.guardrails?.never?.length > 0 ||
-       domain.policy?.guardrails?.always?.length > 0),
+      (skill.policy?.guardrails?.never?.length > 0 ||
+       skill.policy?.guardrails?.always?.length > 0),
 
     READY_TO_EXPORT: () =>
-      domain.tools?.every(t => t.mock_status !== 'untested'),
+      skill.tools?.every(t => t.mock_status !== 'untested'),
 
     EXPORTED: () =>
-      domain.validation?.ready_to_export === true,
+      skill.validation?.ready_to_export === true,
   };
 
   return checks[targetPhase]?.() ?? true;
@@ -391,44 +391,44 @@ export function canTransitionToPhase(domain, targetPhase) {
 
 /**
  * Get blocking issues for phase transition
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @param {Phase} targetPhase
  * @returns {string[]}
  */
-export function getBlockingIssues(domain, targetPhase) {
+export function getBlockingIssues(skill, targetPhase) {
   const issues = [];
 
   switch (targetPhase) {
     case 'SCENARIO_EXPLORATION':
-      if (!domain.problem?.statement || domain.problem.statement.length < 10) {
+      if (!skill.problem?.statement || skill.problem.statement.length < 10) {
         issues.push('Problem statement must be at least 10 characters');
       }
       break;
 
     case 'INTENT_DEFINITION':
-      if (!domain.scenarios || domain.scenarios.length < 1) {
+      if (!skill.scenarios || skill.scenarios.length < 1) {
         issues.push('Define at least 1 scenario before proceeding');
       }
       break;
 
     case 'TOOLS_PROPOSAL':
-      if (!domain.intents?.supported || domain.intents.supported.length < 1) {
+      if (!skill.intents?.supported || skill.intents.supported.length < 1) {
         issues.push('Define at least 1 intent');
       }
-      const missingExamples = domain.intents?.supported?.filter(i => !i.examples || i.examples.length < 1) || [];
+      const missingExamples = skill.intents?.supported?.filter(i => !i.examples || i.examples.length < 1) || [];
       if (missingExamples.length > 0) {
         issues.push(`Add examples to intents: ${missingExamples.map(i => i.id).join(', ')}`);
       }
       break;
 
     case 'TOOL_DEFINITION':
-      if (!domain.tools || domain.tools.length < 1) {
+      if (!skill.tools || skill.tools.length < 1) {
         issues.push('Define at least 1 tool');
       }
       break;
 
     case 'POLICY_DEFINITION':
-      const incompleteTools = domain.tools?.filter(t => !t.output?.description) || [];
+      const incompleteTools = skill.tools?.filter(t => !t.output?.description) || [];
       if (incompleteTools.length > 0) {
         issues.push(`Complete output definition for tools: ${incompleteTools.map(t => t.name).join(', ')}`);
       }
@@ -436,28 +436,28 @@ export function getBlockingIssues(domain, targetPhase) {
 
     case 'MOCK_TESTING':
       const hasGuardrails =
-        (domain.policy?.guardrails?.never?.length > 0) ||
-        (domain.policy?.guardrails?.always?.length > 0);
+        (skill.policy?.guardrails?.never?.length > 0) ||
+        (skill.policy?.guardrails?.always?.length > 0);
       if (!hasGuardrails) {
         issues.push('Define at least one guardrail (never or always)');
       }
       break;
 
     case 'READY_TO_EXPORT':
-      const untestedTools = domain.tools?.filter(t => t.mock_status === 'untested') || [];
+      const untestedTools = skill.tools?.filter(t => t.mock_status === 'untested') || [];
       if (untestedTools.length > 0) {
         issues.push(`Test or skip mocks for tools: ${untestedTools.map(t => t.name).join(', ')}`);
       }
       break;
 
     case 'EXPORTED':
-      if (!domain.validation?.ready_to_export) {
-        issues.push(...(domain.validation?.errors?.map(e => e.message) || []));
-        if (domain.validation?.unresolved?.tools?.length > 0) {
-          issues.push(`Unresolved tool references: ${domain.validation.unresolved.tools.join(', ')}`);
+      if (!skill.validation?.ready_to_export) {
+        issues.push(...(skill.validation?.errors?.map(e => e.message) || []));
+        if (skill.validation?.unresolved?.tools?.length > 0) {
+          issues.push(`Unresolved tool references: ${skill.validation.unresolved.tools.join(', ')}`);
         }
-        if (domain.validation?.unresolved?.workflows?.length > 0) {
-          issues.push(`Unresolved workflow references: ${domain.validation.unresolved.workflows.join(', ')}`);
+        if (skill.validation?.unresolved?.workflows?.length > 0) {
+          issues.push(`Unresolved workflow references: ${skill.validation.unresolved.workflows.join(', ')}`);
         }
       }
       break;
@@ -494,16 +494,16 @@ export function getPreviousPhase(currentPhase) {
 
 /**
  * Check if we should suggest advancing to next phase
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {{suggest: boolean, nextPhase: Phase|null, reason: string}}
  */
-export function shouldSuggestPhaseAdvance(domain) {
-  const nextPhase = getNextPhase(domain.phase);
+export function shouldSuggestPhaseAdvance(skill) {
+  const nextPhase = getNextPhase(skill.phase);
   if (!nextPhase) {
     return { suggest: false, nextPhase: null, reason: 'Already at final phase' };
   }
 
-  if (canTransitionToPhase(domain, nextPhase)) {
+  if (canTransitionToPhase(skill, nextPhase)) {
     const reasons = {
       'SCENARIO_EXPLORATION': 'Problem statement is defined',
       'INTENT_DEFINITION': 'Scenarios are defined',
@@ -512,7 +512,7 @@ export function shouldSuggestPhaseAdvance(domain) {
       'POLICY_DEFINITION': 'Tools are fully defined',
       'MOCK_TESTING': 'Policies are defined',
       'READY_TO_EXPORT': 'All mocks are tested',
-      'EXPORTED': 'Domain is ready to export',
+      'EXPORTED': 'Skill is ready to export',
     };
     return {
       suggest: true,
@@ -528,7 +528,7 @@ export default {
   applyStateUpdate,
   applyStateUpdateWithValidation,
   calculateProgress,
-  calculateDomainProgress,
+  calculateSkillProgress,
   canTransitionTo,
   canTransitionToPhase,
   getBlockingIssues,

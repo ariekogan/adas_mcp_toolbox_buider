@@ -2,7 +2,7 @@
  * MCP Development Agent
  *
  * An AUTONOMOUS agent that:
- * 1. Analyzes domain spec
+ * 1. Analyzes skill spec
  * 2. INFERS missing details (doesn't ask)
  * 3. Generates complete MCP server
  * 4. Shows user what was inferred (optional review)
@@ -16,7 +16,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs/promises";
 import path from "path";
-import { generateDomainYaml } from "./export.js";
+import { generateSkillYaml } from "./export.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -452,8 +452,8 @@ const CONNECTOR_CONFIGS = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export class MCPDevelopmentSession {
-  constructor(domain, options = {}) {
-    this.domain = domain;
+  constructor(skill, options = {}) {
+    this.skill = skill;
     this.outputDir = options.outputDir;
     this.onProgress = options.onProgress || (() => {});
 
@@ -472,7 +472,7 @@ export class MCPDevelopmentSession {
   }
 
   /**
-   * Analyze and enrich domain - NO QUESTIONS, just inference
+   * Analyze and enrich skill - NO QUESTIONS, just inference
    */
   analyzeAndEnrich() {
     this.phase = MCP_DEV_PHASES.ANALYZING;
@@ -482,7 +482,7 @@ export class MCPDevelopmentSession {
     const nativeTools = []; // Tools that are NOT from external connectors
     const connectorToolsMap = new Map(); // connector_id -> [tools]
 
-    for (const tool of this.domain.tools || []) {
+    for (const tool of this.skill.tools || []) {
       // Check if this tool is from an external MCP connector
       if (tool.source?.type === 'mcp_bridge' && tool.source.connection_id) {
         const connectorId = tool.source.connection_id;
@@ -575,13 +575,13 @@ export class MCPDevelopmentSession {
     }
 
     // Generate the skill YAML definition
-    const skillYaml = generateDomainYaml(this.domain);
+    const skillYaml = generateSkillYaml(this.skill);
 
     // Build the generation context with all our inferences
     const context = {
-      domain: this.domain,
-      enrichedTools: this.enrichedTools || this.domain.tools,
-      nativeTools: this.nativeTools || this.enrichedTools || this.domain.tools,
+      skill: this.skill,
+      enrichedTools: this.enrichedTools || this.skill.tools,
+      nativeTools: this.nativeTools || this.enrichedTools || this.skill.tools,
       inferences: Object.fromEntries(this.inferences),
       connectorInfo: this.connectorInfo || [],
       skillYaml, // Include skill YAML for embedding in MCP
@@ -943,7 +943,7 @@ ${connectorImports}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("${context.domain.name || 'MCP Server'}")
+mcp = FastMCP("${context.skill.name || 'MCP Server'}")
 
 # ============================================================================
 # SKILL DEFINITION (YAML) - Complete skill config for ADAS Core
@@ -967,8 +967,8 @@ ${connectorToolDefs}
 def get_skill_info() -> dict:
     """Get information about this MCP server."""
     return {
-        "name": "${context.domain.name || 'MCP Server'}",
-        "description": "${(context.domain.problem?.statement || 'MCP Server').replace(/"/g, '\\"')}",
+        "name": "${context.skill.name || 'MCP Server'}",
+        "description": "${(context.skill.problem?.statement || 'MCP Server').replace(/"/g, '\\"')}",
         "version": "1.0.0",
         "tools_count": ${totalTools}${hasConnectors ? `,
         "external_connectors": ${JSON.stringify(connectorInfo.map(c => c.id))}` : ''},
@@ -991,14 +991,14 @@ def get_skill_definition() -> dict:
     return {
         "format": "yaml",
         "content": SKILL_DEFINITION_YAML.strip(),
-        "skill_name": "${context.domain.name || 'MCP Server'}",
-        "version": "${context.domain.version || 1}"
+        "skill_name": "${context.skill.name || 'MCP Server'}",
+        "version": "${context.skill.version || 1}"
     }
 
 @mcp.tool()
 def health_check() -> dict:
     """Check server health."""
-    return {"status": "healthy", "server": "${context.domain.name || 'MCP Server'}"}
+    return {"status": "healthy", "server": "${context.skill.name || 'MCP Server'}"}
 
 # ============================================================================
 # MAIN
@@ -1055,7 +1055,7 @@ function buildGenerationRequest(context) {
     }
   }
 
-  return `Generate a complete MCP server with ${totalTools} tools for "${context.domain.name}".
+  return `Generate a complete MCP server with ${totalTools} tools for "${context.skill.name}".
 
 The tools are:
 ${toolList}
@@ -1125,8 +1125,8 @@ function getGenerationTools() {
 // SIMPLE ANALYSIS (no questions)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function analyzeDomainForMCP(domain) {
-  const tools = domain.tools || [];
+export function analyzeSkillForMCP(skill) {
+  const tools = skill.tools || [];
 
   // Separate native tools from connector tools
   const nativeTools = [];
@@ -1191,5 +1191,5 @@ export function analyzeDomainForMCP(domain) {
 export default {
   MCPDevelopmentSession,
   MCP_DEV_PHASES,
-  analyzeDomainForMCP,
+  analyzeSkillForMCP,
 };

@@ -4,8 +4,8 @@
  */
 
 /**
- * @typedef {import('../types/DraftDomain.js').DraftDomain} DraftDomain
- * @typedef {import('../types/DraftDomain.js').ValidationCompleteness} ValidationCompleteness
+ * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill
+ * @typedef {import('../types/DraftSkill.js').ValidationCompleteness} ValidationCompleteness
  */
 
 /**
@@ -25,33 +25,33 @@ export const COVERAGE = [
 ];
 
 /**
- * Check completeness of all domain sections
- * @param {DraftDomain} domain
+ * Check completeness of all skill sections
+ * @param {DraftSkill} skill
  * @returns {ValidationCompleteness}
  */
-export function checkCompleteness(domain) {
+export function checkCompleteness(skill) {
   return {
-    problem: isProblemComplete(domain),
-    scenarios: areScenariosComplete(domain),
-    role: isRoleComplete(domain),
-    intents: areIntentsComplete(domain),
-    tools: areToolsComplete(domain),
-    policy: isPolicyComplete(domain),
+    problem: isProblemComplete(skill),
+    scenarios: areScenariosComplete(skill),
+    role: isRoleComplete(skill),
+    intents: areIntentsComplete(skill),
+    tools: areToolsComplete(skill),
+    policy: isPolicyComplete(skill),
     engine: true, // Engine always has defaults
-    mocks_tested: areMocksTested(domain),
-    identity: isIdentityComplete(domain),
+    mocks_tested: areMocksTested(skill),
+    identity: isIdentityComplete(skill),
     // Identity & Access Control: security completeness
-    security: isSecuritySectionComplete(domain),
+    security: isSecuritySectionComplete(skill),
   };
 }
 
 /**
  * Check if problem section is complete
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {boolean}
  */
-export function isProblemComplete(domain) {
-  const { problem } = domain;
+export function isProblemComplete(skill) {
+  const { problem } = skill;
   if (!problem) return false;
 
   // Statement must be meaningful (at least 10 chars)
@@ -60,26 +60,26 @@ export function isProblemComplete(domain) {
 
 /**
  * Check if scenarios section is complete
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {boolean}
  */
-export function areScenariosComplete(domain) {
+export function areScenariosComplete(skill) {
   // Need at least 1 scenario (relaxed from 2 for MVP)
-  if (!domain.scenarios || domain.scenarios.length < 1) {
+  if (!skill.scenarios || skill.scenarios.length < 1) {
     return false;
   }
 
   // Each scenario needs at least a title
-  return domain.scenarios.every(s => s.title && s.title.length > 0);
+  return skill.scenarios.every(s => s.title && s.title.length > 0);
 }
 
 /**
  * Check if role section is complete
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {boolean}
  */
-export function isRoleComplete(domain) {
-  const { role } = domain;
+export function isRoleComplete(skill) {
+  const { role } = skill;
   if (!role) return false;
 
   // Role needs name and persona at minimum
@@ -88,11 +88,11 @@ export function isRoleComplete(domain) {
 
 /**
  * Check if intents section is complete
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {boolean}
  */
-export function areIntentsComplete(domain) {
-  const { intents } = domain;
+export function areIntentsComplete(skill) {
+  const { intents } = skill;
   if (!intents) return false;
 
   // Need at least 1 intent
@@ -108,17 +108,17 @@ export function areIntentsComplete(domain) {
 
 /**
  * Check if tools section is complete
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {boolean}
  */
-export function areToolsComplete(domain) {
+export function areToolsComplete(skill) {
   // Need at least 1 tool
-  if (!domain.tools || domain.tools.length < 1) {
+  if (!skill.tools || skill.tools.length < 1) {
     return false;
   }
 
   // Each tool needs name, description, inputs, and output
-  return domain.tools.every(tool => {
+  return skill.tools.every(tool => {
     const hasName = tool.name && tool.name.length > 0;
     const hasDescription = tool.description && tool.description.length > 0;
     const hasOutput = tool.output && tool.output.description;
@@ -129,11 +129,11 @@ export function areToolsComplete(domain) {
 
 /**
  * Check if policy section is complete
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {boolean}
  */
-export function isPolicyComplete(domain) {
-  const { policy } = domain;
+export function isPolicyComplete(skill) {
+  const { policy } = skill;
   if (!policy) return false;
 
   // Need at least one guardrail (never or always)
@@ -146,26 +146,26 @@ export function isPolicyComplete(domain) {
 
 /**
  * Check if all mocks are tested
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {boolean}
  */
-export function areMocksTested(domain) {
+export function areMocksTested(skill) {
   // No tools = vacuously true
-  if (!domain.tools || domain.tools.length === 0) {
+  if (!skill.tools || skill.tools.length === 0) {
     return false; // But we need tools, so this is incomplete
   }
 
   // Every tool must be tested or explicitly skipped
-  return domain.tools.every(tool => tool.mock_status !== 'untested');
+  return skill.tools.every(tool => tool.mock_status !== 'untested');
 }
 
 /**
  * Check if identity section is complete
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {boolean}
  */
-export function isIdentityComplete(domain) {
-  const identity = domain.skill_identity;
+export function isIdentityComplete(skill) {
+  const identity = skill.skill_identity;
   if (!identity) return false;
 
   // Must have display name
@@ -184,92 +184,92 @@ export function isIdentityComplete(domain) {
 
 /**
  * Get detailed completeness report
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {Object}
  */
-export function getCompletenessReport(domain) {
+export function getCompletenessReport(skill) {
   const report = {
     problem: {
-      complete: isProblemComplete(domain),
+      complete: isProblemComplete(skill),
       details: {
-        has_statement: Boolean(domain.problem?.statement?.length >= 10),
-        has_context: Boolean(domain.problem?.context?.length > 0),
-        has_goals: Boolean(domain.problem?.goals?.length > 0),
+        has_statement: Boolean(skill.problem?.statement?.length >= 10),
+        has_context: Boolean(skill.problem?.context?.length > 0),
+        has_goals: Boolean(skill.problem?.goals?.length > 0),
       },
     },
     scenarios: {
-      complete: areScenariosComplete(domain),
+      complete: areScenariosComplete(skill),
       details: {
-        count: domain.scenarios?.length || 0,
+        count: skill.scenarios?.length || 0,
         min_required: 1,
-        with_steps: domain.scenarios?.filter(s => s.steps?.length > 0).length || 0,
+        with_steps: skill.scenarios?.filter(s => s.steps?.length > 0).length || 0,
       },
     },
     role: {
-      complete: isRoleComplete(domain),
+      complete: isRoleComplete(skill),
       details: {
-        has_name: Boolean(domain.role?.name?.length > 0),
-        has_persona: Boolean(domain.role?.persona?.length > 0),
-        has_goals: Boolean(domain.role?.goals?.length > 0),
-        has_limitations: Boolean(domain.role?.limitations?.length > 0),
+        has_name: Boolean(skill.role?.name?.length > 0),
+        has_persona: Boolean(skill.role?.persona?.length > 0),
+        has_goals: Boolean(skill.role?.goals?.length > 0),
+        has_limitations: Boolean(skill.role?.limitations?.length > 0),
       },
     },
     intents: {
-      complete: areIntentsComplete(domain),
+      complete: areIntentsComplete(skill),
       details: {
-        count: domain.intents?.supported?.length || 0,
+        count: skill.intents?.supported?.length || 0,
         min_required: 1,
         with_examples:
-          domain.intents?.supported?.filter(i => i.examples?.length > 0).length || 0,
+          skill.intents?.supported?.filter(i => i.examples?.length > 0).length || 0,
       },
     },
     tools: {
-      complete: areToolsComplete(domain),
+      complete: areToolsComplete(skill),
       details: {
-        count: domain.tools?.length || 0,
+        count: skill.tools?.length || 0,
         min_required: 1,
         fully_defined:
-          domain.tools?.filter(t => t.name && t.description && t.output?.description).length || 0,
+          skill.tools?.filter(t => t.name && t.description && t.output?.description).length || 0,
       },
     },
     policy: {
-      complete: isPolicyComplete(domain),
+      complete: isPolicyComplete(skill),
       details: {
-        never_count: domain.policy?.guardrails?.never?.length || 0,
-        always_count: domain.policy?.guardrails?.always?.length || 0,
-        workflows_count: domain.policy?.workflows?.length || 0,
-        approvals_count: domain.policy?.approvals?.length || 0,
+        never_count: skill.policy?.guardrails?.never?.length || 0,
+        always_count: skill.policy?.guardrails?.always?.length || 0,
+        workflows_count: skill.policy?.workflows?.length || 0,
+        approvals_count: skill.policy?.approvals?.length || 0,
       },
     },
     mocks: {
-      complete: areMocksTested(domain),
+      complete: areMocksTested(skill),
       details: {
-        total: domain.tools?.length || 0,
-        tested: domain.tools?.filter(t => t.mock_status === 'tested').length || 0,
-        skipped: domain.tools?.filter(t => t.mock_status === 'skipped').length || 0,
-        untested: domain.tools?.filter(t => t.mock_status === 'untested').length || 0,
+        total: skill.tools?.length || 0,
+        tested: skill.tools?.filter(t => t.mock_status === 'tested').length || 0,
+        skipped: skill.tools?.filter(t => t.mock_status === 'skipped').length || 0,
+        untested: skill.tools?.filter(t => t.mock_status === 'untested').length || 0,
       },
     },
     identity: {
-      complete: isIdentityComplete(domain),
+      complete: isIdentityComplete(skill),
       details: {
-        has_display_name: Boolean(domain.skill_identity?.display_name?.length > 0),
-        has_email_from: Boolean(domain.skill_identity?.channel_identities?.email?.from_email?.length > 0),
-        has_email_from_name: Boolean(domain.skill_identity?.channel_identities?.email?.from_name?.length > 0),
-        is_activated: Boolean(domain.skill_identity?.actor_id),
+        has_display_name: Boolean(skill.skill_identity?.display_name?.length > 0),
+        has_email_from: Boolean(skill.skill_identity?.channel_identities?.email?.from_email?.length > 0),
+        has_email_from_name: Boolean(skill.skill_identity?.channel_identities?.email?.from_name?.length > 0),
+        is_activated: Boolean(skill.skill_identity?.actor_id),
       },
     },
     // Identity & Access Control: Security section
     security: {
-      complete: isSecuritySectionComplete(domain),
+      complete: isSecuritySectionComplete(skill),
       details: {
-        has_tool_classifications: Boolean(domain.tools?.some(t => t.security?.classification)),
-        has_access_policy: Boolean(domain.access_policy?.rules?.length > 0),
-        has_grant_mappings: Boolean(domain.grant_mappings?.length > 0),
-        has_response_filters: Boolean(domain.response_filters?.length > 0),
-        high_risk_count: domain.tools?.filter(t => ['pii_write', 'financial', 'destructive'].includes(t.security?.classification)).length || 0,
-        classified_count: domain.tools?.filter(t => t.security?.classification).length || 0,
-        total_tools: domain.tools?.length || 0,
+        has_tool_classifications: Boolean(skill.tools?.some(t => t.security?.classification)),
+        has_access_policy: Boolean(skill.access_policy?.rules?.length > 0),
+        has_grant_mappings: Boolean(skill.grant_mappings?.length > 0),
+        has_response_filters: Boolean(skill.response_filters?.length > 0),
+        high_risk_count: skill.tools?.filter(t => ['pii_write', 'financial', 'destructive'].includes(t.security?.classification)).length || 0,
+        classified_count: skill.tools?.filter(t => t.security?.classification).length || 0,
+        total_tools: skill.tools?.length || 0,
       },
     },
   };
@@ -292,11 +292,11 @@ export function getCompletenessReport(domain) {
  * Note: Security is NOT required for export — it's a recommendation.
  * But high-risk tools without policies will generate validation errors.
  *
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {boolean}
  */
-export function isSecuritySectionComplete(domain) {
-  const tools = domain.tools || [];
+export function isSecuritySectionComplete(skill) {
+  const tools = skill.tools || [];
 
   // If no tools, security is vacuously complete
   if (tools.length === 0) return true;
@@ -309,7 +309,7 @@ export function isSecuritySectionComplete(domain) {
   if (highRiskTools.length === 0) return true;
 
   // Check that each high-risk tool has an access policy
-  const policyRules = domain.access_policy?.rules || [];
+  const policyRules = skill.access_policy?.rules || [];
   const coveredTools = new Set();
 
   for (const rule of policyRules) {
@@ -327,11 +327,11 @@ export function isSecuritySectionComplete(domain) {
 
 /**
  * Get list of incomplete sections
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {string[]}
  */
-export function getIncompleteSections(domain) {
-  const completeness = checkCompleteness(domain);
+export function getIncompleteSections(skill) {
+  const completeness = checkCompleteness(skill);
   const incomplete = [];
 
   if (!completeness.problem) incomplete.push('problem');

@@ -192,10 +192,10 @@ function validateToolAdded(change, skill) {
   const tool = change.item;
   const toolName = tool?.name || 'New tool';
 
-  // Check if tool has policy - inline policy OR referenced in domain approvals
+  // Check if tool has policy - inline policy OR referenced in skill approvals
   const hasInlinePolicy = tool?.policy && Object.keys(tool.policy).length > 0;
-  const domainApprovals = skill?.policy?.approvals || [];
-  const hasApprovalRule = domainApprovals.some(rule =>
+  const skillApprovals = skill?.policy?.approvals || [];
+  const hasApprovalRule = skillApprovals.some(rule =>
     rule.tool_id === tool?.id || rule.tool_id === tool?.name
   );
 
@@ -382,11 +382,11 @@ export function runFullValidation(skill) {
     }
   });
 
-  // Check all tools have policies - inline policy OR referenced in domain approvals
-  const domainApprovals = skill?.policy?.approvals || [];
+  // Check all tools have policies - inline policy OR referenced in skill approvals
+  const skillApprovals = skill?.policy?.approvals || [];
   (skill.tools || []).forEach(tool => {
     const hasInlinePolicy = tool?.policy && Object.keys(tool.policy).length > 0;
-    const hasApprovalRule = domainApprovals.some(rule =>
+    const hasApprovalRule = skillApprovals.some(rule =>
       rule.tool_id === tool?.id || rule.tool_id === tool?.name
     );
 
@@ -446,7 +446,7 @@ export function isIssueStillRelevant(issue, skill) {
   const category = issue.category;
   const triggeredBy = issue.triggeredBy || {};
 
-  // Tool missing policy - check if tool now has policy (inline OR domain-level)
+  // Tool missing policy - check if tool now has policy (inline OR skill-level)
   if (title.includes('missing policy')) {
     const toolNameMatch = title.match(/Tool "([^"]+)" missing policy/);
     if (toolNameMatch) {
@@ -469,9 +469,9 @@ export function isIssueStillRelevant(issue, skill) {
         }
       }
 
-      // Check 2: Tool is referenced in domain-level approval rules
-      const domainApprovals = skill.policy?.approvals || [];
-      const hasApprovalRule = domainApprovals.some(rule =>
+      // Check 2: Tool is referenced in skill-level approval rules
+      const skillApprovals = skill.policy?.approvals || [];
+      const hasApprovalRule = skillApprovals.some(rule =>
         rule.tool_id === tool.id || rule.tool_id === tool.name
       );
       if (hasApprovalRule) {

@@ -1,10 +1,10 @@
 /**
  * System prompt for the MCP Toolbox Builder conversation
  *
- * Uses the DraftDomain format (domain.json) via buildDALSystemPrompt()
+ * Uses the DraftSkill format (skill.json) via buildDALSystemPrompt()
  *
  * Legacy format (project.json + toolbox.json) has been removed.
- * Old projects are auto-migrated to DraftDomain format on load via migrate.js
+ * Old projects are auto-migrated to DraftSkill format on load via migrate.js
  */
 
 import { buildDALSystemPrompt } from './dalSystem.js';
@@ -13,12 +13,12 @@ import { buildDALSystemPrompt } from './dalSystem.js';
 export { buildDALSystemPrompt };
 
 /**
- * Build system prompt for a domain
- * @param {Object} domain - DraftDomain object
+ * Build system prompt for a skill
+ * @param {Object} skill - DraftSkill object
  * @returns {string}
  */
-export function buildPromptForState(domain) {
-  return buildDALSystemPrompt(domain);
+export function buildPromptForState(skill) {
+  return buildDALSystemPrompt(skill);
 }
 
 export default { buildDALSystemPrompt, buildPromptForState };

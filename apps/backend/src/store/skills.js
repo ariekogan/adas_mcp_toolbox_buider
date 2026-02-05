@@ -1,26 +1,26 @@
 /**
- * Domains Store - file-based storage for DraftDomain
+ * Skills Store - file-based storage for DraftSkill
  *
  * Storage structure:
- *   /memory/<slug>/domain.json     - new DAL format
+ *   /memory/<slug>/skill.json     - new DAL format
  *   /memory/<slug>/project.json    - legacy format (auto-migrated)
  *   /memory/<slug>/exports/        - exported files
  *
- * @module store/domains
+ * @module store/skills
  */
 
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { createEmptyDraftDomain } from '../utils/defaults.js';
-import { validateDraftDomain } from '../validators/index.js';
+import { createEmptyDraftSkill } from '../utils/defaults.js';
+import { validateDraftSkill } from '../validators/index.js';
 import { migrateToV2 } from '../services/migrate.js';
 import templatesStore from './templates.js';
 
 import { getMemoryRoot } from '../utils/tenantContext.js';
 
 /**
- * @typedef {import('../types/DraftDomain.js').DraftDomain} DraftDomain
+ * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill
  */
 
 // ═══════════════════════════════════════════════════════════════
@@ -28,15 +28,15 @@ import { getMemoryRoot } from '../utils/tenantContext.js';
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Normalize domain data - fix missing IDs, invalid types, etc.
+ * Normalize skill data - fix missing IDs, invalid types, etc.
  * Called on load to ensure data consistency.
  */
-function normalizeDomain(domain) {
+function normalizeSkill(skill) {
   let modified = false;
 
   // Fix missing intent IDs
-  if (domain.intents?.supported) {
-    for (const intent of domain.intents.supported) {
+  if (skill.intents?.supported) {
+    for (const intent of skill.intents.supported) {
       if (!intent.id) {
         intent.id = `intent_${uuidv4().slice(0, 8)}`;
         modified = true;
@@ -46,12 +46,12 @@ function normalizeDomain(domain) {
   }
 
   // Fix missing tool IDs, normalize policy values, and remove duplicates
-  if (domain.tools) {
+  if (skill.tools) {
     const seenNames = new Map(); // name -> index
     const toRemove = [];
 
-    for (let i = 0; i < domain.tools.length; i++) {
-      const tool = domain.tools[i];
+    for (let i = 0; i < skill.tools.length; i++) {
+      const tool = skill.tools[i];
 
       if (!tool.id) {
         tool.id = `tool_${uuidv4().slice(0, 8)}`;
@@ -81,7 +81,7 @@ function normalizeDomain(domain) {
     // Remove duplicates (in reverse order to preserve indices)
     if (toRemove.length > 0) {
       for (let i = toRemove.length - 1; i >= 0; i--) {
-        domain.tools.splice(toRemove[i], 1);
+        skill.tools.splice(toRemove[i], 1);
       }
       modified = true;
       console.log(`[Store] Removed ${toRemove.length} duplicate tool(s)`);
@@ -89,8 +89,8 @@ function normalizeDomain(domain) {
   }
 
   // Fix missing scenario IDs
-  if (domain.scenarios) {
-    for (const scenario of domain.scenarios) {
+  if (skill.scenarios) {
+    for (const scenario of skill.scenarios) {
       if (!scenario.id) {
         scenario.id = `scenario_${uuidv4().slice(0, 8)}`;
         modified = true;
@@ -100,8 +100,8 @@ function normalizeDomain(domain) {
   }
 
   // Fix missing workflow IDs
-  if (domain.policy?.workflows) {
-    for (const workflow of domain.policy.workflows) {
+  if (skill.policy?.workflows) {
+    for (const workflow of skill.policy.workflows) {
       if (!workflow.id) {
         // Generate ID from name if available, otherwise random
         const base = workflow.name
@@ -114,16 +114,16 @@ function normalizeDomain(domain) {
     }
   }
 
-  // Ensure conversation array exists (domains created by import may lack it)
-  if (!Array.isArray(domain.conversation)) {
-    domain.conversation = [];
+  // Ensure conversation array exists (skills created by import may lack it)
+  if (!Array.isArray(skill.conversation)) {
+    skill.conversation = [];
     modified = true;
-    console.log(`[Store] Initialized missing conversation array for domain ${domain.id || '?'}`);
+    console.log(`[Store] Initialized missing conversation array for skill ${skill.id || '?'}`);
   }
 
   // Fix missing meta_tool IDs
-  if (domain.meta_tools) {
-    for (const metaTool of domain.meta_tools) {
+  if (skill.meta_tools) {
+    for (const metaTool of skill.meta_tools) {
       if (!metaTool.id) {
         const base = metaTool.name
           ? metaTool.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
@@ -176,13 +176,13 @@ async function init() {
 }
 
 /**
- * List all domains (new format with domain.json)
+ * List all skills (new format with skill.json)
  * Also shows legacy projects that can be migrated
  */
 async function list() {
   await init();
 
-  const domains = [];
+  const skills = [];
 
   try {
     const slugs = await fs.readdir(getMemoryRoot());
@@ -193,20 +193,20 @@ async function list() {
         const stat = await fs.stat(slugDir);
         if (!stat.isDirectory()) continue;
 
-        // Check for new format (domain.json)
-        const domainPath = path.join(slugDir, 'domain.json');
-        if (await fileExists(domainPath)) {
-          const domain = await readJson(domainPath);
-          domains.push({
+        // Check for new format (skill.json)
+        const skillPath = path.join(slugDir, 'skill.json');
+        if (await fileExists(skillPath)) {
+          const skill = await readJson(skillPath);
+          skills.push({
             id: slug,
-            name: domain.name,
-            phase: domain.phase,
-            created_at: domain.created_at,
-            updated_at: domain.updated_at,
-            tools_count: domain.tools?.length || 0,
-            connectors: domain.connectors || [],
-            progress: domain.validation?.completeness
-              ? calculateOverallProgress(domain.validation.completeness)
+            name: skill.name,
+            phase: skill.phase,
+            created_at: skill.created_at,
+            updated_at: skill.updated_at,
+            tools_count: skill.tools?.length || 0,
+            connectors: skill.connectors || [],
+            progress: skill.validation?.completeness
+              ? calculateOverallProgress(skill.validation.completeness)
               : 0,
             format: 'v2',
           });
@@ -222,7 +222,7 @@ async function list() {
             toolbox = await readJson(path.join(slugDir, 'toolbox.json'));
           } catch {}
 
-          domains.push({
+          skills.push({
             id: slug,
             name: project.name,
             phase: toolbox?.status || 'PROBLEM_DISCOVERY',
@@ -242,15 +242,15 @@ async function list() {
     // No memory directory yet
   }
 
-  return domains.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+  return skills.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
 }
 
 /**
- * Create a new domain
+ * Create a new skill
  * @param {string} name
  * @param {Object} [settings]
  * @param {Object} [template] - Optional template to apply ({ id, content })
- * @returns {Promise<DraftDomain>}
+ * @returns {Promise<DraftSkill>}
  */
 async function create(name, settings = {}, template = null) {
   await init();
@@ -261,18 +261,18 @@ async function create(name, settings = {}, template = null) {
   await ensureDir(slugDir);
   await ensureDir(path.join(slugDir, 'exports'));
 
-  // Create base domain
-  let domain = createEmptyDraftDomain(slug, name);
+  // Create base skill
+  let skill = createEmptyDraftSkill(slug, name);
 
   // Apply template if provided
   if (template && template.content) {
-    domain = templatesStore.applyTemplate(domain, template.content);
-    console.log(`[Store] Applied template "${template.id}" to new domain "${name}"`);
+    skill = templatesStore.applyTemplate(skill, template.content);
+    console.log(`[Store] Applied template "${template.id}" to new skill "${name}"`);
   }
 
   // Store settings
   if (settings.llm_provider || settings.llm_model) {
-    domain._settings = {
+    skill._settings = {
       llm_provider: settings.llm_provider || process.env.LLM_PROVIDER || 'anthropic',
       llm_model: settings.llm_model || null,
     };
@@ -280,44 +280,44 @@ async function create(name, settings = {}, template = null) {
 
   // Track which template was used (for reference)
   if (template) {
-    domain._fromTemplate = template.id;
+    skill._fromTemplate = template.id;
   }
 
   // Initial validation
-  domain.validation = validateDraftDomain(domain);
+  skill.validation = validateDraftSkill(skill);
 
-  await writeJson(path.join(slugDir, 'domain.json'), domain);
+  await writeJson(path.join(slugDir, 'skill.json'), skill);
 
-  return domain;
+  return skill;
 }
 
 /**
- * Load a domain by slug (with auto-migration from legacy format)
+ * Load a skill by slug (with auto-migration from legacy format)
  * @param {string} slug
- * @returns {Promise<DraftDomain>}
+ * @returns {Promise<DraftSkill>}
  */
 async function load(slug) {
   const slugDir = path.join(getMemoryRoot(), slug);
 
-  // Try new format first (domain.json)
-  const domainPath = path.join(slugDir, 'domain.json');
-  if (await fileExists(domainPath)) {
-    const domain = await readJson(domainPath);
+  // Try new format first (skill.json)
+  const skillPath = path.join(slugDir, 'skill.json');
+  if (await fileExists(skillPath)) {
+    const skill = await readJson(skillPath);
     // Normalize data (fix missing IDs, etc.)
-    const wasModified = normalizeDomain(domain);
+    const wasModified = normalizeSkill(skill);
     if (wasModified) {
       // Save normalized data back
-      await writeJson(domainPath, domain);
+      await writeJson(skillPath, skill);
     }
     // Re-validate on load
-    domain.validation = validateDraftDomain(domain);
-    return domain;
+    skill.validation = validateDraftSkill(skill);
+    return skill;
   }
 
   // Try legacy format and migrate
   const projectPath = path.join(slugDir, 'project.json');
   if (await fileExists(projectPath)) {
-    console.log(`Migrating legacy project ${slug} to domain format...`);
+    console.log(`Migrating legacy project ${slug} to skill format...`);
 
     const project = await readJson(projectPath);
     const toolbox = await readJson(path.join(slugDir, 'toolbox.json')).catch(() => ({
@@ -335,16 +335,16 @@ async function load(slug) {
     );
 
     // Migrate to new format
-    const domain = migrateToV2(project, toolbox, conversation);
-    domain.id = slug; // Ensure slug is used as ID
+    const skill = migrateToV2(project, toolbox, conversation);
+    skill.id = slug; // Ensure slug is used as ID
 
     // Preserve settings
     if (project.settings) {
-      domain._settings = project.settings;
+      skill._settings = project.settings;
     }
 
-    // Save in new format (domain.json in same slug dir)
-    await save(domain);
+    // Save in new format (skill.json in same slug dir)
+    await save(skill);
 
     // Archive legacy files
     try {
@@ -357,36 +357,36 @@ async function load(slug) {
       console.log(`Could not archive legacy files for ${slug}:`, err.message);
     }
 
-    return domain;
+    return skill;
   }
 
-  throw new Error(`Domain ${slug} not found`);
+  throw new Error(`Skill ${slug} not found`);
 }
 
 /**
- * Save a domain
- * @param {DraftDomain} domain
+ * Save a skill
+ * @param {DraftSkill} skill
  * @returns {Promise<void>}
  */
-async function save(domain) {
-  const slugDir = path.join(getMemoryRoot(), domain.id);
+async function save(skill) {
+  const slugDir = path.join(getMemoryRoot(), skill.id);
   await ensureDir(slugDir);
   await ensureDir(path.join(slugDir, 'exports'));
 
   // Update timestamp
-  domain.updated_at = new Date().toISOString();
+  skill.updated_at = new Date().toISOString();
 
-  await writeJson(path.join(slugDir, 'domain.json'), domain);
+  await writeJson(path.join(slugDir, 'skill.json'), skill);
 }
 
 /**
- * Append a message to the domain conversation
+ * Append a message to the skill conversation
  * @param {string} slug
  * @param {Object} message
- * @returns {Promise<DraftDomain>}
+ * @returns {Promise<DraftSkill>}
  */
 async function appendMessage(slug, message) {
-  const domain = await load(slug);
+  const skill = await load(slug);
 
   const newMessage = {
     ...message,
@@ -394,29 +394,29 @@ async function appendMessage(slug, message) {
     timestamp: new Date().toISOString(),
   };
 
-  domain.conversation.push(newMessage);
-  await save(domain);
+  skill.conversation.push(newMessage);
+  await save(skill);
 
-  return domain;
+  return skill;
 }
 
 /**
- * Update domain with state changes and re-validate
+ * Update skill with state changes and re-validate
  * @param {string} slug
  * @param {Object} updates - State updates to apply
- * @returns {Promise<DraftDomain>}
+ * @returns {Promise<DraftSkill>}
  */
 async function updateState(slug, updates) {
-  const domain = await load(slug);
+  const skill = await load(slug);
 
   // Apply updates
-  applyUpdates(domain, updates);
+  applyUpdates(skill, updates);
 
   // Re-validate
-  domain.validation = validateDraftDomain(domain);
+  skill.validation = validateDraftSkill(skill);
 
-  await save(domain);
-  return domain;
+  await save(skill);
+  return skill;
 }
 
 // Protected array fields - these can ONLY be modified via _push/_delete/_update operations
@@ -424,23 +424,23 @@ async function updateState(slug, updates) {
 const PROTECTED_ARRAYS = ['tools', 'meta_tools', 'intents.supported', 'policy.guardrails.always', 'policy.guardrails.never'];
 
 /**
- * Apply state updates to domain (supports dot notation)
+ * Apply state updates to skill (supports dot notation)
  *
  * Supported operations for protected arrays:
  * - tools_push: { name: "X", ... }           - Add new or update existing by name
  * - tools_delete: "X" or ["X", "Y"]          - Delete by name
  * - tools_update: { name: "X", ... }         - Update existing (must exist)
  *
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @param {Object} updates
  */
-function applyUpdates(domain, updates) {
+function applyUpdates(skill, updates) {
   for (const [key, value] of Object.entries(updates)) {
 
     // Handle array DELETE: "tools_delete" -> remove items by name
     if (key.endsWith('_delete')) {
       const arrayKey = key.slice(0, -7);
-      const arr = getNestedValue(domain, arrayKey);
+      const arr = getNestedValue(skill, arrayKey);
       if (Array.isArray(arr)) {
         const namesToDelete = Array.isArray(value) ? value : [value];
         for (const name of namesToDelete) {
@@ -459,7 +459,7 @@ function applyUpdates(domain, updates) {
     // Handle array UPDATE: "tools_update" -> update existing items only (won't add new)
     if (key.endsWith('_update')) {
       const arrayKey = key.slice(0, -7);
-      const arr = getNestedValue(domain, arrayKey);
+      const arr = getNestedValue(skill, arrayKey);
       if (Array.isArray(arr)) {
         const items = Array.isArray(value) ? value : [value];
         for (const item of items) {
@@ -480,7 +480,7 @@ function applyUpdates(domain, updates) {
     // Handle array RENAME: "tools_rename" -> rename item { from: "old", to: "new" }
     if (key.endsWith('_rename')) {
       const arrayKey = key.slice(0, -7);
-      const arr = getNestedValue(domain, arrayKey);
+      const arr = getNestedValue(skill, arrayKey);
       if (Array.isArray(arr) && value.from && value.to) {
         const idx = arr.findIndex(item => item.name === value.from);
         if (idx !== -1) {
@@ -496,11 +496,11 @@ function applyUpdates(domain, updates) {
     // Handle array PUSH: "tools_push" -> add new or update existing by name
     if (key.endsWith('_push')) {
       const arrayKey = key.slice(0, -5);
-      let arr = getNestedValue(domain, arrayKey);
+      let arr = getNestedValue(skill, arrayKey);
       // Initialize array if it doesn't exist (for meta_tools, etc.)
       if (!Array.isArray(arr)) {
-        setNestedValue(domain, arrayKey, []);
-        arr = getNestedValue(domain, arrayKey);
+        setNestedValue(skill, arrayKey, []);
+        arr = getNestedValue(skill, arrayKey);
         console.log(`[Store] Initialized empty array for ${arrayKey}`);
       }
       if (Array.isArray(arr)) {
@@ -529,7 +529,7 @@ function applyUpdates(domain, updates) {
     const indexMatch = key.match(/^(.+)\[(\d+)\]\.(.+)$/);
     if (indexMatch) {
       const [, arrayPath, index, property] = indexMatch;
-      const arr = getNestedValue(domain, arrayPath);
+      const arr = getNestedValue(skill, arrayPath);
       if (Array.isArray(arr) && arr[parseInt(index)]) {
         setNestedValue(arr[parseInt(index)], property, value);
       }
@@ -543,7 +543,7 @@ function applyUpdates(domain, updates) {
     }
 
     // Handle dot notation: "problem.statement"
-    setNestedValue(domain, key, value);
+    setNestedValue(skill, key, value);
   }
 }
 
@@ -564,20 +564,20 @@ function setNestedValue(obj, path, value) {
 }
 
 /**
- * Update domain settings
+ * Update skill settings
  * @param {string} slug
  * @param {Object} settings
- * @returns {Promise<DraftDomain>}
+ * @returns {Promise<DraftSkill>}
  */
 async function updateSettings(slug, settings) {
-  const domain = await load(slug);
-  domain._settings = { ...domain._settings, ...settings };
-  await save(domain);
-  return domain;
+  const skill = await load(slug);
+  skill._settings = { ...skill._settings, ...settings };
+  await save(skill);
+  return skill;
 }
 
 /**
- * Delete a domain
+ * Delete a skill
  * @param {string} slug
  */
 async function remove(slug) {

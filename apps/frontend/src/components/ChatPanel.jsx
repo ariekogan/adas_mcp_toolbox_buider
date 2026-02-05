@@ -15,40 +15,40 @@ function getBadgeColor(current, total, minRequired = 1) {
 /**
  * Get category badge info with counts
  */
-function getCategoryBadge(key, domain) {
+function getCategoryBadge(key, skill) {
   switch (key) {
     case 'problem': {
-      const has = domain.problem?.statement?.length >= 10 ? 1 : 0;
+      const has = skill.problem?.statement?.length >= 10 ? 1 : 0;
       return { label: 'Problem', text: has ? '✓' : '0', ...getBadgeColor(has, 1) };
     }
     case 'scenarios': {
-      const count = domain.scenarios?.length || 0;
+      const count = skill.scenarios?.length || 0;
       return { label: 'Scenarios', text: `${count}`, ...getBadgeColor(count, 2, 1) };
     }
     case 'role': {
-      const has = (domain.role?.name && domain.role?.persona) ? 1 : 0;
+      const has = (skill.role?.name && skill.role?.persona) ? 1 : 0;
       return { label: 'Role', text: has ? '✓' : '0', ...getBadgeColor(has, 1) };
     }
     case 'intents': {
-      const intents = domain.intents?.supported || [];
+      const intents = skill.intents?.supported || [];
       const withExamples = intents.filter(i => i.examples?.length > 0).length;
       if (intents.length === 0) return { label: 'Intents', text: '0', bg: 'var(--bg-tertiary)', color: 'var(--text-muted)' };
       return { label: 'Intents', text: `${withExamples}/${intents.length}`, ...getBadgeColor(withExamples, intents.length, 1) };
     }
     case 'tools': {
-      const tools = domain.tools || [];
+      const tools = skill.tools || [];
       if (tools.length === 0) return { label: 'Tools', text: '0', bg: 'var(--bg-tertiary)', color: 'var(--text-muted)' };
       const defined = tools.filter(t => t.name && t.description && t.output?.description).length;
       return { label: 'Tools', text: `${defined}/${tools.length}`, ...getBadgeColor(defined, tools.length, 1) };
     }
     case 'policy': {
-      const never = domain.policy?.guardrails?.never?.length || 0;
-      const always = domain.policy?.guardrails?.always?.length || 0;
+      const never = skill.policy?.guardrails?.never?.length || 0;
+      const always = skill.policy?.guardrails?.always?.length || 0;
       const total = never + always;
       return { label: 'Policy', text: `${total}`, ...getBadgeColor(total, 2, 1) };
     }
     case 'mocks': {
-      const tools = domain.tools || [];
+      const tools = skill.tools || [];
       if (tools.length === 0) return { label: 'Mocks', text: '0', bg: 'var(--bg-tertiary)', color: 'var(--text-muted)' };
       const tested = tools.filter(t => t.mock_status === 'tested' || t.mock_status === 'skipped').length;
       return { label: 'Mocks', text: `${tested}/${tools.length}`, ...getBadgeColor(tested, tools.length, 1) };
@@ -74,12 +74,12 @@ const CATEGORY_FOCUS_MAP = {
 };
 
 // Mini dashboard component for status summaries
-function MiniDashboard({ domain, onFocusChange }) {
-  if (!domain) return null;
+function MiniDashboard({ skill, onFocusChange }) {
+  if (!skill) return null;
 
-  const validation = domain.validation || {};
+  const validation = skill.validation || {};
   const categoryKeys = ['problem', 'scenarios', 'role', 'intents', 'tools', 'policy', 'mocks', 'engine'];
-  const badges = categoryKeys.map(key => ({ ...getCategoryBadge(key, domain), key }));
+  const badges = categoryKeys.map(key => ({ ...getCategoryBadge(key, skill), key }));
 
   // Calculate overall progress from badges
   const greenCount = badges.filter(b => b.color === '#22c55e').length;
@@ -806,7 +806,7 @@ export default function ChatPanel({
   sending,
   skillName,
   inputHint,
-  domain,
+  skill,
   onFocusChange
 }) {
   const messagesEndRef = useRef(null);
@@ -854,7 +854,7 @@ export default function ChatPanel({
             contentLower.includes('intents defined:') ||
             contentLower.includes('tools defined:');
 
-          const showDashboard = isLastAssistant && hasStatusContent && domain;
+          const showDashboard = isLastAssistant && hasStatusContent && skill;
 
           return (
             <div
@@ -865,7 +865,7 @@ export default function ChatPanel({
                 ...(msg.isError ? styles.errorMessage : {})
               }}
             >
-              {showDashboard && <MiniDashboard domain={domain} onFocusChange={onFocusChange} />}
+              {showDashboard && <MiniDashboard skill={skill} onFocusChange={onFocusChange} />}
               {formatMessage(msg.content)}
             </div>
           );

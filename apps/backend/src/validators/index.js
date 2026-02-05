@@ -1,5 +1,5 @@
 /**
- * Validation Pipeline - main entry point for domain validation
+ * Validation Pipeline - main entry point for skill validation
  * @module validators
  */
 
@@ -10,13 +10,13 @@ import { checkCompleteness, getCompletenessReport } from './completenessChecker.
 import { validateSecurity, getSecurityReport } from './securityValidator.js';
 
 /**
- * @typedef {import('../types/DraftDomain.js').DraftDomain} DraftDomain
- * @typedef {import('../types/DraftDomain.js').ValidationResult} ValidationResult
- * @typedef {import('../types/DraftDomain.js').ValidationIssue} ValidationIssue
+ * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill
+ * @typedef {import('../types/DraftSkill.js').ValidationResult} ValidationResult
+ * @typedef {import('../types/DraftSkill.js').ValidationIssue} ValidationIssue
  */
 
 /**
- * Run full validation pipeline on a DraftDomain
+ * Run full validation pipeline on a DraftSkill
  *
  * Pipeline:
  * 1. Schema Validation - type checks, required fields, enum values
@@ -24,10 +24,10 @@ import { validateSecurity, getSecurityReport } from './securityValidator.js';
  * 3. Completeness Check - are all required sections filled?
  * 4. Ready-to-Export Calculation - can we export?
  *
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {ValidationResult}
  */
-export function validateDraftDomain(domain) {
+export function validateDraftSkill(skill) {
   const errors = [];
   const warnings = [];
   const unresolved = {
@@ -37,20 +37,20 @@ export function validateDraftDomain(domain) {
   };
 
   // 1. Schema validation
-  const schemaIssues = validateSchema(domain);
+  const schemaIssues = validateSchema(skill);
   errors.push(...schemaIssues.filter(i => i.severity === 'error'));
   warnings.push(...schemaIssues.filter(i => i.severity === 'warning'));
 
-  // 2. Reference resolution (mutates domain to update *_resolved flags)
-  const refIssues = resolveReferences(domain, unresolved);
+  // 2. Reference resolution (mutates skill to update *_resolved flags)
+  const refIssues = resolveReferences(skill, unresolved);
   errors.push(...refIssues.filter(i => i.severity === 'error'));
   warnings.push(...refIssues.filter(i => i.severity === 'warning'));
 
   // 3. Completeness check
-  const completeness = checkCompleteness(domain);
+  const completeness = checkCompleteness(skill);
 
   // 4. Security validation (Identity & Access Control)
-  const securityIssues = validateSecurity(domain);
+  const securityIssues = validateSecurity(skill);
   errors.push(...securityIssues.filter(i => i.severity === 'error'));
   warnings.push(...securityIssues.filter(i => i.severity === 'warning'));
 
@@ -68,10 +68,10 @@ export function validateDraftDomain(domain) {
 }
 
 /**
- * Calculate if domain is ready to export
+ * Calculate if skill is ready to export
  * @param {ValidationIssue[]} errors
- * @param {import('../types/DraftDomain.js').ValidationUnresolved} unresolved
- * @param {import('../types/DraftDomain.js').ValidationCompleteness} completeness
+ * @param {import('../types/DraftSkill.js').ValidationUnresolved} unresolved
+ * @param {import('../types/DraftSkill.js').ValidationCompleteness} completeness
  * @returns {boolean}
  */
 function calculateReadiness(errors, unresolved, completeness) {
@@ -95,14 +95,14 @@ function calculateReadiness(errors, unresolved, completeness) {
 /**
  * Quick validation - only check for blocking errors
  * Useful for real-time validation during editing
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {{ valid: boolean, errors: ValidationIssue[] }}
  */
-export function quickValidate(domain) {
+export function quickValidate(skill) {
   const errors = [];
 
   // Only run schema validation for quick check
-  const schemaIssues = validateSchema(domain);
+  const schemaIssues = validateSchema(skill);
   errors.push(...schemaIssues.filter(i => i.severity === 'error'));
 
   return {
@@ -112,18 +112,18 @@ export function quickValidate(domain) {
 }
 
 /**
- * Validate a single section of the domain
- * @param {DraftDomain} domain
+ * Validate a single section of the skill
+ * @param {DraftSkill} skill
  * @param {'problem' | 'scenarios' | 'role' | 'intents' | 'tools' | 'policy' | 'engine'} section
  * @returns {ValidationIssue[]}
  */
-export function validateSection(domain, section) {
+export function validateSection(skill, section) {
   const issues = [];
 
   switch (section) {
     case 'problem':
       // Validate problem
-      if (!domain.problem?.statement || domain.problem.statement.length < 10) {
+      if (!skill.problem?.statement || skill.problem.statement.length < 10) {
         issues.push({
           code: 'INCOMPLETE_PROBLEM',
           severity: 'warning',
@@ -135,16 +135,16 @@ export function validateSection(domain, section) {
       break;
 
     case 'scenarios':
-      if (!domain.scenarios || domain.scenarios.length < 1) {
+      if (!skill.scenarios || skill.scenarios.length < 1) {
         issues.push({
           code: 'NO_SCENARIOS',
           severity: 'warning',
           path: 'scenarios',
           message: 'At least one scenario is recommended',
-          suggestion: 'Add a real-world scenario that describes how the domain will be used',
+          suggestion: 'Add a real-world scenario that describes how the skill will be used',
         });
       }
-      domain.scenarios?.forEach((s, i) => {
+      skill.scenarios?.forEach((s, i) => {
         if (!s.title) {
           issues.push({
             code: 'MISSING_SCENARIO_TITLE',
@@ -157,7 +157,7 @@ export function validateSection(domain, section) {
       break;
 
     case 'role':
-      if (!domain.role?.name) {
+      if (!skill.role?.name) {
         issues.push({
           code: 'MISSING_ROLE_NAME',
           severity: 'warning',
@@ -166,7 +166,7 @@ export function validateSection(domain, section) {
           suggestion: 'Give the agent a role name (e.g., "Customer Service Agent")',
         });
       }
-      if (!domain.role?.persona) {
+      if (!skill.role?.persona) {
         issues.push({
           code: 'MISSING_PERSONA',
           severity: 'warning',
@@ -178,7 +178,7 @@ export function validateSection(domain, section) {
       break;
 
     case 'intents':
-      if (!domain.intents?.supported || domain.intents.supported.length < 1) {
+      if (!skill.intents?.supported || skill.intents.supported.length < 1) {
         issues.push({
           code: 'NO_INTENTS',
           severity: 'warning',
@@ -187,7 +187,7 @@ export function validateSection(domain, section) {
           suggestion: 'Define what user requests the agent can handle',
         });
       }
-      domain.intents?.supported?.forEach((intent, i) => {
+      skill.intents?.supported?.forEach((intent, i) => {
         if (!intent.examples || intent.examples.length < 1) {
           issues.push({
             code: 'NO_INTENT_EXAMPLES',
@@ -201,7 +201,7 @@ export function validateSection(domain, section) {
       break;
 
     case 'tools':
-      if (!domain.tools || domain.tools.length < 1) {
+      if (!skill.tools || skill.tools.length < 1) {
         issues.push({
           code: 'NO_TOOLS',
           severity: 'warning',
@@ -210,7 +210,7 @@ export function validateSection(domain, section) {
           suggestion: 'Define tools the agent can use to accomplish tasks',
         });
       }
-      domain.tools?.forEach((tool, i) => {
+      skill.tools?.forEach((tool, i) => {
         if (!tool.description) {
           issues.push({
             code: 'MISSING_TOOL_DESCRIPTION',
@@ -232,8 +232,8 @@ export function validateSection(domain, section) {
 
     case 'policy':
       const hasGuardrails =
-        (domain.policy?.guardrails?.never?.length > 0) ||
-        (domain.policy?.guardrails?.always?.length > 0);
+        (skill.policy?.guardrails?.never?.length > 0) ||
+        (skill.policy?.guardrails?.always?.length > 0);
       if (!hasGuardrails) {
         issues.push({
           code: 'NO_GUARDRAILS',
@@ -251,7 +251,7 @@ export function validateSection(domain, section) {
 
     case 'identity':
       // Check identity configuration
-      if (!domain.skill_identity?.display_name) {
+      if (!skill.skill_identity?.display_name) {
         issues.push({
           code: 'MISSING_DISPLAY_NAME',
           severity: 'warning',
@@ -260,7 +260,7 @@ export function validateSection(domain, section) {
           suggestion: 'Add a display name for the skill identity',
         });
       }
-      if (!domain.skill_identity?.channel_identities?.email?.from_email) {
+      if (!skill.skill_identity?.channel_identities?.email?.from_email) {
         issues.push({
           code: 'MISSING_EMAIL_FROM',
           severity: 'warning',
@@ -269,7 +269,7 @@ export function validateSection(domain, section) {
           suggestion: 'Select a connected email address for outbound messages',
         });
       }
-      if (!domain.skill_identity?.actor_id) {
+      if (!skill.skill_identity?.actor_id) {
         issues.push({
           code: 'IDENTITY_NOT_ACTIVATED',
           severity: 'warning',
@@ -286,14 +286,14 @@ export function validateSection(domain, section) {
 
 /**
  * Get a summary of validation status
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {Object}
  */
-export function getValidationSummary(domain) {
-  const result = validateDraftDomain(domain);
-  const report = getCompletenessReport(domain);
+export function getValidationSummary(skill) {
+  const result = validateDraftSkill(skill);
+  const report = getCompletenessReport(skill);
   // Identity & Access Control: Security coverage report
-  const securityReport = getSecurityReport(domain);
+  const securityReport = getSecurityReport(skill);
 
   return {
     valid: result.valid,

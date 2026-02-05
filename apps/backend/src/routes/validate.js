@@ -8,7 +8,7 @@
 
 import { Router } from 'express';
 import { createAdapter } from '../services/llm/adapter.js';
-import domainsStore from '../store/domains.js';
+import skillsStore from '../store/skills.js';
 
 /**
  * Coverage metadata for auto-generating documentation
@@ -163,31 +163,31 @@ function checkNamingConsistency(tools) {
  * - Naming convention: DETERMINISTIC (no false positives)
  * - Duplicates, ambiguity, overlap: LLM-based
  *
- * Body: { domain_id: string, new_tool?: object }
+ * Body: { skill_id: string, new_tool?: object }
  */
 router.post('/tools-consistency', async (req, res, next) => {
   try {
-    const { domain_id, new_tool } = req.body;
+    const { skill_id, new_tool } = req.body;
     const log = req.app.locals.log;
 
-    if (!domain_id) {
-      return res.status(400).json({ error: 'domain_id is required' });
+    if (!skill_id) {
+      return res.status(400).json({ error: 'skill_id is required' });
     }
 
-    log.debug(`Tools consistency check for domain ${domain_id}`);
+    log.debug(`Tools consistency check for skill ${skill_id}`);
 
-    // Load domain
-    let domain;
+    // Load skill
+    let skill;
     try {
-      domain = await domainsStore.load(domain_id);
+      skill = await skillsStore.load(skill_id);
     } catch (err) {
       if (err.message?.includes('not found') || err.code === 'ENOENT') {
-        return res.status(404).json({ error: 'Domain not found' });
+        return res.status(404).json({ error: 'Skill not found' });
       }
       throw err;
     }
 
-    const tools = domain.tools || [];
+    const tools = skill.tools || [];
 
     // Collect all issues
     const allIssues = [];
@@ -264,7 +264,7 @@ Do NOT check for naming convention (snake_case vs CamelCase) - that is handled s
 Return ONLY the JSON response.`;
 
     // Get LLM adapter
-    const settings = domain._settings || {};
+    const settings = skill._settings || {};
     const provider = settings.llm_provider || process.env.LLM_PROVIDER || 'anthropic';
     const adapter = createAdapter(provider, {
       apiKey: settings.api_key,
@@ -337,31 +337,31 @@ Return ONLY the JSON response.`;
  * - Naming convention: DETERMINISTIC (no false positives)
  * - Overlapping examples, duplicate descriptions: LLM-based
  *
- * Body: { domain_id: string }
+ * Body: { skill_id: string }
  */
 router.post('/intents-consistency', async (req, res, next) => {
   try {
-    const { domain_id } = req.body;
+    const { skill_id } = req.body;
     const log = req.app.locals.log;
 
-    if (!domain_id) {
-      return res.status(400).json({ error: 'domain_id is required' });
+    if (!skill_id) {
+      return res.status(400).json({ error: 'skill_id is required' });
     }
 
-    log.debug(`Intents consistency check for domain ${domain_id}`);
+    log.debug(`Intents consistency check for skill ${skill_id}`);
 
-    // Load domain
-    let domain;
+    // Load skill
+    let skill;
     try {
-      domain = await domainsStore.load(domain_id);
+      skill = await skillsStore.load(skill_id);
     } catch (err) {
       if (err.message?.includes('not found') || err.code === 'ENOENT') {
-        return res.status(404).json({ error: 'Domain not found' });
+        return res.status(404).json({ error: 'Skill not found' });
       }
       throw err;
     }
 
-    const intents = domain.intents?.supported || [];
+    const intents = skill.intents?.supported || [];
 
     // Collect all issues
     const allIssues = [];
@@ -442,7 +442,7 @@ Do NOT check for naming convention (snake_case vs CamelCase) - that is handled s
 Return ONLY the JSON response.`;
 
     // Get LLM adapter
-    const settings = domain._settings || {};
+    const settings = skill._settings || {};
     const provider = settings.llm_provider || process.env.LLM_PROVIDER || 'anthropic';
     const adapter = createAdapter(provider, {
       apiKey: settings.api_key,
@@ -517,32 +517,32 @@ Return ONLY the JSON response.`;
  * - Incomplete workflows (missing tools)
  * - Escalation issues
  *
- * Body: { domain_id: string }
+ * Body: { skill_id: string }
  */
 router.post('/policy-consistency', async (req, res, next) => {
   try {
-    const { domain_id } = req.body;
+    const { skill_id } = req.body;
     const log = req.app.locals.log;
 
-    if (!domain_id) {
-      return res.status(400).json({ error: 'domain_id is required' });
+    if (!skill_id) {
+      return res.status(400).json({ error: 'skill_id is required' });
     }
 
-    log.debug(`Policy consistency check for domain ${domain_id}`);
+    log.debug(`Policy consistency check for skill ${skill_id}`);
 
-    // Load domain
-    let domain;
+    // Load skill
+    let skill;
     try {
-      domain = await domainsStore.load(domain_id);
+      skill = await skillsStore.load(skill_id);
     } catch (err) {
       if (err.message?.includes('not found') || err.code === 'ENOENT') {
-        return res.status(404).json({ error: 'Domain not found' });
+        return res.status(404).json({ error: 'Skill not found' });
       }
       throw err;
     }
 
-    const policy = domain.policy || {};
-    const tools = domain.tools || [];
+    const policy = skill.policy || {};
+    const tools = skill.tools || [];
     const guardrails = policy.guardrails || {};
     const workflows = policy.workflows || [];
 
@@ -645,7 +645,7 @@ REMEMBER:
 Return ONLY the JSON response.`;
 
     // Get LLM adapter
-    const settings = domain._settings || {};
+    const settings = skill._settings || {};
     const provider = settings.llm_provider || process.env.LLM_PROVIDER || 'anthropic';
     const adapter = createAdapter(provider, {
       apiKey: settings.api_key,
@@ -711,33 +711,33 @@ Return ONLY the JSON response.`;
  * - Role/persona clarity and relevance
  * - Scenarios completeness and alignment
  *
- * Body: { domain_id: string }
+ * Body: { skill_id: string }
  */
 router.post('/identity-consistency', async (req, res, next) => {
   try {
-    const { domain_id } = req.body;
+    const { skill_id } = req.body;
     const log = req.app.locals.log;
 
-    if (!domain_id) {
-      return res.status(400).json({ error: 'domain_id is required' });
+    if (!skill_id) {
+      return res.status(400).json({ error: 'skill_id is required' });
     }
 
-    log.debug(`Identity consistency check for domain ${domain_id}`);
+    log.debug(`Identity consistency check for skill ${skill_id}`);
 
-    // Load domain
-    let domain;
+    // Load skill
+    let skill;
     try {
-      domain = await domainsStore.load(domain_id);
+      skill = await skillsStore.load(skill_id);
     } catch (err) {
       if (err.message?.includes('not found') || err.code === 'ENOENT') {
-        return res.status(404).json({ error: 'Domain not found' });
+        return res.status(404).json({ error: 'Skill not found' });
       }
       throw err;
     }
 
-    const problem = domain.problem || {};
-    const role = domain.role || {};
-    const scenarios = domain.scenarios || [];
+    const problem = skill.problem || {};
+    const role = skill.role || {};
+    const scenarios = skill.scenarios || [];
 
     // Need at least a problem statement to check
     if (!problem.statement && !role.name && scenarios.length === 0) {
@@ -823,7 +823,7 @@ Note: Goals are optional. Only suggest adding them if explicit goals would genui
 Return ONLY the JSON response.`;
 
     // Get LLM adapter
-    const settings = domain._settings || {};
+    const settings = skill._settings || {};
     const provider = settings.llm_provider || process.env.LLM_PROVIDER || 'anthropic';
     const adapter = createAdapter(provider, {
       apiKey: settings.api_key,
@@ -899,31 +899,31 @@ Return ONLY the JSON response.`;
  */
 router.post('/security-consistency', async (req, res, next) => {
   try {
-    const { domain_id } = req.body;
+    const { skill_id } = req.body;
     const log = req.app.locals.log;
 
-    if (!domain_id) {
-      return res.status(400).json({ error: 'domain_id is required' });
+    if (!skill_id) {
+      return res.status(400).json({ error: 'skill_id is required' });
     }
 
-    let domain;
+    let skill;
     try {
-      domain = await domainsStore.load(domain_id);
+      skill = await skillsStore.load(skill_id);
     } catch (err) {
       if (err.message?.includes('not found') || err.code === 'ENOENT') {
-        return res.status(404).json({ error: 'Domain not found' });
+        return res.status(404).json({ error: 'Skill not found' });
       }
       throw err;
     }
 
-    log.debug(`Security consistency check for ${domain_id}`);
+    log.debug(`Security consistency check for ${skill_id}`);
 
     const issues = [];
-    const tools = domain.tools || [];
+    const tools = skill.tools || [];
     const toolNames = new Set(tools.map(t => t.name));
-    const accessRules = domain.access_policy?.rules || [];
-    const grantMappings = domain.grant_mappings || [];
-    const responseFilters = domain.response_filters || [];
+    const accessRules = skill.access_policy?.rules || [];
+    const grantMappings = skill.grant_mappings || [];
+    const responseFilters = skill.response_filters || [];
 
     const HIGH_RISK = ['pii_write', 'financial', 'destructive'];
     const PII_CLASSIFICATIONS = ['pii_read', 'pii_write'];

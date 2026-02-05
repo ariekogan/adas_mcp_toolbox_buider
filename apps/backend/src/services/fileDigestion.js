@@ -54,17 +54,17 @@ Response Format (JSON only, no markdown):
 /**
  * Digest file content using LLM to extract structured data
  */
-export async function digestFileContent({ domain, fileContent, fileName, fileType }) {
-  const provider = domain._settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
+export async function digestFileContent({ skill, fileContent, fileName, fileType }) {
+  const provider = skill._settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
   const adapter = createAdapter(provider, {
-    apiKey: domain._settings?.api_key,
-    model: domain._settings?.llm_model
+    apiKey: skill._settings?.api_key,
+    model: skill._settings?.llm_model
   });
 
   // Build context
-  const domainContext = domain.problem?.statement
-    ? `This is for a "${domain.name}" skill. Problem: "${domain.problem.statement}"`
-    : `This is for a new skill called "${domain.name}"`;
+  const skillContext = skill.problem?.statement
+    ? `This is for a "${skill.name}" skill. Problem: "${skill.problem.statement}"`
+    : `This is for a new skill called "${skill.name}"`;
 
   // Format and truncate content
   const formattedContent = formatFileContent(fileContent, fileType);
@@ -72,7 +72,7 @@ export async function digestFileContent({ domain, fileContent, fileName, fileTyp
   const messages = [
     {
       role: "user",
-      content: `${domainContext}
+      content: `${skillContext}
 
 I'm uploading "${fileName}" (type: ${fileType}) with examples to analyze.
 

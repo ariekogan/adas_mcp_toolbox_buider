@@ -1,7 +1,7 @@
 /**
- * IntentsPanel - Display and manage domain intents
+ * IntentsPanel - Display and manage skill intents
  *
- * Shows supported intents, their examples, and out-of-domain handling configuration.
+ * Shows supported intents, their examples, and out-of-skill handling configuration.
  */
 
 import { useState } from 'react';
@@ -156,14 +156,14 @@ const styles = {
     color: 'var(--text-muted)',
     textTransform: 'uppercase'
   },
-  outOfDomain: {
+  outOfSkill: {
     marginTop: '12px',
     padding: '12px',
     background: 'var(--bg-card)',
     borderRadius: '8px',
     border: '1px solid var(--border)'
   },
-  outOfDomainHeader: {
+  outOfSkillHeader: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
@@ -220,7 +220,7 @@ export default function IntentsPanel({ intents, focus, onFocusChange, onAskAbout
     );
   }
 
-  const { supported = [], thresholds = {}, out_of_domain = {} } = intents;
+  const { supported = [], thresholds = {}, out_of_skill = {} } = intents;
 
   return (
     <div style={styles.section}>
@@ -347,30 +347,30 @@ export default function IntentsPanel({ intents, focus, onFocusChange, onAskAbout
             </div>
           )}
 
-          {/* Out of Domain */}
-          {out_of_domain.action && (
-            <div style={styles.outOfDomain}>
-              <div style={{ ...styles.outOfDomainHeader, justifyContent: 'space-between' }}>
+          {/* Out of Skill */}
+          {out_of_skill.action && (
+            <div style={styles.outOfSkill}>
+              <div style={{ ...styles.outOfSkillHeader, justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={styles.label}>Out of Domain</span>
+                  <span style={styles.label}>Out of Skill</span>
                   <span style={{
                     ...styles.actionBadge,
-                    ...getActionColor(out_of_domain.action)
+                    ...getActionColor(out_of_skill.action)
                   }}>
-                    {out_of_domain.action}
+                    {out_of_skill.action}
                   </span>
                 </div>
-                <ExplainButton topic="out of domain handling" onAskAbout={onAskAbout} />
+                <ExplainButton topic="out of skill handling" onAskAbout={onAskAbout} />
               </div>
-              {out_of_domain.message && (
+              {out_of_skill.message && (
                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  "{out_of_domain.message}"
+                  "{out_of_skill.message}"
                 </div>
               )}
-              {out_of_domain.suggest_domains?.length > 0 && (
+              {out_of_skill.suggest_skills?.length > 0 && (
                 <div style={{ marginTop: '4px' }}>
                   <span style={styles.label}>Suggest: </span>
-                  {out_of_domain.suggest_domains.map((d, i) => (
+                  {out_of_skill.suggest_skills.map((d, i) => (
                     <span key={i} style={styles.tag}>{d}</span>
                   ))}
                 </div>

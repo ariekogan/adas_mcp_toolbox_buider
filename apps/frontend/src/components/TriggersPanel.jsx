@@ -16,7 +16,7 @@ import {
   SCHEDULE_PRESETS,
   createEmptyScheduleTrigger,
   formatDuration
-} from '../types/DraftDomain';
+} from '../types/DraftSkill';
 import { getTriggersStatus, toggleTriggerInCore } from '../api/client';
 
 const styles = {

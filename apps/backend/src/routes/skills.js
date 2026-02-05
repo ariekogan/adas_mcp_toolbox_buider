@@ -1,35 +1,35 @@
 /**
- * Domains API Routes
+ * Skills API Routes
  *
- * Handles CRUD operations for DraftDomain objects.
+ * Handles CRUD operations for DraftSkill objects.
  * Supports auto-migration from legacy project format.
  */
 
 import { Router } from 'express';
-import domainsStore from '../store/domains.js';
+import skillsStore from '../store/skills.js';
 import templatesStore from '../store/templates.js';
 import { getValidationSummary } from '../validators/index.js';
 
 const router = Router();
 
 /**
- * List all domains
- * GET /api/domains
+ * List all skills
+ * GET /api/skills
  *
- * Returns both new-format domains and legacy projects (marked for migration)
+ * Returns both new-format skills and legacy projects (marked for migration)
  */
 router.get('/', async (req, res, next) => {
   try {
-    const domains = await domainsStore.list();
-    res.json({ domains });
+    const skills = await skillsStore.list();
+    res.json({ skills });
   } catch (err) {
     next(err);
   }
 });
 
 /**
- * Create new domain
- * POST /api/domains
+ * Create new skill
+ * POST /api/skills
  *
  * Body: {
  *   name: string,
@@ -42,7 +42,7 @@ router.post('/', async (req, res, next) => {
     const { name, settings, templateId } = req.body;
 
     if (!name) {
-      return res.status(400).json({ error: 'Domain name is required' });
+      return res.status(400).json({ error: 'Skill name is required' });
     }
 
     // Load template if specified
@@ -55,38 +55,38 @@ router.post('/', async (req, res, next) => {
       }
     }
 
-    const domain = await domainsStore.create(name, settings, template);
-    res.status(201).json({ domain });
+    const skill = await skillsStore.create(name, settings, template);
+    res.status(201).json({ skill });
   } catch (err) {
     next(err);
   }
 });
 
 /**
- * Get domain by ID
- * GET /api/domains/:id
+ * Get skill by ID
+ * GET /api/skills/:id
  *
  * Automatically migrates legacy projects to new format on first load
  */
 router.get('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const domain = await domainsStore.load(id);
-    res.json({ domain });
+    const skill = await skillsStore.load(id);
+    res.json({ skill });
   } catch (err) {
     if (err.message?.includes('not found')) {
-      return res.status(404).json({ error: 'Domain not found' });
+      return res.status(404).json({ error: 'Skill not found' });
     }
     if (err.code === 'ENOENT') {
-      return res.status(404).json({ error: 'Domain not found' });
+      return res.status(404).json({ error: 'Skill not found' });
     }
     next(err);
   }
 });
 
 /**
- * Update domain state
- * PATCH /api/domains/:id
+ * Update skill state
+ * PATCH /api/skills/:id
  *
  * Body: { updates: { ... state updates using dot notation ... } }
  */
@@ -99,19 +99,19 @@ router.patch('/:id', async (req, res, next) => {
       return res.status(400).json({ error: 'Updates object is required' });
     }
 
-    const domain = await domainsStore.updateState(id, updates);
-    res.json({ domain });
+    const skill = await skillsStore.updateState(id, updates);
+    res.json({ skill });
   } catch (err) {
     if (err.message?.includes('not found')) {
-      return res.status(404).json({ error: 'Domain not found' });
+      return res.status(404).json({ error: 'Skill not found' });
     }
     next(err);
   }
 });
 
 /**
- * Update domain settings
- * PATCH /api/domains/:id/settings
+ * Update skill settings
+ * PATCH /api/skills/:id/settings
  *
  * Body: { llm_provider?, llm_model?, ... }
  */
@@ -120,42 +120,42 @@ router.patch('/:id/settings', async (req, res, next) => {
     const { id } = req.params;
     const settings = req.body;
 
-    const domain = await domainsStore.updateSettings(id, settings);
-    res.json({ domain });
+    const skill = await skillsStore.updateSettings(id, settings);
+    res.json({ skill });
   } catch (err) {
     if (err.message?.includes('not found')) {
-      return res.status(404).json({ error: 'Domain not found' });
+      return res.status(404).json({ error: 'Skill not found' });
     }
     next(err);
   }
 });
 
 /**
- * Get domain validation summary
- * GET /api/domains/:id/validation
+ * Get skill validation summary
+ * GET /api/skills/:id/validation
  */
 router.get('/:id/validation', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const domain = await domainsStore.load(id);
-    const summary = getValidationSummary(domain);
+    const skill = await skillsStore.load(id);
+    const summary = getValidationSummary(skill);
     res.json({ validation: summary });
   } catch (err) {
     if (err.message?.includes('not found')) {
-      return res.status(404).json({ error: 'Domain not found' });
+      return res.status(404).json({ error: 'Skill not found' });
     }
     next(err);
   }
 });
 
 /**
- * Delete domain
- * DELETE /api/domains/:id
+ * Delete skill
+ * DELETE /api/skills/:id
  */
 router.delete('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    await domainsStore.remove(id);
+    await skillsStore.remove(id);
     res.status(204).send();
   } catch (err) {
     next(err);
@@ -163,8 +163,8 @@ router.delete('/:id', async (req, res, next) => {
 });
 
 /**
- * Append message to domain conversation
- * POST /api/domains/:id/messages
+ * Append message to skill conversation
+ * POST /api/skills/:id/messages
  *
  * Body: { role: 'user' | 'assistant', content: string }
  */
@@ -178,11 +178,11 @@ router.post('/:id/messages', async (req, res, next) => {
     }
 
     const message = { role, content, state_update, suggested_focus };
-    const domain = await domainsStore.appendMessage(id, message);
-    res.json({ domain });
+    const skill = await skillsStore.appendMessage(id, message);
+    res.json({ skill });
   } catch (err) {
     if (err.message?.includes('not found')) {
-      return res.status(404).json({ error: 'Domain not found' });
+      return res.status(404).json({ error: 'Skill not found' });
     }
     next(err);
   }

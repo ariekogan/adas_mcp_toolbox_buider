@@ -378,7 +378,7 @@ console.log('────────────────');
     },
   };
 
-  const sol = await store.importFromYaml(yamlData, ['domain-1', 'domain-2']);
+  const sol = await store.importFromYaml(yamlData, ['skill-1', 'skill-2']);
 
   assertEqual(sol.id, 'imported-solution', 'Imported ID matches yaml');
   assertEqual(sol.name, 'Imported E-Commerce', 'Imported name matches');
@@ -388,7 +388,7 @@ console.log('────────────────');
   assertEqual(sol.grants.length, 1, 'Grants imported');
   assertEqual(sol.handoffs.length, 1, 'Handoffs imported');
   assertEqual(sol.routing.email.default_skill, 'identity', 'Routing imported');
-  assertDeepEqual(sol.linked_domains, ['domain-1', 'domain-2'], 'Linked domains set');
+  assertDeepEqual(sol.linked_skills, ['skill-1', 'skill-2'], 'Linked skills set');
   assertDeepEqual(sol.conversation, [], 'Conversation is fresh (empty)');
 
   // Verify persisted

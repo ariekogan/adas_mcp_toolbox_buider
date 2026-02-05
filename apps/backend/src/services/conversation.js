@@ -70,13 +70,13 @@ function compressConversation(messages) {
  * Process a chat message and get LLM response
  *
  * @param {Object} params
- * @param {Object} params.domain - DraftDomain object
+ * @param {Object} params.skill - DraftSkill object
  * @param {string} params.userMessage - User's message
  * @param {Object} params.uiFocus - Optional UI focus context
  */
-export async function processMessage({ domain, userMessage, uiFocus }) {
+export async function processMessage({ skill, userMessage, uiFocus }) {
   // Compress conversation if too long
-  const compressedHistory = compressConversation(domain.conversation);
+  const compressedHistory = compressConversation(skill.conversation);
 
   // Build messages array for LLM
   const messages = compressedHistory.map(m => ({
@@ -95,10 +95,10 @@ export async function processMessage({ domain, userMessage, uiFocus }) {
   });
 
   // Build system prompt with current state
-  const systemPrompt = buildDALSystemPrompt(domain);
+  const systemPrompt = buildDALSystemPrompt(skill);
 
   // Get LLM adapter
-  const settings = domain._settings;
+  const settings = skill._settings;
   const provider = settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
   const adapter = createAdapter(provider, {
     apiKey: settings?.api_key,

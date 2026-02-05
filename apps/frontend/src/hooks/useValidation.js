@@ -10,7 +10,7 @@ import { runValidation, isIssueStillRelevant, VALIDATION_SEVERITY } from '../ser
 import { validateToolsConsistency } from '../api/client';
 
 /**
- * @param {Object} skill - The skill/domain object
+ * @param {Object} skill - The skill/skill object
  * @param {Function} onIssuesChange - Callback when issues change (for persistence)
  */
 export function useValidation(skill, onIssuesChange) {

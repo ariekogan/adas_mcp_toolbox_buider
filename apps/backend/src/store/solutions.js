@@ -223,7 +223,7 @@ async function updateState(id, updates) {
 
 /**
  * Apply state updates to solution
- * Supports the same _push/_delete/_update patterns as domain store
+ * Supports the same _push/_delete/_update patterns as skill store
  */
 function applyUpdates(solution, updates) {
   for (const [key, value] of Object.entries(updates)) {
@@ -321,10 +321,10 @@ function setNestedValue(obj, path, value) {
 /**
  * Import a solution from solution.yaml data
  * @param {Object} solutionData - Parsed solution.yaml content
- * @param {string[]} [linkedDomainIds] - Domain IDs to link
+ * @param {string[]} [linkedSkillIds] - Skill IDs to link
  * @returns {Promise<Object>}
  */
-async function importFromYaml(solutionData, linkedDomainIds = []) {
+async function importFromYaml(solutionData, linkedSkillIds = []) {
   await init();
 
   const id = solutionData.id || `sol_${uuidv4().slice(0, 8)}`;
@@ -337,7 +337,7 @@ async function importFromYaml(solutionData, linkedDomainIds = []) {
     id,
     phase: 'VALIDATION', // imported solutions skip to validation
     conversation: [],
-    linked_domains: linkedDomainIds,
+    linked_skills: linkedSkillIds,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };

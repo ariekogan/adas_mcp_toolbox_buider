@@ -1,14 +1,14 @@
 /**
- * Schema Validator - validates DraftDomain structure
+ * Schema Validator - validates DraftSkill structure
  * @module validators/schemaValidator
  */
 
 /**
- * @typedef {import('../types/DraftDomain.js').ValidationIssue} ValidationIssue
- * @typedef {import('../types/DraftDomain.js').DraftDomain} DraftDomain
- * @typedef {import('../types/DraftDomain.js').Tool} Tool
- * @typedef {import('../types/DraftDomain.js').Intent} Intent
- * @typedef {import('../types/DraftDomain.js').Scenario} Scenario
+ * @typedef {import('../types/DraftSkill.js').ValidationIssue} ValidationIssue
+ * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill
+ * @typedef {import('../types/DraftSkill.js').Tool} Tool
+ * @typedef {import('../types/DraftSkill.js').Intent} Intent
+ * @typedef {import('../types/DraftSkill.js').Scenario} Scenario
  */
 
 /**
@@ -40,7 +40,7 @@ export const COVERAGE = [
   { section: 'intents', field: 'intents.supported[].examples', check: 'Has examples array', type: 'schema' },
   { section: 'intents', field: 'intents.supported[].entities[].name', check: 'Has name', type: 'schema' },
   { section: 'intents', field: 'intents.supported[].entities[].type', check: 'Valid data type', type: 'schema' },
-  { section: 'intents', field: 'intents.out_of_domain.action', check: 'Valid enum (redirect/reject/escalate)', type: 'schema' },
+  { section: 'intents', field: 'intents.out_of_skill.action', check: 'Valid enum (redirect/reject/escalate)', type: 'schema' },
 
   // Tools
   { section: 'tools', field: 'tools[].id', check: 'Has ID', type: 'schema' },
@@ -112,44 +112,44 @@ const VALID_PHASES = [
 ];
 
 /**
- * Validate schema of DraftDomain
- * @param {DraftDomain} domain
+ * Validate schema of DraftSkill
+ * @param {DraftSkill} skill
  * @returns {ValidationIssue[]}
  */
-export function validateSchema(domain) {
+export function validateSchema(skill) {
   const issues = [];
 
   // Validate metadata
-  issues.push(...validateMetadata(domain));
+  issues.push(...validateMetadata(skill));
 
   // Validate problem
-  issues.push(...validateProblem(domain.problem));
+  issues.push(...validateProblem(skill.problem));
 
   // Validate scenarios
-  domain.scenarios.forEach((scenario, i) => {
+  skill.scenarios.forEach((scenario, i) => {
     issues.push(...validateScenario(scenario, `scenarios[${i}]`));
   });
 
   // Validate role
-  issues.push(...validateRole(domain.role));
+  issues.push(...validateRole(skill.role));
 
   // Validate intents
-  issues.push(...validateIntentsConfig(domain.intents));
+  issues.push(...validateIntentsConfig(skill.intents));
 
   // Validate engine
-  issues.push(...validateEngine(domain.engine));
+  issues.push(...validateEngine(skill.engine));
 
   // Validate tools
-  domain.tools.forEach((tool, i) => {
+  skill.tools.forEach((tool, i) => {
     issues.push(...validateTool(tool, `tools[${i}]`));
   });
 
   // Validate policy
-  issues.push(...validatePolicy(domain.policy));
+  issues.push(...validatePolicy(skill.policy));
 
   // Validate triggers
-  if (domain.triggers && Array.isArray(domain.triggers)) {
-    domain.triggers.forEach((trigger, i) => {
+  if (skill.triggers && Array.isArray(skill.triggers)) {
+    skill.triggers.forEach((trigger, i) => {
       issues.push(...validateTrigger(trigger, `triggers[${i}]`));
     });
   }
@@ -158,37 +158,37 @@ export function validateSchema(domain) {
 }
 
 /**
- * Validate domain metadata
- * @param {DraftDomain} domain
+ * Validate skill metadata
+ * @param {DraftSkill} skill
  * @returns {ValidationIssue[]}
  */
-function validateMetadata(domain) {
+function validateMetadata(skill) {
   const issues = [];
 
-  if (!domain.id || typeof domain.id !== 'string') {
+  if (!skill.id || typeof skill.id !== 'string') {
     issues.push({
       code: 'INVALID_ID',
       severity: 'error',
       path: 'id',
-      message: 'Domain ID is required and must be a string',
+      message: 'Skill ID is required and must be a string',
     });
   }
 
-  if (!domain.name || typeof domain.name !== 'string') {
+  if (!skill.name || typeof skill.name !== 'string') {
     issues.push({
       code: 'INVALID_NAME',
       severity: 'error',
       path: 'name',
-      message: 'Domain name is required and must be a string',
+      message: 'Skill name is required and must be a string',
     });
   }
 
-  if (!VALID_PHASES.includes(domain.phase)) {
+  if (!VALID_PHASES.includes(skill.phase)) {
     issues.push({
       code: 'INVALID_PHASE',
       severity: 'error',
       path: 'phase',
-      message: `Invalid phase: ${domain.phase}. Must be one of: ${VALID_PHASES.join(', ')}`,
+      message: `Invalid phase: ${skill.phase}. Must be one of: ${VALID_PHASES.join(', ')}`,
     });
   }
 
@@ -197,7 +197,7 @@ function validateMetadata(domain) {
 
 /**
  * Validate problem section
- * @param {DraftDomain['problem']} problem
+ * @param {DraftSkill['problem']} problem
  * @returns {ValidationIssue[]}
  */
 function validateProblem(problem) {
@@ -276,7 +276,7 @@ function validateScenario(scenario, path) {
 
 /**
  * Validate role section
- * @param {DraftDomain['role']} role
+ * @param {DraftSkill['role']} role
  * @returns {ValidationIssue[]}
  */
 function validateRole(role) {
@@ -320,7 +320,7 @@ function validateRole(role) {
 
 /**
  * Validate intents configuration
- * @param {DraftDomain['intents']} intents
+ * @param {DraftSkill['intents']} intents
  * @returns {ValidationIssue[]}
  */
 function validateIntentsConfig(intents) {
@@ -364,15 +364,15 @@ function validateIntentsConfig(intents) {
     issues.push(...validateIntent(intent, `intents.supported[${i}]`));
   });
 
-  // Validate out_of_domain
-  if (intents.out_of_domain) {
+  // Validate out_of_skill
+  if (intents.out_of_skill) {
     const validActions = ['redirect', 'reject', 'escalate'];
-    if (intents.out_of_domain.action && !validActions.includes(intents.out_of_domain.action)) {
+    if (intents.out_of_skill.action && !validActions.includes(intents.out_of_skill.action)) {
       issues.push({
         code: 'INVALID_OOD_ACTION',
         severity: 'error',
-        path: 'intents.out_of_domain.action',
-        message: `Invalid out-of-domain action: ${intents.out_of_domain.action}. Must be one of: ${validActions.join(', ')}`,
+        path: 'intents.out_of_skill.action',
+        message: `Invalid out-of-skill action: ${intents.out_of_skill.action}. Must be one of: ${validActions.join(', ')}`,
       });
     }
   }
@@ -443,7 +443,7 @@ function validateIntent(intent, path) {
 
 /**
  * Validate engine configuration
- * @param {DraftDomain['engine']} engine
+ * @param {DraftSkill['engine']} engine
  * @returns {ValidationIssue[]}
  */
 function validateEngine(engine) {
@@ -741,7 +741,7 @@ function validateTool(tool, path) {
 
 /**
  * Validate policy section
- * @param {DraftDomain['policy']} policy
+ * @param {DraftSkill['policy']} policy
  * @returns {ValidationIssue[]}
  */
 function validatePolicy(policy) {
@@ -830,7 +830,7 @@ function validatePolicy(policy) {
 
 /**
  * Validate a single trigger
- * @param {import('../types/DraftDomain.js').Trigger} trigger
+ * @param {import('../types/DraftSkill.js').Trigger} trigger
  * @param {string} path
  * @returns {ValidationIssue[]}
  */
@@ -902,7 +902,7 @@ function validateTrigger(trigger, path) {
 
 /**
  * Validate schedule-specific trigger fields
- * @param {import('../types/DraftDomain.js').ScheduleTrigger} trigger
+ * @param {import('../types/DraftSkill.js').ScheduleTrigger} trigger
  * @param {string} path
  * @returns {ValidationIssue[]}
  */
@@ -937,7 +937,7 @@ function validateScheduleTrigger(trigger, path) {
 
 /**
  * Validate event-specific trigger fields
- * @param {import('../types/DraftDomain.js').EventTrigger} trigger
+ * @param {import('../types/DraftSkill.js').EventTrigger} trigger
  * @param {string} path
  * @returns {ValidationIssue[]}
  */

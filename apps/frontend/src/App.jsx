@@ -587,7 +587,7 @@ export default function App() {
                     sending={sending}
                     skillName={currentSolution.name}
                     inputHint={inputHint}
-                    domain={currentSolution}
+                    skill={currentSolution}
                   />
                 }
                 right={
@@ -605,7 +605,7 @@ export default function App() {
                     sending={sending}
                     skillName={currentSkill.name}
                     inputHint={inputHint}
-                    domain={currentSkill}
+                    skill={currentSkill}
                     onFocusChange={setUiFocus}
                   />
                 }

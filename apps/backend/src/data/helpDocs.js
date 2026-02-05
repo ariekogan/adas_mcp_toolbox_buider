@@ -12,7 +12,7 @@ export const HELP_DOCS = {
     description: `The problem statement defines WHY this skill exists and WHAT problem it solves.`,
     purpose: `It anchors the entire skill design - every intent, tool, and policy should trace back to solving this problem.`,
     bestPractices: [
-      'Be specific about the domain (e.g., "customer support for cosmetics" not just "support")',
+      'Be specific about the skill (e.g., "customer support for cosmetics" not just "support")',
       'Include the target users (e.g., "customers", "employees", "partners")',
       'Describe the pain points being addressed',
       'Keep it to 2-3 sentences'
@@ -83,7 +83,7 @@ export const HELP_DOCS = {
     fields: {
       accept: 'Confidence level to proceed (default 0.8 = 80%). If intent confidence >= this, execute it.',
       clarify: 'Confidence level to ask for clarification (default 0.5). Between clarify and accept, agent asks user to confirm.',
-      reject: 'Below this level, treat as out-of-domain or unclear.'
+      reject: 'Below this level, treat as out-of-skill or unclear.'
     },
     recommendations: {
       'High-stakes actions': 'Use higher thresholds (0.85-0.95) for actions like payments, deletions, or modifications',
@@ -92,19 +92,19 @@ export const HELP_DOCS = {
     }
   },
 
-  'out of domain handling': {
-    title: 'Out of Domain Handling',
+  'out of skill handling': {
+    title: 'Out of Skill Handling',
     description: `Defines how the agent responds when a user request falls outside the skill's scope.`,
     purpose: `Ensures graceful handling of requests the agent cannot fulfill, maintaining good user experience.`,
     options: {
-      redirect: 'Guide user to appropriate resource or suggest related domains',
+      redirect: 'Guide user to appropriate resource or suggest related skills',
       reject: 'Politely decline and explain what the agent CAN help with',
       escalate: 'Transfer to human agent or escalation queue'
     },
     bestPractices: [
       'Always provide a helpful response, even when declining',
       'Suggest what the agent CAN do if rejecting',
-      'Consider suggesting related domains if available'
+      'Consider suggesting related skills if available'
     ]
   },
 

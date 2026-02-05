@@ -1,24 +1,24 @@
 import { Router } from "express";
-import domainsStore from "../store/domains.js";
+import skillsStore from "../store/skills.js";
 import { createAdapter } from "../services/llm/adapter.js";
 import mcpManager from "../services/mcpConnector.js";
 
 const router = Router();
 
 // Run mock test for a tool
-router.post("/:domainId/:toolId", async (req, res, next) => {
+router.post("/:skillId/:toolId", async (req, res, next) => {
   try {
-    const { domainId, toolId } = req.params;
+    const { skillId, toolId } = req.params;
     const { input, mode = "example" } = req.body;
     const log = req.app.locals.log;
 
-    log.debug(`Mock test: domain=${domainId}, tool=${toolId}, mode=${mode}`);
+    log.debug(`Mock test: skill=${skillId}, tool=${toolId}, mode=${mode}`);
 
-    // Load domain
-    const domain = await domainsStore.load(domainId);
+    // Load skill
+    const skill = await skillsStore.load(skillId);
 
     // Find tool
-    const tool = domain.tools?.find(t => t.id === toolId || t.name === toolId);
+    const tool = skill.tools?.find(t => t.id === toolId || t.name === toolId);
     if (!tool) {
       return res.status(404).json({ error: "Tool not found" });
     }
@@ -34,7 +34,7 @@ router.post("/:domainId/:toolId", async (req, res, next) => {
       output = findMatchingExample(tool, input);
     } else if (mode === "llm") {
       // LLM-simulated mock
-      output = await simulateWithLLM(domain, tool, input);
+      output = await simulateWithLLM(skill, tool, input);
     } else {
       return res.status(400).json({ error: "Invalid mode. Use 'example' or 'llm'" });
     }
@@ -49,7 +49,7 @@ router.post("/:domainId/:toolId", async (req, res, next) => {
 
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
-      return res.status(404).json({ error: "Domain not found" });
+      return res.status(404).json({ error: "Skill not found" });
     }
     next(err);
   }
@@ -133,8 +133,8 @@ function findMatchingExample(tool, input) {
 /**
  * Simulate tool output using LLM
  */
-async function simulateWithLLM(domain, tool, input) {
-  const provider = domain.settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
+async function simulateWithLLM(skill, tool, input) {
+  const provider = skill.settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
   const adapter = createAdapter(provider);
   
   const prompt = `You are simulating a tool for testing purposes.

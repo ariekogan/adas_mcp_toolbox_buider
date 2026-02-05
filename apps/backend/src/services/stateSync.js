@@ -1,7 +1,7 @@
 /**
  * State Synchronization Service
  *
- * Provides context injection to keep AI responses aligned with current domain state.
+ * Provides context injection to keep AI responses aligned with current skill state.
  * This prevents the AI from referencing tools, intents, or other entities that have
  * been renamed or deleted during the conversation.
  *
@@ -15,13 +15,13 @@
  * Generate a concise state context string for injection
  * Only includes tool names (the most important for preventing stale references)
  *
- * @param {Object} domain - The current domain state
+ * @param {Object} skill - The current skill state
  * @returns {string} - Context string to prepend to user message
  */
-export function generateStateContext(domain) {
+export function generateStateContext(skill) {
   try {
     // Only include tool names - this is the most critical for preventing stale references
-    const tools = domain.tools || [];
+    const tools = skill.tools || [];
     if (tools.length === 0) {
       return '';
     }
@@ -46,13 +46,13 @@ export function generateStateContext(domain) {
  * Only triggers for SIGNIFICANT changes (tool name changes, additions, removals)
  * NOT for minor updates like descriptions or mock data
  *
- * @param {Object} domain - The current domain state
+ * @param {Object} skill - The current skill state
  * @param {number} lookbackMessages - How many messages to look back (default: 2)
  * @returns {boolean} - True if state was recently modified
  */
-export function wasStateRecentlyModified(domain, lookbackMessages = 2) {
+export function wasStateRecentlyModified(skill, lookbackMessages = 2) {
   try {
-    const conversation = domain.conversation || [];
+    const conversation = skill.conversation || [];
     if (conversation.length < 2) {
       return false;
     }
@@ -99,22 +99,22 @@ export function wasStateRecentlyModified(domain, lookbackMessages = 2) {
  * Enhance user message with state context if needed
  *
  * @param {string} message - Original user message
- * @param {Object} domain - Current domain state
+ * @param {Object} skill - Current skill state
  * @param {Object} options - Options
  * @param {boolean} options.force - Force context injection even if no recent changes
  * @param {boolean} options.verbose - Include more detailed context
  * @returns {string} - Enhanced message with state context (or original if error)
  */
-export function enhanceWithStateContext(message, domain, options = {}) {
+export function enhanceWithStateContext(message, skill, options = {}) {
   try {
     const { force = false } = options;
 
     // Only inject context if state was recently modified (or forced)
-    if (!force && !wasStateRecentlyModified(domain)) {
+    if (!force && !wasStateRecentlyModified(skill)) {
       return message;
     }
 
-    const context = generateStateContext(domain);
+    const context = generateStateContext(skill);
     if (!context) {
       return message;
     }
@@ -133,16 +133,16 @@ export function enhanceWithStateContext(message, domain, options = {}) {
  * Generate a state refresh reminder for significant changes
  * This can be used to inject a system-like note when major changes occur
  *
- * @param {Object} previousDomain - Domain state before change
- * @param {Object} currentDomain - Domain state after change
+ * @param {Object} previousSkill - Skill state before change
+ * @param {Object} currentSkill - Skill state after change
  * @returns {string|null} - Reminder message or null if no significant changes
  */
-export function generateStateChangeReminder(previousDomain, currentDomain) {
+export function generateStateChangeReminder(previousSkill, currentSkill) {
   const changes = [];
 
   // Check tools
-  const prevTools = (previousDomain?.tools || []).map(t => t.name).filter(Boolean);
-  const currTools = (currentDomain?.tools || []).map(t => t.name).filter(Boolean);
+  const prevTools = (previousSkill?.tools || []).map(t => t.name).filter(Boolean);
+  const currTools = (currentSkill?.tools || []).map(t => t.name).filter(Boolean);
 
   // Find renamed/removed tools
   const removedTools = prevTools.filter(t => !currTools.includes(t));
@@ -158,8 +158,8 @@ export function generateStateChangeReminder(previousDomain, currentDomain) {
   }
 
   // Check intents
-  const prevIntents = (previousDomain?.intents?.supported || []).map(i => i.description || i.id).filter(Boolean);
-  const currIntents = (currentDomain?.intents?.supported || []).map(i => i.description || i.id).filter(Boolean);
+  const prevIntents = (previousSkill?.intents?.supported || []).map(i => i.description || i.id).filter(Boolean);
+  const currIntents = (currentSkill?.intents?.supported || []).map(i => i.description || i.id).filter(Boolean);
 
   const removedIntents = prevIntents.filter(i => !currIntents.includes(i));
   const addedIntents = currIntents.filter(i => !prevIntents.includes(i));

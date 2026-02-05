@@ -3,7 +3,7 @@
  *
  * Uses Anthropic SDK with a custom agentic loop to generate
  * fully-implemented MCP servers with real tool implementations,
- * discovery endpoints, and complete domain definitions.
+ * discovery endpoints, and complete skill definitions.
  *
  * Works in Docker environments without requiring Claude Code CLI.
  */
@@ -16,15 +16,15 @@ import path from "path";
 const MAX_ITERATIONS = 15;
 
 /**
- * Generate a complete MCP server for a domain using an agentic approach
+ * Generate a complete MCP server for a skill using an agentic approach
  *
- * @param {Object} domain - The DraftDomain object
+ * @param {Object} skill - The DraftSkill object
  * @param {Object} options - Generation options
  * @param {string} options.outputDir - Directory to write generated files
  * @param {function} options.onProgress - Progress callback (message) => void
  * @returns {AsyncGenerator<Object>} Stream of generation events
  */
-export async function* generateMCPWithAgent(domain, options = {}) {
+export async function* generateMCPWithAgent(skill, options = {}) {
   const { outputDir, onProgress } = options;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -40,8 +40,8 @@ export async function* generateMCPWithAgent(domain, options = {}) {
   const tools = getAgentTools();
 
   // Build the system prompt and initial message
-  const systemPrompt = buildSystemPrompt(domain);
-  const userMessage = buildGenerationPrompt(domain, outputDir);
+  const systemPrompt = buildSystemPrompt(skill);
+  const userMessage = buildGenerationPrompt(skill, outputDir);
 
   // Initialize conversation
   let messages = [{ role: "user", content: userMessage }];
@@ -50,8 +50,8 @@ export async function* generateMCPWithAgent(domain, options = {}) {
 
   yield {
     type: "start",
-    message: `Starting MCP generation for ${domain.name}`,
-    toolsCount: domain.tools?.length || 0
+    message: `Starting MCP generation for ${skill.name}`,
+    toolsCount: skill.tools?.length || 0
   };
 
   try {
@@ -444,8 +444,8 @@ async function listFilesRecursive(dir, prefix = "") {
 /**
  * Build the system prompt for MCP generation
  */
-function buildSystemPrompt(domain) {
-  return `You are an expert MCP (Model Context Protocol) server developer. Your task is to generate a complete, production-ready MCP server based on domain specifications.
+function buildSystemPrompt(skill) {
+  return `You are an expert MCP (Model Context Protocol) server developer. Your task is to generate a complete, production-ready MCP server based on skill specifications.
 
 ## Your Goal
 Generate a fully functional FastMCP Python server with:
@@ -454,10 +454,10 @@ Generate a fully functional FastMCP Python server with:
 3. Proper error handling and logging
 4. Clean, maintainable code
 
-## Domain Context
-Name: ${domain.name || "Unnamed Domain"}
-Purpose: ${domain.problem?.statement || "No statement provided"}
-Version: ${domain.version || 1}
+## Skill Context
+Name: ${skill.name || "Unnamed Skill"}
+Purpose: ${skill.problem?.statement || "No statement provided"}
+Version: ${skill.version || 1}
 
 ## MCP Server Requirements
 Create these files:
@@ -490,13 +490,13 @@ Use the tools provided to write files, validate code, and signal completion.`;
 }
 
 /**
- * Build the generation prompt with full domain details
+ * Build the generation prompt with full skill details
  */
-function buildGenerationPrompt(domain, outputDir) {
-  const tools = domain.tools || [];
-  const metaTools = domain.meta_tools || [];
+function buildGenerationPrompt(skill, outputDir) {
+  const tools = skill.tools || [];
+  const metaTools = skill.meta_tools || [];
 
-  let prompt = `Generate a complete MCP server for this domain.
+  let prompt = `Generate a complete MCP server for this skill.
 
 ## Output Directory
 ${outputDir}
@@ -564,15 +564,15 @@ function summarizeInput(input) {
 /**
  * Simple non-agent MCP generation (fallback)
  */
-export async function generateMCPSimple(domain, options = {}) {
+export async function generateMCPSimple(skill, options = {}) {
   const { generateMCPServer, generateRequirements, generateDockerfile, generateReadme } =
     await import("./export.js");
 
   return {
-    "mcp_server.py": generateMCPServer(domain),
+    "mcp_server.py": generateMCPServer(skill),
     "requirements.txt": generateRequirements(),
     "Dockerfile": generateDockerfile(),
-    "README.md": generateReadme(domain)
+    "README.md": generateReadme(skill)
   };
 }
 

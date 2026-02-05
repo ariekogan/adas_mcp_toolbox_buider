@@ -10,7 +10,7 @@ import { buildSolutionSystemPrompt } from '../prompts/solutionSystem.js';
 import { createAdapter } from './llm/adapter.js';
 
 /**
- * Compress conversation history (same strategy as domain conversation)
+ * Compress conversation history (same strategy as skill conversation)
  */
 function compressConversation(messages) {
   const KEEP_RECENT = 10;

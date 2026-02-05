@@ -1,5 +1,5 @@
 /**
- * PolicyPanel - Display and manage domain policy
+ * PolicyPanel - Display and manage skill policy
  *
  * Shows guardrails (never/always), approval rules, workflows, and escalation config.
  */

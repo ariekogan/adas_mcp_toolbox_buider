@@ -1,8 +1,8 @@
 /**
- * DraftDomain Schema - DAL Builder
+ * DraftSkill Schema - DAL Builder
  *
  * The canonical object shared by chat and UI. Replaces project.json + toolbox.json.
- * @module types/DraftDomain
+ * @module types/DraftSkill
  */
 
 /**
@@ -513,7 +513,7 @@
  */
 
 // ═══════════════════════════════════════════════════════════════
-// MAIN DraftDomain INTERFACE
+// MAIN DraftSkill INTERFACE
 // ═══════════════════════════════════════════════════════════════
 
 /**
@@ -664,8 +664,8 @@
  */
 
 /**
- * The main DraftDomain interface - canonical object for DAL Builder
- * @typedef {Object} DraftDomain
+ * The main DraftSkill interface - canonical object for DAL Builder
+ * @typedef {Object} DraftSkill
  * @property {string} id
  * @property {string} name
  * @property {string} description

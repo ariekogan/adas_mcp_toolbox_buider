@@ -4,8 +4,8 @@
  */
 
 /**
- * @typedef {import('../types/DraftDomain.js').DraftDomain} DraftDomain
- * @typedef {import('../types/DraftDomain.js').ValidationIssue} ValidationIssue
+ * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill
+ * @typedef {import('../types/DraftSkill.js').ValidationIssue} ValidationIssue
  */
 
 /**
@@ -61,13 +61,13 @@ export const COVERAGE = [
 // ---------------------------------------------------------------------------
 
 /**
- * Build a Set of all tool names defined on the domain.
- * @param {DraftDomain} domain
+ * Build a Set of all tool names defined on the skill.
+ * @param {DraftSkill} skill
  * @returns {Set<string>}
  */
-function getToolNameSet(domain) {
+function getToolNameSet(skill) {
   const names = new Set();
-  for (const tool of domain.tools || []) {
+  for (const tool of skill.tools || []) {
     if (tool.name) {
       names.add(tool.name);
     }
@@ -78,14 +78,14 @@ function getToolNameSet(domain) {
 /**
  * Build the set of tool names that are covered by at least one access_policy rule.
  * A wildcard "*" entry means every tool is covered.
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {{ coveredTools: Set<string>, hasWildcard: boolean }}
  */
-function getAccessPolicyCoverage(domain) {
+function getAccessPolicyCoverage(skill) {
   const coveredTools = new Set();
   let hasWildcard = false;
 
-  const rules = domain.access_policy?.rules || [];
+  const rules = skill.access_policy?.rules || [];
   for (const rule of rules) {
     for (const toolRef of rule.tools || []) {
       if (toolRef === '*') {
@@ -102,24 +102,24 @@ function getAccessPolicyCoverage(domain) {
 /**
  * Build the set of tool names that are covered by at least one response_filter.
  * Response filters apply broadly (not per-tool), so we track their existence.
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {boolean}
  */
-function hasResponseFilters(domain) {
-  return Array.isArray(domain.response_filters) && domain.response_filters.length > 0;
+function hasResponseFilters(skill) {
+  return Array.isArray(skill.response_filters) && skill.response_filters.length > 0;
 }
 
 /**
  * Determine whether a constrain rule exists that injects a given field name.
  * A constrain rule is an access_policy rule with effect "constrain" whose
  * `constrain` object references the field (by key or value_from).
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @param {string} toolName
  * @param {string} fieldName
  * @returns {boolean}
  */
-function hasConstrainPolicyForField(domain, toolName, fieldName) {
-  const rules = domain.access_policy?.rules || [];
+function hasConstrainPolicyForField(skill, toolName, fieldName) {
+  const rules = skill.access_policy?.rules || [];
   for (const rule of rules) {
     if (rule.effect !== 'constrain') continue;
 
@@ -137,7 +137,7 @@ function hasConstrainPolicyForField(domain, toolName, fieldName) {
   }
 
   // Also check grant_mappings that reference this tool and field
-  for (const mapping of domain.grant_mappings || []) {
+  for (const mapping of skill.grant_mappings || []) {
     if (mapping.tool !== toolName) continue;
     for (const grant of mapping.grants || []) {
       if (grant.value_from === fieldName) return true;
@@ -152,7 +152,7 @@ function hasConstrainPolicyForField(domain, toolName, fieldName) {
 // ---------------------------------------------------------------------------
 
 /**
- * Validate security configuration of a domain.
+ * Validate security configuration of a skill.
  *
  * Checks:
  * 1. All high-risk tools (pii_write, financial, destructive) have access policies
@@ -163,16 +163,16 @@ function hasConstrainPolicyForField(domain, toolName, fieldName) {
  * 6. Tools with data_owner_field have corresponding grant mappings or access policies
  *    that constrain by that field
  *
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {ValidationIssue[]} Array of issues (errors and warnings)
  */
-export function validateSecurity(domain) {
+export function validateSecurity(skill) {
   const issues = [];
 
-  const tools = domain.tools || [];
-  const toolNames = getToolNameSet(domain);
-  const { coveredTools, hasWildcard } = getAccessPolicyCoverage(domain);
-  const domainHasFilters = hasResponseFilters(domain);
+  const tools = skill.tools || [];
+  const toolNames = getToolNameSet(skill);
+  const { coveredTools, hasWildcard } = getAccessPolicyCoverage(skill);
+  const skillHasFilters = hasResponseFilters(skill);
 
   // -----------------------------------------------------------------------
   // 1 & 2 & 6  Per-tool checks
@@ -232,7 +232,7 @@ export function validateSecurity(domain) {
     }
 
     // Check 2: PII tools should have response filters
-    if (PII_CLASSIFICATIONS.includes(classification) && !domainHasFilters) {
+    if (PII_CLASSIFICATIONS.includes(classification) && !skillHasFilters) {
       const covered = hasWildcard || coveredTools.has(tool.name);
       // Only warn if also missing from access_policy
       if (!covered) {
@@ -248,7 +248,7 @@ export function validateSecurity(domain) {
 
     // Check 6: data_owner_field should have a constrain policy
     if (dataOwnerField && tool.name) {
-      if (!hasConstrainPolicyForField(domain, tool.name, dataOwnerField)) {
+      if (!hasConstrainPolicyForField(skill, tool.name, dataOwnerField)) {
         issues.push({
           code: 'DATA_OWNER_NO_CONSTRAIN',
           severity: 'warning',
@@ -263,7 +263,7 @@ export function validateSecurity(domain) {
   // -----------------------------------------------------------------------
   // 3  Grant mappings reference valid tools
   // -----------------------------------------------------------------------
-  (domain.grant_mappings || []).forEach((mapping, i) => {
+  (skill.grant_mappings || []).forEach((mapping, i) => {
     if (mapping.tool && !toolNames.has(mapping.tool)) {
       issues.push({
         code: 'GRANT_MAPPING_INVALID_TOOL',
@@ -278,7 +278,7 @@ export function validateSecurity(domain) {
   // -----------------------------------------------------------------------
   // 4  Access policy tool references are valid
   // -----------------------------------------------------------------------
-  (domain.access_policy?.rules || []).forEach((rule, i) => {
+  (skill.access_policy?.rules || []).forEach((rule, i) => {
     (rule.tools || []).forEach((toolRef, j) => {
       if (toolRef === '*') return; // wildcard is always valid
       if (!toolNames.has(toolRef)) {
@@ -307,7 +307,7 @@ export function validateSecurity(domain) {
   // -----------------------------------------------------------------------
   // 5  Response filter field paths are syntactically valid
   // -----------------------------------------------------------------------
-  (domain.response_filters || []).forEach((filter, i) => {
+  (skill.response_filters || []).forEach((filter, i) => {
     const basePath = `response_filters[${i}]`;
 
     (filter.strip_fields || []).forEach((field, j) => {
@@ -346,12 +346,12 @@ export function validateSecurity(domain) {
  * Get security completeness status.
  * Returns true only if all high-risk tools have access policies.
  *
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {boolean}
  */
-export function isSecurityComplete(domain) {
-  const tools = domain.tools || [];
-  const { coveredTools, hasWildcard } = getAccessPolicyCoverage(domain);
+export function isSecurityComplete(skill) {
+  const tools = skill.tools || [];
+  const { coveredTools, hasWildcard } = getAccessPolicyCoverage(skill);
 
   for (const tool of tools) {
     const classification = tool.security?.classification;
@@ -373,7 +373,7 @@ export function isSecurityComplete(domain) {
  * Get security coverage report.
  * Shows which tools are classified, which have policies, etc.
  *
- * @param {DraftDomain} domain
+ * @param {DraftSkill} skill
  * @returns {{
  *   total_tools: number,
  *   classified: number,
@@ -387,10 +387,10 @@ export function isSecurityComplete(domain) {
  *   response_filters_count: number
  * }}
  */
-export function getSecurityReport(domain) {
-  const tools = domain.tools || [];
-  const { coveredTools, hasWildcard } = getAccessPolicyCoverage(domain);
-  const domainHasFilters = hasResponseFilters(domain);
+export function getSecurityReport(skill) {
+  const tools = skill.tools || [];
+  const { coveredTools, hasWildcard } = getAccessPolicyCoverage(skill);
+  const skillHasFilters = hasResponseFilters(skill);
 
   let classified = 0;
   let unclassified = 0;
@@ -421,7 +421,7 @@ export function getSecurityReport(domain) {
       piiTools++;
       // A PII tool is "covered" if there are response filters OR it has an access policy
       const hasPolicyCoverage = hasWildcard || coveredTools.has(tool.name);
-      if (domainHasFilters || hasPolicyCoverage) {
+      if (skillHasFilters || hasPolicyCoverage) {
         piiWithFilters++;
       }
     }
@@ -435,8 +435,8 @@ export function getSecurityReport(domain) {
     high_risk_with_policy: highRiskWithPolicy,
     pii_tools: piiTools,
     pii_with_filters: piiWithFilters,
-    grant_mappings_count: (domain.grant_mappings || []).length,
-    access_rules_count: (domain.access_policy?.rules || []).length,
-    response_filters_count: (domain.response_filters || []).length,
+    grant_mappings_count: (skill.grant_mappings || []).length,
+    access_rules_count: (skill.access_policy?.rules || []).length,
+    response_filters_count: (skill.response_filters || []).length,
   };
 }

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import domainsStore from "../store/domains.js";
+import skillsStore from "../store/skills.js";
 import { processMessage } from "../services/conversation.js";
 import { applyStateUpdateWithValidation, calculateProgress, shouldSuggestPhaseAdvance } from "../services/state.js";
 import { digestFileContent, getFileType } from "../services/fileDigestion.js";
@@ -49,44 +49,44 @@ Use the documentation above to explain this section in the context of the curren
 }
 
 /**
- * Send chat message for a domain
- * POST /api/chat/domain
+ * Send chat message for a skill
+ * POST /api/chat/skill
  *
- * Body: { domain_id: string, message: string, ui_focus?: object }
+ * Body: { skill_id: string, message: string, ui_focus?: object }
  */
-router.post("/domain", async (req, res, next) => {
+router.post("/skill", async (req, res, next) => {
   try {
-    const { domain_id, message, ui_focus } = req.body;
+    const { skill_id, message, ui_focus } = req.body;
     const log = req.app.locals.log;
 
-    if (!domain_id) {
-      return res.status(400).json({ error: "domain_id is required" });
+    if (!skill_id) {
+      return res.status(400).json({ error: "skill_id is required" });
     }
 
     if (!message) {
       return res.status(400).json({ error: "message is required" });
     }
 
-    log.debug(`Domain chat request for ${domain_id}`);
+    log.debug(`Skill chat request for ${skill_id}`);
 
-    // Load domain (auto-migrates if legacy)
-    let domain;
+    // Load skill (auto-migrates if legacy)
+    let skill;
     try {
-      domain = await domainsStore.load(domain_id);
+      skill = await skillsStore.load(skill_id);
     } catch (err) {
       if (err.message?.includes('not found') || err.code === "ENOENT") {
-        return res.status(404).json({ error: "Domain not found" });
+        return res.status(404).json({ error: "Skill not found" });
       }
       throw err;
     }
 
     // Ensure conversation array exists (safety net)
-    if (!Array.isArray(domain.conversation)) {
-      domain.conversation = [];
+    if (!Array.isArray(skill.conversation)) {
+      skill.conversation = [];
     }
 
-    // Save user message to domain conversation (original message)
-    domain.conversation.push({
+    // Save user message to skill conversation (original message)
+    skill.conversation.push({
       id: `msg_${Date.now()}`,
       role: "user",
       content: message,
@@ -106,7 +106,7 @@ router.post("/domain", async (req, res, next) => {
 
     // State context injection - keeps AI aligned with current entity names
     try {
-      const enhanced = enhanceWithStateContext(processedMessage, domain);
+      const enhanced = enhanceWithStateContext(processedMessage, skill);
       if (enhanced !== processedMessage) {
         processedMessage = enhanced;
         log.debug("State context injected into message");
@@ -115,10 +115,10 @@ router.post("/domain", async (req, res, next) => {
       log.warn("State sync failed (non-blocking):", stateSyncErr.message);
     }
 
-    // Process with LLM (using domain format)
-    log.debug("Sending to LLM (domain format)...");
+    // Process with LLM (using skill format)
+    log.debug("Sending to LLM (skill format)...");
     const response = await processMessage({
-      domain,
+      skill,
       userMessage: processedMessage,
       uiFocus: ui_focus
     });
@@ -126,14 +126,14 @@ router.post("/domain", async (req, res, next) => {
     log.debug("LLM response received", { usage: response.usage });
 
     // Apply state updates with validation
-    let updatedDomain = domain;
+    let updatedSkill = skill;
     if (response.stateUpdate && Object.keys(response.stateUpdate).length > 0) {
       log.debug("Applying state updates", response.stateUpdate);
-      updatedDomain = applyStateUpdateWithValidation(domain, response.stateUpdate);
+      updatedSkill = applyStateUpdateWithValidation(skill, response.stateUpdate);
     }
 
-    // Save assistant message to domain conversation
-    updatedDomain.conversation.push({
+    // Save assistant message to skill conversation
+    updatedSkill.conversation.push({
       id: `msg_${Date.now()}`,
       role: "assistant",
       content: response.message,
@@ -143,38 +143,38 @@ router.post("/domain", async (req, res, next) => {
       input_hint: response.inputHint
     });
 
-    // Save updated domain
-    await domainsStore.save(updatedDomain);
+    // Save updated skill
+    await skillsStore.save(updatedSkill);
 
     // Calculate progress from validation completeness
-    const progress = calculateProgress(updatedDomain);
+    const progress = calculateProgress(updatedSkill);
 
     // Check if we should suggest phase advancement
-    const phaseSuggestion = shouldSuggestPhaseAdvance(updatedDomain);
+    const phaseSuggestion = shouldSuggestPhaseAdvance(updatedSkill);
 
     res.json({
       message: response.message,
-      domain: updatedDomain,
+      skill: updatedSkill,
       suggested_focus: response.suggestedFocus,
       input_hint: response.inputHint,
       progress,
-      validation: updatedDomain.validation,
+      validation: updatedSkill.validation,
       phase_suggestion: phaseSuggestion,
       usage: response.usage,
       tools_used: response.toolsUsed
     });
 
   } catch (err) {
-    req.app.locals.log.error("Domain chat error:", err);
+    req.app.locals.log.error("Skill chat error:", err);
     next(err);
   }
 });
 
 /**
  * Get initial greeting for skill chat
- * GET /api/chat/domain/greeting
+ * GET /api/chat/skill/greeting
  */
-router.get("/domain/greeting", async (req, res) => {
+router.get("/skill/greeting", async (req, res) => {
   res.json({
     message: `Hi! I'm here to help you build a custom AI agent skill.
 
@@ -201,9 +201,9 @@ What problem would you like your AI agent to solve?`,
 
 /**
  * Digest uploaded file to extract intents and scenarios
- * POST /api/chat/domain/digest
+ * POST /api/chat/skill/digest
  */
-router.post("/domain/digest", (req, res, next) => {
+router.post("/skill/digest", (req, res, next) => {
   const upload = req.app.locals.upload;
 
   upload.single('file')(req, res, async (err) => {
@@ -215,26 +215,26 @@ router.post("/domain/digest", (req, res, next) => {
     }
 
     try {
-      const { domain_id } = req.body;
+      const { skill_id } = req.body;
       const log = req.app.locals.log;
 
-      if (!domain_id) {
-        return res.status(400).json({ error: "domain_id is required" });
+      if (!skill_id) {
+        return res.status(400).json({ error: "skill_id is required" });
       }
 
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      log.debug(`File digest request for ${domain_id}: ${req.file.originalname}`);
+      log.debug(`File digest request for ${skill_id}: ${req.file.originalname}`);
 
-      // Load domain
-      let domain;
+      // Load skill
+      let skill;
       try {
-        domain = await domainsStore.load(domain_id);
+        skill = await skillsStore.load(skill_id);
       } catch (err) {
         if (err.message?.includes('not found') || err.code === "ENOENT") {
-          return res.status(404).json({ error: "Domain not found" });
+          return res.status(404).json({ error: "Skill not found" });
         }
         throw err;
       }
@@ -248,7 +248,7 @@ router.post("/domain/digest", (req, res, next) => {
 
       // Process with LLM for extraction
       const extraction = await digestFileContent({
-        domain,
+        skill,
         fileContent,
         fileName,
         fileType
@@ -273,26 +273,26 @@ router.post("/domain/digest", (req, res, next) => {
 });
 
 /**
- * Apply confirmed file extraction to domain
- * POST /api/chat/domain/digest/apply
+ * Apply confirmed file extraction to skill
+ * POST /api/chat/skill/digest/apply
  */
-router.post("/domain/digest/apply", async (req, res, next) => {
+router.post("/skill/digest/apply", async (req, res, next) => {
   try {
-    const { domain_id, extraction } = req.body;
+    const { skill_id, extraction } = req.body;
     const log = req.app.locals.log;
 
-    if (!domain_id) {
-      return res.status(400).json({ error: "domain_id is required" });
+    if (!skill_id) {
+      return res.status(400).json({ error: "skill_id is required" });
     }
 
     if (!extraction) {
       return res.status(400).json({ error: "extraction is required" });
     }
 
-    log.debug(`Applying extraction for ${domain_id}`);
+    log.debug(`Applying extraction for ${skill_id}`);
 
-    // Load domain
-    let domain = await domainsStore.load(domain_id);
+    // Load skill
+    let skill = await skillsStore.load(skill_id);
 
     // Build and apply state updates from extraction
     const intentsCount = extraction.intents?.length || 0;
@@ -307,7 +307,7 @@ router.post("/domain/digest/apply", async (req, res, next) => {
           maps_to_workflow_resolved: true
         }
       };
-      domain = applyStateUpdateWithValidation(domain, update);
+      skill = applyStateUpdateWithValidation(skill, update);
     }
 
     // Apply scenarios
@@ -320,11 +320,11 @@ router.post("/domain/digest/apply", async (req, res, next) => {
           expected_outcome: scenario.expected_outcome || ""
         }
       };
-      domain = applyStateUpdateWithValidation(domain, update);
+      skill = applyStateUpdateWithValidation(skill, update);
     }
 
     // Add message about the import
-    domain.conversation.push({
+    skill.conversation.push({
       id: `msg_${Date.now()}`,
       role: "assistant",
       content: `Imported ${intentsCount} intent(s) and ${scenariosCount} scenario(s) from your uploaded file.`,
@@ -332,15 +332,15 @@ router.post("/domain/digest/apply", async (req, res, next) => {
     });
 
     // Save
-    await domainsStore.save(domain);
+    await skillsStore.save(skill);
 
-    const progress = calculateProgress(domain);
+    const progress = calculateProgress(skill);
 
     res.json({
       message: `Imported ${intentsCount} intent(s) and ${scenariosCount} scenario(s)`,
-      domain,
+      skill,
       progress,
-      validation: domain.validation
+      validation: skill.validation
     });
 
   } catch (err) {

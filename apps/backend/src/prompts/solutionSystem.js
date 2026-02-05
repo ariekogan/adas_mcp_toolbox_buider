@@ -126,7 +126,7 @@ Goal: Define each skill with its role
 
 For each skill, determine:
 - \`id\` — unique identifier
-- \`role\` — gateway (entry point + security), worker (domain tasks), orchestrator (routing + monitoring), approval (human-in-the-loop decisions)
+- \`role\` — gateway (entry point + security), worker (skill tasks), orchestrator (routing + monitoring), approval (human-in-the-loop decisions)
 - \`description\` — what this skill does
 - \`entry_channels\` — which channels this skill listens on
 - \`connectors\` — which MCPs this skill needs

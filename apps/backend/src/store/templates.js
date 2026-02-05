@@ -155,17 +155,17 @@ async function load(id) {
 }
 
 /**
- * Apply a template to a new domain
- * Merges template content with the empty domain structure
+ * Apply a template to a new skill
+ * Merges template content with the empty skill structure
  *
- * @param {Object} emptyDomain - Empty domain from createEmptyDraftDomain()
+ * @param {Object} emptySkill - Empty skill from createEmptyDraftSkill()
  * @param {Object} templateContent - Loaded template content
- * @returns {Object} - Domain with template applied
+ * @returns {Object} - Skill with template applied
  */
-function applyTemplate(emptyDomain, templateContent) {
-  const domain = { ...emptyDomain };
+function applyTemplate(emptySkill, templateContent) {
+  const skill = { ...emptySkill };
 
-  // Fields to copy from template (preserving domain's id, name, timestamps)
+  // Fields to copy from template (preserving skill's id, name, timestamps)
   const copyFields = [
     'description',
     'problem',
@@ -183,36 +183,36 @@ function applyTemplate(emptyDomain, templateContent) {
   for (const field of copyFields) {
     if (templateContent[field] !== undefined) {
       // Deep clone to avoid reference issues
-      domain[field] = JSON.parse(JSON.stringify(templateContent[field]));
+      skill[field] = JSON.parse(JSON.stringify(templateContent[field]));
     }
   }
 
   // Set phase based on template completeness
   // If template has tools, start at TOOL_DEFINITION
   if (templateContent.tools?.length > 0) {
-    domain.phase = 'TOOL_DEFINITION';
+    skill.phase = 'TOOL_DEFINITION';
   } else if (templateContent.intents?.supported?.length > 0) {
-    domain.phase = 'INTENT_DEFINITION';
+    skill.phase = 'INTENT_DEFINITION';
   } else if (templateContent.scenarios?.length > 0) {
-    domain.phase = 'SCENARIO_EXPLORATION';
+    skill.phase = 'SCENARIO_EXPLORATION';
   }
 
   // Regenerate IDs for all entities to ensure uniqueness
-  regenerateIds(domain);
+  regenerateIds(skill);
 
-  return domain;
+  return skill;
 }
 
 /**
- * Regenerate all IDs in the domain to ensure uniqueness
- * Templates may have static IDs that would conflict with other domains
+ * Regenerate all IDs in the skill to ensure uniqueness
+ * Templates may have static IDs that would conflict with other skills
  */
-function regenerateIds(domain) {
+function regenerateIds(skill) {
   // Import uuidv4 from top-level import
 
   // Regenerate scenario IDs
-  if (domain.scenarios) {
-    for (const scenario of domain.scenarios) {
+  if (skill.scenarios) {
+    for (const scenario of skill.scenarios) {
       scenario.id = `scenario_${uuidv4().slice(0, 8)}`;
     }
   }
@@ -221,8 +221,8 @@ function regenerateIds(domain) {
   const toolIdMap = new Map();
 
   // Regenerate tool IDs
-  if (domain.tools) {
-    for (const tool of domain.tools) {
+  if (skill.tools) {
+    for (const tool of skill.tools) {
       const oldId = tool.id;
       tool.id = `tool_${uuidv4().slice(0, 8)}`;
       tool.id_status = 'temporary'; // Mark as temporary since user hasn't confirmed
@@ -241,8 +241,8 @@ function regenerateIds(domain) {
   const workflowIdMap = new Map();
 
   // Regenerate workflow IDs and update tool references
-  if (domain.policy?.workflows) {
-    for (const workflow of domain.policy.workflows) {
+  if (skill.policy?.workflows) {
+    for (const workflow of skill.policy.workflows) {
       const oldId = workflow.id;
       workflow.id = `workflow_${uuidv4().slice(0, 8)}`;
       workflowIdMap.set(oldId, workflow.id);
@@ -261,8 +261,8 @@ function regenerateIds(domain) {
   }
 
   // Regenerate intent IDs and update workflow references
-  if (domain.intents?.supported) {
-    for (const intent of domain.intents.supported) {
+  if (skill.intents?.supported) {
+    for (const intent of skill.intents.supported) {
       intent.id = `intent_${uuidv4().slice(0, 8)}`;
 
       // Update maps_to_workflow reference if it was an old ID
@@ -273,8 +273,8 @@ function regenerateIds(domain) {
   }
 
   // Regenerate approval rule IDs and update tool references
-  if (domain.policy?.approvals) {
-    for (const approval of domain.policy.approvals) {
+  if (skill.policy?.approvals) {
+    for (const approval of skill.policy.approvals) {
       approval.id = `approval_${uuidv4().slice(0, 8)}`;
 
       // Update tool_id reference if it was an old ID
@@ -285,8 +285,8 @@ function regenerateIds(domain) {
   }
 
   // Regenerate meta_tool IDs
-  if (domain.meta_tools) {
-    for (const metaTool of domain.meta_tools) {
+  if (skill.meta_tools) {
+    for (const metaTool of skill.meta_tools) {
       metaTool.id = `meta_${uuidv4().slice(0, 8)}`;
       metaTool.created_at = new Date().toISOString();
     }
