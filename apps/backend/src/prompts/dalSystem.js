@@ -371,6 +371,9 @@ Deleting a grant mapping (by tool name):
 Setting context propagation:
 { "context_propagation": { "on_handoff": { "propagate_grants": ["ecom.customer_id", "ecom.assurance_level"], "drop_grants": ["ecom.session_token"] } } }
 
+Adding a handoff transfer tool (when skill initiates handoffs):
+{ "tools_push": { "name": "handoff.transfer", "description": "Transfer this conversation to another skill with verified grants and context", "inputs": [{ "name": "target_skill", "type": "string", "required": true, "description": "Skill ID to transfer to" }, { "name": "original_goal", "type": "string", "required": true, "description": "What the user originally asked for" }, { "name": "summary", "type": "string", "required": true, "description": "Summary of conversation so far" }], "output": { "type": "object", "description": "Handoff session with transfer confirmation" }, "policy": { "allowed": "always" }, "source": { "type": "mcp_bridge", "connector": "handoff-controller-mcp", "tool_name": "handoff.transfer" }, "mock": { "enabled": true, "mode": "examples", "examples": [] }, "mock_status": "untested" } }
+
 Changing phase:
 { "phase": "INTENT_DEFINITION" }
 
@@ -609,6 +612,10 @@ Security:
 - Grant mappings: ${grantMappingsCount}
 - Response filters: ${responseFiltersCount}
 
+Handoff:
+- Context propagation: ${domain.context_propagation ? 'configured' : 'not configured'}
+- Has handoff.transfer tool: ${domain.tools?.some(t => t.name === 'handoff.transfer') ? 'yes' : 'no'}
+
 Guide users to define:
 1. **Never** - Things agent must NEVER do
    Example: "Never share payment details"
@@ -651,6 +658,33 @@ Guide users to define:
    **Step 5: Context Propagation** - For skill-to-skill handoffs:
    - Propagate: customer_id, assurance_level, platform grants
    - Drop: session tokens, scoped tokens
+
+   **Step 6: Handoff Configuration** - If this skill is part of a multi-skill solution:
+
+   The ADAS Core platform supports **conversation handoffs** between skills via the \`handoff-controller-mcp\` platform connector. This allows one skill to transfer an active conversation to another skill, passing along verified grants and context.
+
+   **If this skill INITIATES handoffs** (transfers conversations to another skill):
+   1. Add \`handoff-controller-mcp\` as a connector for this skill
+   2. Add a \`handoff.transfer\` tool (source: mcp_bridge to handoff-controller-mcp) with inputs:
+      - \`target_skill\` (string) — the skill ID to transfer to
+      - \`original_goal\` (string) — what the user originally asked for
+      - \`summary\` (string) — conversation summary for the target skill
+      - \`grants\` (object) — verified grants to pass to the target skill
+   3. Update the persona to instruct WHEN and HOW to call handoff.transfer
+   4. Ensure context_propagation.on_handoff lists which grants to pass and which to drop
+
+   **If this skill RECEIVES handoffs** (gets conversations from another skill):
+   1. Update the persona to recognize when grants are already present (pre-seeded from handoff)
+   2. When grants like customer_id and assurance_level are already in context, SKIP identity verification
+   3. Acknowledge the handoff context — greet the user knowing their original goal and conversation history
+   4. The access_policy should allow \`origin_type: "skill_handoff"\` for relevant tools
+
+   Example handoff flow:
+   - identity-assurance verifies the user → calls handoff.transfer(target_skill: "support-tier-1", grants: {customer_id, assurance_level})
+   - support-tier-1 receives the conversation with pre-seeded grants → skips verification → helps the user directly
+
+   Only configure handoffs if the user indicates this skill participates in a multi-skill solution.
+   Ask the user: "Does this skill need to hand off conversations to another skill, or receive handoffs?"
 
    IMPORTANT: Only start security configuration AFTER guardrails are defined.
    Use selection mode to let users pick classifications and approve policy suggestions.`;

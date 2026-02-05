@@ -1,6 +1,52 @@
 import { useState, useEffect } from 'react';
 import { listTemplates } from '../api/client';
 
+// ═══════════════════════════════════════════════════════════════
+// SOLUTION STYLES (added for unified sidebar)
+// ═══════════════════════════════════════════════════════════════
+const solutionStyles = {
+  solutionItem: {
+    padding: '10px 12px',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    marginBottom: '2px',
+    transition: 'background 0.2s',
+  },
+  solutionItemActive: {
+    background: 'var(--bg-tertiary)',
+  },
+  solutionName: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: 'var(--accent)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  solutionMeta: {
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+    marginTop: '2px',
+    paddingLeft: '22px',
+  },
+  childSkill: {
+    paddingLeft: '28px',
+  },
+  separator: {
+    height: '1px',
+    background: 'var(--border)',
+    margin: '8px 0',
+  },
+  sectionLabel: {
+    fontSize: '11px',
+    fontWeight: '600',
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    padding: '8px 12px 4px',
+  },
+};
+
 const styles = {
   container: {
     width: '240px',
@@ -253,7 +299,14 @@ export default function SkillList({
   onSelect,
   onCreate,
   onDelete,
-  loading
+  loading,
+  // Solution props
+  solutions = [],
+  currentSolutionId = null,
+  onSelectSolution,
+  onCreateSolution,
+  onDeleteSolution,
+  selectedType = 'skill', // 'skill' | 'solution'
 }) {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
@@ -292,10 +345,79 @@ export default function SkillList({
     setShowNew(false);
   };
 
+  // Build a set of skill IDs that belong to solutions (by original_skill_id)
+  const solutionSkillIds = new Set();
+  for (const sol of solutions) {
+    for (const solSkill of (sol.skills || [])) {
+      solutionSkillIds.add(solSkill.id);
+    }
+  }
+
+  // Skills NOT in any solution
+  const standaloneSkills = skills.filter(s => {
+    const origId = s.original_skill_id || s.id;
+    return !solutionSkillIds.has(origId) && !solutionSkillIds.has(s.name?.toLowerCase().replace(/\s+/g, '-'));
+  });
+
+  const renderSkillItem = (skill, indent = false) => {
+    const phaseStyle = getPhaseStyle(skill.phase);
+    const isHovered = hoveredSkill === skill.id;
+    const isActive = selectedType === 'skill' && skill.id === currentId;
+    return (
+      <div
+        key={skill.id}
+        style={{
+          ...styles.skill,
+          ...(indent ? solutionStyles.childSkill : {}),
+          ...(isActive || isHovered ? styles.skillActive : {})
+        }}
+        onClick={() => onSelect(skill.id)}
+        onMouseEnter={() => setHoveredSkill(skill.id)}
+        onMouseLeave={() => {
+          setHoveredSkill(null);
+          setHoveredDelete(false);
+        }}
+      >
+        <div style={styles.skillHeader}>
+          <div style={styles.skillName}>
+            {indent ? '├─ ' : ''}{skill.name}
+          </div>
+          <button
+            style={{
+              ...styles.deleteBtn,
+              ...(isHovered ? styles.deleteBtnVisible : {}),
+              ...(hoveredDelete && isHovered ? styles.deleteBtnHover : {})
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm(`Delete "${skill.name}"?`)) {
+                onDelete(skill.id);
+              }
+            }}
+            onMouseEnter={() => setHoveredDelete(true)}
+            onMouseLeave={() => setHoveredDelete(false)}
+          >
+            ✕
+          </button>
+        </div>
+        <div style={{ ...styles.skillMeta, ...(indent ? { paddingLeft: '24px' } : {}) }}>
+          {skill.tools_count || 0} tools
+          <span style={{
+            ...styles.status,
+            background: phaseStyle.bg,
+            color: phaseStyle.color
+          }}>
+            {formatPhase(skill.phase)}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <span style={styles.title}>Skills</span>
+        <span style={styles.title}>Builder</span>
         <button style={styles.newBtn} onClick={() => setShowNew(true)}>
           + New
         </button>
@@ -304,64 +426,76 @@ export default function SkillList({
       <div style={styles.list}>
         {loading && <div style={styles.empty}>Loading...</div>}
 
-        {!loading && skills.length === 0 && (
+        {/* Solutions Section */}
+        {solutions.length > 0 && (
+          <>
+            {solutions.map(sol => {
+              const isActive = selectedType === 'solution' && sol.id === currentSolutionId;
+              const isHovered = hoveredSkill === `sol_${sol.id}`;
+              // Find matching skills for this solution
+              const solSkillRefs = sol.skills || [];
+              const matchedSkills = solSkillRefs.map(ref => {
+                return skills.find(s =>
+                  s.original_skill_id === ref.id ||
+                  s.name?.toLowerCase().replace(/\s+/g, '-') === ref.id
+                );
+              }).filter(Boolean);
+
+              return (
+                <div key={sol.id}>
+                  <div
+                    style={{
+                      ...solutionStyles.solutionItem,
+                      ...(isActive || isHovered ? solutionStyles.solutionItemActive : {}),
+                    }}
+                    onClick={() => onSelectSolution && onSelectSolution(sol.id)}
+                    onMouseEnter={() => setHoveredSkill(`sol_${sol.id}`)}
+                    onMouseLeave={() => setHoveredSkill(null)}
+                  >
+                    <div style={solutionStyles.solutionName}>
+                      ★ {sol.name}
+                    </div>
+                    <div style={solutionStyles.solutionMeta}>
+                      {sol.skills_count || solSkillRefs.length} skills · {sol.grants_count || 0} grants
+                    </div>
+                  </div>
+                  {/* Child skills */}
+                  {matchedSkills.map(skill => renderSkillItem(skill, true))}
+                </div>
+              );
+            })}
+
+            {/* New Solution button */}
+            {onCreateSolution && (
+              <div
+                style={{
+                  ...solutionStyles.solutionItem,
+                  color: 'var(--text-muted)',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                }}
+                onClick={() => {
+                  const name = prompt('Solution name:');
+                  if (name?.trim()) onCreateSolution(name.trim());
+                }}
+              >
+                ★ + New Solution
+              </div>
+            )}
+
+            {/* Separator if there are standalone skills */}
+            {standaloneSkills.length > 0 && <div style={solutionStyles.separator} />}
+          </>
+        )}
+
+        {/* Standalone Skills */}
+        {!loading && standaloneSkills.length === 0 && solutions.length === 0 && (
           <div style={styles.empty}>
             No skills yet.<br />Create one to get started!
           </div>
         )}
 
-        {skills.map(skill => {
-          const phaseStyle = getPhaseStyle(skill.phase);
-          const isHovered = hoveredSkill === skill.id;
-          return (
-            <div
-              key={skill.id}
-              style={{
-                ...styles.skill,
-                ...(skill.id === currentId || isHovered ? styles.skillActive : {})
-              }}
-              onClick={() => onSelect(skill.id)}
-              onMouseEnter={() => setHoveredSkill(skill.id)}
-              onMouseLeave={() => {
-                setHoveredSkill(null);
-                setHoveredDelete(false);
-              }}
-            >
-              <div style={styles.skillHeader}>
-                <div style={styles.skillName}>
-                  {skill.name}
-                </div>
-                <button
-                  style={{
-                    ...styles.deleteBtn,
-                    ...(isHovered ? styles.deleteBtnVisible : {}),
-                    ...(hoveredDelete && isHovered ? styles.deleteBtnHover : {})
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (confirm(`Delete "${skill.name}"?`)) {
-                      onDelete(skill.id);
-                    }
-                  }}
-                  onMouseEnter={() => setHoveredDelete(true)}
-                  onMouseLeave={() => setHoveredDelete(false)}
-                >
-                  ✕
-                </button>
-              </div>
-              <div style={styles.skillMeta}>
-                {skill.tools_count || 0} tools · v{skill.version || 1}
-                <span style={{
-                  ...styles.status,
-                  background: phaseStyle.bg,
-                  color: phaseStyle.color
-                }}>
-                  {formatPhase(skill.phase)}
-                </span>
-              </div>
-            </div>
-          );
-        })}
+        {standaloneSkills.map(skill => renderSkillItem(skill, false))}
       </div>
 
       {showNew && (

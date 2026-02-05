@@ -12,6 +12,7 @@ import connectorsRouter from "./routes/connectors.js";
 import actorsRouter from "./routes/actors.js";
 import tenantRouter from "./routes/tenant.js";
 import importRouter from "./routes/import.js";
+import solutionsRouter from "./routes/solutions.js";
 import { attachTenant } from "./middleware/attachTenant.js";
 import { isSearchAvailable } from "./services/webSearch.js";
 import mcpManager from "./services/mcpConnector.js";
@@ -89,6 +90,7 @@ app.use("/api/connectors", connectorsRouter);
 app.use("/api/actors", actorsRouter);
 app.use("/api/tenant", tenantRouter);
 app.use("/api/import", importRouter);
+app.use("/api/solutions", solutionsRouter);
 
 // Error handler
 app.use((err, req, res, _next) => {

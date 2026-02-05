@@ -8,11 +8,13 @@ import ExportModal from './components/ExportModal';
 import ConnectorsPage from './components/ConnectorsPage';
 import TenantChannelsPage from './components/TenantChannelsPage';
 import PoliciesPage from './components/PoliciesPage';
+import SolutionPanel from './components/SolutionPanel';
 import { useSkill } from './hooks/useSkill';
+import { useSolution } from './hooks/useSolution';
 import { useSettings } from './hooks/useSettings';
 import * as api from './api/client';
 import { getTenant, setTenant, VALID_TENANTS } from './api/client';
-// Force rebuild - triggers and channels update
+// Force rebuild - triggers and channels update + solution builder
 
 const styles = {
   app: {
@@ -155,11 +157,26 @@ export default function App() {
     addMessage
   } = useSkill();
 
+  const {
+    solutions,
+    currentSolution,
+    loading: solutionLoading,
+    loadSolutions,
+    createSolution: createSol,
+    loadSolution,
+    deleteSolution,
+    updateSolution,
+    addMessage: addSolutionMessage,
+  } = useSolution();
+
   const { settings, updateSettings, showModal, openSettings, closeSettings, hasApiKey, backendStatus } = useSettings();
   const [uiFocus, setUiFocus] = useState(null);
   const [greetingData, setGreetingData] = useState(null);
+  const [solutionGreetingData, setSolutionGreetingData] = useState(null);
   const [sending, setSending] = useState(false);
   const [inputHint, setInputHint] = useState(null);
+  // Track whether user selected a skill or solution
+  const [selectedType, setSelectedType] = useState('skill'); // 'skill' | 'solution'
 
   // File upload extraction state
   const [extraction, setExtraction] = useState(null);
@@ -179,15 +196,18 @@ export default function App() {
     const newTenant = e.target.value;
     setTenant(newTenant);
     setTenantState(newTenant);
-    // Reload skills for the new tenant
+    // Reload skills and solutions for the new tenant
     loadSkills();
-  }, [loadSkills]);
+    loadSolutions();
+  }, [loadSkills, loadSolutions]);
 
   const messages = currentSkill?.conversation || [];
+  const solutionMessages = currentSolution?.conversation || [];
 
   useEffect(() => {
     loadSkills();
-  }, [loadSkills]);
+    loadSolutions();
+  }, [loadSkills, loadSolutions]);
 
   useEffect(() => {
     api.getSkillGreeting().then(setGreetingData).catch(() => {});
@@ -207,23 +227,56 @@ export default function App() {
     }
   }, [currentSkill, greetingData, addMessage]);
 
+  // Solution greeting effect - auto-show greeting when solution has empty conversation
+  useEffect(() => {
+    if (currentSolution && currentSolution.conversation?.length === 0 && solutionGreetingData) {
+      addSolutionMessage({
+        id: `msg_${Date.now()}`,
+        role: 'assistant',
+        content: solutionGreetingData.message,
+        timestamp: new Date().toISOString(),
+        input_hint: solutionGreetingData.inputHint
+      });
+      setInputHint(solutionGreetingData.inputHint);
+    }
+  }, [currentSolution, solutionGreetingData, addSolutionMessage]);
+
   // Update inputHint when messages change (use last assistant message's hint)
   useEffect(() => {
-    if (messages.length > 0) {
-      const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+    const activeMessages = selectedType === 'solution' ? solutionMessages : messages;
+    if (activeMessages.length > 0) {
+      const lastAssistant = [...activeMessages].reverse().find(m => m.role === 'assistant');
       if (lastAssistant?.input_hint) {
         setInputHint(lastAssistant.input_hint);
       }
     }
-  }, [messages]);
+  }, [messages, solutionMessages, selectedType]);
 
   const handleSelect = useCallback(async (id) => {
     setUiFocus(null);
+    setSelectedType('skill');
     await loadSkill(id);
   }, [loadSkill]);
 
+  const handleSelectSolution = useCallback(async (id) => {
+    setUiFocus(null);
+    setSelectedType('solution');
+    setInputHint(null);
+    await loadSolution(id);
+    // Load greeting for solution if conversation is empty
+    if (!solutionGreetingData) {
+      api.getSolutionGreeting(id).then(setSolutionGreetingData).catch(() => {});
+    }
+  }, [loadSolution, solutionGreetingData]);
+
+  const handleCreateSolution = useCallback(async (name) => {
+    setSelectedType('solution');
+    await createSol(name);
+  }, [createSol]);
+
   const handleCreate = useCallback(async (name, templateId = null) => {
     setUiFocus(null);
+    setSelectedType('skill');
     await createSkill(name, { llm_provider: settings.llm_provider }, templateId);
   }, [createSkill, settings.llm_provider]);
 
@@ -269,6 +322,48 @@ export default function App() {
       setSending(false);
     }
   }, [currentSkill, uiFocus, addMessage, updateSkill]);
+
+  const handleSendSolutionMessage = useCallback(async (message) => {
+    if (!currentSolution) return;
+
+    // Clear input hint while sending
+    setInputHint(null);
+
+    addSolutionMessage({
+      id: `msg_${Date.now()}`,
+      role: 'user',
+      content: message,
+      timestamp: new Date().toISOString()
+    });
+
+    setSending(true);
+    try {
+      const response = await api.sendSolutionMessage(currentSolution.id, message);
+      addSolutionMessage({
+        id: `msg_${Date.now()}`,
+        role: 'assistant',
+        content: response.message,
+        timestamp: new Date().toISOString(),
+        state_update: response.state_update,
+        suggested_focus: response.suggested_focus,
+        input_hint: response.input_hint
+      });
+      setInputHint(response.input_hint || null);
+      if (response.solution) {
+        updateSolution(response.solution);
+      }
+    } catch (err) {
+      addSolutionMessage({
+        id: `msg_${Date.now()}`,
+        role: 'assistant',
+        content: `Error: ${err.message}`,
+        timestamp: new Date().toISOString()
+      });
+      setInputHint(null);
+    } finally {
+      setSending(false);
+    }
+  }, [currentSolution, addSolutionMessage, updateSolution]);
 
   const handleExport = useCallback(() => {
     if (!currentSkill) return;
@@ -470,9 +565,27 @@ export default function App() {
               onCreate={handleCreate}
               onDelete={deleteSkill}
               loading={loading}
+              solutions={solutions}
+              currentSolutionId={currentSolution?.id}
+              onSelectSolution={handleSelectSolution}
+              onCreateSolution={handleCreateSolution}
+              onDeleteSolution={deleteSolution}
+              selectedType={selectedType}
             />
 
-            {currentSkill ? (
+            {selectedType === 'solution' && currentSolution ? (
+              <div style={styles.mainContent}>
+                <ChatPanel
+                  messages={solutionMessages}
+                  onSendMessage={handleSendSolutionMessage}
+                  sending={sending}
+                  skillName={currentSolution.name}
+                  inputHint={inputHint}
+                  domain={currentSolution}
+                />
+                <SolutionPanel solution={currentSolution} />
+              </div>
+            ) : currentSkill ? (
               <div style={styles.mainContent}>
                 <ChatPanel
                   messages={messages}
@@ -513,7 +626,7 @@ export default function App() {
                 <div style={styles.welcomeTitle}>Welcome to Skill Builder</div>
                 <p style={styles.welcomeText}>
                   Create AI agent skills through guided conversation.
-                  Select a skill from the sidebar or create a new one to get started.
+                  Select a skill or solution from the sidebar to get started.
                 </p>
               </div>
             )}

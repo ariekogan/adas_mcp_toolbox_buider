@@ -426,6 +426,65 @@ export async function deployAllPackage(packageName, onEvent) {
 }
 
 // ============================================
+// Solutions
+// ============================================
+
+export async function listSolutions() {
+  const data = await request('/solutions');
+  return data.solutions;
+}
+
+export async function createSolution(name) {
+  const data = await request('/solutions', {
+    method: 'POST',
+    body: JSON.stringify({ name })
+  });
+  return data.solution;
+}
+
+export async function getSolution(id) {
+  const data = await request(`/solutions/${id}`);
+  return data.solution;
+}
+
+export async function updateSolution(id, stateUpdate) {
+  const data = await request(`/solutions/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ state_update: stateUpdate })
+  });
+  return data.solution;
+}
+
+export async function deleteSolution(id) {
+  return request(`/solutions/${id}`, { method: 'DELETE' });
+}
+
+export async function sendSolutionMessage(solutionId, message) {
+  return request(`/solutions/${solutionId}/chat`, {
+    method: 'POST',
+    body: JSON.stringify({ message })
+  });
+}
+
+export async function getSolutionGreeting(solutionId) {
+  const data = await request(`/solutions/${solutionId}/greeting`);
+  return {
+    message: data.message,
+    inputHint: data.input_hint
+  };
+}
+
+export async function validateSolution(id) {
+  const data = await request(`/solutions/${id}/validate`);
+  return data.validation;
+}
+
+export async function getSolutionTopology(id) {
+  const data = await request(`/solutions/${id}/topology`);
+  return data.topology;
+}
+
+// ============================================
 // Actors (CORE cp.admin_api bridge)
 // ============================================
 
@@ -860,6 +919,16 @@ export default {
   stopMCPServer,
   getMCPServerStatus,
   deployMCPToAdas,
+  // Solutions
+  listSolutions,
+  createSolution,
+  getSolution,
+  updateSolution,
+  deleteSolution,
+  sendSolutionMessage,
+  getSolutionGreeting,
+  validateSolution,
+  getSolutionTopology,
   // Package Import
   importPackage,
   importSolutionPack,

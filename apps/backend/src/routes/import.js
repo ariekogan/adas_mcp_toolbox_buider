@@ -22,6 +22,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { registerImportedConnector, unregisterImportedConnector, getAllPrebuiltConnectors } from './connectors.js';
 import domainsStore from '../store/domains.js';
+import solutionsStore from '../store/solutions.js';
 import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
@@ -747,6 +748,13 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
         mcpStoreFiles[mcpId] = path.join(permanentDir, 'mcp-store', mcpId);
       }
 
+      // Read solution.yaml if present
+      const solutionYamlPath = path.join(permanentDir, 'solution.yaml');
+      if (fs.existsSync(solutionYamlPath)) {
+        manifest._solutionYaml = fs.readFileSync(solutionYamlPath, 'utf-8');
+        console.log('[Import] Found solution.yaml in solution pack');
+      }
+
     } else if (req.body && (req.body.manifest || req.body.name)) {
       // JSON body
       manifest = req.body.manifest || req.body;
@@ -848,7 +856,31 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
       }
     }
 
-    // Step 3: Store package info
+    // Step 3: Import solution.yaml if present
+    let solutionResult = null;
+    if (manifest._solutionYaml || manifest.solution) {
+      try {
+        const solutionYamlContent = manifest._solutionYaml;
+        if (solutionYamlContent) {
+          const solutionData = yaml.load(solutionYamlContent);
+          const linkedDomainIds = skillResults
+            .filter(r => r.status === 'imported' || r.status === 'updated')
+            .map(r => r.id);
+
+          const solution = await solutionsStore.importFromYaml(solutionData, linkedDomainIds);
+          solutionResult = { id: solution.id, name: solution.name, status: 'imported' };
+          console.log(`[Import] Solution imported: ${solution.name} (${solution.id})`);
+        }
+      } catch (err) {
+        console.error('[Import] Solution import failed:', err.message);
+        solutionResult = { status: 'error', error: err.message };
+      }
+    }
+
+    // Clean up internal field
+    delete manifest._solutionYaml;
+
+    // Step 4: Store package info
     const packageInfo = {
       name: manifest.name,
       version: manifest.version,
@@ -860,19 +892,21 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
       skills: skills.map(s => {
         const result = skillResults.find(r => r.originalId === s.id);
         return { ...s, domainId: result?.id, status: result?.status };
-      })
+      }),
+      solution: solutionResult
     };
 
     importedPackages.set(manifest.name, packageInfo);
     savePackages();
 
-    console.log(`[Import] Solution pack imported: ${connectorConfigs.length} connectors, ${skillResults.length} skills`);
+    console.log(`[Import] Solution pack imported: ${connectorConfigs.length} connectors, ${skillResults.length} skills${solutionResult ? ', 1 solution' : ''}`);
 
     res.json({
       ok: true,
       package: packageInfo,
       skills: skillResults,
-      message: `Imported ${connectorConfigs.length} connectors + ${skillResults.length} skills`
+      solution: solutionResult,
+      message: `Imported ${connectorConfigs.length} connectors + ${skillResults.length} skills${solutionResult ? ' + 1 solution' : ''}`
     });
 
   } catch (err) {
