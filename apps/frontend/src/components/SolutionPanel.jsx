@@ -322,24 +322,29 @@ export default function SolutionPanel({ solution, sidebarSkills = [] }) {
       }
     });
 
-    return skills.map(s => {
-      if (s.connectors && s.connectors.length > 0) return s;
-      const nId = norm(s.id);
-      // Exact match
-      if (lookup[nId]) return { ...s, connectors: lookup[nId] };
-      // Substring match
+    // Find matching sidebar connectors for a solution skill
+    const findSidebarConns = (skillId) => {
+      const nId = norm(skillId);
+      if (lookup[nId]) return lookup[nId];
       for (const [key, conns] of Object.entries(lookup)) {
-        if (key.includes(nId) || nId.includes(key)) return { ...s, connectors: conns };
+        if (key.includes(nId) || nId.includes(key)) return conns;
       }
-      // Token overlap (at least 2 matching tokens, or all tokens if only 1)
       const idTokens = nId.split(' ');
       const minOverlap = Math.min(idTokens.length, 2);
       for (const [key, conns] of Object.entries(lookup)) {
         const keyTokens = key.split(' ');
         const overlap = idTokens.filter(t => keyTokens.includes(t)).length;
-        if (overlap >= minOverlap) return { ...s, connectors: conns };
+        if (overlap >= minOverlap) return conns;
       }
-      return s;
+      return [];
+    };
+
+    return skills.map(s => {
+      const sidebarConns = findSidebarConns(s.id);
+      const existing = s.connectors || [];
+      // Merge: union of solution connectors + sidebar connectors
+      const merged = [...new Set([...existing, ...sidebarConns])];
+      return merged.length > 0 ? { ...s, connectors: merged } : s;
     });
   }, [skills, sidebarSkills]);
 
