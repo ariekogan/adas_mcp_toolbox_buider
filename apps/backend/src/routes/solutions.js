@@ -311,8 +311,12 @@ router.get('/:id/validation', async (req, res, next) => {
  */
 function validateSkills(skills, solution) {
   const issues = [];
-  const skillIds = new Set(skills.map(s => s.id));
 
+  // Use solution.skills for topology validation (semantic IDs like 'identity-assurance')
+  // Use skills (from skillsStore) for implementation validation (database IDs like 'dom_xxx')
+  const solutionSkillIds = new Set((solution.skills || []).map(s => s.id));
+
+  // Validate skill implementations (from skillsStore)
   skills.forEach(skill => {
     const toolCount = (skill.tools || []).length;
     const hasPrompt = !!skill.prompt;
@@ -349,64 +353,64 @@ function validateSkills(skills, solution) {
     }
   });
 
-  // Check solution references to skills
+  // Check solution topology references using solution.skills (semantic IDs)
   const grants = solution.grants || [];
   const handoffs = solution.handoffs || [];
   const routing = solution.routing || {};
 
-  // Validate grant references
+  // Validate grant references against solution.skills
   grants.forEach(grant => {
     (grant.issued_by || []).forEach(id => {
-      if (!skillIds.has(id)) {
+      if (!solutionSkillIds.has(id)) {
         issues.push({
           category: 'grants',
           severity: 'error',
           title: `Grant "${grant.key}": Invalid issuer`,
-          detail: `Skill "${id}" doesn't exist`,
+          detail: `Skill "${id}" doesn't exist in solution topology`,
         });
       }
     });
 
     (grant.consumed_by || []).forEach(id => {
-      if (!skillIds.has(id)) {
+      if (!solutionSkillIds.has(id)) {
         issues.push({
           category: 'grants',
           severity: 'error',
           title: `Grant "${grant.key}": Invalid consumer`,
-          detail: `Skill "${id}" doesn't exist`,
+          detail: `Skill "${id}" doesn't exist in solution topology`,
         });
       }
     });
   });
 
-  // Validate handoff references
+  // Validate handoff references against solution.skills
   handoffs.forEach(handoff => {
-    if (handoff.from && !skillIds.has(handoff.from)) {
+    if (handoff.from && !solutionSkillIds.has(handoff.from)) {
       issues.push({
         category: 'handoffs',
         severity: 'error',
         title: `Handoff: Invalid source "${handoff.from}"`,
-        detail: 'Source skill doesn\'t exist',
+        detail: 'Source skill doesn\'t exist in solution topology',
       });
     }
-    if (handoff.to && !skillIds.has(handoff.to)) {
+    if (handoff.to && !solutionSkillIds.has(handoff.to)) {
       issues.push({
         category: 'handoffs',
         severity: 'error',
         title: `Handoff: Invalid target "${handoff.to}"`,
-        detail: 'Target skill doesn\'t exist',
+        detail: 'Target skill doesn\'t exist in solution topology',
       });
     }
   });
 
-  // Validate routing references
+  // Validate routing references against solution.skills
   Object.entries(routing).forEach(([channel, config]) => {
-    if (config.default_skill && !skillIds.has(config.default_skill)) {
+    if (config.default_skill && !solutionSkillIds.has(config.default_skill)) {
       issues.push({
         category: 'routing',
         severity: 'error',
         title: `Channel "${channel}": Invalid skill`,
-        detail: `Skill "${config.default_skill}" doesn't exist`,
+        detail: `Skill "${config.default_skill}" doesn't exist in solution topology`,
       });
     }
   });
