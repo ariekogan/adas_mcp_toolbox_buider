@@ -1,9 +1,10 @@
 /**
  * Skills Store - file-based storage for DraftSkill
  *
- * Storage structure (skills belong to solutions):
- *   /memory/solutions/<solutionId>/skills/<skillId>/skill.json
- *   /memory/solutions/<solutionId>/skills/<skillId>/exports/
+ * Storage structure:
+ *   /memory/<slug>/skill.json     - new DAL format
+ *   /memory/<slug>/project.json    - legacy format (auto-migrated)
+ *   /memory/<slug>/exports/        - exported files
  *
  * @module store/skills
  */
@@ -17,22 +18,6 @@ import { migrateToV2 } from '../services/migrate.js';
 import templatesStore from './templates.js';
 
 import { getMemoryRoot } from '../utils/tenantContext.js';
-
-// ═══════════════════════════════════════════════════════════════
-// PATH HELPERS (solution-scoped)
-// ═══════════════════════════════════════════════════════════════
-
-function getSolutionsDir() {
-  return path.join(getMemoryRoot(), 'solutions');
-}
-
-function getSkillsDir(solutionId) {
-  return path.join(getSolutionsDir(), solutionId, 'skills');
-}
-
-function getSkillDir(solutionId, skillId) {
-  return path.join(getSkillsDir(solutionId), skillId);
-}
 
 /**
  * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill
@@ -184,39 +169,36 @@ async function writeJson(filePath, data) {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Initialize storage for a solution's skills
- * @param {string} solutionId
+ * Initialize storage
  */
-async function init(solutionId) {
-  await ensureDir(getSkillsDir(solutionId));
+async function init() {
+  await ensureDir(getMemoryRoot());
 }
 
 /**
- * List all skills for a solution
- * @param {string} solutionId
- * @returns {Promise<Array>}
+ * List all skills (new format with skill.json)
+ * Also shows legacy projects that can be migrated
  */
-async function list(solutionId) {
-  await init(solutionId);
+async function list() {
+  await init();
 
   const skills = [];
-  const skillsDir = getSkillsDir(solutionId);
 
   try {
-    const skillIds = await fs.readdir(skillsDir);
+    const slugs = await fs.readdir(getMemoryRoot());
 
-    for (const skillId of skillIds) {
+    for (const slug of slugs) {
       try {
-        const skillDir = path.join(skillsDir, skillId);
-        const stat = await fs.stat(skillDir);
+        const slugDir = path.join(getMemoryRoot(), slug);
+        const stat = await fs.stat(slugDir);
         if (!stat.isDirectory()) continue;
 
-        const skillPath = path.join(skillDir, 'skill.json');
+        // Check for new format (skill.json)
+        const skillPath = path.join(slugDir, 'skill.json');
         if (await fileExists(skillPath)) {
           const skill = await readJson(skillPath);
           skills.push({
-            id: skillId,
-            solution_id: solutionId,
+            id: slug,
             name: skill.name,
             phase: skill.phase,
             created_at: skill.created_at,
@@ -228,43 +210,63 @@ async function list(solutionId) {
               : 0,
             format: 'v2',
           });
+          continue;
+        }
+
+        // Check for legacy format (project.json) - mark for migration
+        const projectPath = path.join(slugDir, 'project.json');
+        if (await fileExists(projectPath)) {
+          const project = await readJson(projectPath);
+          let toolbox = null;
+          try {
+            toolbox = await readJson(path.join(slugDir, 'toolbox.json'));
+          } catch {}
+
+          skills.push({
+            id: slug,
+            name: project.name,
+            phase: toolbox?.status || 'PROBLEM_DISCOVERY',
+            created_at: project.created_at,
+            updated_at: project.updated_at,
+            tools_count: toolbox?.tools?.length || 0,
+            progress: calculateLegacyProgress(toolbox),
+            format: 'legacy',
+            needs_migration: true,
+          });
         }
       } catch (err) {
-        // Skip invalid entries
+        // Skip invalid slugs
       }
     }
   } catch (err) {
-    // No skills directory yet for this solution
+    // No memory directory yet
   }
 
   return skills.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
 }
 
 /**
- * Create a new skill within a solution
- * @param {string} solutionId
+ * Create a new skill
  * @param {string} name
  * @param {Object} [settings]
  * @param {Object} [template] - Optional template to apply ({ id, content })
  * @returns {Promise<DraftSkill>}
  */
-async function create(solutionId, name, settings = {}, template = null) {
-  await init(solutionId);
+async function create(name, settings = {}, template = null) {
+  await init();
 
-  const skillId = `skill_${uuidv4().slice(0, 8)}`;
-  const skillDir = getSkillDir(solutionId, skillId);
+  const slug = `dom_${uuidv4().slice(0, 8)}`;
+  const slugDir = path.join(getMemoryRoot(), slug);
 
-  await ensureDir(skillDir);
-  await ensureDir(path.join(skillDir, 'exports'));
+  await ensureDir(slugDir);
+  await ensureDir(path.join(slugDir, 'exports'));
 
   // Create base skill
-  let skill = createEmptyDraftSkill(skillId, name);
-  skill.solution_id = solutionId;
+  let skill = createEmptyDraftSkill(slug, name);
 
   // Apply template if provided
   if (template && template.content) {
     skill = templatesStore.applyTemplate(skill, template.content);
-    skill.solution_id = solutionId; // Preserve after template apply
     console.log(`[Store] Applied template "${template.id}" to new skill "${name}"`);
   }
 
@@ -284,70 +286,107 @@ async function create(solutionId, name, settings = {}, template = null) {
   // Initial validation
   skill.validation = validateDraftSkill(skill);
 
-  await writeJson(path.join(skillDir, 'skill.json'), skill);
+  await writeJson(path.join(slugDir, 'skill.json'), skill);
 
   return skill;
 }
 
 /**
- * Load a skill by ID within a solution
- * @param {string} solutionId
- * @param {string} skillId
+ * Load a skill by slug (with auto-migration from legacy format)
+ * @param {string} slug
  * @returns {Promise<DraftSkill>}
  */
-async function load(solutionId, skillId) {
-  const skillDir = getSkillDir(solutionId, skillId);
-  const skillPath = path.join(skillDir, 'skill.json');
+async function load(slug) {
+  const slugDir = path.join(getMemoryRoot(), slug);
 
-  if (!(await fileExists(skillPath))) {
-    throw new Error(`Skill ${skillId} not found in solution ${solutionId}`);
+  // Try new format first (skill.json)
+  const skillPath = path.join(slugDir, 'skill.json');
+  if (await fileExists(skillPath)) {
+    const skill = await readJson(skillPath);
+    // Normalize data (fix missing IDs, etc.)
+    const wasModified = normalizeSkill(skill);
+    if (wasModified) {
+      // Save normalized data back
+      await writeJson(skillPath, skill);
+    }
+    // Re-validate on load
+    skill.validation = validateDraftSkill(skill);
+    return skill;
   }
 
-  const skill = await readJson(skillPath);
+  // Try legacy format and migrate
+  const projectPath = path.join(slugDir, 'project.json');
+  if (await fileExists(projectPath)) {
+    console.log(`Migrating legacy project ${slug} to skill format...`);
 
-  // Ensure solution_id is set
-  skill.solution_id = solutionId;
+    const project = await readJson(projectPath);
+    const toolbox = await readJson(path.join(slugDir, 'toolbox.json')).catch(() => ({
+      id: slug,
+      status: 'PROBLEM_DISCOVERY',
+      version: 1,
+      problem: { statement: null, target_user: null, systems_involved: [], confirmed: false },
+      scenarios: [],
+      proposed_tools: [],
+      tools: [],
+      workflows: [],
+    }));
+    const conversation = await readJson(path.join(slugDir, 'conversation.json')).catch(
+      () => ({ project_id: slug, messages: [] })
+    );
 
-  // Normalize data (fix missing IDs, etc.)
-  const wasModified = normalizeSkill(skill);
-  if (wasModified) {
-    await writeJson(skillPath, skill);
+    // Migrate to new format
+    const skill = migrateToV2(project, toolbox, conversation);
+    skill.id = slug; // Ensure slug is used as ID
+
+    // Preserve settings
+    if (project.settings) {
+      skill._settings = project.settings;
+    }
+
+    // Save in new format (skill.json in same slug dir)
+    await save(skill);
+
+    // Archive legacy files
+    try {
+      const archiveDir = path.join(slugDir, '.migrated');
+      await ensureDir(archiveDir);
+      await fs.rename(projectPath, path.join(archiveDir, 'project.json'));
+      await fs.rename(path.join(slugDir, 'toolbox.json'), path.join(archiveDir, 'toolbox.json')).catch(() => {});
+      await fs.rename(path.join(slugDir, 'conversation.json'), path.join(archiveDir, 'conversation.json')).catch(() => {});
+    } catch (err) {
+      console.log(`Could not archive legacy files for ${slug}:`, err.message);
+    }
+
+    return skill;
   }
 
-  // Re-validate on load
-  skill.validation = validateDraftSkill(skill);
-  return skill;
+  throw new Error(`Skill ${slug} not found`);
 }
 
 /**
  * Save a skill
- * @param {DraftSkill} skill - Must have solution_id and id
+ * @param {DraftSkill} skill
  * @returns {Promise<void>}
  */
 async function save(skill) {
-  if (!skill.solution_id) {
-    throw new Error('Skill must have solution_id to save');
-  }
-
-  const skillDir = getSkillDir(skill.solution_id, skill.id);
-  await ensureDir(skillDir);
-  await ensureDir(path.join(skillDir, 'exports'));
+  const slugDir = path.join(getMemoryRoot(), skill.id);
+  await ensureDir(slugDir);
+  await ensureDir(path.join(slugDir, 'exports'));
 
   // Update timestamp
   skill.updated_at = new Date().toISOString();
 
-  await writeJson(path.join(skillDir, 'skill.json'), skill);
+  await writeJson(path.join(slugDir, 'skill.json'), skill);
 }
 
 /**
  * Append a message to the skill conversation
- * @param {string} solutionId
- * @param {string} skillId
+ * @param {string} slug
  * @param {Object} message
  * @returns {Promise<DraftSkill>}
  */
-async function appendMessage(solutionId, skillId, message) {
-  const skill = await load(solutionId, skillId);
+async function appendMessage(slug, message) {
+  const skill = await load(slug);
 
   const newMessage = {
     ...message,
@@ -363,13 +402,12 @@ async function appendMessage(solutionId, skillId, message) {
 
 /**
  * Update skill with state changes and re-validate
- * @param {string} solutionId
- * @param {string} skillId
+ * @param {string} slug
  * @param {Object} updates - State updates to apply
  * @returns {Promise<DraftSkill>}
  */
-async function updateState(solutionId, skillId, updates) {
-  const skill = await load(solutionId, skillId);
+async function updateState(slug, updates) {
+  const skill = await load(slug);
 
   // Apply updates
   applyUpdates(skill, updates);
@@ -527,13 +565,12 @@ function setNestedValue(obj, path, value) {
 
 /**
  * Update skill settings
- * @param {string} solutionId
- * @param {string} skillId
+ * @param {string} slug
  * @param {Object} settings
  * @returns {Promise<DraftSkill>}
  */
-async function updateSettings(solutionId, skillId, settings) {
-  const skill = await load(solutionId, skillId);
+async function updateSettings(slug, settings) {
+  const skill = await load(slug);
   skill._settings = { ...skill._settings, ...settings };
   await save(skill);
   return skill;
@@ -541,24 +578,22 @@ async function updateSettings(solutionId, skillId, settings) {
 
 /**
  * Delete a skill
- * @param {string} solutionId
- * @param {string} skillId
+ * @param {string} slug
  */
-async function remove(solutionId, skillId) {
-  const skillDir = getSkillDir(solutionId, skillId);
-  await fs.rm(skillDir, { recursive: true, force: true }).catch(() => {});
+async function remove(slug) {
+  const slugDir = path.join(getMemoryRoot(), slug);
+  await fs.rm(slugDir, { recursive: true, force: true }).catch(() => {});
 }
 
 /**
  * Save export files
- * @param {string} solutionId
- * @param {string} skillId
+ * @param {string} slug
  * @param {string} version
  * @param {Array<{name: string, content: string}>} files
  * @returns {Promise<string>} Export directory path
  */
-async function saveExport(solutionId, skillId, version, files) {
-  const exportDir = path.join(getSkillDir(solutionId, skillId), 'exports', `v${version}`);
+async function saveExport(slug, version, files) {
+  const exportDir = path.join(getMemoryRoot(), slug, 'exports', `v${version}`);
   await ensureDir(exportDir);
 
   for (const file of files) {
@@ -570,13 +605,12 @@ async function saveExport(solutionId, skillId, version, files) {
 
 /**
  * Get export files
- * @param {string} solutionId
- * @param {string} skillId
+ * @param {string} slug
  * @param {string} version
  * @returns {Promise<Array<{name: string, content: string}>>}
  */
-async function getExport(solutionId, skillId, version) {
-  const exportDir = path.join(getSkillDir(solutionId, skillId), 'exports', `v${version}`);
+async function getExport(slug, version) {
+  const exportDir = path.join(getMemoryRoot(), slug, 'exports', `v${version}`);
   const files = await fs.readdir(exportDir);
 
   const result = [];
@@ -590,13 +624,12 @@ async function getExport(solutionId, skillId, version) {
 
 /**
  * Get the export path for a given version (creates directory if needed)
- * @param {string} solutionId
- * @param {string} skillId
+ * @param {string} slug
  * @param {string|number} version
  * @returns {Promise<string>} Export directory path
  */
-async function getExportPath(solutionId, skillId, version) {
-  const exportDir = path.join(getSkillDir(solutionId, skillId), 'exports', `v${version}`);
+async function getExportPath(slug, version) {
+  const exportDir = path.join(getMemoryRoot(), slug, 'exports', `v${version}`);
   await ensureDir(exportDir);
   return exportDir;
 }
