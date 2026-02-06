@@ -348,21 +348,9 @@ export default function SkillList({
     setShowNew(false);
   };
 
-  // Build a map: skillId → solutionId (unified matching logic)
-  const skillToSolution = new Map();
-  for (const sol of solutions) {
-    for (const ref of (sol.skills || [])) {
-      const matched = skills.find(s =>
-        s.id === ref.id ||
-        s.original_skill_id === ref.id ||
-        s.name?.toLowerCase().replace(/\s+/g, '-') === ref.id
-      );
-      if (matched) skillToSolution.set(matched.id, sol.id);
-    }
-  }
-
-  // Skills NOT in any solution
-  const standaloneSkills = skills.filter(s => !skillToSolution.has(s.id));
+  // Skills have solution_id set by backend - use it directly (no fuzzy matching!)
+  // Skills NOT in any solution = those without solution_id
+  const standaloneSkills = skills.filter(s => !s.solution_id);
 
   const renderSkillItem = (skill, indent = false) => {
     const phaseStyle = getPhaseStyle(skill.phase);
@@ -513,8 +501,8 @@ export default function SkillList({
             {solutions.map(sol => {
               const isActive = selectedType === 'solution' && sol.id === currentSolutionId;
               const isHovered = hoveredSkill === `sol_${sol.id}`;
-              const solSkillRefs = sol.skills || [];
-              const matchedSkills = skills.filter(s => skillToSolution.get(s.id) === sol.id);
+              // Use solution_id directly - skills know their owner
+              const matchedSkills = skills.filter(s => s.solution_id === sol.id);
 
               return (
                 <div key={sol.id}>
