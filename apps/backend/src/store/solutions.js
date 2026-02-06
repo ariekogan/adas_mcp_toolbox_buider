@@ -59,7 +59,7 @@ function createEmptySolution(id, name) {
     version: '1.0.0',
     description: '',
     phase: 'SOLUTION_DISCOVERY',
-    skills: [],
+    // Note: skills are stored in /solutions/{id}/skills/ folder, not in this array
     grants: [],
     handoffs: [],
     routing: {},
@@ -179,11 +179,14 @@ async function save(solution) {
 }
 
 /**
- * Delete a solution
+ * Delete a solution (cascade deletes all skills)
  * @param {string} id
  */
 async function remove(id) {
   const solDir = path.join(getSolutionsDir(), id);
+  // This deletes the entire solution folder including:
+  // - solution.json
+  // - skills/ folder with all skills
   await fs.rm(solDir, { recursive: true, force: true }).catch(() => {});
 }
 

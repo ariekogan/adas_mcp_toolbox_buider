@@ -371,15 +371,16 @@ router.patch('/packages/:packageName/connectors/:connectorId', async (req, res) 
  * 3. If not found, search by name (for backwards compatibility)
  * 4. Only create new skill if no match found
  *
- * Body: { yaml: string } - skill YAML content
+ * Body: { solution_id: string, yaml: string } - solution ID and skill YAML content
  *   OR
- * Body: skill object directly (parsed YAML)
+ * Body: { solution_id: string, ...skillObject } - solution ID and skill object directly (parsed YAML)
  */
 router.post('/skill', async (req, res) => {
   try {
+    let { solution_id } = req.body;
     let skillData = req.body;
 
-    // If body contains yaml string, parse it
+    // If body contains yaml string, parse it (but keep solution_id from body)
     if (typeof skillData.yaml === 'string') {
       try {
         skillData = yaml.load(skillData.yaml);
@@ -391,7 +392,19 @@ router.post('/skill', async (req, res) => {
       }
     }
 
+    // Use solution_id from top level (before YAML parsing overwrites it)
+    if (!solution_id) {
+      solution_id = skillData.solution_id;
+    }
+
     // Validate required fields
+    if (!solution_id) {
+      return res.status(400).json({
+        ok: false,
+        error: 'solution_id is required'
+      });
+    }
+
     if (!skillData.id || !skillData.name) {
       return res.status(400).json({
         ok: false,
@@ -400,14 +413,14 @@ router.post('/skill', async (req, res) => {
     }
 
     const originalSkillId = skillData.id;
-    console.log(`[Import] Importing skill: ${skillData.name} (${originalSkillId})`);
+    console.log(`[Import] Importing skill: ${skillData.name} (${originalSkillId}) into solution ${solution_id}`);
 
     // Strategy: Find existing skill to update (prevent duplicates)
     let existingSkill = null;
 
     // 1. Try to load by original skill ID directly (if it was used as skill ID)
     try {
-      existingSkill = await skillsStore.load(originalSkillId);
+      existingSkill = await skillsStore.load(solution_id, originalSkillId);
       if (existingSkill) {
         console.log(`[Import] Found existing skill by skill ID: ${originalSkillId}`);
       }
@@ -418,12 +431,12 @@ router.post('/skill', async (req, res) => {
     // 2. If not found, search all skills for matching original_skill_id or name
     if (!existingSkill) {
       try {
-        const allSkills = await skillsStore.list();
+        const allSkills = await skillsStore.list(solution_id);
 
         // First try to match by original_skill_id
         for (const skillSummary of allSkills) {
           try {
-            const skill = await skillsStore.load(skillSummary.id);
+            const skill = await skillsStore.load(solution_id, skillSummary.id);
             if (skill.original_skill_id === originalSkillId) {
               existingSkill = skill;
               console.log(`[Import] Found existing skill by original_skill_id: ${skillSummary.id}`);
@@ -439,7 +452,7 @@ router.post('/skill', async (req, res) => {
           for (const skillSummary of allSkills) {
             if (skillSummary.name === skillData.name) {
               try {
-                existingSkill = await skillsStore.load(skillSummary.id);
+                existingSkill = await skillsStore.load(solution_id, skillSummary.id);
                 console.log(`[Import] Found existing skill by name: ${skillSummary.id}`);
                 break;
               } catch (err) {
@@ -463,6 +476,7 @@ router.post('/skill', async (req, res) => {
         ...existingSkill,
         ...skillData,
         id: existingSkill.id, // Keep the existing skill ID
+        solution_id, // Ensure solution_id is set
         original_skill_id: originalSkillId, // Track the original skill ID
         updated_at: new Date().toISOString()
       };
@@ -470,13 +484,14 @@ router.post('/skill', async (req, res) => {
     } else {
       // Create new skill
       console.log(`[Import] Creating new skill for skill: ${originalSkillId}`);
-      const skill = await skillsStore.create(skillData.name, skillData.settings || {});
+      const skill = await skillsStore.create(solution_id, skillData.name, skillData.settings || {});
       skillId = skill.id;
 
       // Save with full skill data and track original skill ID
       const fullSkill = {
         ...skillData,
         id: skill.id,
+        solution_id, // Ensure solution_id is set
         original_skill_id: originalSkillId, // Track the original skill ID for future imports
         created_at: skill.created_at,
         updated_at: new Date().toISOString()
@@ -509,10 +524,10 @@ router.post('/skill', async (req, res) => {
  * Helper: Find existing skill by skill ID, original_skill_id, or name
  * Returns the existing skill or null if not found
  */
-async function findExistingSkillForSkill(originalSkillId, skillName) {
+async function findExistingSkillForSkill(solutionId, originalSkillId, skillName) {
   // 1. Try to load by original skill ID directly
   try {
-    const skill = await skillsStore.load(originalSkillId);
+    const skill = await skillsStore.load(solutionId, originalSkillId);
     if (skill) {
       console.log(`[Import] Found existing skill by skill ID: ${originalSkillId}`);
       return skill;
@@ -523,12 +538,12 @@ async function findExistingSkillForSkill(originalSkillId, skillName) {
 
   // 2. Search all skills for matching original_skill_id or name
   try {
-    const allSkills = await skillsStore.list();
+    const allSkills = await skillsStore.list(solutionId);
 
     // First try to match by original_skill_id
     for (const skillSummary of allSkills) {
       try {
-        const skill = await skillsStore.load(skillSummary.id);
+        const skill = await skillsStore.load(solutionId, skillSummary.id);
         if (skill.original_skill_id === originalSkillId) {
           console.log(`[Import] Found existing skill by original_skill_id: ${skillSummary.id}`);
           return skill;
@@ -542,7 +557,7 @@ async function findExistingSkillForSkill(originalSkillId, skillName) {
     for (const skillSummary of allSkills) {
       if (skillSummary.name === skillName) {
         try {
-          const skill = await skillsStore.load(skillSummary.id);
+          const skill = await skillsStore.load(solutionId, skillSummary.id);
           console.log(`[Import] Found existing skill by name: ${skillSummary.id}`);
           return skill;
         } catch (err) {
@@ -561,13 +576,20 @@ async function findExistingSkillForSkill(originalSkillId, skillName) {
  * POST /api/import/skills
  * Import multiple skills from YAML files
  *
- * Body: { skills: [{ yaml: string }, ...] }
+ * Body: { solution_id: string, skills: [{ yaml: string }, ...] }
  *   OR
- * Body: { skills: [skillObject, ...] }
+ * Body: { solution_id: string, skills: [skillObject, ...] }
  */
 router.post('/skills', async (req, res) => {
   try {
-    const { skills } = req.body;
+    const { solution_id, skills } = req.body;
+
+    if (!solution_id) {
+      return res.status(400).json({
+        ok: false,
+        error: 'solution_id is required'
+      });
+    }
 
     if (!Array.isArray(skills) || skills.length === 0) {
       return res.status(400).json({
@@ -576,7 +598,7 @@ router.post('/skills', async (req, res) => {
       });
     }
 
-    console.log(`[Import] Importing ${skills.length} skills...`);
+    console.log(`[Import] Importing ${skills.length} skills into solution ${solution_id}...`);
 
     const results = [];
     const errors = [];
@@ -598,7 +620,7 @@ router.post('/skills', async (req, res) => {
         const originalSkillId = skillData.id;
 
         // Find existing skill to update (prevent duplicates)
-        const existingSkill = await findExistingSkillForSkill(originalSkillId, skillData.name);
+        const existingSkill = await findExistingSkillForSkill(solution_id, originalSkillId, skillData.name);
 
         let skillId;
         let isUpdate = false;
@@ -610,16 +632,18 @@ router.post('/skills', async (req, res) => {
             ...existingSkill,
             ...skillData,
             id: existingSkill.id,
+            solution_id,
             original_skill_id: originalSkillId,
             updated_at: new Date().toISOString()
           };
           await skillsStore.save(updatedSkill);
         } else {
-          const skill = await skillsStore.create(skillData.name, skillData.settings || {});
+          const skill = await skillsStore.create(solution_id, skillData.name, skillData.settings || {});
           skillId = skill.id;
           const fullSkill = {
             ...skillData,
             id: skill.id,
+            solution_id,
             original_skill_id: originalSkillId,
             created_at: skill.created_at,
             updated_at: new Date().toISOString()
@@ -806,74 +830,83 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
       console.log(`[Import] Registered connector: ${mcp.id}`);
     }
 
-    // Step 2: Import skills as skills
-    const skillResults = [];
-    const skills = manifest.skills || [];
-
-    for (const skillRef of skills) {
-      const skillYaml = skillFiles[skillRef.id];
-      if (!skillYaml) {
-        console.log(`[Import] Skipping skill ${skillRef.id}: no YAML file found`);
-        continue;
-      }
-
-      try {
-        const skillData = yaml.load(skillYaml);
-        if (!skillData.id) skillData.id = skillRef.id;
-        if (!skillData.name) skillData.name = skillRef.name;
-
-        const existingSkill = await findExistingSkillForSkill(skillData.id, skillData.name);
-        let skillId;
-
-        if (existingSkill) {
-          skillId = existingSkill.id;
-          const updated = {
-            ...existingSkill,
-            ...skillData,
-            id: existingSkill.id,
-            original_skill_id: skillData.id,
-            updated_at: new Date().toISOString()
-          };
-          await skillsStore.save(updated);
-          skillResults.push({ id: skillId, originalId: skillData.id, name: skillData.name, status: 'updated' });
-        } else {
-          const skill = await skillsStore.create(skillData.name, skillData.settings || {});
-          skillId = skill.id;
-          await skillsStore.save({
-            ...skillData,
-            id: skill.id,
-            original_skill_id: skillData.id,
-            created_at: skill.created_at,
-            updated_at: new Date().toISOString()
-          });
-          skillResults.push({ id: skillId, originalId: skillData.id, name: skillData.name, status: 'imported' });
-        }
-
-        console.log(`[Import] Skill ${skillData.name} -> ${skillId}`);
-      } catch (err) {
-        console.error(`[Import] Skill ${skillRef.id} failed:`, err.message);
-        skillResults.push({ id: skillRef.id, name: skillRef.name, status: 'error', error: err.message });
-      }
-    }
-
-    // Step 3: Import solution.yaml if present
+    // Step 2: Import solution.yaml FIRST (to get solution ID for skills)
     let solutionResult = null;
+    let targetSolutionId = null;
     if (manifest._solutionYaml || manifest.solution) {
       try {
         const solutionYamlContent = manifest._solutionYaml;
         if (solutionYamlContent) {
           const solutionData = yaml.load(solutionYamlContent);
-          const linkedSkillIds = skillResults
-            .filter(r => r.status === 'imported' || r.status === 'updated')
-            .map(r => r.id);
-
-          const solution = await solutionsStore.importFromYaml(solutionData, linkedSkillIds);
+          const solution = await solutionsStore.importFromYaml(solutionData, []);
+          targetSolutionId = solution.id;
           solutionResult = { id: solution.id, name: solution.name, status: 'imported' };
           console.log(`[Import] Solution imported: ${solution.name} (${solution.id})`);
         }
       } catch (err) {
         console.error('[Import] Solution import failed:', err.message);
         solutionResult = { status: 'error', error: err.message };
+      }
+    }
+
+    // If no solution was imported but we need to import skills, require solution_id in manifest
+    if (!targetSolutionId && manifest.solution_id) {
+      targetSolutionId = manifest.solution_id;
+    }
+
+    // Step 3: Import skills as skills (now with solution context)
+    const skillResults = [];
+    const skills = manifest.skills || [];
+
+    if (skills.length > 0 && !targetSolutionId) {
+      console.warn('[Import] No solution context for skills - skills will not be imported');
+    } else {
+      for (const skillRef of skills) {
+        const skillYaml = skillFiles[skillRef.id];
+        if (!skillYaml) {
+          console.log(`[Import] Skipping skill ${skillRef.id}: no YAML file found`);
+          continue;
+        }
+
+        try {
+          const skillData = yaml.load(skillYaml);
+          if (!skillData.id) skillData.id = skillRef.id;
+          if (!skillData.name) skillData.name = skillRef.name;
+
+          const existingSkill = await findExistingSkillForSkill(targetSolutionId, skillData.id, skillData.name);
+          let skillId;
+
+          if (existingSkill) {
+            skillId = existingSkill.id;
+            const updated = {
+              ...existingSkill,
+              ...skillData,
+              id: existingSkill.id,
+              solution_id: targetSolutionId,
+              original_skill_id: skillData.id,
+              updated_at: new Date().toISOString()
+            };
+            await skillsStore.save(updated);
+            skillResults.push({ id: skillId, originalId: skillData.id, name: skillData.name, status: 'updated' });
+          } else {
+            const skill = await skillsStore.create(targetSolutionId, skillData.name, skillData.settings || {});
+            skillId = skill.id;
+            await skillsStore.save({
+              ...skillData,
+              id: skill.id,
+              solution_id: targetSolutionId,
+              original_skill_id: skillData.id,
+              created_at: skill.created_at,
+              updated_at: new Date().toISOString()
+            });
+            skillResults.push({ id: skillId, originalId: skillData.id, name: skillData.name, status: 'imported' });
+          }
+
+          console.log(`[Import] Skill ${skillData.name} -> ${skillId}`);
+        } catch (err) {
+          console.error(`[Import] Skill ${skillRef.id} failed:`, err.message);
+          skillResults.push({ id: skillRef.id, name: skillRef.name, status: 'error', error: err.message });
+        }
       }
     }
 
@@ -1003,6 +1036,9 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
     }
 
     // ── Phase 2: Deploy skills (direct call, no self-referential HTTP) ──
+    // Get solution ID from the package (stored when importing)
+    const solutionId = pkg.solution?.id;
+
     for (let i = 0; i < totalSkills; i++) {
       const skillRef = pkg.skills[i];
       const skillId = skillRef.skillId;
@@ -1013,12 +1049,18 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
         continue;
       }
 
+      if (!solutionId) {
+        skillResults.push({ id: skillRef.id, skillId, ok: false, error: 'No solution ID for package' });
+        sendEvent('skill_progress', { skillId: skillRef.id, name: skillRef.name, index: i + 1, total: totalSkills, status: 'error', step: 'skipped', message: 'No solution', error: 'no solution' });
+        continue;
+      }
+
       sendEvent('skill_progress', { skillId: skillRef.id, skillId, name: skillRef.name, index: i + 1, total: totalSkills, status: 'deploying', step: 'starting', message: 'Starting...' });
 
       try {
         // Deploy directly using the shared function (no HTTP self-call)
         // deploySkillToADAS auto-generates MCP if server.py is missing
-        const deployResult = await deploySkillToADAS(skillId, console, (step, message) => {
+        const deployResult = await deploySkillToADAS(solutionId, skillId, console, (step, message) => {
           sendEvent('skill_progress', { skillId: skillRef.id, status: 'deploying', step, message });
         });
 

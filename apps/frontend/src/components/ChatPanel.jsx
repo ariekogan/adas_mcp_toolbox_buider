@@ -1,5 +1,7 @@
 import { useRef, useEffect, useMemo } from 'react';
 import SmartInput from './SmartInput';
+import SolutionSummaryCard from './SolutionSummaryCard';
+import SolutionVerificationPanel from './SolutionVerificationPanel';
 
 /**
  * Get badge color based on ratio and thresholds
@@ -807,7 +809,11 @@ export default function ChatPanel({
   skillName,
   inputHint,
   skill,
-  onFocusChange
+  onFocusChange,
+  // Solution mode props
+  solution,
+  solutionSkills = [],
+  onNavigate
 }) {
   const messagesEndRef = useRef(null);
 
@@ -854,7 +860,30 @@ export default function ChatPanel({
             contentLower.includes('intents defined:') ||
             contentLower.includes('tools defined:');
 
-          const showDashboard = isLastAssistant && hasStatusContent && skill;
+          // Solution mode: detect solution summary/verification triggers
+          const isSolutionMode = !!solution;
+          const hasSolutionSummary = isSolutionMode && isLastAssistant && (
+            contentLower.includes('solution summary') ||
+            contentLower.includes('solution overview') ||
+            contentLower.includes('here is the solution') ||
+            contentLower.includes("here's your solution") ||
+            contentLower.includes('solution status') ||
+            (contentLower.includes('skills') && contentLower.includes('grants')) ||
+            (contentLower.includes('handoffs') && contentLower.includes('routing'))
+          );
+
+          const hasSolutionVerification = isSolutionMode && isLastAssistant && (
+            contentLower.includes('verification') ||
+            contentLower.includes('validation') ||
+            contentLower.includes('deployment ready') ||
+            contentLower.includes('readiness') ||
+            contentLower.includes('issues found') ||
+            contentLower.includes('checks pass')
+          );
+
+          const showDashboard = isLastAssistant && hasStatusContent && skill && !isSolutionMode;
+          const showSolutionSummary = hasSolutionSummary;
+          const showSolutionVerification = hasSolutionVerification;
 
           return (
             <div
@@ -862,10 +891,25 @@ export default function ChatPanel({
               style={{
                 ...styles.message,
                 ...(msg.role === 'user' ? styles.userMessage : styles.assistantMessage),
-                ...(msg.isError ? styles.errorMessage : {})
+                ...(msg.isError ? styles.errorMessage : {}),
+                // Expand message width for solution cards
+                ...(showSolutionSummary || showSolutionVerification ? { maxWidth: '95%' } : {})
               }}
             >
               {showDashboard && <MiniDashboard skill={skill} onFocusChange={onFocusChange} />}
+              {showSolutionSummary && (
+                <SolutionSummaryCard
+                  solution={solution}
+                  skills={solutionSkills}
+                  onNavigate={onNavigate}
+                />
+              )}
+              {showSolutionVerification && (
+                <SolutionVerificationPanel
+                  solution={solution}
+                  skills={solutionSkills}
+                />
+              )}
               {formatMessage(msg.content)}
             </div>
           );

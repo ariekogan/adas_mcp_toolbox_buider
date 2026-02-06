@@ -214,7 +214,6 @@ export default function App() {
 
   // Load skills when solution changes
   useEffect(() => {
-    console.log('[App] skills useEffect triggered, currentSolution?.id:', currentSolution?.id);
     if (currentSolution?.id) {
       setSolution(currentSolution.id);
       loadSkills(currentSolution.id);

@@ -200,6 +200,17 @@ Show validation results. Help fix:
 
 Exit when: No errors (warnings OK)
 
+## SUMMARY & VERIFICATION TRIGGERS
+
+When the user asks for a summary, overview, or status, respond with a message that includes:
+- "Solution summary" or "Solution overview" in your message to trigger the visual summary card
+- "Verification" or "Validation" in your message to trigger the verification panel
+
+Example responses that trigger visual components:
+- "Here is your **Solution summary**:" → shows visual summary card
+- "Let me run a **verification** check:" → shows verification panel
+- "**Solution status**: Here's where we are..." → shows both cards
+
 ## EXAMPLE SOLUTION PATTERNS
 
 ### E-Commerce Support
@@ -317,7 +328,7 @@ Run validation and help fix any issues.`;
 /**
  * Get a compact summary of solution state for the LLM context
  */
-function getSolutionSummary(solution) {
+export function getSolutionSummary(solution) {
   return {
     id: solution.id,
     name: solution.name,
@@ -348,8 +359,86 @@ function getSolutionSummary(solution) {
   };
 }
 
+/**
+ * Get structured solution data for frontend visualization
+ * Includes computed health and validation status
+ */
+export function getStructuredSolutionData(solution, skills = []) {
+  const grants = solution.grants || [];
+  const handoffs = solution.handoffs || [];
+  const routing = solution.routing || {};
+  const connectors = solution.platform_connectors || [];
+  const contracts = solution.security_contracts || [];
+
+  // Calculate health score
+  let score = 0;
+  let total = 0;
+
+  // Skills defined
+  total += 1;
+  if (skills.length > 0) score += 1;
+
+  // Grants defined (if multiple skills)
+  if (skills.length > 1) {
+    total += 1;
+    if (grants.length > 0) score += 1;
+  }
+
+  // Handoffs defined (if multiple skills)
+  if (skills.length > 1) {
+    total += 1;
+    if (handoffs.length > 0) score += 1;
+  }
+
+  // Routing configured
+  total += 1;
+  if (Object.keys(routing).length > 0) score += 1;
+
+  const healthPercentage = total > 0 ? Math.round((score / total) * 100) : 0;
+  const healthStatus = healthPercentage >= 80 ? 'ready' : healthPercentage >= 50 ? 'partial' : 'incomplete';
+
+  return {
+    type: 'solution_summary',
+    solution: {
+      id: solution.id,
+      name: solution.name,
+      phase: solution.phase,
+      health: {
+        percentage: healthPercentage,
+        status: healthStatus,
+      },
+      skills: skills.map(s => ({
+        id: s.id,
+        name: s.name,
+        role: s.role || 'worker',
+        status: getSkillStatus(s),
+        toolCount: (s.tools || []).length,
+        hasPrompt: !!s.prompt,
+      })),
+      grants: grants,
+      handoffs: handoffs,
+      routing: routing,
+      connectors: connectors,
+      contracts: contracts,
+    },
+  };
+}
+
+/**
+ * Get skill validation status
+ */
+function getSkillStatus(skill) {
+  const hasTools = (skill.tools || []).length > 0;
+  const hasPrompt = !!skill.prompt;
+  if (hasTools && hasPrompt) return 'valid';
+  if (hasTools || hasPrompt) return 'warning';
+  return 'pending';
+}
+
 export default {
   SOLUTION_PHASES,
   SOLUTION_SYSTEM_PROMPT,
   buildSolutionSystemPrompt,
+  getSolutionSummary,
+  getStructuredSolutionData,
 };

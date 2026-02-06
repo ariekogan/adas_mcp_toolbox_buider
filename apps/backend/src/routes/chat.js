@@ -52,12 +52,16 @@ Use the documentation above to explain this section in the context of the curren
  * Send chat message for a skill
  * POST /api/chat/skill
  *
- * Body: { skill_id: string, message: string, ui_focus?: object }
+ * Body: { solution_id: string, skill_id: string, message: string, ui_focus?: object }
  */
 router.post("/skill", async (req, res, next) => {
   try {
-    const { skill_id, message, ui_focus } = req.body;
+    const { solution_id, skill_id, message, ui_focus } = req.body;
     const log = req.app.locals.log;
+
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id is required" });
+    }
 
     if (!skill_id) {
       return res.status(400).json({ error: "skill_id is required" });
@@ -67,12 +71,12 @@ router.post("/skill", async (req, res, next) => {
       return res.status(400).json({ error: "message is required" });
     }
 
-    log.debug(`Skill chat request for ${skill_id}`);
+    log.debug(`Skill chat request for ${skill_id} in solution ${solution_id}`);
 
-    // Load skill (auto-migrates if legacy)
+    // Load skill
     let skill;
     try {
-      skill = await skillsStore.load(skill_id);
+      skill = await skillsStore.load(solution_id, skill_id);
     } catch (err) {
       if (err.message?.includes('not found') || err.code === "ENOENT") {
         return res.status(404).json({ error: "Skill not found" });
@@ -228,10 +232,15 @@ router.post("/skill/digest", (req, res, next) => {
 
       log.debug(`File digest request for ${skill_id}: ${req.file.originalname}`);
 
-      // Load skill
+      // Load skill (solution_id comes from form body)
+      const { solution_id } = req.body;
+      if (!solution_id) {
+        return res.status(400).json({ error: "solution_id is required" });
+      }
+
       let skill;
       try {
-        skill = await skillsStore.load(skill_id);
+        skill = await skillsStore.load(solution_id, skill_id);
       } catch (err) {
         if (err.message?.includes('not found') || err.code === "ENOENT") {
           return res.status(404).json({ error: "Skill not found" });
@@ -278,8 +287,12 @@ router.post("/skill/digest", (req, res, next) => {
  */
 router.post("/skill/digest/apply", async (req, res, next) => {
   try {
-    const { skill_id, extraction } = req.body;
+    const { solution_id, skill_id, extraction } = req.body;
     const log = req.app.locals.log;
+
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id is required" });
+    }
 
     if (!skill_id) {
       return res.status(400).json({ error: "skill_id is required" });
@@ -292,7 +305,7 @@ router.post("/skill/digest/apply", async (req, res, next) => {
     log.debug(`Applying extraction for ${skill_id}`);
 
     // Load skill
-    let skill = await skillsStore.load(skill_id);
+    let skill = await skillsStore.load(solution_id, skill_id);
 
     // Build and apply state updates from extraction
     const intentsCount = extraction.intents?.length || 0;

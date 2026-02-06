@@ -26,7 +26,6 @@ export function useSkill() {
 
   const loadSkills = useCallback(async (solutionId) => {
     const solId = solutionId || currentSolutionId;
-    console.log('[useSkill] loadSkills called with:', solId);
     if (!solId) {
       setSkills([]);
       return [];
@@ -36,7 +35,6 @@ export function useSkill() {
     setError(null);
     try {
       const list = await api.listSkills(solId);
-      console.log('[useSkill] API returned skills:', list.length, list.map(s => ({ id: s.id, solution_id: s.solution_id })));
       setSkills(list);
       return list;
     } catch (err) {

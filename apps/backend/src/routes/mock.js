@@ -6,16 +6,21 @@ import mcpManager from "../services/mcpConnector.js";
 const router = Router();
 
 // Run mock test for a tool
+// Note: solutionId is passed in request body since mock routes are mounted at /api/mock
 router.post("/:skillId/:toolId", async (req, res, next) => {
   try {
     const { skillId, toolId } = req.params;
-    const { input, mode = "example" } = req.body;
+    const { input, mode = "example", solution_id } = req.body;
     const log = req.app.locals.log;
 
-    log.debug(`Mock test: skill=${skillId}, tool=${toolId}, mode=${mode}`);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id is required in body" });
+    }
+
+    log.debug(`Mock test: solution=${solution_id}, skill=${skillId}, tool=${toolId}, mode=${mode}`);
 
     // Load skill
-    const skill = await skillsStore.load(skillId);
+    const skill = await skillsStore.load(solution_id, skillId);
 
     // Find tool
     const tool = skill.tools?.find(t => t.id === toolId || t.name === toolId);

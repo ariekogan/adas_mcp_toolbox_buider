@@ -3,7 +3,6 @@ import cors from "cors";
 import multer from "multer";
 
 import chatRouter from "./routes/chat.js";
-import skillsRouter from "./routes/skills.js";
 import templatesRouter from "./routes/templates.js";
 import mockRouter from "./routes/mock.js";
 import exportRouter from "./routes/export.js";
@@ -80,7 +79,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 // Routes
-app.use("/api/skills", skillsRouter);
+// Note: skills routes are now mounted under /api/solutions/:solutionId/skills (via solutionsRouter)
 app.use("/api/templates", templatesRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/mock", mockRouter);

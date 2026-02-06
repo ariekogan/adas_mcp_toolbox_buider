@@ -551,12 +551,12 @@ function InfoButton({ topic, onAskAbout }) {
 }
 
 // Validate button component - triggers LLM validation for a section
-function ValidateButton({ section, skillId, onValidationResults, disabled }) {
+function ValidateButton({ section, solutionId, skillId, onValidationResults, disabled }) {
   const [hovered, setHovered] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resultCount, setResultCount] = useState(null);
 
-  if (!skillId) return null;
+  if (!skillId || !solutionId) return null;
 
   const handleValidate = async (e) => {
     e.stopPropagation();
@@ -567,19 +567,19 @@ function ValidateButton({ section, skillId, onValidationResults, disabled }) {
     try {
       let result;
       if (section === 'tools') {
-        result = await validateToolsConsistency(skillId);
+        result = await validateToolsConsistency(solutionId, skillId);
         console.log('Tools validation result:', result);
       } else if (section === 'policy') {
-        result = await validatePolicyConsistency(skillId);
+        result = await validatePolicyConsistency(solutionId, skillId);
         console.log('Policy validation result:', result);
       } else if (section === 'intents') {
-        result = await validateIntentsConsistency(skillId);
+        result = await validateIntentsConsistency(solutionId, skillId);
         console.log('Intents validation result:', result);
       } else if (section === 'identity') {
-        result = await validateIdentityConsistency(skillId);
+        result = await validateIdentityConsistency(solutionId, skillId);
         console.log('Identity validation result:', result);
       } else if (section === 'security') {
-        result = await validateSecurityConsistency(skillId);
+        result = await validateSecurityConsistency(solutionId, skillId);
         console.log('Security validation result:', result);
       }
 
@@ -644,6 +644,7 @@ function ValidateButton({ section, skillId, onValidationResults, disabled }) {
 
 export default function SkillPanel({
   skill,
+  solutionId,
   focus,
   onFocusChange,
   onExport,
@@ -749,11 +750,11 @@ export default function SkillPanel({
 
   // Handle "Validate All" - runs all consistency checks
   const handleValidateAll = async () => {
-    if (!skill?.id || validatingAll) return;
+    if (!skill?.id || !solutionId || validatingAll) return;
 
     setValidatingAll(true);
     try {
-      const results = await validateAll(skill.id);
+      const results = await validateAll(solutionId, skill.id);
 
       // Clear previous manual validation issues
       clearByTriggerType('manual_validation');
@@ -957,9 +958,10 @@ export default function SkillPanel({
               onAskAbout={onAskAbout}
               connectorConfigs={skill.connector_configs || []}
               onConnectorConfigChange={async (newConfigs) => {
+                if (!solutionId) return;
                 try {
                   const { updateSkill: updateSkillApi } = await import('../api/client');
-                  const updatedSkill = await updateSkillApi(skill.id, {
+                  const updatedSkill = await updateSkillApi(solutionId, skill.id, {
                     connector_configs: newConfigs
                   });
                   if (onSkillUpdate && updatedSkill) {
@@ -971,9 +973,10 @@ export default function SkillPanel({
               }}
               skillIdentity={skill.skill_identity || null}
               onSkillIdentityChange={async (newIdentity) => {
+                if (!solutionId) return;
                 try {
                   const { updateSkill: updateSkillApi } = await import('../api/client');
-                  const updatedSkill = await updateSkillApi(skill.id, {
+                  const updatedSkill = await updateSkillApi(solutionId, skill.id, {
                     skill_identity: newIdentity
                   });
                   if (onSkillUpdate && updatedSkill) {
@@ -986,6 +989,7 @@ export default function SkillPanel({
               validateButton={
                 <ValidateButton
                   section="identity"
+                  solutionId={solutionId}
                   skillId={skill?.id}
                   onValidationResults={handleValidationResults}
                   disabled={!skill.problem?.statement}
@@ -1005,6 +1009,7 @@ export default function SkillPanel({
             validateButton={
               <ValidateButton
                 section="intents"
+                solutionId={solutionId}
                 skillId={skill?.id}
                 onValidationResults={handleValidationResults}
                 disabled={(skill.intents?.supported?.length || 0) < 2}
@@ -1189,6 +1194,7 @@ export default function SkillPanel({
                     <InfoButton topic="tools" onAskAbout={onAskAbout} />
                     <ValidateButton
                       section="tools"
+                      solutionId={solutionId}
                       skillId={skill?.id}
                       onValidationResults={handleValidationResults}
                       disabled={(skill.tools?.length || 0) < 2}
@@ -1375,11 +1381,12 @@ export default function SkillPanel({
             tools={skill.tools || []}
             onLinkConnector={async (connectorId) => {
               // Link a connector to this skill
+              if (!solutionId) return;
               try {
                 const currentConnectors = skill.connectors || [];
                 if (!currentConnectors.includes(connectorId)) {
                   const { updateSkill: updateSkillApi } = await import('../api/client');
-                  const updatedSkill = await updateSkillApi(skill.id, {
+                  const updatedSkill = await updateSkillApi(solutionId, skill.id, {
                     connectors: [...currentConnectors, connectorId]
                   });
                   if (onSkillUpdate && updatedSkill) {
@@ -1398,10 +1405,11 @@ export default function SkillPanel({
             }}
             onUnlinkConnector={async (connectorId) => {
               // Unlink a connector from this skill (only if no tools depend on it)
+              if (!solutionId) return;
               try {
                 const currentConnectors = skill.connectors || [];
                 const { updateSkill: updateSkillApi } = await import('../api/client');
-                const updatedSkill = await updateSkillApi(skill.id, {
+                const updatedSkill = await updateSkillApi(solutionId, skill.id, {
                   connectors: currentConnectors.filter(c => c !== connectorId)
                 });
                 if (onSkillUpdate && updatedSkill) {
@@ -1431,6 +1439,7 @@ export default function SkillPanel({
             validateButton={
               <ValidateButton
                 section="policy"
+                solutionId={solutionId}
                 skillId={skill?.id}
                 onValidationResults={handleValidationResults}
                 disabled={
@@ -1451,6 +1460,7 @@ export default function SkillPanel({
             validateButton={
               <ValidateButton
                 section="security"
+                solutionId={solutionId}
                 skillId={skill?.id}
                 onValidationResults={handleValidationResults}
                 disabled={(skill.tools?.length || 0) < 1}
@@ -1470,9 +1480,10 @@ export default function SkillPanel({
             triggers={skill.triggers || []}
             skillId={skill.id}
             onTriggersChange={async (newTriggers) => {
+              if (!solutionId) return;
               try {
                 const { updateSkill: updateSkillApi } = await import('../api/client');
-                const updatedSkill = await updateSkillApi(skill.id, {
+                const updatedSkill = await updateSkillApi(solutionId, skill.id, {
                   triggers: newTriggers
                 });
                 if (onSkillUpdate && updatedSkill) {

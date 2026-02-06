@@ -167,19 +167,23 @@ function checkNamingConsistency(tools) {
  */
 router.post('/tools-consistency', async (req, res, next) => {
   try {
-    const { skill_id, new_tool } = req.body;
+    const { solution_id, skill_id, new_tool } = req.body;
     const log = req.app.locals.log;
+
+    if (!solution_id) {
+      return res.status(400).json({ error: 'solution_id is required' });
+    }
 
     if (!skill_id) {
       return res.status(400).json({ error: 'skill_id is required' });
     }
 
-    log.debug(`Tools consistency check for skill ${skill_id}`);
+    log.debug(`Tools consistency check for skill ${skill_id} (solution=${solution_id})`);
 
     // Load skill
     let skill;
     try {
-      skill = await skillsStore.load(skill_id);
+      skill = await skillsStore.load(solution_id, skill_id);
     } catch (err) {
       if (err.message?.includes('not found') || err.code === 'ENOENT') {
         return res.status(404).json({ error: 'Skill not found' });
@@ -341,19 +345,23 @@ Return ONLY the JSON response.`;
  */
 router.post('/intents-consistency', async (req, res, next) => {
   try {
-    const { skill_id } = req.body;
+    const { solution_id, skill_id } = req.body;
     const log = req.app.locals.log;
+
+    if (!solution_id) {
+      return res.status(400).json({ error: 'solution_id is required' });
+    }
 
     if (!skill_id) {
       return res.status(400).json({ error: 'skill_id is required' });
     }
 
-    log.debug(`Intents consistency check for skill ${skill_id}`);
+    log.debug(`Intents consistency check for skill ${skill_id} (solution=${solution_id})`);
 
     // Load skill
     let skill;
     try {
-      skill = await skillsStore.load(skill_id);
+      skill = await skillsStore.load(solution_id, skill_id);
     } catch (err) {
       if (err.message?.includes('not found') || err.code === 'ENOENT') {
         return res.status(404).json({ error: 'Skill not found' });
@@ -521,19 +529,23 @@ Return ONLY the JSON response.`;
  */
 router.post('/policy-consistency', async (req, res, next) => {
   try {
-    const { skill_id } = req.body;
+    const { solution_id, skill_id } = req.body;
     const log = req.app.locals.log;
+
+    if (!solution_id) {
+      return res.status(400).json({ error: 'solution_id is required' });
+    }
 
     if (!skill_id) {
       return res.status(400).json({ error: 'skill_id is required' });
     }
 
-    log.debug(`Policy consistency check for skill ${skill_id}`);
+    log.debug(`Policy consistency check for skill ${skill_id} (solution=${solution_id})`);
 
     // Load skill
     let skill;
     try {
-      skill = await skillsStore.load(skill_id);
+      skill = await skillsStore.load(solution_id, skill_id);
     } catch (err) {
       if (err.message?.includes('not found') || err.code === 'ENOENT') {
         return res.status(404).json({ error: 'Skill not found' });
@@ -715,19 +727,23 @@ Return ONLY the JSON response.`;
  */
 router.post('/identity-consistency', async (req, res, next) => {
   try {
-    const { skill_id } = req.body;
+    const { solution_id, skill_id } = req.body;
     const log = req.app.locals.log;
+
+    if (!solution_id) {
+      return res.status(400).json({ error: 'solution_id is required' });
+    }
 
     if (!skill_id) {
       return res.status(400).json({ error: 'skill_id is required' });
     }
 
-    log.debug(`Identity consistency check for skill ${skill_id}`);
+    log.debug(`Identity consistency check for skill ${skill_id} (solution=${solution_id})`);
 
     // Load skill
     let skill;
     try {
-      skill = await skillsStore.load(skill_id);
+      skill = await skillsStore.load(solution_id, skill_id);
     } catch (err) {
       if (err.message?.includes('not found') || err.code === 'ENOENT') {
         return res.status(404).json({ error: 'Skill not found' });
@@ -899,8 +915,12 @@ Return ONLY the JSON response.`;
  */
 router.post('/security-consistency', async (req, res, next) => {
   try {
-    const { skill_id } = req.body;
+    const { solution_id, skill_id } = req.body;
     const log = req.app.locals.log;
+
+    if (!solution_id) {
+      return res.status(400).json({ error: 'solution_id is required' });
+    }
 
     if (!skill_id) {
       return res.status(400).json({ error: 'skill_id is required' });
@@ -908,7 +928,7 @@ router.post('/security-consistency', async (req, res, next) => {
 
     let skill;
     try {
-      skill = await skillsStore.load(skill_id);
+      skill = await skillsStore.load(solution_id, skill_id);
     } catch (err) {
       if (err.message?.includes('not found') || err.code === 'ENOENT') {
         return res.status(404).json({ error: 'Skill not found' });
@@ -916,7 +936,7 @@ router.post('/security-consistency', async (req, res, next) => {
       throw err;
     }
 
-    log.debug(`Security consistency check for ${skill_id}`);
+    log.debug(`Security consistency check for ${skill_id} (solution=${solution_id})`);
 
     const issues = [];
     const tools = skill.tools || [];

@@ -14,12 +14,13 @@ const activeSessions = new Map();
  * Deploy a skill MCP to ADAS Core (shared logic used by both the HTTP route and deploy-all).
  * Reads the generated MCP files, sends to ADAS Core, and syncs linked connectors.
  *
+ * @param {string} solutionId - Solution ID
  * @param {string} skillId - Skill ID to deploy
  * @param {object} log - Logger (console-compatible)
  * @returns {Promise<object>} Deploy result
  */
-export async function deploySkillToADAS(skillId, log, onProgress) {
-  const skill = await skillsStore.load(skillId);
+export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
+  const skill = await skillsStore.load(solutionId, skillId);
   let version = skill.version;
 
   if (!version) {
@@ -28,7 +29,7 @@ export async function deploySkillToADAS(skillId, log, onProgress) {
 
   log.info(`[MCP Deploy] Starting deploy for ${skillId} (version ${version})`);
 
-  const exportPath = await skillsStore.getExportPath(skillId, version);
+  const exportPath = await skillsStore.getExportPath(solutionId, skillId, version);
   const fs = await import('fs/promises');
   const path = await import('path');
   let files = await fs.readdir(exportPath);
@@ -42,7 +43,7 @@ export async function deploySkillToADAS(skillId, log, onProgress) {
     try {
       const genFiles = await generateMCPSimple(skill);
       const fileList = Object.entries(genFiles).map(([name, content]) => ({ name, content }));
-      await skillsStore.saveExport(skillId, version, fileList);
+      await skillsStore.saveExport(solutionId, skillId, version, fileList);
 
       skill.phase = "EXPORTED";
       skill.lastExportedAt = new Date().toISOString();
@@ -170,25 +171,31 @@ const router = Router();
 // ============================================================================
 
 /**
- * GET /api/export/mcps
+ * GET /api/export/mcps?solution_id=xxx
  *
- * List all skills that have generated MCP exports.
+ * List all skills that have generated MCP exports for a solution.
  * Returns skills with their version info and export status.
  */
 router.get("/mcps", async (req, res, next) => {
   try {
+    const { solution_id } = req.query;
     const log = req.app.locals.log;
-    log.info("Listing all skill MCP exports");
 
-    // Get all skills
-    const skills = await skillsStore.list();
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    log.info(`Listing MCP exports for solution ${solution_id}`);
+
+    // Get all skills for this solution
+    const skills = await skillsStore.list(solution_id);
 
     // Filter and enrich with export info
     const skillMcps = [];
 
     for (const skillSummary of skills) {
       try {
-        const skill = await skillsStore.load(skillSummary.id);
+        const skill = await skillsStore.load(solution_id, skillSummary.id);
 
         // Include skills with MCP exports OR deployed via "Deploy to ADAS" (JS path)
         const hasMcpExport = skill.version && skill.lastExportType?.startsWith('mcp');
@@ -197,7 +204,7 @@ router.get("/mcps", async (req, res, next) => {
           // Get export files
           let exportFiles = [];
           try {
-            exportFiles = await skillsStore.getExport(skill.id, skill.version);
+            exportFiles = await skillsStore.getExport(solution_id, skill.id, skill.version);
           } catch {
             // No export files found
           }
@@ -218,6 +225,7 @@ router.get("/mcps", async (req, res, next) => {
 
           skillMcps.push({
             id: skill.id,
+            solution_id,
             name: skill.name,
             description,
             version: skill.version,
@@ -228,7 +236,7 @@ router.get("/mcps", async (req, res, next) => {
             tools,
             files: exportFiles.map(f => ({ name: f.name, size: f.content?.length || 0 })),
             hasServerPy: exportFiles.some(f => f.name === 'server.py' || f.name === 'mcp_server.py'),
-            downloadUrl: `/api/export/${skill.id}/download/${skill.version}`
+            downloadUrl: `/api/export/${skill.id}/download/${skill.version}?solution_id=${solution_id}`
           });
         }
       } catch (err) {
@@ -250,12 +258,17 @@ router.get("/mcps", async (req, res, next) => {
 router.get("/:skillId", async (req, res, next) => {
   try {
     const { skillId } = req.params;
+    const { solution_id } = req.query;
     const log = req.app.locals.log;
 
-    log.info(`Exporting skill ${skillId}`);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    log.info(`Exporting skill ${skillId} for solution ${solution_id}`);
 
     // Load skill
-    const skill = await skillsStore.load(skillId);
+    const skill = await skillsStore.load(solution_id, skillId);
 
     // Debug: log tools
     log.info(`Skill has ${skill.tools?.length || 0} tools`);
@@ -279,7 +292,7 @@ router.get("/:skillId", async (req, res, next) => {
 
     // Save export
     const version = skill.version || 1;
-    await skillsStore.saveExport(skillId, version, files);
+    await skillsStore.saveExport(solution_id, skillId, version, files);
 
     // Update skill status
     skill.phase = "EXPORTED";
@@ -292,7 +305,7 @@ router.get("/:skillId", async (req, res, next) => {
         size: f.content.length,
         preview: f.content.slice(0, 200) + (f.content.length > 200 ? "..." : "")
       })),
-      download_url: `/api/export/${skillId}/download/${version}`
+      download_url: `/api/export/${skillId}/download/${version}?solution_id=${solution_id}`
     });
 
   } catch (err) {
@@ -307,8 +320,13 @@ router.get("/:skillId", async (req, res, next) => {
 router.get("/:skillId/download/:version", async (req, res, next) => {
   try {
     const { skillId, version } = req.params;
+    const { solution_id } = req.query;
 
-    const files = await skillsStore.getExport(skillId, version);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    const files = await skillsStore.getExport(solution_id, skillId, version);
 
     res.json({ files });
 
@@ -324,8 +342,13 @@ router.get("/:skillId/download/:version", async (req, res, next) => {
 router.get("/:skillId/preview", async (req, res, next) => {
   try {
     const { skillId } = req.params;
+    const { solution_id } = req.query;
 
-    const skill = await skillsStore.load(skillId);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    const skill = await skillsStore.load(solution_id, skillId);
     const files = generateExportFiles(skill);
 
     res.json({
@@ -362,13 +385,17 @@ router.get("/:skillId/preview", async (req, res, next) => {
 router.post("/:skillId/mcp/generate", async (req, res, next) => {
   try {
     const { skillId } = req.params;
-    const { useAgent = "true" } = req.query;
+    const { useAgent = "true", solution_id } = req.query;
     const log = req.app.locals.log;
 
-    log.info(`Generating MCP for skill ${skillId} (useAgent=${useAgent})`);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    log.info(`Generating MCP for skill ${skillId} (solution=${solution_id}, useAgent=${useAgent})`);
 
     // Load skill
-    const skill = await skillsStore.load(skillId);
+    const skill = await skillsStore.load(solution_id, skillId);
 
     // Check if tools exist
     if (!skill.tools || skill.tools.length === 0) {
@@ -387,7 +414,7 @@ router.post("/:skillId/mcp/generate", async (req, res, next) => {
 
     // Prepare output directory
     const version = (skill.version || 0) + 1;
-    const outputDir = await skillsStore.getExportPath(skillId, version);
+    const outputDir = await skillsStore.getExportPath(solution_id, skillId, version);
 
     if (useAgent === "true" && agentAvailable) {
       // Use Agent SDK with streaming
@@ -447,7 +474,7 @@ router.post("/:skillId/mcp/generate", async (req, res, next) => {
         name,
         content
       }));
-      await skillsStore.saveExport(skillId, version, fileList);
+      await skillsStore.saveExport(solution_id, skillId, version, fileList);
 
       // Update skill
       skill.version = version;
@@ -464,7 +491,7 @@ router.post("/:skillId/mcp/generate", async (req, res, next) => {
           name: f.name,
           size: f.content.length
         })),
-        download_url: `/api/export/${skillId}/download/${version}`
+        download_url: `/api/export/${skillId}/download/${version}?solution_id=${solution_id}`
       });
     }
 
@@ -518,11 +545,16 @@ router.get("/:skillId/mcp/status", async (req, res) => {
 router.post("/:skillId/mcp/develop", async (req, res, next) => {
   try {
     const { skillId } = req.params;
+    const { solution_id } = req.query;
     const log = req.app.locals.log;
 
-    log.info(`Starting autonomous MCP generation for ${skillId}`);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
 
-    const skill = await skillsStore.load(skillId);
+    log.info(`Starting autonomous MCP generation for ${skillId} (solution=${solution_id})`);
+
+    const skill = await skillsStore.load(solution_id, skillId);
 
     if (!skill.tools || skill.tools.length === 0) {
       return res.status(400).json({
@@ -534,7 +566,7 @@ router.post("/:skillId/mcp/develop", async (req, res, next) => {
     // Create output directory - parse version as integer (handles semver strings like "2.0.0")
     const prevVersion = typeof skill.version === "string" ? parseInt(skill.version, 10) || 0 : (skill.version || 0);
     const version = prevVersion + 1;
-    const outputDir = await skillsStore.getExportPath(skillId, version);
+    const outputDir = await skillsStore.getExportPath(solution_id, skillId, version);
 
     // Create session
     const session = new MCPDevelopmentSession(skill, {
@@ -548,7 +580,7 @@ router.post("/:skillId/mcp/develop", async (req, res, next) => {
 
     // Store session for potential refinement
     const sessionId = `${skillId}_${Date.now()}`;
-    activeSessions.set(sessionId, { session, skillId, version });
+    activeSessions.set(sessionId, { session, skillId, solutionId: solution_id, version });
 
     // Set up SSE streaming
     res.setHeader("Content-Type", "text/event-stream");
@@ -586,7 +618,7 @@ router.post("/:skillId/mcp/develop", async (req, res, next) => {
             version,
             files: event.files,
             validation: event.validation,
-            download_url: `/api/export/${skillId}/download/${version}`,
+            download_url: `/api/export/${skillId}/download/${version}?solution_id=${solution_id}`,
             message: "MCP generated! Use /mcp/develop/refine if you want changes."
           });
         }
@@ -615,7 +647,7 @@ router.post("/:skillId/mcp/develop", async (req, res, next) => {
 router.post("/:skillId/mcp/develop/refine", async (req, res, next) => {
   try {
     const { skillId } = req.params;
-    const { sessionId, feedback } = req.body;
+    const { sessionId, feedback, solution_id } = req.body;
     const log = req.app.locals.log;
 
     if (!feedback) {
@@ -626,15 +658,21 @@ router.post("/:skillId/mcp/develop/refine", async (req, res, next) => {
     }
 
     // Find or recreate session
-    let session, version;
+    let session, version, solutionId;
 
     if (sessionId && activeSessions.has(sessionId)) {
-      ({ session, version } = activeSessions.get(sessionId));
+      ({ session, version, solutionId } = activeSessions.get(sessionId));
     } else {
+      // No session - need solution_id to create one from the latest export
+      if (!solution_id) {
+        return res.status(400).json({ error: "solution_id is required when no session exists" });
+      }
+      solutionId = solution_id;
+
       // No session - create one from the latest export
-      const skill = await skillsStore.load(skillId);
+      const skill = await skillsStore.load(solutionId, skillId);
       version = skill.version || 1;
-      const outputDir = await skillsStore.getExportPath(skillId, version);
+      const outputDir = await skillsStore.getExportPath(solutionId, skillId, version);
 
       session = new MCPDevelopmentSession(skill, {
         outputDir,
@@ -643,7 +681,7 @@ router.post("/:skillId/mcp/develop/refine", async (req, res, next) => {
 
       // Load existing files
       try {
-        const existingFiles = await skillsStore.getExport(skillId, version);
+        const existingFiles = await skillsStore.getExport(solutionId, skillId, version);
         session.generatedFiles = existingFiles.map(f => f.name);
       } catch {
         return res.status(400).json({
@@ -679,7 +717,7 @@ router.post("/:skillId/mcp/develop/refine", async (req, res, next) => {
             version,
             files: session.generatedFiles,
             validation: session.validationResults,
-            download_url: `/api/export/${skillId}/download/${version}`
+            download_url: `/api/export/${skillId}/download/${version}?solution_id=${solutionId}`
           });
         }
       }
@@ -707,8 +745,13 @@ router.post("/:skillId/mcp/develop/refine", async (req, res, next) => {
 router.get("/:skillId/mcp/develop/preview", async (req, res, next) => {
   try {
     const { skillId } = req.params;
+    const { solution_id } = req.query;
 
-    const skill = await skillsStore.load(skillId);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    const skill = await skillsStore.load(solution_id, skillId);
     const analysis = analyzeSkillForMCP(skill);
 
     res.json({
@@ -747,13 +790,17 @@ router.get("/:skillId/mcp/develop/preview", async (req, res, next) => {
 router.post("/:skillId/adas", async (req, res, next) => {
   try {
     const { skillId } = req.params;
-    const { deploy, adasUrl } = req.query;
+    const { deploy, adasUrl, solution_id } = req.query;
     const log = req.app.locals.log;
 
-    log.info(`Exporting skill ${skillId} to ADAS Core format`);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    log.info(`Exporting skill ${skillId} (solution=${solution_id}) to ADAS Core format`);
 
     // Load skill
-    const skill = await skillsStore.load(skillId);
+    const skill = await skillsStore.load(solution_id, skillId);
 
     // Check if tools have minimum required fields
     const incompleteTool = skill.tools?.find(t => !t.name);
@@ -887,8 +934,13 @@ router.post("/:skillId/adas", async (req, res, next) => {
 router.get("/:skillId/adas/preview", async (req, res, next) => {
   try {
     const { skillId } = req.params;
+    const { solution_id } = req.query;
 
-    const skill = await skillsStore.load(skillId);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    const skill = await skillsStore.load(solution_id, skillId);
     const files = generateAdasExportFiles(skill);
 
     res.json({
@@ -927,9 +979,14 @@ function getSkillSlug(skill, skillId) {
 router.get("/:skillId/triggers/status", async (req, res, next) => {
   try {
     const { skillId } = req.params;
+    const { solution_id } = req.query;
     const log = req.app.locals.log;
 
-    const skill = await skillsStore.load(skillId);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    const skill = await skillsStore.load(solution_id, skillId);
     const skillSlug = getSkillSlug(skill, skillId);
 
     log.info(`Fetching trigger status from CORE via cp.admin_api for skill: ${skillSlug}`);
@@ -1000,10 +1057,14 @@ router.get("/:skillId/triggers/status", async (req, res, next) => {
 router.post("/:skillId/triggers/:triggerId/toggle", async (req, res, next) => {
   try {
     const { skillId, triggerId } = req.params;
-    const { active } = req.body;
+    const { active, solution_id } = req.body;
     const log = req.app.locals.log;
 
-    const skill = await skillsStore.load(skillId);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id is required in body" });
+    }
+
+    const skill = await skillsStore.load(solution_id, skillId);
     const skillSlug = getSkillSlug(skill, skillId);
 
     log.info(`Toggling trigger in CORE via cp.admin_api: skill=${skillSlug}, trigger=${triggerId}, active=${active}`);
@@ -1065,10 +1126,14 @@ router.post("/:skillId/triggers/:triggerId/toggle", async (req, res, next) => {
 router.get("/:skillId/triggers/:triggerId/history", async (req, res, next) => {
   try {
     const { skillId, triggerId } = req.params;
-    const { limit = 20 } = req.query;
+    const { limit = 20, solution_id } = req.query;
     const log = req.app.locals.log;
 
-    const skill = await skillsStore.load(skillId);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    const skill = await skillsStore.load(solution_id, skillId);
     const skillSlug = getSkillSlug(skill, skillId);
 
     log.info(`Fetching trigger history from CORE: skill=${skillSlug}, trigger=${triggerId}`);
@@ -1116,7 +1181,12 @@ const runningMCPs = new Map();
 router.post("/:skillId/mcp/run", async (req, res, next) => {
   try {
     const { skillId } = req.params;
+    const { solution_id } = req.body;
     const log = req.app.locals.log;
+
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id is required in body" });
+    }
 
     // Check if already running
     if (runningMCPs.has(skillId)) {
@@ -1130,7 +1200,7 @@ router.post("/:skillId/mcp/run", async (req, res, next) => {
       });
     }
 
-    const skill = await skillsStore.load(skillId);
+    const skill = await skillsStore.load(solution_id, skillId);
     const version = skill.version;
 
     if (!version) {
@@ -1141,7 +1211,7 @@ router.post("/:skillId/mcp/run", async (req, res, next) => {
     }
 
     // Get export path
-    const exportPath = await skillsStore.getExportPath(skillId, version);
+    const exportPath = await skillsStore.getExportPath(solution_id, skillId, version);
 
     log.info(`Starting MCP server for ${skillId} from ${exportPath}`);
 
@@ -1308,9 +1378,14 @@ router.get("/:skillId/mcp/running", async (req, res) => {
 router.post("/:skillId/mcp/deploy", async (req, res, next) => {
   try {
     const { skillId } = req.params;
+    const { solution_id } = req.body;
     const log = req.app.locals.log;
 
-    const result = await deploySkillToADAS(skillId, log);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id is required in body" });
+    }
+
+    const result = await deploySkillToADAS(solution_id, skillId, log);
     return res.json(result);
 
   } catch (err) {
@@ -1338,8 +1413,13 @@ router.post("/:skillId/mcp/deploy", async (req, res, next) => {
 router.get("/:skillId/files/:version/:filename", async (req, res, next) => {
   try {
     const { skillId, version, filename } = req.params;
+    const { solution_id } = req.query;
 
-    const files = await skillsStore.getExport(skillId, version);
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    const files = await skillsStore.getExport(solution_id, skillId, version);
     const file = files.find(f => f.name === filename);
 
     if (!file) {

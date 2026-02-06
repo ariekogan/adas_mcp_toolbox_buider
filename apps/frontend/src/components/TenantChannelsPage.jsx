@@ -333,8 +333,14 @@ export default function TenantChannelsPage({ onClose }) {
 
   const loadSkills = async () => {
     try {
-      const skillsList = await api.listSkills();
-      setSkills(skillsList || []);
+      // Skills are now solution-scoped. Load all solutions, then aggregate skills.
+      const solutions = await api.listSolutions();
+      const allSkills = [];
+      for (const solution of solutions) {
+        const skillsList = await api.listSkills(solution.id);
+        allSkills.push(...(skillsList || []));
+      }
+      setSkills(allSkills);
     } catch (err) {
       console.error('Failed to load skills:', err);
     }
