@@ -322,7 +322,47 @@ function setNestedValue(obj, path, value) {
 }
 
 /**
+ * Find existing solution by ID or name
+ * @param {string} id - Solution ID from yaml
+ * @param {string} name - Solution name from yaml
+ * @returns {Promise<Object|null>}
+ */
+async function findExisting(id, name) {
+  await init();
+
+  try {
+    const allSolutions = await list();
+
+    // 1. Match by exact ID
+    if (id) {
+      const byId = allSolutions.find(s => s.id === id);
+      if (byId) {
+        console.log(`[SolutionStore] Found existing solution by ID: ${id}`);
+        return await load(byId.id);
+      }
+    }
+
+    // 2. Match by exact name (normalized comparison)
+    if (name) {
+      const normalizedName = name.toLowerCase().trim();
+      const byName = allSolutions.find(s =>
+        s.name?.toLowerCase().trim() === normalizedName
+      );
+      if (byName) {
+        console.log(`[SolutionStore] Found existing solution by name: ${byName.id} (${name})`);
+        return await load(byName.id);
+      }
+    }
+  } catch (err) {
+    console.log(`[SolutionStore] Error finding existing solution: ${err.message}`);
+  }
+
+  return null;
+}
+
+/**
  * Import a solution from solution.yaml data
+ * Updates existing solution if ID or name matches, otherwise creates new
  * @param {Object} solutionData - Parsed solution.yaml content
  * @param {string[]} [linkedSkillIds] - Skill IDs to link
  * @returns {Promise<Object>}
@@ -330,6 +370,30 @@ function setNestedValue(obj, path, value) {
 async function importFromYaml(solutionData, linkedSkillIds = []) {
   await init();
 
+  // Check for existing solution by ID or name
+  const existing = await findExisting(solutionData.id, solutionData.name);
+
+  if (existing) {
+    // Update existing solution instead of creating duplicate
+    console.log(`[SolutionStore] Updating existing solution: ${existing.id}`);
+
+    const updated = {
+      ...existing,
+      ...solutionData,
+      id: existing.id, // Keep original ID
+      phase: existing.phase === 'SOLUTION_DISCOVERY' ? 'VALIDATION' : existing.phase,
+      conversation: existing.conversation || [], // Preserve conversation history
+      linked_skills: [...new Set([...(existing.linked_skills || []), ...linkedSkillIds])],
+      updated_at: new Date().toISOString(),
+      // Preserve created_at from original
+      created_at: existing.created_at,
+    };
+
+    await writeJson(path.join(getSolutionsDir(), existing.id, 'solution.json'), updated);
+    return updated;
+  }
+
+  // Create new solution
   const id = solutionData.id || `sol_${uuidv4().slice(0, 8)}`;
   const solDir = path.join(getSolutionsDir(), id);
   await ensureDir(solDir);
@@ -346,6 +410,7 @@ async function importFromYaml(solutionData, linkedSkillIds = []) {
   };
 
   await writeJson(path.join(solDir, 'solution.json'), solution);
+  console.log(`[SolutionStore] Created new solution: ${id}`);
   return solution;
 }
 
@@ -358,5 +423,6 @@ export default {
   remove,
   appendMessage,
   updateState,
+  findExisting,
   importFromYaml,
 };
