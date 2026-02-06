@@ -297,15 +297,17 @@ const styles = {
 // ═══════════════════════════════════════════════════════════════
 // Helper Components
 // ═══════════════════════════════════════════════════════════════
-function SkillPill({ skillId, role }) {
+function SkillPill({ skillId, skillName, role }) {
   const roleColor = ROLE_COLORS[role] || ROLE_COLORS.worker;
+  // Display name if available, otherwise show a truncated ID
+  const displayText = skillName || (skillId?.length > 16 ? skillId.slice(0, 14) + '...' : skillId);
   return (
     <span style={{
       ...styles.skillPill,
       background: roleColor.bg,
       color: roleColor.color,
-    }}>
-      {skillId}
+    }} title={skillId}>
+      {displayText}
     </span>
   );
 }
@@ -389,9 +391,13 @@ export default function SolutionSummaryCard({
   const health = calculateHealth();
   const phase = PHASE_LABELS[solution.phase] || PHASE_LABELS.SOLUTION_DISCOVERY;
 
-  // Build skill role lookup
+  // Build skill lookups (role and name)
   const skillRoles = {};
-  skills.forEach(s => { skillRoles[s.id] = s.role || 'worker'; });
+  const skillNames = {};
+  skills.forEach(s => {
+    skillRoles[s.id] = s.role || 'worker';
+    skillNames[s.id] = s.name || s.id;
+  });
 
   // Get skill status for display
   const getSkillStatus = (skill) => {
@@ -539,13 +545,13 @@ export default function SolutionSummaryCard({
               {grants.slice(0, 4).map((grant, i) => (
                 <div key={grant.key || i} style={styles.grantRow}>
                   {(grant.issued_by || []).slice(0, 1).map(id => (
-                    <SkillPill key={id} skillId={id} role={skillRoles[id]} />
+                    <SkillPill key={id} skillId={id} skillName={skillNames[id]} role={skillRoles[id]} />
                   ))}
                   <span style={styles.grantArrow}>→</span>
                   <span style={styles.grantKey}>{grant.key}</span>
                   <span style={styles.grantArrow}>→</span>
                   {(grant.consumed_by || []).slice(0, 1).map(id => (
-                    <SkillPill key={id} skillId={id} role={skillRoles[id]} />
+                    <SkillPill key={id} skillId={id} skillName={skillNames[id]} role={skillRoles[id]} />
                   ))}
                 </div>
               ))}
@@ -570,9 +576,9 @@ export default function SolutionSummaryCard({
             <div>
               {handoffs.slice(0, 3).map((handoff, i) => (
                 <div key={handoff.id || i} style={styles.handoffRow}>
-                  <SkillPill skillId={handoff.from} role={skillRoles[handoff.from]} />
+                  <SkillPill skillId={handoff.from} skillName={skillNames[handoff.from]} role={skillRoles[handoff.from]} />
                   <span style={styles.grantArrow}>→</span>
-                  <SkillPill skillId={handoff.to} role={skillRoles[handoff.to]} />
+                  <SkillPill skillId={handoff.to} skillName={skillNames[handoff.to]} role={skillRoles[handoff.to]} />
                   {handoff.trigger && (
                     <span style={styles.handoffTrigger}>when: {handoff.trigger}</span>
                   )}
@@ -598,7 +604,7 @@ export default function SolutionSummaryCard({
               <div key={channel} style={styles.routeRow}>
                 <span style={styles.channelBadge}>#{channel}</span>
                 <span style={styles.grantArrow}>→</span>
-                <SkillPill skillId={config.default_skill} role={skillRoles[config.default_skill]} />
+                <SkillPill skillId={config.default_skill} skillName={skillNames[config.default_skill]} role={skillRoles[config.default_skill]} />
               </div>
             ))}
             {Object.keys(routing).length > 3 && (

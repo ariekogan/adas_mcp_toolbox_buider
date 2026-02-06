@@ -524,7 +524,7 @@ function TopologyView({ skills, handoffs, routing }) {
         y: e.clientY - rect.top,
         content: (
           <div>
-            <div style={{ fontWeight: 600, marginBottom: '4px' }}>{skill.id}</div>
+            <div style={{ fontWeight: 600, marginBottom: '4px' }}>{skill.name || skill.id}</div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>
               Role: <span style={{ color: (ROLE_COLORS[skill.role] || ROLE_COLORS.worker).color }}>{(skill.role || 'worker').toUpperCase()}</span>
             </div>
@@ -543,18 +543,24 @@ function TopologyView({ skills, handoffs, routing }) {
     }
   };
 
+  // Build skill name lookup for handoff tooltips
+  const skillNames = {};
+  skills.forEach(s => { skillNames[s.id] = s.name || s.id; });
+
   const handleEdgeEnter = (handoff, midX, midY, e) => {
     setHoveredEdge(handoff.id);
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const grantsText = (handoff.grants_passed || []).map(g => g.split('.').pop()).join(', ');
       const droppedText = (handoff.grants_dropped || []).map(g => g.split('.').pop()).join(', ');
+      const fromName = skillNames[handoff.from] || handoff.from;
+      const toName = skillNames[handoff.to] || handoff.to;
       setTooltip({
         x: e.clientX - rect.left,
         y: e.clientY - rect.top,
         content: (
           <div>
-            <div style={{ fontWeight: 600, marginBottom: '4px' }}>{handoff.from} → {handoff.to}</div>
+            <div style={{ fontWeight: 600, marginBottom: '4px' }}>{fromName} → {toName}</div>
             {handoff.trigger && (
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>
                 Trigger: {handoff.trigger}
@@ -763,7 +769,9 @@ function TopologyView({ skills, handoffs, routing }) {
 
           const channels = skill.entry_channels || [];
           const connCount = (skill.connectors || []).length;
-          const displayName = skill.id.length > 20 ? skill.id.slice(0, 18) + '...' : skill.id;
+          // Use skill.name if available, otherwise fall back to skill.id
+          const skillLabel = skill.name || skill.id;
+          const displayName = skillLabel.length > 20 ? skillLabel.slice(0, 18) + '...' : skillLabel;
           const desc = skill.description
             ? (skill.description.length > 35 ? skill.description.slice(0, 33) + '...' : skill.description)
             : '';
@@ -1095,7 +1103,9 @@ function ArchitectureView({ skills, connectors, handoffs }) {
 
           const channels = skill.entry_channels || [];
           const connCount = (skill.connectors || []).length;
-          const displayName = skill.id.length > 20 ? skill.id.slice(0, 18) + '...' : skill.id;
+          // Use skill.name if available, otherwise fall back to skill.id
+          const skillLabel = skill.name || skill.id;
+          const displayName = skillLabel.length > 20 ? skillLabel.slice(0, 18) + '...' : skillLabel;
           const desc = skill.description
             ? (skill.description.length > 40 ? skill.description.slice(0, 38) + '...' : skill.description)
             : '';
@@ -1273,12 +1283,17 @@ function ArchitectureView({ skills, connectors, handoffs }) {
 // Tab 3: Access & Grants — Grant table + Security contracts
 // ═══════════════════════════════════════════════════════════════
 function AccessGrantsView({ grants, contracts, skills }) {
-  // Build a role lookup for skill pills
+  // Build lookups for skill pills
   const skillRoles = {};
-  skills.forEach(s => { skillRoles[s.id] = s.role || 'worker'; });
+  const skillNames = {};
+  skills.forEach(s => {
+    skillRoles[s.id] = s.role || 'worker';
+    skillNames[s.id] = s.name || s.id;
+  });
 
   const renderSkillPill = (skillId) => {
     const roleColor = ROLE_COLORS[skillRoles[skillId]] || ROLE_COLORS.worker;
+    const displayName = skillNames[skillId] || (skillId?.length > 16 ? skillId.slice(0, 14) + '...' : skillId);
     return (
       <span key={skillId} style={{
         display: 'inline-block',
@@ -1290,8 +1305,8 @@ function AccessGrantsView({ grants, contracts, skills }) {
         color: roleColor.color,
         marginRight: '4px',
         marginBottom: '2px',
-      }}>
-        {skillId}
+      }} title={skillId}>
+        {displayName}
       </span>
     );
   };
