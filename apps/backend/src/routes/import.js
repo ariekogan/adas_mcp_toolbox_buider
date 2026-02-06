@@ -1041,7 +1041,8 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
 
     for (let i = 0; i < totalSkills; i++) {
       const skillRef = pkg.skills[i];
-      const skillId = skillRef.skillId;
+      // Support both skillId (new) and domainId (legacy) field names
+      const skillId = skillRef.skillId || skillRef.domainId;
 
       if (!skillId) {
         skillResults.push({ id: skillRef.id, ok: false, error: 'No skill ID (skill not imported)' });
