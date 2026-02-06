@@ -117,6 +117,33 @@ const styles = {
     alignItems: 'center',
     gap: '6px',
     transition: 'border-color 0.15s'
+  },
+  // Internal solution connectors (imported from packages)
+  linkCardInternal: {
+    background: 'rgba(99, 102, 241, 0.1)',  // Indigo tint
+    border: '1px solid rgba(99, 102, 241, 0.4)',
+    color: 'var(--text-primary)'
+  },
+  // Public/external connectors
+  linkCardPublic: {
+    background: 'rgba(34, 197, 94, 0.08)',  // Green tint
+    border: '1px solid rgba(34, 197, 94, 0.3)',
+    color: 'var(--text-primary)'
+  },
+  connectorTypeLabel: {
+    fontSize: '10px',
+    fontWeight: '500',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    marginLeft: 'auto'
+  },
+  internalLabel: {
+    background: 'rgba(99, 102, 241, 0.2)',
+    color: 'rgb(129, 140, 248)'  // Indigo text
+  },
+  publicLabel: {
+    background: 'rgba(34, 197, 94, 0.15)',
+    color: 'rgb(74, 222, 128)'  // Green text
   }
 };
 
@@ -183,10 +210,22 @@ export default function SkillConnectorsPanel({
   // Get linked connectors from skill (those referenced by tools)
   const linkedConnectors = getLinkedConnectors(tools);
 
+  // Helper to check if connector is internal (imported from a package/solution)
+  function isInternalConnector(connector) {
+    return !!(connector.importedFrom || connector.source === 'package' || connector.packageId);
+  }
+
   // Get available connectors to link (globally connected but not linked to this skill)
-  const availableToLink = globalConnectors.filter(
-    gc => !linkedConnectors.some(lc => lc.id === gc.id)
-  );
+  // Sort: internal solution connectors first, then public connectors
+  const availableToLink = globalConnectors
+    .filter(gc => !linkedConnectors.some(lc => lc.id === gc.id))
+    .sort((a, b) => {
+      const aInternal = isInternalConnector(a);
+      const bInternal = isInternalConnector(b);
+      if (aInternal && !bInternal) return -1;  // a first
+      if (!aInternal && bInternal) return 1;   // b first
+      return (a.name || a.id).localeCompare(b.name || b.id);  // alphabetical
+    });
 
   function getLinkedConnectors(tools) {
     const connectorMap = new Map();
@@ -333,16 +372,28 @@ export default function SkillConnectorsPanel({
               </div>
             ) : (
               <div style={styles.linkGrid}>
-                {availableToLink.map(connector => (
-                  <div
-                    key={connector.id}
-                    style={styles.linkCard}
-                    onClick={() => handleLink(connector)}
-                  >
-                    {CONNECTOR_ICONS[guessConnectorType(connector.id)] || CONNECTOR_ICONS.default}
-                    {connector.name || connector.id}
-                  </div>
-                ))}
+                {availableToLink.map(connector => {
+                  const isInternal = isInternalConnector(connector);
+                  return (
+                    <div
+                      key={connector.id}
+                      style={{
+                        ...styles.linkCard,
+                        ...(isInternal ? styles.linkCardInternal : styles.linkCardPublic)
+                      }}
+                      onClick={() => handleLink(connector)}
+                    >
+                      {CONNECTOR_ICONS[guessConnectorType(connector.id)] || CONNECTOR_ICONS.default}
+                      {connector.name || connector.id}
+                      <span style={{
+                        ...styles.connectorTypeLabel,
+                        ...(isInternal ? styles.internalLabel : styles.publicLabel)
+                      }}>
+                        {isInternal ? 'Solution' : 'Public'}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
