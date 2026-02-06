@@ -149,7 +149,9 @@ export default function App() {
   const {
     skills,
     currentSkill,
+    currentSolutionId,
     loading,
+    setSolution,
     loadSkills,
     createSkill,
     loadSkill,
@@ -198,18 +200,26 @@ export default function App() {
     const newTenant = e.target.value;
     setTenant(newTenant);
     setTenantState(newTenant);
-    // Reload skills and solutions for the new tenant
-    loadSkills();
+    // Reload solutions for the new tenant (skills will load when solution selected)
     loadSolutions();
-  }, [loadSkills, loadSolutions]);
+  }, [loadSolutions]);
 
   const messages = currentSkill?.conversation || [];
   const solutionMessages = currentSolution?.conversation || [];
 
+  // Load solutions on mount
   useEffect(() => {
-    loadSkills();
     loadSolutions();
-  }, [loadSkills, loadSolutions]);
+  }, [loadSolutions]);
+
+  // Load skills when solution changes
+  useEffect(() => {
+    console.log('[App] skills useEffect triggered, currentSolution?.id:', currentSolution?.id);
+    if (currentSolution?.id) {
+      setSolution(currentSolution.id);
+      loadSkills(currentSolution.id);
+    }
+  }, [currentSolution?.id, setSolution, loadSkills]);
 
   useEffect(() => {
     api.getSkillGreeting().then(setGreetingData).catch(() => {});
@@ -257,8 +267,12 @@ export default function App() {
   const handleSelect = useCallback(async (id) => {
     setUiFocus(null);
     setSelectedType('skill');
-    await loadSkill(id);
-  }, [loadSkill]);
+    if (!currentSolution?.id) {
+      console.error('Cannot select skill without a solution');
+      return;
+    }
+    await loadSkill(currentSolution.id, id);
+  }, [loadSkill, currentSolution?.id]);
 
   const handleSelectSolution = useCallback(async (id) => {
     setUiFocus(null);
@@ -279,11 +293,15 @@ export default function App() {
   const handleCreate = useCallback(async (name, templateId = null) => {
     setUiFocus(null);
     setSelectedType('skill');
-    await createSkill(name, { llm_provider: settings.llm_provider }, templateId);
-  }, [createSkill, settings.llm_provider]);
+    if (!currentSolution?.id) {
+      console.error('Cannot create skill without a solution');
+      return;
+    }
+    await createSkill(currentSolution.id, name, { llm_provider: settings.llm_provider }, templateId);
+  }, [createSkill, settings.llm_provider, currentSolution?.id]);
 
   const handleSendMessage = useCallback(async (message) => {
-    if (!currentSkill) return;
+    if (!currentSkill || !currentSolution?.id) return;
 
     // Clear input hint while sending
     setInputHint(null);
@@ -297,7 +315,7 @@ export default function App() {
 
     setSending(true);
     try {
-      const response = await api.sendSkillMessage(currentSkill.id, message, uiFocus);
+      const response = await api.sendSkillMessage(currentSolution.id, currentSkill.id, message, uiFocus);
       addMessage({
         id: `msg_${Date.now()}`,
         role: 'assistant',
@@ -323,7 +341,7 @@ export default function App() {
     } finally {
       setSending(false);
     }
-  }, [currentSkill, uiFocus, addMessage, updateSkill]);
+  }, [currentSkill, currentSolution?.id, uiFocus, addMessage, updateSkill]);
 
   const handleSendSolutionMessage = useCallback(async (message) => {
     if (!currentSolution) return;
@@ -373,23 +391,23 @@ export default function App() {
   }, [currentSkill]);
 
   const handleExportFiles = useCallback(async () => {
-    if (!currentSkill) return [];
-    const result = await api.previewAdasExport(currentSkill.id);
+    if (!currentSkill || !currentSolution?.id) return [];
+    const result = await api.previewAdasExport(currentSolution.id, currentSkill.id);
     return result.files;
-  }, [currentSkill]);
+  }, [currentSkill, currentSolution?.id]);
 
   const handleDeployToAdas = useCallback(async () => {
-    if (!currentSkill) return null;
-    return api.deployToAdas(currentSkill.id);
-  }, [currentSkill]);
+    if (!currentSkill || !currentSolution?.id) return null;
+    return api.deployToAdas(currentSolution.id, currentSkill.id);
+  }, [currentSkill, currentSolution?.id]);
 
   // File upload handlers
   const handleFileUpload = useCallback(async (file) => {
-    if (!currentSkill) return;
+    if (!currentSkill || !currentSolution?.id) return;
 
     setSending(true);
     try {
-      const result = await api.digestFile(currentSkill.id, file);
+      const result = await api.digestFile(currentSolution.id, currentSkill.id, file);
       setExtraction(result.extraction);
       setExtractionFileInfo(result.file_info);
     } catch (err) {
@@ -402,14 +420,14 @@ export default function App() {
     } finally {
       setSending(false);
     }
-  }, [currentSkill, addMessage]);
+  }, [currentSkill, currentSolution?.id, addMessage]);
 
   const handleApplyExtraction = useCallback(async (filteredExtraction) => {
-    if (!currentSkill) return;
+    if (!currentSkill || !currentSolution?.id) return;
 
     setApplyingExtraction(true);
     try {
-      const result = await api.applyExtraction(currentSkill.id, filteredExtraction);
+      const result = await api.applyExtraction(currentSolution.id, currentSkill.id, filteredExtraction);
       addMessage({
         id: `msg_${Date.now()}`,
         role: 'assistant',
@@ -431,7 +449,7 @@ export default function App() {
     } finally {
       setApplyingExtraction(false);
     }
-  }, [currentSkill, addMessage, updateSkill]);
+  }, [currentSkill, currentSolution?.id, addMessage, updateSkill]);
 
   const handleCancelExtraction = useCallback(() => {
     setExtraction(null);
@@ -565,7 +583,7 @@ export default function App() {
               currentId={currentSkill?.id}
               onSelect={handleSelect}
               onCreate={handleCreate}
-              onDelete={deleteSkill}
+              onDelete={(skillId) => currentSolution?.id && deleteSkill(currentSolution.id, skillId)}
               loading={loading}
               solutions={solutions}
               currentSolutionId={currentSolution?.id}
@@ -612,6 +630,7 @@ export default function App() {
                 right={
                   <SkillPanel
                     skill={currentSkill}
+                    solutionId={currentSolution?.id}
                     focus={uiFocus}
                     onFocusChange={setUiFocus}
                     onExport={handleExport}
@@ -623,9 +642,11 @@ export default function App() {
                       }
                     }}
                     onIssuesChange={(issues) => {
-                      api.updateSkill(currentSkill.id, { cascading_issues: issues }).catch(err => {
-                        console.error('Failed to persist validation issues:', err);
-                      });
+                      if (currentSolution?.id) {
+                        api.updateSkill(currentSolution.id, currentSkill.id, { cascading_issues: issues }).catch(err => {
+                          console.error('Failed to persist validation issues:', err);
+                        });
+                      }
                     }}
                     onSkillUpdate={updateSkill}
                     skillId={currentSkill.id}
