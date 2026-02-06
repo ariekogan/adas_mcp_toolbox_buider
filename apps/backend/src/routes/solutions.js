@@ -258,8 +258,17 @@ router.get('/:id/validation', async (req, res, next) => {
   try {
     const solution = await solutionsStore.load(req.params.id);
 
-    // Load skills for this solution
-    const skills = await skillsStore.list(req.params.id);
+    // Load skill list then fetch full data for each skill
+    const skillList = await skillsStore.list(req.params.id);
+    const skills = await Promise.all(
+      skillList.map(async (s) => {
+        try {
+          return await skillsStore.load(req.params.id, s.id);
+        } catch {
+          return s; // Fall back to list data if full load fails
+        }
+      })
+    );
 
     // Solution-level validation
     const solutionValidation = validateSolution(solution);
@@ -448,7 +457,18 @@ function extractCategoryIssues(issues, category) {
 router.get('/:id/validation-report', async (req, res, next) => {
   try {
     const solution = await solutionsStore.load(req.params.id);
-    const skills = await skillsStore.list(req.params.id);
+
+    // Load full skill data (not just list summaries) for accurate validation
+    const skillList = await skillsStore.list(req.params.id);
+    const skills = await Promise.all(
+      skillList.map(async (s) => {
+        try {
+          return await skillsStore.load(req.params.id, s.id);
+        } catch {
+          return s; // Fall back to list data if full load fails
+        }
+      })
+    );
 
     // Build skill lookup maps
     const skillsById = new Map(skills.map(s => [s.id, s]));
