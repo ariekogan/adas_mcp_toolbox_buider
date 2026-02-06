@@ -438,8 +438,14 @@ async function appendMessage(slug, message) {
  * @param {Object} updates - State updates to apply
  * @returns {Promise<DraftSkill>}
  */
-async function updateState(slug, updates) {
-  const skill = await load(slug);
+async function updateState(solutionId, slug, updates) {
+  // Support both (solutionId, slug, updates) and (slug, updates) for backwards compatibility
+  if (typeof slug === 'object' && !updates) {
+    updates = slug;
+    slug = solutionId;
+    solutionId = null;
+  }
+  const skill = await load(solutionId, slug);
 
   // Apply updates
   applyUpdates(skill, updates);
@@ -601,8 +607,14 @@ function setNestedValue(obj, path, value) {
  * @param {Object} settings
  * @returns {Promise<DraftSkill>}
  */
-async function updateSettings(slug, settings) {
-  const skill = await load(slug);
+async function updateSettings(solutionId, slug, settings) {
+  // Support both (solutionId, slug, settings) and (slug, settings) for backwards compatibility
+  if (typeof slug === 'object' && !settings) {
+    settings = slug;
+    slug = solutionId;
+    solutionId = null;
+  }
+  const skill = await load(solutionId, slug);
   skill._settings = { ...skill._settings, ...settings };
   await save(skill);
   return skill;
@@ -612,9 +624,32 @@ async function updateSettings(slug, settings) {
  * Delete a skill
  * @param {string} slug
  */
-async function remove(slug) {
+async function remove(solutionId, slug) {
+  // Support both (solutionId, slug) and (slug) for backwards compatibility
+  if (!slug) {
+    slug = solutionId;
+    solutionId = null;
+  }
+
   const slugDir = path.join(getMemoryRoot(), slug);
   await fs.rm(slugDir, { recursive: true, force: true }).catch(() => {});
+
+  // Remove from solution's linked_skills if solutionId provided
+  if (solutionId) {
+    try {
+      const solution = await solutionsStore.load(solutionId);
+      if (solution && solution.linked_skills) {
+        const idx = solution.linked_skills.indexOf(slug);
+        if (idx !== -1) {
+          solution.linked_skills.splice(idx, 1);
+          await solutionsStore.save(solution);
+          console.log(`[Store] Removed skill ${slug} from solution ${solutionId} linked_skills`);
+        }
+      }
+    } catch (err) {
+      console.log(`[Store] Warning: Could not remove skill from solution's linked_skills: ${err.message}`);
+    }
+  }
 }
 
 /**
