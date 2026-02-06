@@ -1,5 +1,6 @@
 import { Router } from "express";
 import skillsStore from "../store/skills.js";
+import solutionsStore from "../store/solutions.js";
 import { generateExportFiles, generateAdasExportPayload, generateAdasExportFiles } from "../services/export.js";
 import { provisionSkillActor, listTriggers, toggleTrigger, getTriggerHistory } from "../services/cpAdminBridge.js";
 import { generateMCPWithAgent, generateMCPSimple, isAgentSDKAvailable } from "../services/mcpGenerationAgent.js";
@@ -173,29 +174,45 @@ const router = Router();
 /**
  * GET /api/export/mcps?solution_id=xxx
  *
- * List all skills that have generated MCP exports for a solution.
- * Returns skills with their version info and export status.
+ * List all skills that have generated MCP exports.
+ * If solution_id is provided, returns MCPs for that solution only.
+ * If no solution_id, returns MCPs from ALL solutions.
  */
 router.get("/mcps", async (req, res, next) => {
   try {
     const { solution_id } = req.query;
     const log = req.app.locals.log;
 
-    if (!solution_id) {
-      return res.status(400).json({ error: "solution_id query param is required" });
+    // Get solutions to iterate
+    let solutionIds = [];
+    if (solution_id) {
+      solutionIds = [solution_id];
+      log.info(`Listing MCP exports for solution ${solution_id}`);
+    } else {
+      // List ALL solutions and get MCPs from each
+      const solutions = await solutionsStore.list();
+      solutionIds = solutions.map(s => s.id);
+      log.info(`Listing MCP exports for all ${solutionIds.length} solutions`);
     }
 
-    log.info(`Listing MCP exports for solution ${solution_id}`);
-
-    // Get all skills for this solution
-    const skills = await skillsStore.list(solution_id);
+    // Get all skills for these solutions
+    let skills = [];
+    for (const solId of solutionIds) {
+      try {
+        const solSkills = await skillsStore.list(solId);
+        skills.push(...solSkills.map(s => ({ ...s, _solutionId: solId })));
+      } catch (err) {
+        log.warn(`Failed to list skills for solution ${solId}: ${err.message}`);
+      }
+    }
 
     // Filter and enrich with export info
     const skillMcps = [];
 
     for (const skillSummary of skills) {
+      const solId = skillSummary._solutionId || solution_id;
       try {
-        const skill = await skillsStore.load(solution_id, skillSummary.id);
+        const skill = await skillsStore.load(solId, skillSummary.id);
 
         // Include skills with MCP exports OR deployed via "Deploy to ADAS" (JS path)
         const hasMcpExport = skill.version && skill.lastExportType?.startsWith('mcp');
@@ -204,7 +221,7 @@ router.get("/mcps", async (req, res, next) => {
           // Get export files
           let exportFiles = [];
           try {
-            exportFiles = await skillsStore.getExport(solution_id, skill.id, skill.version);
+            exportFiles = await skillsStore.getExport(solId, skill.id, skill.version);
           } catch {
             // No export files found
           }
@@ -225,7 +242,7 @@ router.get("/mcps", async (req, res, next) => {
 
           skillMcps.push({
             id: skill.id,
-            solution_id,
+            solution_id: solId,
             name: skill.name,
             description,
             version: skill.version,
@@ -236,7 +253,7 @@ router.get("/mcps", async (req, res, next) => {
             tools,
             files: exportFiles.map(f => ({ name: f.name, size: f.content?.length || 0 })),
             hasServerPy: exportFiles.some(f => f.name === 'server.py' || f.name === 'mcp_server.py'),
-            downloadUrl: `/api/export/${skill.id}/download/${skill.version}?solution_id=${solution_id}`
+            downloadUrl: `/api/export/${skill.id}/download/${skill.version}?solution_id=${solId}`
           });
         }
       } catch (err) {

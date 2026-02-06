@@ -765,9 +765,11 @@ export async function triggerRetentionCleanup(dryRun = false) {
 // MCP Generation (Autonomous Agent)
 // ============================================
 
-export async function listSkillMCPs(solutionId) {
-  if (!solutionId) throw new Error('solutionId is required');
-  const data = await request(`/export/mcps?solution_id=${solutionId}`);
+export async function listSkillMCPs(solutionId = null) {
+  // If solutionId provided, list MCPs for that solution only
+  // If no solutionId, list MCPs from ALL solutions
+  const url = solutionId ? `/export/mcps?solution_id=${solutionId}` : '/export/mcps';
+  const data = await request(url);
   return data.mcps;
 }
 
