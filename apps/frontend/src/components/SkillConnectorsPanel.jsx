@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { listConnectors } from '../api/client';
+import { listConnectors, listPrebuiltConnectors } from '../api/client';
 
 const styles = {
   section: {
@@ -140,15 +140,39 @@ export default function SkillConnectorsPanel({
   const [loading, setLoading] = useState(true);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
 
-  // Load globally connected connectors
+  // Load all available connectors (prebuilt + imported from packages)
   useEffect(() => {
     loadGlobalConnectors();
   }, []);
 
   async function loadGlobalConnectors() {
     try {
-      const result = await listConnectors();
-      setGlobalConnectors(result.connections || []);
+      // Get prebuilt + imported connectors (from /api/connectors/prebuilt)
+      const prebuiltResult = await listPrebuiltConnectors();
+      const prebuiltConnectors = prebuiltResult.connectors || [];
+
+      // Also get manually connected ones (from /api/connectors)
+      const connectedResult = await listConnectors();
+      const connectedConnectors = connectedResult.connections || [];
+
+      // Merge both lists, preferring prebuilt data but marking connected status
+      const connectorMap = new Map();
+
+      // Add prebuilt/imported connectors
+      for (const c of prebuiltConnectors) {
+        connectorMap.set(c.id, { ...c, connected: false });
+      }
+
+      // Mark connected ones and add any manual connections not in prebuilt
+      for (const c of connectedConnectors) {
+        if (connectorMap.has(c.id)) {
+          connectorMap.get(c.id).connected = true;
+        } else {
+          connectorMap.set(c.id, { ...c, connected: true });
+        }
+      }
+
+      setGlobalConnectors(Array.from(connectorMap.values()));
     } catch (err) {
       console.error('Failed to load connectors:', err);
     } finally {
