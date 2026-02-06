@@ -16,6 +16,7 @@ import { createEmptyDraftSkill } from '../utils/defaults.js';
 import { validateDraftSkill } from '../validators/index.js';
 import { migrateToV2 } from '../services/migrate.js';
 import templatesStore from './templates.js';
+import solutionsStore from './solutions.js';
 
 import { getMemoryRoot } from '../utils/tenantContext.js';
 
@@ -246,13 +247,14 @@ async function list() {
 }
 
 /**
- * Create a new skill
- * @param {string} name
- * @param {Object} [settings]
+ * Create a new skill within a solution
+ * @param {string} solutionId - Solution to create the skill in
+ * @param {string} name - Skill name
+ * @param {Object} [settings] - LLM settings
  * @param {Object} [template] - Optional template to apply ({ id, content })
  * @returns {Promise<DraftSkill>}
  */
-async function create(name, settings = {}, template = null) {
+async function create(solutionId, name, settings = {}, template = null) {
   await init();
 
   const slug = `dom_${uuidv4().slice(0, 8)}`;
@@ -264,14 +266,19 @@ async function create(name, settings = {}, template = null) {
   // Create base skill
   let skill = createEmptyDraftSkill(slug, name);
 
+  // Store solution_id on the skill
+  skill.solution_id = solutionId;
+
   // Apply template if provided
   if (template && template.content) {
     skill = templatesStore.applyTemplate(skill, template.content);
+    // Preserve solution_id after template application
+    skill.solution_id = solutionId;
     console.log(`[Store] Applied template "${template.id}" to new skill "${name}"`);
   }
 
   // Store settings
-  if (settings.llm_provider || settings.llm_model) {
+  if (settings && (settings.llm_provider || settings.llm_model)) {
     skill._settings = {
       llm_provider: settings.llm_provider || process.env.LLM_PROVIDER || 'anthropic',
       llm_model: settings.llm_model || null,
@@ -288,15 +295,36 @@ async function create(name, settings = {}, template = null) {
 
   await writeJson(path.join(slugDir, 'skill.json'), skill);
 
+  // Add skill to solution's linked_skills array
+  try {
+    const solution = await solutionsStore.load(solutionId);
+    if (solution) {
+      solution.linked_skills = solution.linked_skills || [];
+      if (!solution.linked_skills.includes(slug)) {
+        solution.linked_skills.push(slug);
+        await solutionsStore.save(solution);
+        console.log(`[Store] Added skill ${slug} to solution ${solutionId} linked_skills`);
+      }
+    }
+  } catch (err) {
+    console.log(`[Store] Warning: Could not add skill to solution's linked_skills: ${err.message}`);
+  }
+
   return skill;
 }
 
 /**
  * Load a skill by slug (with auto-migration from legacy format)
- * @param {string} slug
+ * @param {string} solutionId - Solution ID (for verification, optional)
+ * @param {string} slug - Skill ID
  * @returns {Promise<DraftSkill>}
  */
-async function load(slug) {
+async function load(solutionId, slug) {
+  // Support both (solutionId, slug) and (slug) for backwards compatibility
+  if (!slug) {
+    slug = solutionId;
+    solutionId = null;
+  }
   const slugDir = path.join(getMemoryRoot(), slug);
 
   // Try new format first (skill.json)
@@ -311,6 +339,10 @@ async function load(slug) {
     }
     // Re-validate on load
     skill.validation = validateDraftSkill(skill);
+    // Add solution_id if provided (for API response consistency)
+    if (solutionId && !skill.solution_id) {
+      skill.solution_id = solutionId;
+    }
     return skill;
   }
 
