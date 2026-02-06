@@ -403,7 +403,7 @@ export default function SkillList({
       >
         <div style={styles.skillHeader}>
           <div style={styles.skillName}>
-            {indent ? '├─ ' : ''}{skill.name}
+            {skill.name}
           </div>
           <button
             style={{
@@ -474,26 +474,6 @@ export default function SkillList({
 
       <div style={styles.list}>
         {loading && <div style={styles.empty}>Loading...</div>}
-
-        {/* New Solution button — always at the top */}
-        {onCreateSolution && (
-          <div
-            title="New Solution"
-            style={{
-              ...solutionStyles.solutionItem,
-              color: 'var(--text-muted)',
-              fontSize: '13px',
-              cursor: 'pointer',
-              textAlign: collapsed ? 'center' : 'left',
-            }}
-            onClick={() => {
-              const name = prompt('Solution name:');
-              if (name?.trim()) onCreateSolution(name.trim());
-            }}
-          >
-            {collapsed ? '★' : '★ + New Solution'}
-          </div>
-        )}
 
         {/* Solutions Section */}
         {solutions.length > 0 && (
