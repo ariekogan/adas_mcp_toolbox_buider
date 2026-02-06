@@ -246,9 +246,12 @@ export default function SecurityPanel({ skill, onAskAbout, focus, validateButton
   const responseFilters = skill?.response_filters || [];
   const contextProp = skill?.context_propagation?.on_handoff;
 
-  const classifiedCount = tools.filter(t => t.security?.classification).length;
+  // Helper to get classification from either location (bot saves to tool.classification, not tool.security.classification)
+  const getClassification = (tool) => tool.security?.classification || tool.classification;
+
+  const classifiedCount = tools.filter(t => getClassification(t)).length;
   const highRiskCount = tools.filter(t =>
-    ['pii_write', 'financial', 'destructive'].includes(t.security?.classification)
+    ['pii_write', 'financial', 'destructive'].includes(getClassification(t))
   ).length;
 
   const toggleSection = (key) => {
@@ -314,10 +317,10 @@ export default function SecurityPanel({ skill, onAskAbout, focus, validateButton
               <div key={tool.name || tool.id} style={styles.toolRow}>
                 <span style={styles.toolName}>{tool.name}</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <ClassificationBadge classification={tool.security?.classification} />
-                  {tool.security?.data_owner_field && (
+                  <ClassificationBadge classification={getClassification(tool)} />
+                  {(tool.security?.data_owner_field || tool.data_owner_field) && (
                     <span style={{ ...styles.tag, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
-                      owner: {tool.security.data_owner_field}
+                      owner: {tool.security?.data_owner_field || tool.data_owner_field}
                     </span>
                   )}
                 </div>
