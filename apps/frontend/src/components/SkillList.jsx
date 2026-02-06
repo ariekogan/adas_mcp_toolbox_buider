@@ -352,6 +352,9 @@ export default function SkillList({
   // Skills NOT in any solution = those without solution_id
   const standaloneSkills = skills.filter(s => !s.solution_id);
 
+  // Debug: log skills and their solution_ids
+  console.log('[SkillList] skills:', skills.length, 'with solution_ids:', skills.map(s => ({ id: s.id, name: s.name, solution_id: s.solution_id })));
+
   const renderSkillItem = (skill, indent = false) => {
     const phaseStyle = getPhaseStyle(skill.phase);
     const isHovered = hoveredSkill === skill.id;
