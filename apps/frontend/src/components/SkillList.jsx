@@ -523,7 +523,7 @@ export default function SkillList({
                           ★ {sol.name}
                         </div>
                         <div style={solutionStyles.solutionMeta}>
-                          {sol.skills_count || solSkillRefs.length} skills · {sol.grants_count || 0} grants
+                          {sol.skills_count || matchedSkills.length} skills · {sol.grants_count || 0} grants
                         </div>
                       </>
                     )}
