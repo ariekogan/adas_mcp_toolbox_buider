@@ -79,10 +79,37 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
   log.info(`[MCP Deploy] Read MCP files (${mcpServer.length} bytes)`);
 
   // Generate a valid skillSlug (lowercase alphanumeric with hyphens only)
-  // Priority: original_skill_id > name (slugified) > skillId (with _ converted to -)
-  const skillSlug = skill.original_skill_id ||
-    skill.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") ||
-    skillId.replace(/_/g, "-");
+  // ADAS Core requires: /^[a-z0-9]+(-[a-z0-9]+)*$/
+  // Examples: "identity-assurance-manager", "customer-support-tier-1"
+  // NOT: "dom_260534ac" (has underscore), "dom-260534ac" (fine but ugly)
+
+  // Priority 1: Use skill.name slugified (most readable)
+  // Priority 2: Use original_skill_id if set (from imported solutions)
+  // Priority 3: Convert skillId (dom_xxx -> dom-xxx) as last resort
+  let skillSlug;
+
+  if (skill.name) {
+    // Slugify the skill name: "Identity Assurance Manager" -> "identity-assurance-manager"
+    skillSlug = skill.name.toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")  // Replace non-alphanumeric with hyphens
+      .replace(/-+/g, "-")          // Collapse multiple hyphens
+      .replace(/^-|-$/g, "");       // Trim leading/trailing hyphens
+  } else if (skill.original_skill_id) {
+    // Use imported skill ID (already should be valid)
+    skillSlug = skill.original_skill_id.replace(/_/g, "-").replace(/[^a-z0-9-]/g, "");
+  } else {
+    // Last resort: convert skillId (dom_260534ac -> dom-260534ac)
+    skillSlug = skillId.replace(/_/g, "-").replace(/[^a-z0-9-]/g, "");
+  }
+
+  // Final validation: ensure it matches ADAS Core requirements
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(skillSlug)) {
+    log.warn(`[MCP Deploy] Generated skillSlug "${skillSlug}" may be invalid, sanitizing...`);
+    skillSlug = skillSlug.replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  }
+
+  log.info(`[MCP Deploy] Using skillSlug: "${skillSlug}" (from skill.name: "${skill.name}")`);
+
   const adasUrl = process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
   const deployUrl = `${adasUrl}/api/skills/deploy-mcp`;
 
@@ -986,9 +1013,25 @@ router.get("/:skillId/adas/preview", async (req, res, next) => {
 
 /**
  * Helper to get skillSlug from skill
+ * ADAS Core requires: /^[a-z0-9]+(-[a-z0-9]+)*$/
  */
 function getSkillSlug(skill, skillId) {
-  return skill.original_skill_id || skill.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || skillId;
+  let slug;
+
+  if (skill.name) {
+    // Slugify the skill name: "Identity Assurance Manager" -> "identity-assurance-manager"
+    slug = skill.name.toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+  } else if (skill.original_skill_id) {
+    slug = skill.original_skill_id.replace(/_/g, "-").replace(/[^a-z0-9-]/g, "");
+  } else {
+    slug = skillId.replace(/_/g, "-").replace(/[^a-z0-9-]/g, "");
+  }
+
+  // Final cleanup
+  return slug.replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 
 /**
