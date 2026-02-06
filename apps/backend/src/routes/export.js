@@ -78,7 +78,11 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
 
   log.info(`[MCP Deploy] Read MCP files (${mcpServer.length} bytes)`);
 
-  const skillSlug = skill.original_skill_id || skill.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || skillId;
+  // Generate a valid skillSlug (lowercase alphanumeric with hyphens only)
+  // Priority: original_skill_id > name (slugified) > skillId (with _ converted to -)
+  const skillSlug = skill.original_skill_id ||
+    skill.name?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") ||
+    skillId.replace(/_/g, "-");
   const adasUrl = process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
   const deployUrl = `${adasUrl}/api/skills/deploy-mcp`;
 
