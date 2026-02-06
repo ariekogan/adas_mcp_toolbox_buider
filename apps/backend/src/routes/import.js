@@ -944,7 +944,28 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
       solution: solutionResult
     };
 
-    importedPackages.set(manifest.name, packageInfo);
+    // Check if a package already exists for this solution (prevent duplicates)
+    let existingKey = null;
+    if (solutionResult?.id) {
+      for (const [key, pkg] of importedPackages.entries()) {
+        if (pkg.solution?.id === solutionResult.id) {
+          existingKey = key;
+          console.log(`[Import] Found existing package "${key}" for solution ${solutionResult.id}, will update`);
+          break;
+        }
+      }
+    }
+
+    // Use existing key if found (to update), otherwise use manifest.name (new package)
+    const packageKey = existingKey || manifest.name;
+
+    // If replacing existing package with different name, remove old entry first
+    if (existingKey && existingKey !== manifest.name) {
+      importedPackages.delete(existingKey);
+      console.log(`[Import] Removed old package entry "${existingKey}", replacing with "${manifest.name}"`);
+    }
+
+    importedPackages.set(packageKey, packageInfo);
     savePackages();
 
     console.log(`[Import] Solution pack imported: ${connectorConfigs.length} connectors, ${skillResults.length} skills${solutionResult ? ', 1 solution' : ''}`);
