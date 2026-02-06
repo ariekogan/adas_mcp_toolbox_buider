@@ -9,6 +9,7 @@
 
 import { Router } from 'express';
 import skillsStore from '../store/skills.js';
+import solutionsStore from '../store/solutions.js';
 import templatesStore from '../store/templates.js';
 import { getValidationSummary } from '../validators/index.js';
 
@@ -22,8 +23,20 @@ const router = Router({ mergeParams: true });
 router.get('/', async (req, res, next) => {
   try {
     const { solutionId } = req.params;
-    console.log('[Skills] List for solutionId:', solutionId, 'params:', req.params);
-    const skills = await skillsStore.list(solutionId);
+
+    // Load the solution to get linked_skills
+    const solution = await solutionsStore.load(solutionId);
+    const linkedSkillIds = new Set(solution?.linked_skills || []);
+
+    // Get all skills and filter by linked_skills
+    const allSkills = await skillsStore.list();
+    const skills = allSkills
+      .filter(s => linkedSkillIds.has(s.id))
+      .map(s => ({
+        ...s,
+        solution_id: solutionId  // Add solution_id to each skill
+      }));
+
     res.json({ skills });
   } catch (err) {
     next(err);
