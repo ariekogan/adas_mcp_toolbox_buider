@@ -571,7 +571,10 @@ router.get('/:id/validation-report', async (req, res, next) => {
         description: 'Tool coverage, security alignment, design coherence',
         issues: [],
         _note: 'Requires LLM analysis - not yet implemented'
-      }
+      },
+
+      // Per-skill detailed validation
+      per_skill_validation: []
     };
 
     // ═══════════════════════════════════════════════════════════
@@ -740,6 +743,200 @@ router.get('/:id/validation-report', async (req, res, next) => {
     });
 
     // ═══════════════════════════════════════════════════════════
+    // PER-SKILL VALIDATION (Security, Tools, Completeness)
+    // ═══════════════════════════════════════════════════════════
+
+    // Run consistency checks for each skill in parallel
+    const consistencyPromises = skills.map(async (skill) => {
+      // Import the consistency check functions inline to avoid circular deps
+      const { validateConsistencyForSkill } = await import('../services/validateConsistency.js');
+      return validateConsistencyForSkill(skill, req.params.id);
+    });
+
+    // Wait for all consistency checks to complete
+    const consistencyResults = await Promise.all(consistencyPromises);
+
+    skills.forEach((skill, skillIndex) => {
+      const consistencyData = consistencyResults[skillIndex] || {};
+
+      const skillValidation = {
+        skill_id: skill.id,
+        skill_name: skill.name,
+        summary: { errors: 0, warnings: 0, info: 0 },
+
+        // Consistency checks (like "Validate All" button)
+        consistency_checks: {
+          identity: consistencyData.identity || { issues: [] },
+          intents: consistencyData.intents || { issues: [] },
+          tools: consistencyData.tools || { issues: [] },
+          policy: consistencyData.policy || { issues: [] },
+          security: consistencyData.security || { issues: [] }
+        },
+
+        security: {
+          classification_coverage: 0,
+          high_risk_coverage: 0,
+          pii_coverage: 0,
+          issues: []
+        },
+        tools: {
+          total: (skill.tools || []).length,
+          with_description: 0,
+          with_schema: 0,
+          issues: []
+        },
+        completeness: {
+          has_prompt: !!skill.prompt,
+          has_problem_statement: !!skill.problem?.statement,
+          has_examples: (skill.example_conversations || []).length > 0,
+          issues: []
+        }
+      };
+
+      // Run security validation using the existing validator
+      const securityIssues = validateSecurity(skill);
+      skillValidation.security.issues = securityIssues;
+
+      // Calculate security coverage stats
+      const tools = skill.tools || [];
+      const classifiedTools = tools.filter(t => t.security?.classification || t.classification);
+      skillValidation.security.classification_coverage =
+        tools.length > 0 ? Math.round((classifiedTools.length / tools.length) * 100) : 100;
+
+      const highRiskClassifications = ['pii_write', 'financial', 'destructive'];
+      const piiClassifications = ['pii_read', 'pii_write'];
+
+      const highRiskTools = classifiedTools.filter(t =>
+        highRiskClassifications.includes(t.security?.classification || t.classification)
+      );
+      const piiTools = classifiedTools.filter(t =>
+        piiClassifications.includes(t.security?.classification || t.classification)
+      );
+
+      // Check access policy coverage for high-risk tools
+      const accessPolicyRules = skill.access_policy?.rules || [];
+      const coveredByPolicy = new Set();
+      let hasWildcard = false;
+      accessPolicyRules.forEach(rule => {
+        (rule.tools || []).forEach(toolRef => {
+          if (toolRef === '*') hasWildcard = true;
+          else coveredByPolicy.add(toolRef);
+        });
+      });
+
+      const highRiskCovered = highRiskTools.filter(t =>
+        hasWildcard || coveredByPolicy.has(t.name)
+      );
+      skillValidation.security.high_risk_coverage =
+        highRiskTools.length > 0 ? Math.round((highRiskCovered.length / highRiskTools.length) * 100) : 100;
+
+      // Check filter coverage for PII tools
+      const hasFilters = (skill.response_filters || []).length > 0;
+      const piiCovered = piiTools.filter(t =>
+        hasFilters || hasWildcard || coveredByPolicy.has(t.name)
+      );
+      skillValidation.security.pii_coverage =
+        piiTools.length > 0 ? Math.round((piiCovered.length / piiTools.length) * 100) : 100;
+
+      // Validate each tool
+      tools.forEach((tool, idx) => {
+        if (!tool.description) {
+          skillValidation.tools.issues.push({
+            severity: 'warning',
+            code: 'TOOL_NO_DESCRIPTION',
+            path: `tools[${idx}]`,
+            message: `Tool "${tool.name}" has no description`,
+            suggestion: 'Add a description explaining what this tool does'
+          });
+        } else {
+          skillValidation.tools.with_description++;
+        }
+
+        if (!tool.inputSchema && !tool.input_schema) {
+          skillValidation.tools.issues.push({
+            severity: 'info',
+            code: 'TOOL_NO_SCHEMA',
+            path: `tools[${idx}]`,
+            message: `Tool "${tool.name}" has no input schema`,
+            suggestion: 'Define an input schema for validation and documentation'
+          });
+        } else {
+          skillValidation.tools.with_schema++;
+        }
+      });
+
+      // Completeness issues (already captured in Level 2, but add to per-skill for context)
+      if (!skill.prompt) {
+        skillValidation.completeness.issues.push({
+          severity: 'warning',
+          code: 'NO_PROMPT',
+          message: 'Skill has no system prompt',
+          suggestion: 'Add a system prompt to guide skill behavior'
+        });
+      }
+
+      if (!skill.problem?.statement) {
+        skillValidation.completeness.issues.push({
+          severity: 'info',
+          code: 'NO_PROBLEM_STATEMENT',
+          message: 'Skill has no problem statement',
+          suggestion: 'Document the problem this skill solves'
+        });
+      }
+
+      if (!(skill.example_conversations || []).length) {
+        skillValidation.completeness.issues.push({
+          severity: 'info',
+          code: 'NO_EXAMPLES',
+          message: 'Skill has no example conversations',
+          suggestion: 'Add examples for documentation and testing'
+        });
+      }
+
+      // Calculate per-skill summary (including ALL consistency check issues)
+      const consistencyIssues = [
+        ...(skillValidation.consistency_checks.identity?.issues || []),
+        ...(skillValidation.consistency_checks.intents?.issues || []),
+        ...(skillValidation.consistency_checks.tools?.issues || []),
+        ...(skillValidation.consistency_checks.policy?.issues || []),
+        ...(skillValidation.consistency_checks.security?.issues || [])
+      ];
+
+      const allSkillIssues = [
+        ...skillValidation.security.issues,
+        ...skillValidation.tools.issues,
+        ...skillValidation.completeness.issues,
+        ...consistencyIssues
+      ];
+
+      // Map severity: blocker → error for counting
+      const getSeverity = (issue) => {
+        if (issue.severity === 'blocker' || issue.severity === 'error') return 'error';
+        if (issue.severity === 'warning') return 'warning';
+        return 'info';
+      };
+
+      skillValidation.summary.errors = allSkillIssues.filter(i => getSeverity(i) === 'error').length;
+      skillValidation.summary.warnings = allSkillIssues.filter(i => getSeverity(i) === 'warning').length;
+      skillValidation.summary.info = allSkillIssues.filter(i => getSeverity(i) === 'info' || i.severity === 'suggestion').length;
+      skillValidation.summary.total = allSkillIssues.length;
+      skillValidation.summary.status = skillValidation.summary.errors > 0 ? 'error' :
+                                        skillValidation.summary.warnings > 0 ? 'warning' : 'valid';
+
+      // Add consistency check summary counts
+      skillValidation.consistency_summary = {
+        identity_issues: (skillValidation.consistency_checks.identity?.issues || []).length,
+        intents_issues: (skillValidation.consistency_checks.intents?.issues || []).length,
+        tools_issues: (skillValidation.consistency_checks.tools?.issues || []).length,
+        policy_issues: (skillValidation.consistency_checks.policy?.issues || []).length,
+        security_issues: (skillValidation.consistency_checks.security?.issues || []).length,
+        total: consistencyIssues.length
+      };
+
+      report.per_skill_validation.push(skillValidation);
+    });
+
+    // ═══════════════════════════════════════════════════════════
     // LEVEL 3: Intelligent Analysis (placeholder)
     // ═══════════════════════════════════════════════════════════
 
@@ -759,21 +956,83 @@ router.get('/:id/validation-report', async (req, res, next) => {
     });
 
     // ═══════════════════════════════════════════════════════════
-    // Calculate summary
+    // Calculate summary (including per-skill issues)
     // ═══════════════════════════════════════════════════════════
+
+    // Collect all per-skill issues (including consistency checks)
+    const perSkillIssues = report.per_skill_validation.flatMap(sv => [
+      ...sv.security.issues,
+      ...sv.tools.issues,
+      ...sv.completeness.issues,
+      ...(sv.consistency_checks?.identity?.issues || []),
+      ...(sv.consistency_checks?.intents?.issues || []),
+      ...(sv.consistency_checks?.tools?.issues || []),
+      ...(sv.consistency_checks?.policy?.issues || []),
+      ...(sv.consistency_checks?.security?.issues || [])
+    ]);
 
     const allIssues = [
       ...report.level_1_technical.issues,
       ...report.level_2_completeness.issues,
-      ...report.level_3_intelligent.issues
+      ...report.level_3_intelligent.issues,
+      ...perSkillIssues
     ];
 
-    report.summary.errors = allIssues.filter(i => i.severity === 'error').length;
-    report.summary.warnings = allIssues.filter(i => i.severity === 'warning').length;
-    report.summary.info = allIssues.filter(i => i.severity === 'info').length;
+    // Map severity: blocker → error for counting
+    const getSeverity = (issue) => {
+      if (issue.severity === 'blocker' || issue.severity === 'error') return 'error';
+      if (issue.severity === 'warning') return 'warning';
+      return 'info';
+    };
+
+    report.summary.errors = allIssues.filter(i => getSeverity(i) === 'error').length;
+    report.summary.warnings = allIssues.filter(i => getSeverity(i) === 'warning').length;
+    report.summary.info = allIssues.filter(i => getSeverity(i) === 'info' || i.severity === 'suggestion').length;
     report.summary.total = allIssues.length;
     report.summary.status = report.summary.errors > 0 ? 'error' :
                            report.summary.warnings > 0 ? 'warning' : 'valid';
+
+    // Add per-skill summary stats
+    report.summary.skills = {
+      total: report.per_skill_validation.length,
+      valid: report.per_skill_validation.filter(sv => sv.summary.status === 'valid').length,
+      with_warnings: report.per_skill_validation.filter(sv => sv.summary.status === 'warning').length,
+      with_errors: report.per_skill_validation.filter(sv => sv.summary.status === 'error').length
+    };
+
+    // Calculate overall security coverage across all skills
+    const securityStats = report.per_skill_validation.reduce((acc, sv) => {
+      acc.classification_sum += sv.security.classification_coverage;
+      acc.high_risk_sum += sv.security.high_risk_coverage;
+      acc.pii_sum += sv.security.pii_coverage;
+      return acc;
+    }, { classification_sum: 0, high_risk_sum: 0, pii_sum: 0 });
+
+    const skillCount = report.per_skill_validation.length || 1;
+    report.summary.security = {
+      avg_classification_coverage: Math.round(securityStats.classification_sum / skillCount),
+      avg_high_risk_coverage: Math.round(securityStats.high_risk_sum / skillCount),
+      avg_pii_coverage: Math.round(securityStats.pii_sum / skillCount)
+    };
+
+    // Calculate overall consistency check summary
+    const consistencyTotals = report.per_skill_validation.reduce((acc, sv) => {
+      acc.identity += sv.consistency_summary?.identity_issues || 0;
+      acc.intents += sv.consistency_summary?.intents_issues || 0;
+      acc.tools += sv.consistency_summary?.tools_issues || 0;
+      acc.policy += sv.consistency_summary?.policy_issues || 0;
+      acc.security += sv.consistency_summary?.security_issues || 0;
+      return acc;
+    }, { identity: 0, intents: 0, tools: 0, policy: 0, security: 0 });
+
+    report.summary.consistency_checks = {
+      identity_issues: consistencyTotals.identity,
+      intents_issues: consistencyTotals.intents,
+      tools_issues: consistencyTotals.tools,
+      policy_issues: consistencyTotals.policy,
+      security_issues: consistencyTotals.security,
+      total: Object.values(consistencyTotals).reduce((a, b) => a + b, 0)
+    };
 
     res.json({ report });
 
