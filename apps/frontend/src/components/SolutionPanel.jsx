@@ -310,6 +310,9 @@ export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate
   const contracts = solution.security_contracts || [];
   const connectors = solution.platform_connectors || [];
 
+  // Debug: log solution skills
+  console.log('[SolutionPanel] solution.skills:', solution.skills, 'skills count:', skills.length);
+
   // Enrich solution skills with connector data from sidebar skills (fuzzy name match)
   const enrichedSkills = useMemo(() => {
     if (!sidebarSkills || sidebarSkills.length === 0) return skills;
