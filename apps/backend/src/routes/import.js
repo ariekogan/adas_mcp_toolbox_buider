@@ -522,28 +522,43 @@ router.post('/skill', async (req, res) => {
 
 /**
  * Helper: Find existing skill by skill ID, original_skill_id, or name
+ * Searches ALL skills (not filtered by solution) to find matches
  * Returns the existing skill or null if not found
  */
 async function findExistingSkillForSkill(solutionId, originalSkillId, skillName) {
-  // 1. Try to load by original skill ID directly
+  // 1. Try to load by original skill ID directly (skill.id matches originalSkillId)
   try {
-    const skill = await skillsStore.load(solutionId, originalSkillId);
+    const skill = await skillsStore.load(null, originalSkillId);
     if (skill) {
-      console.log(`[Import] Found existing skill by skill ID: ${originalSkillId}`);
+      console.log(`[Import] Found existing skill by direct ID: ${originalSkillId}`);
       return skill;
     }
   } catch (err) {
     // Skill doesn't exist with that ID
   }
 
-  // 2. Search all skills for matching original_skill_id or name
+  // 2. Search ALL skills for matching original_skill_id, id, or name
   try {
-    const allSkills = await skillsStore.list(solutionId);
+    // list() returns ALL skills (doesn't filter by solution)
+    const allSkills = await skillsStore.list();
 
-    // First try to match by original_skill_id
+    // First try to match by exact ID
+    for (const skillSummary of allSkills) {
+      if (skillSummary.id === originalSkillId) {
+        try {
+          const skill = await skillsStore.load(null, skillSummary.id);
+          console.log(`[Import] Found existing skill by ID match: ${skillSummary.id}`);
+          return skill;
+        } catch (err) {
+          // Skip skills that can't be loaded
+        }
+      }
+    }
+
+    // Try to match by original_skill_id field
     for (const skillSummary of allSkills) {
       try {
-        const skill = await skillsStore.load(solutionId, skillSummary.id);
+        const skill = await skillsStore.load(null, skillSummary.id);
         if (skill.original_skill_id === originalSkillId) {
           console.log(`[Import] Found existing skill by original_skill_id: ${skillSummary.id}`);
           return skill;
@@ -557,8 +572,8 @@ async function findExistingSkillForSkill(solutionId, originalSkillId, skillName)
     for (const skillSummary of allSkills) {
       if (skillSummary.name === skillName) {
         try {
-          const skill = await skillsStore.load(solutionId, skillSummary.id);
-          console.log(`[Import] Found existing skill by name: ${skillSummary.id}`);
+          const skill = await skillsStore.load(null, skillSummary.id);
+          console.log(`[Import] Found existing skill by name: ${skillSummary.id} (${skillName})`);
           return skill;
         } catch (err) {
           // Skip skills that can't be loaded
