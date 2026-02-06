@@ -380,7 +380,7 @@ export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate
 
       <div style={styles.content}>
         {activeTab === 'Overview' && (
-          <OverviewView solution={solution} skills={sidebarSkills} onNavigate={onNavigate} />
+          <OverviewView solution={solution} solutionSkills={skills} sidebarSkills={sidebarSkills} onNavigate={onNavigate} />
         )}
         {activeTab === 'Topology' && (
           <TopologyView skills={enrichedSkills} handoffs={handoffs} routing={routing} />
@@ -399,7 +399,7 @@ export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate
 // ═══════════════════════════════════════════════════════════════
 // Tab 1: Overview — Summary + Verification
 // ═══════════════════════════════════════════════════════════════
-function OverviewView({ solution, skills, onNavigate }) {
+function OverviewView({ solution, solutionSkills, sidebarSkills, onNavigate }) {
   const [validationStatus, setValidationStatus] = useState(null);
   const [validationData, setValidationData] = useState(null);
   const [isValidating, setIsValidating] = useState(false);
@@ -426,18 +426,20 @@ function OverviewView({ solution, skills, onNavigate }) {
     return <EmptyState message="No solution selected" hint="Select or create a solution to see its overview." />;
   }
 
+  // Use solution.skills for topology display (semantic IDs like 'identity-assurance')
+  // Use sidebarSkills for implementation details (database skills with tools/connectors)
   return (
     <div>
       <SolutionSummaryCard
         solution={solution}
-        skills={skills}
+        skills={solutionSkills}
         onNavigate={onNavigate}
         onValidate={handleValidate}
         validationStatus={isValidating ? 'loading' : validationStatus}
       />
       <SolutionVerificationPanel
         solution={solution}
-        skills={skills}
+        skills={sidebarSkills}
         validationData={validationData}
       />
     </div>
