@@ -1,14 +1,17 @@
 /**
  * SolutionPanel — Displays solution-level architecture
  *
- * Three tabs:
- *   1. Topology — SVG graph of skills, handoffs, and channel entries
- *   2. Architecture — Skills + connectors diagram with links
- *   3. Access & Grants — Grant economy table + security contracts
+ * Four tabs:
+ *   1. Overview — Summary card + verification panel
+ *   2. Topology — SVG graph of skills, handoffs, and channel entries
+ *   3. Architecture — Skills + connectors diagram with links
+ *   4. Access & Grants — Grant economy table + security contracts
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as api from '../api/client';
+import SolutionSummaryCard from './SolutionSummaryCard';
+import SolutionVerificationPanel from './SolutionVerificationPanel';
 
 // ═══════════════════════════════════════════════════════════════
 // Styles
@@ -161,7 +164,7 @@ function SvgIcon({ pathD, color, x, y, size = 14 }) {
   );
 }
 
-const TABS = ['Topology', 'Architecture', 'Access & Grants'];
+const TABS = ['Overview', 'Topology', 'Architecture', 'Access & Grants'];
 
 // ═══════════════════════════════════════════════════════════════
 // Shared SVG Defs
@@ -289,8 +292,8 @@ function Legend({ items }) {
 // ═══════════════════════════════════════════════════════════════
 // Main Component
 // ═══════════════════════════════════════════════════════════════
-export default function SolutionPanel({ solution, sidebarSkills = [] }) {
-  const [activeTab, setActiveTab] = useState('Topology');
+export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate }) {
+  const [activeTab, setActiveTab] = useState('Overview');
 
   if (!solution) {
     return (
@@ -376,6 +379,9 @@ export default function SolutionPanel({ solution, sidebarSkills = [] }) {
       </div>
 
       <div style={styles.content}>
+        {activeTab === 'Overview' && (
+          <OverviewView solution={solution} skills={sidebarSkills} onNavigate={onNavigate} />
+        )}
         {activeTab === 'Topology' && (
           <TopologyView skills={enrichedSkills} handoffs={handoffs} routing={routing} />
         )}
@@ -391,7 +397,55 @@ export default function SolutionPanel({ solution, sidebarSkills = [] }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Tab 1: Topology — SVG skill graph
+// Tab 1: Overview — Summary + Verification
+// ═══════════════════════════════════════════════════════════════
+function OverviewView({ solution, skills, onNavigate }) {
+  const [validationStatus, setValidationStatus] = useState(null);
+  const [validationData, setValidationData] = useState(null);
+  const [isValidating, setIsValidating] = useState(false);
+
+  const handleValidate = useCallback(async () => {
+    if (!solution?.id || isValidating) return;
+
+    setIsValidating(true);
+    try {
+      const response = await api.getSolutionValidation(solution.id);
+      const validation = response.validation;
+
+      setValidationData(validation);
+      setValidationStatus(validation.status); // 'valid' | 'warning' | 'error'
+    } catch (err) {
+      console.error('Validation failed:', err);
+      setValidationStatus('error');
+    } finally {
+      setIsValidating(false);
+    }
+  }, [solution?.id, isValidating]);
+
+  if (!solution) {
+    return <EmptyState message="No solution selected" hint="Select or create a solution to see its overview." />;
+  }
+
+  return (
+    <div>
+      <SolutionSummaryCard
+        solution={solution}
+        skills={skills}
+        onNavigate={onNavigate}
+        onValidate={handleValidate}
+        validationStatus={isValidating ? 'loading' : validationStatus}
+      />
+      <SolutionVerificationPanel
+        solution={solution}
+        skills={skills}
+        validationData={validationData}
+      />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Tab 2: Topology — SVG skill graph
 // ═══════════════════════════════════════════════════════════════
 function TopologyView({ skills, handoffs, routing }) {
   const containerRef = useRef(null);

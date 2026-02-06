@@ -52,65 +52,69 @@ export async function getTemplate(id) {
   return data.template;
 }
 
-// Skills (mapped to skills backend)
-export async function listSkills() {
-  const data = await request('/skills');
+// Skills (mapped to skills backend - now solution-scoped)
+export async function listSkills(solutionId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  const data = await request(`/solutions/${solutionId}/skills`);
   return data.skills;
 }
 
-export async function createSkill(name, settings = {}, templateId = null) {
-  const data = await request('/skills', {
+export async function createSkill(solutionId, name, settings = {}, templateId = null) {
+  if (!solutionId) throw new Error('solutionId is required');
+  const data = await request(`/solutions/${solutionId}/skills`, {
     method: 'POST',
     body: JSON.stringify({ name, settings, templateId })
   });
   return data.skill;
 }
 
-export async function getSkill(id) {
-  const data = await request(`/skills/${id}`);
+export async function getSkill(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  const data = await request(`/solutions/${solutionId}/skills/${skillId}`);
   return data.skill;
 }
 
-export async function updateSkill(id, updates) {
-  const data = await request(`/skills/${id}`, {
+export async function updateSkill(solutionId, skillId, updates) {
+  if (!solutionId) throw new Error('solutionId is required');
+  const data = await request(`/solutions/${solutionId}/skills/${skillId}`, {
     method: 'PATCH',
     body: JSON.stringify({ updates })
   });
   return data.skill;
 }
 
-export async function updateSkillSettings(id, settings) {
-  const data = await request(`/skills/${id}/settings`, {
+export async function updateSkillSettings(solutionId, skillId, settings) {
+  if (!solutionId) throw new Error('solutionId is required');
+  const data = await request(`/solutions/${solutionId}/skills/${skillId}/settings`, {
     method: 'PATCH',
     body: JSON.stringify(settings)
   });
   return data.skill;
 }
 
-export async function deleteSkill(id) {
-  return request(`/skills/${id}`, { method: 'DELETE' });
+export async function deleteSkill(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/solutions/${solutionId}/skills/${skillId}`, { method: 'DELETE' });
 }
 
-export async function getSkillValidation(id) {
-  const data = await request(`/skills/${id}/validation`);
+export async function getSkillValidation(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  const data = await request(`/solutions/${solutionId}/skills/${skillId}/validation`);
   return data.validation;
 }
 
 // Chat
-export async function sendSkillMessage(skillId, message, uiFocus = null) {
+export async function sendSkillMessage(solutionId, skillId, message, uiFocus = null) {
+  if (!solutionId) throw new Error('solutionId is required');
   const response = await request('/chat/skill', {
     method: 'POST',
     body: JSON.stringify({
+      solution_id: solutionId,
       skill_id: skillId,
       message,
       ui_focus: uiFocus
     })
   });
-  // Rename skill to skill in response
-  if (response.skill) {
-    response.skill = response.skill;
-    delete response.skill;
-  }
   return response;
 }
 
@@ -123,13 +127,18 @@ export async function getSkillGreeting() {
 }
 
 // File digestion
-export async function digestFile(skillId, file) {
+export async function digestFile(solutionId, skillId, file) {
+  if (!solutionId) throw new Error('solutionId is required');
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('solution_id', solutionId);
   formData.append('skill_id', skillId);
 
   const response = await fetch(`${API_BASE}/chat/skill/digest`, {
     method: 'POST',
+    headers: {
+      'X-ADAS-TENANT': getTenant()
+    },
     body: formData
     // Don't set Content-Type - browser sets it with boundary
   });
@@ -142,85 +151,95 @@ export async function digestFile(skillId, file) {
   return response.json();
 }
 
-export async function applyExtraction(skillId, extraction) {
+export async function applyExtraction(solutionId, skillId, extraction) {
+  if (!solutionId) throw new Error('solutionId is required');
   const response = await request('/chat/skill/digest/apply', {
     method: 'POST',
     body: JSON.stringify({
+      solution_id: solutionId,
       skill_id: skillId,
       extraction
     })
   });
 
-  if (response.skill) {
-    response.skill = response.skill;
-    delete response.skill;
-  }
   return response;
 }
 
 // Mock testing
-export async function runMock(skillId, toolId, input, mode = 'example') {
+export async function runMock(solutionId, skillId, toolId, input, mode = 'example') {
+  if (!solutionId) throw new Error('solutionId is required');
   return request(`/mock/${skillId}/${toolId}`, {
     method: 'POST',
-    body: JSON.stringify({ input, mode })
+    body: JSON.stringify({ solution_id: solutionId, input, mode })
   });
 }
 
 // Validation
-export async function validateToolsConsistency(skillId, newTool = null) {
+export async function validateToolsConsistency(solutionId, skillId, newTool = null) {
+  if (!solutionId) throw new Error('solutionId is required');
   return request('/validate/tools-consistency', {
     method: 'POST',
     body: JSON.stringify({
+      solution_id: solutionId,
       skill_id: skillId,
       new_tool: newTool
     })
   });
 }
 
-export async function validatePolicyConsistency(skillId) {
+export async function validatePolicyConsistency(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
   return request('/validate/policy-consistency', {
     method: 'POST',
     body: JSON.stringify({
+      solution_id: solutionId,
       skill_id: skillId
     })
   });
 }
 
-export async function validateIntentsConsistency(skillId) {
+export async function validateIntentsConsistency(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
   return request('/validate/intents-consistency', {
     method: 'POST',
     body: JSON.stringify({
+      solution_id: solutionId,
       skill_id: skillId
     })
   });
 }
 
-export async function validateIdentityConsistency(skillId) {
+export async function validateIdentityConsistency(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
   return request('/validate/identity-consistency', {
     method: 'POST',
     body: JSON.stringify({
+      solution_id: solutionId,
       skill_id: skillId
     })
   });
 }
 
-export async function validateSecurityConsistency(skillId) {
+export async function validateSecurityConsistency(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
   return request('/validate/security-consistency', {
     method: 'POST',
     body: JSON.stringify({
+      solution_id: solutionId,
       skill_id: skillId
     })
   });
 }
 
-export async function validateAll(skillId) {
+export async function validateAll(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
   // Run all validations in parallel
   const [identity, intents, tools, policy, security] = await Promise.all([
-    validateIdentityConsistency(skillId).catch(e => ({ error: e.message, issues: [] })),
-    validateIntentsConsistency(skillId).catch(e => ({ error: e.message, issues: [] })),
-    validateToolsConsistency(skillId).catch(e => ({ error: e.message, issues: [] })),
-    validatePolicyConsistency(skillId).catch(e => ({ error: e.message, issues: [] })),
-    validateSecurityConsistency(skillId).catch(e => ({ error: e.message, issues: [] }))
+    validateIdentityConsistency(solutionId, skillId).catch(e => ({ error: e.message, issues: [] })),
+    validateIntentsConsistency(solutionId, skillId).catch(e => ({ error: e.message, issues: [] })),
+    validateToolsConsistency(solutionId, skillId).catch(e => ({ error: e.message, issues: [] })),
+    validatePolicyConsistency(solutionId, skillId).catch(e => ({ error: e.message, issues: [] })),
+    validateSecurityConsistency(solutionId, skillId).catch(e => ({ error: e.message, issues: [] }))
   ]);
 
   return {
@@ -238,27 +257,32 @@ export async function validateAll(skillId) {
 }
 
 // Export
-export async function exportSkill(skillId) {
-  return request(`/export/${skillId}`);
+export async function exportSkill(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}?solution_id=${solutionId}`);
 }
 
-export async function previewExport(skillId) {
-  return request(`/export/${skillId}/preview`);
+export async function previewExport(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}/preview?solution_id=${solutionId}`);
 }
 
-export async function downloadExport(skillId, version) {
-  return request(`/export/${skillId}/download/${version}`);
+export async function downloadExport(solutionId, skillId, version) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}/download/${version}?solution_id=${solutionId}`);
 }
 
 // ADAS Core export
-export async function deployToAdas(skillId, adasUrl = null) {
-  const params = new URLSearchParams({ deploy: 'true' });
+export async function deployToAdas(solutionId, skillId, adasUrl = null) {
+  if (!solutionId) throw new Error('solutionId is required');
+  const params = new URLSearchParams({ deploy: 'true', solution_id: solutionId });
   if (adasUrl) params.append('adasUrl', adasUrl);
   return request(`/export/${skillId}/adas?${params}`, { method: 'POST' });
 }
 
-export async function previewAdasExport(skillId) {
-  return request(`/export/${skillId}/adas/preview`);
+export async function previewAdasExport(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}/adas/preview?solution_id=${solutionId}`);
 }
 
 // Connectors
@@ -303,10 +327,11 @@ export async function callConnectorTool(connectionId, tool, args = {}) {
   });
 }
 
-export async function importConnectorTools(connectionId, skillId, tools = [], policies = {}) {
+export async function importConnectorTools(connectionId, solutionId, skillId, tools = [], policies = {}) {
+  if (!solutionId) throw new Error('solutionId is required');
   return request(`/connectors/${connectionId}/import-to-skill`, {
     method: 'POST',
-    body: JSON.stringify({ skillId, tools, policies })
+    body: JSON.stringify({ solutionId, skillId, tools, policies })
   });
 }
 
@@ -477,6 +502,10 @@ export async function getSolutionGreeting(solutionId) {
 export async function validateSolution(id) {
   const data = await request(`/solutions/${id}/validate`);
   return data.validation;
+}
+
+export async function getSolutionValidation(id) {
+  return request(`/solutions/${id}/validation`);
 }
 
 export async function getSolutionTopology(id) {
@@ -736,19 +765,25 @@ export async function triggerRetentionCleanup(dryRun = false) {
 // MCP Generation (Autonomous Agent)
 // ============================================
 
-export async function listSkillMCPs() {
-  const data = await request('/export/mcps');
+export async function listSkillMCPs(solutionId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  const data = await request(`/export/mcps?solution_id=${solutionId}`);
   return data.mcps;
 }
 
-export async function previewMCPGeneration(skillId) {
-  return request(`/export/${skillId}/mcp/develop/preview`);
+export async function previewMCPGeneration(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}/mcp/develop/preview?solution_id=${solutionId}`);
 }
 
-export async function* generateMCP(skillId) {
-  const response = await fetch(`${API_BASE}/export/${skillId}/mcp/develop`, {
+export async function* generateMCP(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  const response = await fetch(`${API_BASE}/export/${skillId}/mcp/develop?solution_id=${solutionId}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: {
+      'Content-Type': 'application/json',
+      'X-ADAS-TENANT': getTenant()
+    }
   });
 
   if (!response.ok) {
@@ -781,16 +816,22 @@ export async function* generateMCP(skillId) {
   }
 }
 
-export async function downloadMCPExport(skillId, version) {
-  return request(`/export/${skillId}/download/${version}`);
+export async function downloadMCPExport(solutionId, skillId, version) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}/download/${version}?solution_id=${solutionId}`);
 }
 
-export async function getMCPFile(skillId, version, filename) {
-  return request(`/export/${skillId}/files/${version}/${encodeURIComponent(filename)}`);
+export async function getMCPFile(solutionId, skillId, version, filename) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}/files/${version}/${encodeURIComponent(filename)}?solution_id=${solutionId}`);
 }
 
-export async function startMCPServer(skillId) {
-  return request(`/export/${skillId}/mcp/run`, { method: 'POST' });
+export async function startMCPServer(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}/mcp/run`, {
+    method: 'POST',
+    body: JSON.stringify({ solution_id: solutionId })
+  });
 }
 
 export async function stopMCPServer(skillId) {
@@ -804,27 +845,34 @@ export async function getMCPServerStatus(skillId) {
 /**
  * Deploy MCP to ADAS Core (one-click: start server + register)
  */
-export async function deployMCPToAdas(skillId) {
-  return request(`/export/${skillId}/mcp/deploy`, { method: 'POST' });
+export async function deployMCPToAdas(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}/mcp/deploy`, {
+    method: 'POST',
+    body: JSON.stringify({ solution_id: solutionId })
+  });
 }
 
 // ============================================
 // Triggers (CORE trigger-runner bridge)
 // ============================================
 
-export async function getTriggersStatus(skillId) {
-  return request(`/export/${skillId}/triggers/status`);
+export async function getTriggersStatus(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}/triggers/status?solution_id=${solutionId}`);
 }
 
-export async function toggleTriggerInCore(skillId, triggerId, active) {
+export async function toggleTriggerInCore(solutionId, skillId, triggerId, active) {
+  if (!solutionId) throw new Error('solutionId is required');
   return request(`/export/${skillId}/triggers/${encodeURIComponent(triggerId)}/toggle`, {
     method: 'POST',
-    body: JSON.stringify({ active })
+    body: JSON.stringify({ solution_id: solutionId, active })
   });
 }
 
-export async function getTriggerHistory(skillId, triggerId, limit = 20) {
-  return request(`/export/${skillId}/triggers/${encodeURIComponent(triggerId)}/history?limit=${limit}`);
+export async function getTriggerHistory(solutionId, skillId, triggerId, limit = 20) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}/triggers/${encodeURIComponent(triggerId)}/history?limit=${limit}&solution_id=${solutionId}`);
 }
 
 export default {
@@ -928,6 +976,7 @@ export default {
   sendSolutionMessage,
   getSolutionGreeting,
   validateSolution,
+  getSolutionValidation,
   getSolutionTopology,
   // Package Import
   importPackage,

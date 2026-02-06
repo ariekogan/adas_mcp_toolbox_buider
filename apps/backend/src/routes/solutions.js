@@ -8,10 +8,15 @@
 
 import { Router } from 'express';
 import solutionsStore from '../store/solutions.js';
+import skillsStore from '../store/skills.js';
 import { processSolutionMessage } from '../services/solutionConversation.js';
 import { validateSolution } from '../validators/solutionValidator.js';
+import skillsRouter from './skills.js';
 
 const router = Router();
+
+// Mount skills router under /solutions/:solutionId/skills
+router.use('/:solutionId/skills', skillsRouter);
 
 // ═══════════════════════════════════════════════════════════════
 // CRUD
@@ -244,6 +249,188 @@ router.get('/:id/validate', async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * Get comprehensive validation including skills
+ * GET /api/solutions/:id/validation
+ */
+router.get('/:id/validation', async (req, res, next) => {
+  try {
+    const solution = await solutionsStore.load(req.params.id);
+
+    // Load skills for this solution
+    const skills = await skillsStore.list(req.params.id);
+
+    // Solution-level validation
+    const solutionValidation = validateSolution(solution);
+
+    // Skill-level validation
+    const skillValidation = validateSkills(skills, solution);
+
+    // Combined validation
+    const combinedIssues = [
+      ...solutionValidation.errors.map(e => ({ ...e, category: 'solution', severity: 'error' })),
+      ...solutionValidation.warnings.map(w => ({ ...w, category: 'solution', severity: 'warning' })),
+      ...skillValidation.issues,
+    ];
+
+    // Calculate overall score
+    const errorCount = combinedIssues.filter(i => i.severity === 'error').length;
+    const warningCount = combinedIssues.filter(i => i.severity === 'warning').length;
+    let score = 100;
+    score -= errorCount * 15;
+    score -= warningCount * 5;
+    score = Math.max(0, Math.min(100, score));
+
+    res.json({
+      validation: {
+        score,
+        status: errorCount > 0 ? 'error' : warningCount > 0 ? 'warning' : 'valid',
+        issues: combinedIssues,
+        categories: {
+          skills: skillValidation,
+          grants: extractCategoryIssues(combinedIssues, 'grants'),
+          handoffs: extractCategoryIssues(combinedIssues, 'handoffs'),
+          routing: extractCategoryIssues(combinedIssues, 'routing'),
+          security: extractCategoryIssues(combinedIssues, 'security'),
+        },
+        solutionValidation,
+        skillValidation,
+      },
+    });
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ error: 'Solution not found' });
+    }
+    next(err);
+  }
+});
+
+/**
+ * Validate skills within a solution
+ */
+function validateSkills(skills, solution) {
+  const issues = [];
+  const skillIds = new Set(skills.map(s => s.id));
+
+  skills.forEach(skill => {
+    const toolCount = (skill.tools || []).length;
+    const hasPrompt = !!skill.prompt;
+    const hasExamples = (skill.example_conversations || []).length > 0;
+
+    if (toolCount === 0) {
+      issues.push({
+        category: 'skills',
+        severity: 'warning',
+        title: `${skill.name || skill.id}: No tools defined`,
+        detail: 'Define at least one tool for this skill',
+        skillId: skill.id,
+      });
+    }
+
+    if (!hasPrompt) {
+      issues.push({
+        category: 'skills',
+        severity: 'warning',
+        title: `${skill.name || skill.id}: No system prompt`,
+        detail: 'Add a system prompt to guide the skill behavior',
+        skillId: skill.id,
+      });
+    }
+
+    if (!hasExamples) {
+      issues.push({
+        category: 'skills',
+        severity: 'info',
+        title: `${skill.name || skill.id}: No example conversations`,
+        detail: 'Consider adding examples for better documentation',
+        skillId: skill.id,
+      });
+    }
+  });
+
+  // Check solution references to skills
+  const grants = solution.grants || [];
+  const handoffs = solution.handoffs || [];
+  const routing = solution.routing || {};
+
+  // Validate grant references
+  grants.forEach(grant => {
+    (grant.issued_by || []).forEach(id => {
+      if (!skillIds.has(id)) {
+        issues.push({
+          category: 'grants',
+          severity: 'error',
+          title: `Grant "${grant.key}": Invalid issuer`,
+          detail: `Skill "${id}" doesn't exist`,
+        });
+      }
+    });
+
+    (grant.consumed_by || []).forEach(id => {
+      if (!skillIds.has(id)) {
+        issues.push({
+          category: 'grants',
+          severity: 'error',
+          title: `Grant "${grant.key}": Invalid consumer`,
+          detail: `Skill "${id}" doesn't exist`,
+        });
+      }
+    });
+  });
+
+  // Validate handoff references
+  handoffs.forEach(handoff => {
+    if (handoff.from && !skillIds.has(handoff.from)) {
+      issues.push({
+        category: 'handoffs',
+        severity: 'error',
+        title: `Handoff: Invalid source "${handoff.from}"`,
+        detail: 'Source skill doesn\'t exist',
+      });
+    }
+    if (handoff.to && !skillIds.has(handoff.to)) {
+      issues.push({
+        category: 'handoffs',
+        severity: 'error',
+        title: `Handoff: Invalid target "${handoff.to}"`,
+        detail: 'Target skill doesn\'t exist',
+      });
+    }
+  });
+
+  // Validate routing references
+  Object.entries(routing).forEach(([channel, config]) => {
+    if (config.default_skill && !skillIds.has(config.default_skill)) {
+      issues.push({
+        category: 'routing',
+        severity: 'error',
+        title: `Channel "${channel}": Invalid skill`,
+        detail: `Skill "${config.default_skill}" doesn't exist`,
+      });
+    }
+  });
+
+  return {
+    count: skills.length,
+    issues,
+    status: issues.some(i => i.severity === 'error') ? 'error' :
+            issues.some(i => i.severity === 'warning') ? 'warning' : 'valid',
+  };
+}
+
+/**
+ * Extract issues by category
+ */
+function extractCategoryIssues(issues, category) {
+  const categoryIssues = issues.filter(i => i.category === category);
+  return {
+    count: categoryIssues.length,
+    issues: categoryIssues,
+    status: categoryIssues.some(i => i.severity === 'error') ? 'error' :
+            categoryIssues.some(i => i.severity === 'warning') ? 'warning' : 'valid',
+  };
+}
 
 /**
  * Get solution topology graph
