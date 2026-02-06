@@ -437,6 +437,323 @@ function extractCategoryIssues(issues, category) {
 }
 
 /**
+ * Export comprehensive validation report (for PB consumption)
+ * GET /api/solutions/:id/validation-report
+ *
+ * Returns a structured report with three validation levels:
+ * - Level 1: Technical (ID mismatches, missing references)
+ * - Level 2: Completeness (missing descriptions, tools, prompts)
+ * - Level 3: Intelligent (placeholder - requires LLM analysis)
+ */
+router.get('/:id/validation-report', async (req, res, next) => {
+  try {
+    const solution = await solutionsStore.load(req.params.id);
+    const skills = await skillsStore.list(req.params.id);
+
+    // Build skill lookup maps
+    const skillsById = new Map(skills.map(s => [s.id, s]));
+    const skillsByName = new Map(skills.map(s => [normalizeSkillName(s.name), s]));
+    const topologySkillIds = new Set((solution.skills || []).map(s => s.id));
+
+    const report = {
+      solution_id: solution.id,
+      solution_name: solution.name,
+      generated_at: new Date().toISOString(),
+      summary: { errors: 0, warnings: 0, info: 0 },
+
+      // Skill ID mapping (topology → implementation)
+      skill_mapping: buildSkillMapping(solution.skills || [], skills),
+
+      // Level 1: Technical Issues
+      level_1_technical: {
+        title: 'Technical Issues',
+        description: 'ID mismatches, missing references, structural problems',
+        issues: []
+      },
+
+      // Level 2: Completeness Issues
+      level_2_completeness: {
+        title: 'Completeness Issues',
+        description: 'Missing descriptions, tools, prompts, examples',
+        issues: []
+      },
+
+      // Level 3: Intelligent Analysis (placeholder)
+      level_3_intelligent: {
+        title: 'Intelligent Analysis',
+        description: 'Tool coverage, security alignment, design coherence',
+        issues: [],
+        _note: 'Requires LLM analysis - not yet implemented'
+      }
+    };
+
+    // ═══════════════════════════════════════════════════════════
+    // LEVEL 1: Technical Validation
+    // ═══════════════════════════════════════════════════════════
+
+    // Check topology skill → implementation skill mapping
+    (solution.skills || []).forEach(topologySkill => {
+      const implSkill = findMatchingSkill(topologySkill.id, skills);
+      if (!implSkill) {
+        report.level_1_technical.issues.push({
+          severity: 'error',
+          code: 'UNMAPPED_TOPOLOGY_SKILL',
+          message: `Topology skill "${topologySkill.id}" has no matching implementation`,
+          context: { topology_id: topologySkill.id, role: topologySkill.role },
+          suggestion: `Create a skill named "${topologySkill.id}" or map existing skill to this topology entry`
+        });
+      }
+    });
+
+    // Check grants reference valid topology skills
+    (solution.grants || []).forEach(grant => {
+      (grant.issued_by || []).forEach(id => {
+        if (!topologySkillIds.has(id)) {
+          report.level_1_technical.issues.push({
+            severity: 'error',
+            code: 'INVALID_GRANT_ISSUER',
+            message: `Grant "${grant.key}" references unknown issuer "${id}"`,
+            context: { grant_key: grant.key, invalid_id: id },
+            suggestion: `Add "${id}" to solution.skills or update grant to use valid skill ID`
+          });
+        }
+      });
+
+      (grant.consumed_by || []).forEach(id => {
+        if (!topologySkillIds.has(id)) {
+          report.level_1_technical.issues.push({
+            severity: 'error',
+            code: 'INVALID_GRANT_CONSUMER',
+            message: `Grant "${grant.key}" references unknown consumer "${id}"`,
+            context: { grant_key: grant.key, invalid_id: id },
+            suggestion: `Add "${id}" to solution.skills or update grant to use valid skill ID`
+          });
+        }
+      });
+    });
+
+    // Check handoffs reference valid topology skills
+    (solution.handoffs || []).forEach(handoff => {
+      if (handoff.from && !topologySkillIds.has(handoff.from)) {
+        report.level_1_technical.issues.push({
+          severity: 'error',
+          code: 'INVALID_HANDOFF_SOURCE',
+          message: `Handoff references unknown source "${handoff.from}"`,
+          context: { handoff_id: handoff.id, invalid_id: handoff.from },
+          suggestion: `Add "${handoff.from}" to solution.skills or update handoff`
+        });
+      }
+      if (handoff.to && !topologySkillIds.has(handoff.to)) {
+        report.level_1_technical.issues.push({
+          severity: 'error',
+          code: 'INVALID_HANDOFF_TARGET',
+          message: `Handoff references unknown target "${handoff.to}"`,
+          context: { handoff_id: handoff.id, invalid_id: handoff.to },
+          suggestion: `Add "${handoff.to}" to solution.skills or update handoff`
+        });
+      }
+    });
+
+    // Check routing references valid topology skills
+    Object.entries(solution.routing || {}).forEach(([channel, config]) => {
+      if (config.default_skill && !topologySkillIds.has(config.default_skill)) {
+        report.level_1_technical.issues.push({
+          severity: 'error',
+          code: 'INVALID_ROUTING_SKILL',
+          message: `Channel "${channel}" routes to unknown skill "${config.default_skill}"`,
+          context: { channel, invalid_id: config.default_skill },
+          suggestion: `Add "${config.default_skill}" to solution.skills or update routing`
+        });
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════
+    // LEVEL 2: Completeness Validation
+    // ═══════════════════════════════════════════════════════════
+
+    // Check each implementation skill for completeness
+    skills.forEach(skill => {
+      const toolCount = (skill.tools || []).length;
+
+      if (toolCount === 0) {
+        report.level_2_completeness.issues.push({
+          severity: 'warning',
+          code: 'NO_TOOLS',
+          message: `Skill "${skill.name}" has no tools defined`,
+          context: { skill_id: skill.id, skill_name: skill.name },
+          suggestion: 'Define at least one tool for the skill to function'
+        });
+      }
+
+      if (!skill.prompt) {
+        report.level_2_completeness.issues.push({
+          severity: 'warning',
+          code: 'NO_PROMPT',
+          message: `Skill "${skill.name}" has no system prompt`,
+          context: { skill_id: skill.id, skill_name: skill.name },
+          suggestion: 'Add a system prompt to guide skill behavior'
+        });
+      }
+
+      if (!skill.problem?.statement) {
+        report.level_2_completeness.issues.push({
+          severity: 'info',
+          code: 'NO_PROBLEM_STATEMENT',
+          message: `Skill "${skill.name}" has no problem statement`,
+          context: { skill_id: skill.id, skill_name: skill.name },
+          suggestion: 'Document the problem this skill solves'
+        });
+      }
+
+      if (!(skill.example_conversations || []).length) {
+        report.level_2_completeness.issues.push({
+          severity: 'info',
+          code: 'NO_EXAMPLES',
+          message: `Skill "${skill.name}" has no example conversations`,
+          context: { skill_id: skill.id, skill_name: skill.name },
+          suggestion: 'Add examples for documentation and testing'
+        });
+      }
+    });
+
+    // Check topology skills for completeness
+    (solution.skills || []).forEach(topologySkill => {
+      if (!topologySkill.description) {
+        report.level_2_completeness.issues.push({
+          severity: 'warning',
+          code: 'NO_TOPOLOGY_DESCRIPTION',
+          message: `Topology skill "${topologySkill.id}" has no description`,
+          context: { topology_id: topologySkill.id },
+          suggestion: 'Add a description to document the skill\'s purpose'
+        });
+      }
+
+      if (!topologySkill.role) {
+        report.level_2_completeness.issues.push({
+          severity: 'warning',
+          code: 'NO_TOPOLOGY_ROLE',
+          message: `Topology skill "${topologySkill.id}" has no role`,
+          context: { topology_id: topologySkill.id },
+          suggestion: 'Assign a role (gateway, worker, orchestrator, approval)'
+        });
+      }
+    });
+
+    // Check grants for completeness
+    (solution.grants || []).forEach(grant => {
+      if (!grant.description) {
+        report.level_2_completeness.issues.push({
+          severity: 'info',
+          code: 'NO_GRANT_DESCRIPTION',
+          message: `Grant "${grant.key}" has no description`,
+          context: { grant_key: grant.key },
+          suggestion: 'Document what this grant authorizes'
+        });
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════
+    // LEVEL 3: Intelligent Analysis (placeholder)
+    // ═══════════════════════════════════════════════════════════
+
+    report.level_3_intelligent.issues.push({
+      severity: 'info',
+      code: 'LLM_ANALYSIS_PENDING',
+      message: 'Intelligent analysis requires LLM processing',
+      context: {
+        available_checks: [
+          'Tool coverage vs skill purpose',
+          'Security policy vs grant configuration',
+          'Handoff flow coherence',
+          'Missing skill capabilities'
+        ]
+      },
+      suggestion: 'Feed this report to PB for intelligent analysis'
+    });
+
+    // ═══════════════════════════════════════════════════════════
+    // Calculate summary
+    // ═══════════════════════════════════════════════════════════
+
+    const allIssues = [
+      ...report.level_1_technical.issues,
+      ...report.level_2_completeness.issues,
+      ...report.level_3_intelligent.issues
+    ];
+
+    report.summary.errors = allIssues.filter(i => i.severity === 'error').length;
+    report.summary.warnings = allIssues.filter(i => i.severity === 'warning').length;
+    report.summary.info = allIssues.filter(i => i.severity === 'info').length;
+    report.summary.total = allIssues.length;
+    report.summary.status = report.summary.errors > 0 ? 'error' :
+                           report.summary.warnings > 0 ? 'warning' : 'valid';
+
+    res.json({ report });
+
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ error: 'Solution not found' });
+    }
+    next(err);
+  }
+});
+
+/**
+ * Normalize skill name for matching (lowercase, remove spaces/dashes)
+ */
+function normalizeSkillName(name) {
+  return (name || '').toLowerCase().replace(/[\s\-_]+/g, '');
+}
+
+/**
+ * Find matching implementation skill for a topology skill ID
+ */
+function findMatchingSkill(topologyId, skills) {
+  const normalizedId = normalizeSkillName(topologyId);
+  return skills.find(s =>
+    normalizeSkillName(s.name) === normalizedId ||
+    normalizeSkillName(s.id) === normalizedId ||
+    s.original_skill_id === topologyId
+  );
+}
+
+/**
+ * Build mapping between topology skills and implementation skills
+ */
+function buildSkillMapping(topologySkills, implSkills) {
+  const mapping = [];
+
+  topologySkills.forEach(topoSkill => {
+    const matched = findMatchingSkill(topoSkill.id, implSkills);
+    mapping.push({
+      topology_id: topoSkill.id,
+      topology_role: topoSkill.role,
+      implementation_id: matched?.id || null,
+      implementation_name: matched?.name || null,
+      status: matched ? 'mapped' : 'unmapped'
+    });
+  });
+
+  // Check for orphan implementations (skills not in topology)
+  implSkills.forEach(implSkill => {
+    const inTopology = topologySkills.some(t =>
+      findMatchingSkill(t.id, [implSkill])
+    );
+    if (!inTopology) {
+      mapping.push({
+        topology_id: null,
+        topology_role: null,
+        implementation_id: implSkill.id,
+        implementation_name: implSkill.name,
+        status: 'orphan'
+      });
+    }
+  });
+
+  return mapping;
+}
+
+/**
  * Get solution topology graph
  * GET /api/solutions/:id/topology
  */
