@@ -11,6 +11,7 @@ import solutionsStore from '../store/solutions.js';
 import skillsStore from '../store/skills.js';
 import { processSolutionMessage } from '../services/solutionConversation.js';
 import { validateSolution } from '../validators/solutionValidator.js';
+import { validateSecurity } from '../validators/securityValidator.js';
 import skillsRouter from './skills.js';
 
 const router = Router();
@@ -234,14 +235,65 @@ Let's start! What kind of solution are you building?`,
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Validate cross-skill contracts
+ * Validate solution including all skills
  * GET /api/solutions/:id/validate
+ *
+ * Returns aggregated validation from:
+ * - Solution-level validation (grants, handoffs, routing, security_contracts)
+ * - Per-skill validation (tools, security classifications, access policies, etc.)
  */
 router.get('/:id/validate', async (req, res, next) => {
   try {
     const solution = await solutionsStore.load(req.params.id);
-    const validation = validateSolution(solution);
-    res.json({ validation });
+
+    // Load all skills in this solution
+    const skillList = await skillsStore.list(req.params.id);
+    const skills = await Promise.all(
+      skillList.map(async (s) => {
+        try {
+          return await skillsStore.load(req.params.id, s.id);
+        } catch {
+          return s;
+        }
+      })
+    );
+
+    // Solution-level validation
+    const solutionValidation = validateSolution(solution);
+
+    // Per-skill validation (includes security validation)
+    const skillValidation = validateSkills(skills, solution);
+
+    // Aggregate all issues
+    const allErrors = [
+      ...solutionValidation.errors,
+      ...skillValidation.issues.filter(i => i.severity === 'error'),
+    ];
+    const allWarnings = [
+      ...solutionValidation.warnings,
+      ...skillValidation.issues.filter(i => i.severity === 'warning'),
+    ];
+
+    res.json({
+      validation: {
+        valid: allErrors.length === 0,
+        errors: allErrors,
+        warnings: allWarnings,
+        summary: {
+          ...solutionValidation.summary,
+          skills_validated: skills.length,
+          error_count: allErrors.length,
+          warning_count: allWarnings.length,
+        },
+        bySkill: skillValidation.issues.reduce((acc, issue) => {
+          if (issue.skillId) {
+            if (!acc[issue.skillId]) acc[issue.skillId] = [];
+            acc[issue.skillId].push(issue);
+          }
+          return acc;
+        }, {}),
+      },
+    });
   } catch (err) {
     if (err.message?.includes('not found')) {
       return res.status(404).json({ error: 'Solution not found' });
@@ -327,6 +379,7 @@ function validateSkills(skills, solution) {
 
   // Validate skill implementations (from skillsStore)
   skills.forEach(skill => {
+    const skillName = skill.name || skill.id;
     const toolCount = (skill.tools || []).length;
     const hasPrompt = !!skill.prompt;
     const hasExamples = (skill.example_conversations || []).length > 0;
@@ -335,7 +388,7 @@ function validateSkills(skills, solution) {
       issues.push({
         category: 'skills',
         severity: 'warning',
-        title: `${skill.name || skill.id}: No tools defined`,
+        title: `${skillName}: No tools defined`,
         detail: 'Define at least one tool for this skill',
         skillId: skill.id,
       });
@@ -345,7 +398,7 @@ function validateSkills(skills, solution) {
       issues.push({
         category: 'skills',
         severity: 'warning',
-        title: `${skill.name || skill.id}: No system prompt`,
+        title: `${skillName}: No system prompt`,
         detail: 'Add a system prompt to guide the skill behavior',
         skillId: skill.id,
       });
@@ -355,11 +408,25 @@ function validateSkills(skills, solution) {
       issues.push({
         category: 'skills',
         severity: 'info',
-        title: `${skill.name || skill.id}: No example conversations`,
+        title: `${skillName}: No example conversations`,
         detail: 'Consider adding examples for better documentation',
         skillId: skill.id,
       });
     }
+
+    // Run security validation on each skill
+    const securityIssues = validateSecurity(skill);
+    securityIssues.forEach(issue => {
+      issues.push({
+        category: 'security',
+        severity: issue.severity,
+        title: `${skillName}: ${issue.message}`,
+        detail: issue.suggestion || '',
+        path: issue.path,
+        code: issue.code,
+        skillId: skill.id,
+      });
+    });
   });
 
   // Check solution topology references using solution.skills (semantic IDs)
