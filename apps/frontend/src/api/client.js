@@ -508,6 +508,10 @@ export async function getSolutionValidation(id) {
   return request(`/solutions/${id}/validation`);
 }
 
+export async function getSolutionValidationReport(id) {
+  return request(`/solutions/${id}/validation-report`);
+}
+
 export async function getSolutionTopology(id) {
   const data = await request(`/solutions/${id}/topology`);
   return data.topology;
@@ -979,6 +983,7 @@ export default {
   getSolutionGreeting,
   validateSolution,
   getSolutionValidation,
+  getSolutionValidationReport,
   getSolutionTopology,
   // Package Import
   importPackage,

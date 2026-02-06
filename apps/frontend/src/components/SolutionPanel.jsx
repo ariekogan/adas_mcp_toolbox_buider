@@ -422,6 +422,29 @@ function OverviewView({ solution, solutionSkills, sidebarSkills, onNavigate }) {
     }
   }, [solution?.id, isValidating]);
 
+  const handleExportReport = useCallback(async () => {
+    if (!solution?.id) return;
+
+    try {
+      const response = await api.getSolutionValidationReport(solution.id);
+      const report = response.report;
+
+      // Download as JSON file
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${solution.name || solution.id}-validation-report.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Failed to export validation report');
+    }
+  }, [solution?.id, solution?.name]);
+
   if (!solution) {
     return <EmptyState message="No solution selected" hint="Select or create a solution to see its overview." />;
   }
@@ -435,6 +458,7 @@ function OverviewView({ solution, solutionSkills, sidebarSkills, onNavigate }) {
         skills={solutionSkills}
         onNavigate={onNavigate}
         onValidate={handleValidate}
+        onExportPreview={handleExportReport}
         validationStatus={isValidating ? 'loading' : validationStatus}
       />
       <SolutionVerificationPanel
