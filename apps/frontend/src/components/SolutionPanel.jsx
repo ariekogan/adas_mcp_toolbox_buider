@@ -403,6 +403,7 @@ function OverviewView({ solution, solutionSkills, sidebarSkills, onNavigate }) {
   const [validationStatus, setValidationStatus] = useState(null);
   const [validationData, setValidationData] = useState(null);
   const [isValidating, setIsValidating] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const handleValidate = useCallback(async () => {
     if (!solution?.id || isValidating) return;
@@ -423,8 +424,9 @@ function OverviewView({ solution, solutionSkills, sidebarSkills, onNavigate }) {
   }, [solution?.id, isValidating]);
 
   const handleExportReport = useCallback(async () => {
-    if (!solution?.id) return;
+    if (!solution?.id || isExporting) return;
 
+    setIsExporting(true);
     try {
       const response = await api.getSolutionValidationReport(solution.id);
       const report = response.report;
@@ -442,8 +444,10 @@ function OverviewView({ solution, solutionSkills, sidebarSkills, onNavigate }) {
     } catch (err) {
       console.error('Export failed:', err);
       alert('Failed to export validation report');
+    } finally {
+      setIsExporting(false);
     }
-  }, [solution?.id, solution?.name]);
+  }, [solution?.id, solution?.name, isExporting]);
 
   if (!solution) {
     return <EmptyState message="No solution selected" hint="Select or create a solution to see its overview." />;
@@ -460,6 +464,7 @@ function OverviewView({ solution, solutionSkills, sidebarSkills, onNavigate }) {
         onValidate={handleValidate}
         onExportPreview={handleExportReport}
         validationStatus={isValidating ? 'loading' : validationStatus}
+        exportStatus={isExporting ? 'loading' : null}
       />
       <SolutionVerificationPanel
         solution={solution}

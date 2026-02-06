@@ -338,7 +338,8 @@ export default function SolutionSummaryCard({
   onNavigate,
   onValidate,
   onExportPreview,
-  validationStatus // 'valid' | 'warning' | 'error' | null
+  validationStatus, // 'valid' | 'warning' | 'error' | 'loading' | null
+  exportStatus = null // 'loading' | null
 }) {
   const [expandedSections, setExpandedSections] = useState({
     skills: true,
@@ -433,6 +434,22 @@ export default function SolutionSummaryCard({
     return 'Validate Solution';
   };
 
+  // Export button helpers
+  const getExportButtonStyle = () => {
+    if (exportStatus === 'loading') {
+      return { opacity: 0.6, cursor: 'not-allowed' };
+    }
+    return {};
+  };
+
+  const getExportIcon = () => {
+    return exportStatus === 'loading' ? '⏳' : '📦';
+  };
+
+  const getExportLabel = () => {
+    return exportStatus === 'loading' ? 'Exporting...' : 'Export Preview';
+  };
+
   return (
     <div style={styles.card}>
       {/* Header */}
@@ -478,10 +495,12 @@ export default function SolutionSummaryCard({
             style={{
               ...styles.actionButton,
               ...styles.actionButtonPrimary,
+              ...getExportButtonStyle(),
             }}
             onClick={onExportPreview}
+            disabled={exportStatus === 'loading'}
           >
-            📦 Export Preview
+            {getExportIcon()} {getExportLabel()}
           </button>
         )}
       </div>
