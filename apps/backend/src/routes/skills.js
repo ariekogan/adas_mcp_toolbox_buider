@@ -1,8 +1,10 @@
 /**
- * Skills API Routes
+ * Skills API Routes (Solution-scoped)
  *
- * Handles CRUD operations for DraftSkill objects.
- * Supports auto-migration from legacy project format.
+ * Skills belong to solutions. All routes are under:
+ *   /api/solutions/:solutionId/skills
+ *
+ * @module routes/skills
  */
 
 import { Router } from 'express';
@@ -10,17 +12,18 @@ import skillsStore from '../store/skills.js';
 import templatesStore from '../store/templates.js';
 import { getValidationSummary } from '../validators/index.js';
 
-const router = Router();
+// mergeParams: true allows access to :solutionId from parent router
+const router = Router({ mergeParams: true });
 
 /**
- * List all skills
- * GET /api/skills
- *
- * Returns both new-format skills and legacy projects (marked for migration)
+ * List all skills for a solution
+ * GET /api/solutions/:solutionId/skills
  */
 router.get('/', async (req, res, next) => {
   try {
-    const skills = await skillsStore.list();
+    const { solutionId } = req.params;
+    console.log('[Skills] List for solutionId:', solutionId, 'params:', req.params);
+    const skills = await skillsStore.list(solutionId);
     res.json({ skills });
   } catch (err) {
     next(err);
@@ -28,8 +31,8 @@ router.get('/', async (req, res, next) => {
 });
 
 /**
- * Create new skill
- * POST /api/skills
+ * Create new skill within a solution
+ * POST /api/solutions/:solutionId/skills
  *
  * Body: {
  *   name: string,
@@ -39,6 +42,7 @@ router.get('/', async (req, res, next) => {
  */
 router.post('/', async (req, res, next) => {
   try {
+    const { solutionId } = req.params;
     const { name, settings, templateId } = req.body;
 
     if (!name) {
@@ -55,7 +59,7 @@ router.post('/', async (req, res, next) => {
       }
     }
 
-    const skill = await skillsStore.create(name, settings, template);
+    const skill = await skillsStore.create(solutionId, name, settings, template);
     res.status(201).json({ skill });
   } catch (err) {
     next(err);
@@ -64,14 +68,12 @@ router.post('/', async (req, res, next) => {
 
 /**
  * Get skill by ID
- * GET /api/skills/:id
- *
- * Automatically migrates legacy projects to new format on first load
+ * GET /api/solutions/:solutionId/skills/:skillId
  */
-router.get('/:id', async (req, res, next) => {
+router.get('/:skillId', async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const skill = await skillsStore.load(id);
+    const { solutionId, skillId } = req.params;
+    const skill = await skillsStore.load(solutionId, skillId);
     res.json({ skill });
   } catch (err) {
     if (err.message?.includes('not found')) {
@@ -86,20 +88,20 @@ router.get('/:id', async (req, res, next) => {
 
 /**
  * Update skill state
- * PATCH /api/skills/:id
+ * PATCH /api/solutions/:solutionId/skills/:skillId
  *
  * Body: { updates: { ... state updates using dot notation ... } }
  */
-router.patch('/:id', async (req, res, next) => {
+router.patch('/:skillId', async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { solutionId, skillId } = req.params;
     const { updates } = req.body;
 
     if (!updates || typeof updates !== 'object') {
       return res.status(400).json({ error: 'Updates object is required' });
     }
 
-    const skill = await skillsStore.updateState(id, updates);
+    const skill = await skillsStore.updateState(solutionId, skillId, updates);
     res.json({ skill });
   } catch (err) {
     if (err.message?.includes('not found')) {
@@ -111,16 +113,16 @@ router.patch('/:id', async (req, res, next) => {
 
 /**
  * Update skill settings
- * PATCH /api/skills/:id/settings
+ * PATCH /api/solutions/:solutionId/skills/:skillId/settings
  *
  * Body: { llm_provider?, llm_model?, ... }
  */
-router.patch('/:id/settings', async (req, res, next) => {
+router.patch('/:skillId/settings', async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { solutionId, skillId } = req.params;
     const settings = req.body;
 
-    const skill = await skillsStore.updateSettings(id, settings);
+    const skill = await skillsStore.updateSettings(solutionId, skillId, settings);
     res.json({ skill });
   } catch (err) {
     if (err.message?.includes('not found')) {
@@ -132,12 +134,12 @@ router.patch('/:id/settings', async (req, res, next) => {
 
 /**
  * Get skill validation summary
- * GET /api/skills/:id/validation
+ * GET /api/solutions/:solutionId/skills/:skillId/validation
  */
-router.get('/:id/validation', async (req, res, next) => {
+router.get('/:skillId/validation', async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const skill = await skillsStore.load(id);
+    const { solutionId, skillId } = req.params;
+    const skill = await skillsStore.load(solutionId, skillId);
     const summary = getValidationSummary(skill);
     res.json({ validation: summary });
   } catch (err) {
@@ -150,12 +152,12 @@ router.get('/:id/validation', async (req, res, next) => {
 
 /**
  * Delete skill
- * DELETE /api/skills/:id
+ * DELETE /api/solutions/:solutionId/skills/:skillId
  */
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:skillId', async (req, res, next) => {
   try {
-    const { id } = req.params;
-    await skillsStore.remove(id);
+    const { solutionId, skillId } = req.params;
+    await skillsStore.remove(solutionId, skillId);
     res.status(204).send();
   } catch (err) {
     next(err);
@@ -164,13 +166,13 @@ router.delete('/:id', async (req, res, next) => {
 
 /**
  * Append message to skill conversation
- * POST /api/skills/:id/messages
+ * POST /api/solutions/:solutionId/skills/:skillId/messages
  *
  * Body: { role: 'user' | 'assistant', content: string }
  */
-router.post('/:id/messages', async (req, res, next) => {
+router.post('/:skillId/messages', async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { solutionId, skillId } = req.params;
     const { role, content, state_update, suggested_focus } = req.body;
 
     if (!role || !content) {
@@ -178,7 +180,7 @@ router.post('/:id/messages', async (req, res, next) => {
     }
 
     const message = { role, content, state_update, suggested_focus };
-    const skill = await skillsStore.appendMessage(id, message);
+    const skill = await skillsStore.appendMessage(solutionId, skillId, message);
     res.json({ skill });
   } catch (err) {
     if (err.message?.includes('not found')) {
