@@ -37,9 +37,12 @@ const VALID_EFFECTS = ['allow', 'deny', 'constrain'];
 
 /**
  * Regex for syntactically valid field paths used in response filters.
- * Allows dotted identifiers and bracket notation, e.g. "customer.address.line1" or "items[0].name".
+ * Allows:
+ * - Dotted notation: "customer.address.line1"
+ * - Bracket notation: "items[0].name"
+ * - JSONPath syntax: "$.customer.email", "$.items[*].name"
  */
-const FIELD_PATH_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*$/;
+const FIELD_PATH_PATTERN = /^(\$\.)?[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\]|\[\*\])*$/;
 
 /**
  * Coverage metadata for auto-generating documentation
@@ -59,6 +62,33 @@ export const COVERAGE = [
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Get classification from tool (supports both locations where bot may save it)
+ * @param {Object} tool
+ * @returns {string|undefined}
+ */
+function getToolClassification(tool) {
+  return tool.security?.classification || tool.classification;
+}
+
+/**
+ * Get data_owner_field from tool (supports both locations)
+ * @param {Object} tool
+ * @returns {string|undefined}
+ */
+function getDataOwnerField(tool) {
+  return tool.security?.data_owner_field || tool.data_owner_field;
+}
+
+/**
+ * Get risk level from tool (supports both locations)
+ * @param {Object} tool
+ * @returns {string|undefined}
+ */
+function getToolRisk(tool) {
+  return tool.security?.risk || tool.risk;
+}
 
 /**
  * Build a Set of all tool names defined on the skill.
@@ -179,9 +209,10 @@ export function validateSecurity(skill) {
   // -----------------------------------------------------------------------
   tools.forEach((tool, i) => {
     const basePath = `tools[${i}]`;
-    const classification = tool.security?.classification;
-    const risk = tool.security?.risk;
-    const dataOwnerField = tool.security?.data_owner_field;
+    // Use helpers to check both tool.security.X and tool.X locations
+    const classification = getToolClassification(tool);
+    const risk = getToolRisk(tool);
+    const dataOwnerField = getDataOwnerField(tool);
 
     // Warn on unclassified tools
     if (!classification) {
@@ -311,24 +342,28 @@ export function validateSecurity(skill) {
     const basePath = `response_filters[${i}]`;
 
     (filter.strip_fields || []).forEach((field, j) => {
-      if (!FIELD_PATH_PATTERN.test(field)) {
+      // Handle both string fields and object fields (e.g., { field: "path", mask: "***" })
+      const fieldPath = typeof field === 'string' ? field : field?.field;
+      if (!fieldPath || !FIELD_PATH_PATTERN.test(fieldPath)) {
         issues.push({
           code: 'INVALID_FILTER_FIELD_PATH',
           severity: 'error',
           path: `${basePath}.strip_fields[${j}]`,
-          message: `Invalid field path "${field}" in response filter`,
+          message: `Invalid field path "${fieldPath || field}" in response filter`,
           suggestion: 'Use dotted notation (e.g. "customer.ssn") or bracket notation (e.g. "items[0].name")',
         });
       }
     });
 
     (filter.mask_fields || []).forEach((field, j) => {
-      if (!FIELD_PATH_PATTERN.test(field)) {
+      // Handle both string fields and object fields (e.g., { field: "path", mask: "***" })
+      const fieldPath = typeof field === 'string' ? field : field?.field;
+      if (!fieldPath || !FIELD_PATH_PATTERN.test(fieldPath)) {
         issues.push({
           code: 'INVALID_FILTER_FIELD_PATH',
           severity: 'error',
           path: `${basePath}.mask_fields[${j}]`,
-          message: `Invalid field path "${field}" in response filter`,
+          message: `Invalid field path "${fieldPath || field}" in response filter`,
           suggestion: 'Use dotted notation (e.g. "customer.email") or bracket notation (e.g. "items[0].name")',
         });
       }
@@ -354,7 +389,7 @@ export function isSecurityComplete(skill) {
   const { coveredTools, hasWildcard } = getAccessPolicyCoverage(skill);
 
   for (const tool of tools) {
-    const classification = tool.security?.classification;
+    const classification = getToolClassification(tool);
     if (!classification) continue;
     if (!HIGH_RISK_CLASSIFICATIONS.includes(classification)) continue;
 
@@ -400,7 +435,7 @@ export function getSecurityReport(skill) {
   let piiWithFilters = 0;
 
   for (const tool of tools) {
-    const classification = tool.security?.classification;
+    const classification = getToolClassification(tool);
 
     if (!classification) {
       unclassified++;
