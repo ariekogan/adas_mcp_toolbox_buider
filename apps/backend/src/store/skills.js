@@ -654,12 +654,19 @@ async function remove(solutionId, slug) {
 
 /**
  * Save export files
- * @param {string} slug
+ * @param {string} solutionId - Solution ID (unused, for API consistency)
+ * @param {string} slug - Skill ID
  * @param {string} version
  * @param {Array<{name: string, content: string}>} files
  * @returns {Promise<string>} Export directory path
  */
-async function saveExport(slug, version, files) {
+async function saveExport(solutionId, slug, version, files) {
+  // Support both (solutionId, slug, version, files) and (slug, version, files) for backwards compatibility
+  if (Array.isArray(version)) {
+    files = version;
+    version = slug;
+    slug = solutionId;
+  }
   const exportDir = path.join(getMemoryRoot(), slug, 'exports', `v${version}`);
   await ensureDir(exportDir);
 
@@ -672,11 +679,17 @@ async function saveExport(slug, version, files) {
 
 /**
  * Get export files
- * @param {string} slug
+ * @param {string} solutionId - Solution ID (unused, for API consistency)
+ * @param {string} slug - Skill ID
  * @param {string} version
  * @returns {Promise<Array<{name: string, content: string}>>}
  */
-async function getExport(slug, version) {
+async function getExport(solutionId, slug, version) {
+  // Support both (solutionId, slug, version) and (slug, version) for backwards compatibility
+  if (version === undefined) {
+    version = slug;
+    slug = solutionId;
+  }
   const exportDir = path.join(getMemoryRoot(), slug, 'exports', `v${version}`);
   const files = await fs.readdir(exportDir);
 
@@ -691,11 +704,17 @@ async function getExport(slug, version) {
 
 /**
  * Get the export path for a given version (creates directory if needed)
- * @param {string} slug
+ * @param {string} solutionId - Solution ID (unused, for API consistency)
+ * @param {string} slug - Skill ID
  * @param {string|number} version
  * @returns {Promise<string>} Export directory path
  */
-async function getExportPath(slug, version) {
+async function getExportPath(solutionId, slug, version) {
+  // Support both (solutionId, slug, version) and (slug, version) for backwards compatibility
+  if (version === undefined) {
+    version = slug;
+    slug = solutionId;
+  }
   const exportDir = path.join(getMemoryRoot(), slug, 'exports', `v${version}`);
   await ensureDir(exportDir);
   return exportDir;
