@@ -343,7 +343,8 @@ export default function SolutionVerificationPanel({ solution, skills = [], valid
     // Skill validation
     const skillIssues = [];
     skills.forEach(skill => {
-      const toolCount = (skill.tools || []).length;
+      // Use tools array length, or fall back to tools_count from list endpoint
+      const toolCount = (skill.tools || []).length || skill.tools_count || 0;
       const hasPrompt = !!skill.prompt;
       const hasExamples = (skill.example_conversations || []).length > 0;
 
