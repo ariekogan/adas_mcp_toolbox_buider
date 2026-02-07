@@ -105,6 +105,10 @@ export default class OpenAIAdapter {
     const maxIterations = 5; // Prevent infinite loops
     const toolsUsedList = [];
 
+    // Check if prompts mention "json" - required for response_format: json_object
+    const allContent = systemPrompt + messages.map(m => m.content || '').join(' ');
+    const hasJsonMention = /\bjson\b/i.test(allContent);
+
     while (iterations < maxIterations) {
       iterations++;
 
@@ -112,9 +116,13 @@ export default class OpenAIAdapter {
         model: this.model,
         messages: allMessages,
         max_tokens: maxTokens,
-        temperature,
-        response_format: { type: "json_object" }  // Force JSON output
+        temperature
       };
+
+      // Only use json_object format when prompts explicitly mention "json"
+      if (hasJsonMention) {
+        requestBody.response_format = { type: "json_object" };
+      }
 
       if (tools.length > 0) {
         requestBody.tools = tools;
