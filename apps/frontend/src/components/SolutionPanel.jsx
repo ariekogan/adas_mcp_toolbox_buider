@@ -411,11 +411,19 @@ function OverviewView({ solution, solutionSkills, sidebarSkills, onNavigate }) {
 
     setIsValidating(true);
     try {
-      const response = await api.getSolutionValidation(solution.id);
-      const validation = response.validation;
+      // Use full validation report which includes intelligent LLM analysis
+      const response = await api.getSolutionValidationReport(solution.id);
+      const report = response.report;
 
-      setValidationData(validation);
-      setValidationStatus(validation.status); // 'valid' | 'warning' | 'error'
+      // Extract validation summary for status
+      const status = report.summary?.status || 'valid';
+      setValidationStatus(status);
+      setValidationData(report);
+
+      // Extract quality data from level_3_intelligent
+      if (report.level_3_intelligent?.overall_score) {
+        setQualityData(report.level_3_intelligent);
+      }
     } catch (err) {
       console.error('Validation failed:', err);
       setValidationStatus('error');
