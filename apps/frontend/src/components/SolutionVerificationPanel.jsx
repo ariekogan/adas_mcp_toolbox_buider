@@ -29,6 +29,13 @@ const STATUS_COLORS = {
   info: { bg: '#3b82f620', color: '#60a5fa', icon: 'ℹ' },
 };
 
+const GRADE_COLORS = {
+  excellent: { bg: '#10b98120', color: '#10b981', emoji: '🌟' },
+  good: { bg: '#3b82f620', color: '#60a5fa', emoji: '✅' },
+  fair: { bg: '#f59e0b20', color: '#f59e0b', emoji: '⚠️' },
+  bad: { bg: '#ef444420', color: '#ef4444', emoji: '❌' },
+};
+
 // ═══════════════════════════════════════════════════════════════
 // Styles
 // ═══════════════════════════════════════════════════════════════
@@ -189,6 +196,99 @@ const styles = {
     color: 'var(--text-muted)',
     fontStyle: 'italic',
   },
+  qualitySection: {
+    padding: '16px',
+    borderBottom: '1px solid var(--border)',
+    background: 'linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%)',
+  },
+  qualityHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: '12px',
+  },
+  qualityTitle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '14px',
+    fontWeight: '600',
+    color: 'var(--text-primary)',
+  },
+  qualityGrade: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '6px 12px',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: '600',
+  },
+  qualityScore: {
+    fontSize: '28px',
+    fontWeight: '700',
+    marginRight: '4px',
+  },
+  dimensionsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: '8px',
+    marginBottom: '12px',
+  },
+  dimensionCard: {
+    padding: '10px',
+    background: 'var(--bg-tertiary)',
+    borderRadius: '8px',
+    borderLeft: '3px solid',
+  },
+  dimensionLabel: {
+    fontSize: '10px',
+    fontWeight: '500',
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    marginBottom: '4px',
+  },
+  dimensionScore: {
+    fontSize: '18px',
+    fontWeight: '700',
+  },
+  suggestionsList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+  },
+  suggestion: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '8px',
+    padding: '8px 10px',
+    background: 'var(--bg-tertiary)',
+    borderRadius: '6px',
+    fontSize: '12px',
+  },
+  suggestionPriority: {
+    flexShrink: 0,
+    padding: '2px 6px',
+    borderRadius: '4px',
+    fontSize: '9px',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  suggestionText: {
+    flex: 1,
+    color: 'var(--text-primary)',
+  },
+  qualitySummary: {
+    marginTop: '12px',
+    padding: '10px',
+    background: 'var(--bg-tertiary)',
+    borderRadius: '6px',
+    fontSize: '12px',
+    color: 'var(--text-secondary)',
+    lineHeight: '1.5',
+    fontStyle: 'italic',
+  },
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -217,6 +317,109 @@ function SkillPill({ skillId, role }) {
     }}>
       {skillId}
     </span>
+  );
+}
+
+function QualityScoreSection({ qualityData }) {
+  if (!qualityData || !qualityData.overall_score) return null;
+
+  const grade = qualityData.grade || 'fair';
+  const gradeStyle = GRADE_COLORS[grade] || GRADE_COLORS.fair;
+
+  const getDimensionColor = (score) => {
+    if (score >= 80) return '#10b981';
+    if (score >= 60) return '#3b82f6';
+    if (score >= 40) return '#f59e0b';
+    return '#ef4444';
+  };
+
+  const priorityColors = {
+    high: { bg: '#ef444430', color: '#ef4444' },
+    medium: { bg: '#f59e0b30', color: '#f59e0b' },
+    low: { bg: '#3b82f630', color: '#60a5fa' },
+  };
+
+  const dimensionLabels = {
+    goal_coverage: 'Goal Coverage',
+    scenario_completeness: 'Scenarios',
+    skill_coherence: 'Coherence',
+    integration_quality: 'Integration',
+    security_posture: 'Security',
+    operational_readiness: 'Ops Ready',
+  };
+
+  return (
+    <div style={styles.qualitySection}>
+      {/* Header with grade */}
+      <div style={styles.qualityHeader}>
+        <div style={styles.qualityTitle}>
+          <span>🎯</span>
+          <span>Quality Assessment</span>
+        </div>
+        <div style={{
+          ...styles.qualityGrade,
+          background: gradeStyle.bg,
+          color: gradeStyle.color,
+        }}>
+          <span style={styles.qualityScore}>{qualityData.overall_score}</span>
+          <span>{gradeStyle.emoji} {grade.charAt(0).toUpperCase() + grade.slice(1)}</span>
+        </div>
+      </div>
+
+      {/* Dimension scores grid */}
+      {qualityData.dimensions && (
+        <div style={styles.dimensionsGrid}>
+          {Object.entries(qualityData.dimensions).map(([key, dim]) => (
+            <div
+              key={key}
+              style={{
+                ...styles.dimensionCard,
+                borderLeftColor: getDimensionColor(dim.score || 0),
+              }}
+            >
+              <div style={styles.dimensionLabel}>{dimensionLabels[key] || key}</div>
+              <div style={{
+                ...styles.dimensionScore,
+                color: getDimensionColor(dim.score || 0),
+              }}>
+                {dim.score || 0}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Top suggestions */}
+      {qualityData.top_suggestions && qualityData.top_suggestions.length > 0 && (
+        <div style={styles.suggestionsList}>
+          <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '4px' }}>
+            Top Suggestions
+          </div>
+          {qualityData.top_suggestions.slice(0, 3).map((suggestion, i) => {
+            const pStyle = priorityColors[suggestion.priority] || priorityColors.medium;
+            return (
+              <div key={i} style={styles.suggestion}>
+                <span style={{
+                  ...styles.suggestionPriority,
+                  background: pStyle.bg,
+                  color: pStyle.color,
+                }}>
+                  {suggestion.priority}
+                </span>
+                <span style={styles.suggestionText}>{suggestion.description}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Summary */}
+      {qualityData.summary && (
+        <div style={styles.qualitySummary}>
+          {qualityData.summary}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -282,7 +485,7 @@ function ValidationSection({ title, icon, items, status, expanded, onToggle }) {
 // ═══════════════════════════════════════════════════════════════
 // Main Component
 // ═══════════════════════════════════════════════════════════════
-export default function SolutionVerificationPanel({ solution, skills = [], validationData }) {
+export default function SolutionVerificationPanel({ solution, skills = [], validationData, qualityData }) {
   const [expandedSections, setExpandedSections] = useState({
     skills: true,
     grants: false,
@@ -564,6 +767,9 @@ export default function SolutionVerificationPanel({ solution, skills = [], valid
           </span>
         </div>
       </div>
+
+      {/* Quality Assessment (LLM-based) */}
+      <QualityScoreSection qualityData={qualityData} />
 
       {/* Validation Sections */}
       <ValidationSection

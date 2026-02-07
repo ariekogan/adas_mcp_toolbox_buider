@@ -12,6 +12,7 @@ import skillsStore from '../store/skills.js';
 import { processSolutionMessage } from '../services/solutionConversation.js';
 import { validateSolution } from '../validators/solutionValidator.js';
 import { validateSecurity } from '../validators/securityValidator.js';
+import { validateSolutionQuality } from '../validators/solutionQualityValidator.js';
 import skillsRouter from './skills.js';
 
 const router = Router();
@@ -937,23 +938,78 @@ router.get('/:id/validation-report', async (req, res, next) => {
     });
 
     // ═══════════════════════════════════════════════════════════
-    // LEVEL 3: Intelligent Analysis (placeholder)
+    // LEVEL 3: Intelligent Analysis (LLM-based quality validation)
     // ═══════════════════════════════════════════════════════════
 
-    report.level_3_intelligent.issues.push({
-      severity: 'info',
-      code: 'LLM_ANALYSIS_PENDING',
-      message: 'Intelligent analysis requires LLM processing',
-      context: {
-        available_checks: [
-          'Tool coverage vs skill purpose',
-          'Security policy vs grant configuration',
-          'Handoff flow coherence',
-          'Missing skill capabilities'
-        ]
-      },
-      suggestion: 'Feed this report to PB for intelligent analysis'
-    });
+    // Check if LLM analysis is requested (via query param or default enabled)
+    const runIntelligentAnalysis = req.query.intelligent !== 'false';
+
+    if (runIntelligentAnalysis) {
+      try {
+        // Get LLM settings from solution or environment
+        const settings = {
+          llm_provider: solution._settings?.llm_provider || process.env.LLM_PROVIDER || 'openai',
+          api_key: solution._settings?.api_key || process.env.OPENAI_API_KEY,
+          llm_model: solution._settings?.llm_model || process.env.OPENAI_MODEL || 'gpt-4.1-2025-04-14',
+        };
+
+        console.log(`[Validation Report] Running intelligent analysis for ${solution.name}...`);
+
+        const qualityResult = await validateSolutionQuality(solution, skills, { settings });
+
+        // Populate level_3_intelligent with quality results
+        report.level_3_intelligent = {
+          title: 'Intelligent Quality Analysis',
+          description: 'LLM-based assessment of solution completeness and design quality',
+          overall_score: qualityResult.overall_score,
+          grade: qualityResult.grade,
+          grade_label: qualityResult.grade_label,
+          dimensions: qualityResult.dimensions,
+          strengths: qualityResult.strengths,
+          critical_issues: qualityResult.critical_issues,
+          top_suggestions: qualityResult.top_suggestions,
+          summary: qualityResult.summary,
+          _analysis_metadata: qualityResult._analysis,
+          issues: [], // Convert critical issues to standard issue format below
+        };
+
+        // Convert critical issues to standard issue format for summary counting
+        for (const issue of qualityResult.critical_issues || []) {
+          report.level_3_intelligent.issues.push({
+            severity: 'warning',
+            code: 'QUALITY_ISSUE',
+            message: issue,
+          });
+        }
+
+        // Convert high-priority suggestions to info issues
+        for (const suggestion of (qualityResult.top_suggestions || []).filter(s => s.priority === 'high')) {
+          report.level_3_intelligent.issues.push({
+            severity: 'info',
+            code: 'IMPROVEMENT_SUGGESTED',
+            message: suggestion.description,
+            context: { category: suggestion.category, impact: suggestion.impact },
+          });
+        }
+
+        console.log(`[Validation Report] Quality score: ${qualityResult.overall_score}/100 (${qualityResult.grade})`);
+
+      } catch (err) {
+        console.error('[Validation Report] Intelligent analysis failed:', err.message);
+        report.level_3_intelligent.issues.push({
+          severity: 'warning',
+          code: 'LLM_ANALYSIS_FAILED',
+          message: 'Intelligent analysis failed: ' + err.message,
+          suggestion: 'Check LLM API key configuration',
+        });
+      }
+    } else {
+      report.level_3_intelligent.issues.push({
+        severity: 'info',
+        code: 'LLM_ANALYSIS_SKIPPED',
+        message: 'Intelligent analysis was skipped (use ?intelligent=true to enable)',
+      });
+    }
 
     // ═══════════════════════════════════════════════════════════
     // Calculate summary (including per-skill issues)

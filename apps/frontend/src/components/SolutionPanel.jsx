@@ -402,6 +402,7 @@ export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate
 function OverviewView({ solution, solutionSkills, sidebarSkills, onNavigate }) {
   const [validationStatus, setValidationStatus] = useState(null);
   const [validationData, setValidationData] = useState(null);
+  const [qualityData, setQualityData] = useState(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -428,8 +429,14 @@ function OverviewView({ solution, solutionSkills, sidebarSkills, onNavigate }) {
 
     setIsExporting(true);
     try {
+      // Fetch the full validation report (includes intelligent analysis)
       const response = await api.getSolutionValidationReport(solution.id);
       const report = response.report;
+
+      // Extract quality data from level_3_intelligent
+      if (report.level_3_intelligent?.overall_score) {
+        setQualityData(report.level_3_intelligent);
+      }
 
       // Download as JSON file
       const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
@@ -470,6 +477,7 @@ function OverviewView({ solution, solutionSkills, sidebarSkills, onNavigate }) {
         solution={solution}
         skills={sidebarSkills}
         validationData={validationData}
+        qualityData={qualityData}
       />
     </div>
   );
