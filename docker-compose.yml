@@ -11,9 +11,9 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo}
       - TENANTS_ROOT=/tenants
-      # ADAS CORE connection (uses Tailscale IP for mac1 since services run on different machines)
-      - ADAS_CORE_URL=${ADAS_CORE_URL:-http://100.125.67.116:4100}
-      - CORE_MCP_URL=${CORE_MCP_URL:-http://100.125.67.116:4310/mcp}
+      # ADAS CORE connection (uses host.docker.internal since both run on same machine)
+      - ADAS_CORE_URL=${ADAS_CORE_URL:-http://host.docker.internal:4100}
+      - CORE_MCP_URL=${CORE_MCP_URL:-http://host.docker.internal:4310/mcp}
       - CORE_MCP_SECRET=${CORE_MCP_SECRET:-7a0cf2318aa65a2b4bbe2e572a4152f7995fe7d8d52269e7201b9488b79cac62}
     extra_hosts:
       - "host.docker.internal:host-gateway"
