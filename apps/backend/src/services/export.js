@@ -1952,6 +1952,7 @@ export function generateAdasExportFiles(toolbox) {
 
   // Add each regular tool as a separate .mjs file
   for (const tool of tools) {
+    if (tool.source?.type === "mcp_bridge") continue; // Skip — Tier 3 connector system handles these directly
     files.push({
       name: `tools/${tool.name}.mjs`,
       content: generateJSTool(tool)
