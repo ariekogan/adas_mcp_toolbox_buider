@@ -1,7 +1,8 @@
 import { Router } from "express";
 import skillsStore from "../store/skills.js";
 import solutionsStore from "../store/solutions.js";
-import { generateExportFiles, generateAdasExportPayload, generateAdasExportFiles } from "../services/export.js";
+import { generateExportFiles } from "../services/export.js";
+import { generateAdasExportPayload, generateAdasExportFiles } from "../services/exportAdasCore.js";
 import { generateNodeMCPFiles, generateGenericTemplate } from "../services/exportNodeMCP.js";
 import { provisionSkillActor, listTriggers, toggleTrigger, getTriggerHistory } from "../services/cpAdminBridge.js";
 import { generateMCPWithAgent, generateMCPSimple, isAgentSDKAvailable } from "../services/mcpGenerationAgent.js";
