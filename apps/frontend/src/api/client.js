@@ -766,6 +766,24 @@ export async function triggerRetentionCleanup(dryRun = false) {
 }
 
 // ============================================
+// Node.js MCP Template Export
+// ============================================
+
+export async function downloadGenericMCPTemplate() {
+  return request('/export/mcp/template/generic');
+}
+
+export async function exportNodeMCPTemplate(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}/mcp/template?solution_id=${solutionId}`, { method: 'POST' });
+}
+
+export async function previewNodeMCPTemplate(solutionId, skillId) {
+  if (!solutionId) throw new Error('solutionId is required');
+  return request(`/export/${skillId}/mcp/template/preview?solution_id=${solutionId}`);
+}
+
+// ============================================
 // MCP Generation (Autonomous Agent)
 // ============================================
 
@@ -963,6 +981,10 @@ export default {
   getTriggersStatus,
   toggleTriggerInCore,
   getTriggerHistory,
+  // Node.js MCP Template
+  downloadGenericMCPTemplate,
+  exportNodeMCPTemplate,
+  previewNodeMCPTemplate,
   // MCP Generation
   listSkillMCPs,
   previewMCPGeneration,

@@ -2,6 +2,7 @@ import { Router } from "express";
 import skillsStore from "../store/skills.js";
 import solutionsStore from "../store/solutions.js";
 import { generateExportFiles, generateAdasExportPayload, generateAdasExportFiles } from "../services/export.js";
+import { generateNodeMCPFiles, generateGenericTemplate } from "../services/exportNodeMCP.js";
 import { provisionSkillActor, listTriggers, toggleTrigger, getTriggerHistory } from "../services/cpAdminBridge.js";
 import { generateMCPWithAgent, generateMCPSimple, isAgentSDKAvailable } from "../services/mcpGenerationAgent.js";
 import { MCPDevelopmentSession, analyzeSkillForMCP, MCP_DEV_PHASES } from "../services/mcpDevelopmentAgent.js";
@@ -992,6 +993,134 @@ router.get("/:skillId/adas/preview", async (req, res, next) => {
     const files = generateAdasExportFiles(skill);
 
     res.json({
+      files: files.map(f => ({
+        name: f.name,
+        content: f.content,
+        size: f.content.length
+      }))
+    });
+
+  } catch (err) {
+    if (err.message?.includes('not found') || err.code === "ENOENT") {
+      return res.status(404).json({ error: "Skill not found" });
+    }
+    next(err);
+  }
+});
+
+// ============================================================================
+// GENERIC NODE.JS MCP TEMPLATE (not tied to any skill)
+// ============================================================================
+
+/**
+ * GET /api/export/mcp/template/generic
+ *
+ * Download a generic/blank Node.js MCP template as a reference starting point.
+ * No skill or solution required.
+ */
+router.get("/mcp/template/generic", async (_req, res, next) => {
+  try {
+    const files = generateGenericTemplate();
+    res.json({
+      ok: true,
+      method: "generic-node-mcp-template",
+      files: files.map(f => ({
+        name: f.name,
+        content: f.content,
+        size: f.content.length
+      }))
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================================
+// NODE.JS MCP TEMPLATE EXPORT (from specific skill)
+// ============================================================================
+
+/**
+ * POST /api/export/:skillId/mcp/template
+ *
+ * Generate a Node.js MCP template from the skill's tool definitions.
+ * Returns file listing with download URL.
+ */
+router.post("/:skillId/mcp/template", async (req, res, next) => {
+  try {
+    const { skillId } = req.params;
+    const { solution_id } = req.query;
+    const log = req.app.locals.log;
+
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    const skill = await skillsStore.load(solution_id, skillId);
+
+    if (!skill.tools?.length) {
+      return res.status(400).json({ error: "Skill has no tools defined" });
+    }
+
+    const incompleteTool = skill.tools.find(t => !t.name || !t.description);
+    if (incompleteTool) {
+      return res.status(400).json({
+        error: "Not all tools are complete",
+        incomplete_tool: incompleteTool?.name || "unnamed tool",
+        missing: !incompleteTool?.name ? "name" : "description"
+      });
+    }
+
+    log.info(`[export] Generating Node.js MCP template for skill ${skillId}`);
+
+    const files = generateNodeMCPFiles(skill);
+
+    // Save as a new export version
+    const version = (skill.version || 0) + 1;
+    skill.version = version;
+    await skillsStore.saveExport(solution_id, skillId, version, files);
+
+    skill.phase = "EXPORTED";
+    await skillsStore.save(skill);
+
+    res.json({
+      ok: true,
+      version,
+      method: "node-mcp-template",
+      files: files.map(f => ({
+        name: f.name,
+        size: f.content.length,
+        preview: f.content.slice(0, 200) + (f.content.length > 200 ? "..." : "")
+      })),
+      download_url: `/api/export/${skillId}/download/${version}?solution_id=${solution_id}`
+    });
+
+  } catch (err) {
+    if (err.message?.includes('not found') || err.code === "ENOENT") {
+      return res.status(404).json({ error: "Skill not found" });
+    }
+    next(err);
+  }
+});
+
+/**
+ * GET /api/export/:skillId/mcp/template/preview
+ *
+ * Preview Node.js MCP template files without saving.
+ */
+router.get("/:skillId/mcp/template/preview", async (req, res, next) => {
+  try {
+    const { skillId } = req.params;
+    const { solution_id } = req.query;
+
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    const skill = await skillsStore.load(solution_id, skillId);
+    const files = generateNodeMCPFiles(skill);
+
+    res.json({
+      ok: true,
       files: files.map(f => ({
         name: f.name,
         content: f.content,

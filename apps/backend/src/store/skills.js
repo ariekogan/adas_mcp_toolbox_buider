@@ -671,7 +671,9 @@ async function saveExport(solutionId, slug, version, files) {
   await ensureDir(exportDir);
 
   for (const file of files) {
-    await fs.writeFile(path.join(exportDir, file.name), file.content);
+    const filePath = path.join(exportDir, file.name);
+    await ensureDir(path.dirname(filePath));
+    await fs.writeFile(filePath, file.content);
   }
 
   return exportDir;
@@ -691,15 +693,24 @@ async function getExport(solutionId, slug, version) {
     slug = solutionId;
   }
   const exportDir = path.join(getMemoryRoot(), slug, 'exports', `v${version}`);
-  const files = await fs.readdir(exportDir);
 
-  const result = [];
-  for (const file of files) {
-    const content = await fs.readFile(path.join(exportDir, file), 'utf-8');
-    result.push({ name: file, content });
+  // Recursively collect files (supports nested paths like src/store.js)
+  async function collectFiles(dir, prefix = '') {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const result = [];
+    for (const entry of entries) {
+      const relativeName = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        result.push(...await collectFiles(path.join(dir, entry.name), relativeName));
+      } else {
+        const content = await fs.readFile(path.join(dir, entry.name), 'utf-8');
+        result.push({ name: relativeName, content });
+      }
+    }
+    return result;
   }
 
-  return result;
+  return collectFiles(exportDir);
 }
 
 /**

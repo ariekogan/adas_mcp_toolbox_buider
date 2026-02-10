@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { generateMCP, downloadMCPExport, deployMCPToAdas } from '../api/client';
+import { generateMCP, downloadMCPExport, deployMCPToAdas, exportNodeMCPTemplate } from '../api/client';
 
 const styles = {
   overlay: {
@@ -105,6 +105,21 @@ const styles = {
     gap: '8px',
     transition: 'opacity 0.2s'
   },
+  templateBtn: {
+    background: 'linear-gradient(135deg, #14b8a6, #0d9488)',
+    color: 'white',
+    border: 'none',
+    padding: '14px 24px',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '500',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    transition: 'opacity 0.2s'
+  },
   disabledBtn: {
     opacity: 0.6,
     cursor: 'not-allowed'
@@ -196,6 +211,7 @@ export default function ExportModal({
   onClose,
   skillId,
   skillName,
+  solutionId,
   onExportFiles,
   onDeployToAdas
 }) {
@@ -248,7 +264,7 @@ export default function ExportModal({
     setError(null);
     setResult(null);
     try {
-      const res = await deployMCPToAdas(skillId);
+      const res = await deployMCPToAdas(solutionId, skillId);
       setResult({
         type: 'deploy-mcp',
         message: `Skill "${res.skillSlug}" deployed to ADAS Core!`,
@@ -269,7 +285,7 @@ export default function ExportModal({
     setGeneratedVersion(null);
 
     try {
-      for await (const event of generateMCP(skillId)) {
+      for await (const event of generateMCP(solutionId, skillId)) {
         if (event.type === 'phase_change') {
           setGenerationProgress(prev => [...prev, { type: 'phase', message: event.message }]);
         } else if (event.type === 'iteration') {
@@ -308,11 +324,35 @@ export default function ExportModal({
 
     setLoading('download');
     try {
-      const data = await downloadMCPExport(skillId, generatedVersion);
+      const data = await downloadMCPExport(solutionId, skillId, generatedVersion);
       data.files.forEach((file, index) => {
         setTimeout(() => downloadFile(file.name, file.content), index * 150);
       });
       setResult({ type: 'download', message: `Downloaded ${data.files.length} generated files` });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleExportTemplate = async () => {
+    setLoading('template');
+    setError(null);
+    setResult(null);
+    try {
+      const res = await exportNodeMCPTemplate(solutionId, skillId);
+      // Download the saved files
+      const data = await downloadMCPExport(solutionId, skillId, res.version);
+      if (data.files) {
+        data.files.forEach((file, index) => {
+          setTimeout(() => downloadFile(file.name, file.content), index * 150);
+        });
+      }
+      setResult({
+        type: 'template',
+        message: `Downloaded ${res.files.length} template files (v${res.version})`
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -459,6 +499,28 @@ export default function ExportModal({
                   <span>✨</span>
                   Generate MCP Server
                 </>
+              )}
+            </button>
+
+            <div style={styles.divider} />
+
+            {/* Template export */}
+            <div style={styles.sectionTitle}>Development Template</div>
+            <button
+              style={{
+                ...styles.templateBtn,
+                ...(loading ? styles.disabledBtn : {})
+              }}
+              onClick={handleExportTemplate}
+              disabled={!!loading || !solutionId}
+            >
+              {loading === 'template' ? (
+                <>
+                  <div style={styles.spinner} />
+                  Generating Template...
+                </>
+              ) : (
+                'Export Node.js MCP Template'
               )}
             </button>
 

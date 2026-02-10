@@ -400,6 +400,29 @@ export default function App() {
     return api.deployToAdas(currentSolution.id, currentSkill.id);
   }, [currentSkill, currentSolution?.id]);
 
+  const handleDownloadGenericTemplate = useCallback(async () => {
+    try {
+      const result = await api.downloadGenericMCPTemplate();
+      if (result.files) {
+        result.files.forEach((file, index) => {
+          setTimeout(() => {
+            const blob = new Blob([file.content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = file.name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }, index * 150);
+        });
+      }
+    } catch (err) {
+      console.error('Failed to download generic template:', err);
+    }
+  }, []);
+
   // File upload handlers
   const handleFileUpload = useCallback(async (file) => {
     if (!currentSkill || !currentSolution?.id) return;
@@ -548,6 +571,13 @@ export default function App() {
                   >
                     Policies & Retention
                   </button>
+                  <div style={{ height: '1px', background: 'var(--border)', margin: '2px 0' }} />
+                  <button
+                    style={styles.gearMenuItem}
+                    onClick={() => { handleDownloadGenericTemplate(); setGearMenuOpen(false); }}
+                  >
+                    Download MCP Template
+                  </button>
                 </div>
               </>
             )}
@@ -689,6 +719,7 @@ export default function App() {
         onClose={() => setExportModalOpen(false)}
         skillId={currentSkill?.id}
         skillName={currentSkill?.name}
+        solutionId={currentSolution?.id}
         onExportFiles={handleExportFiles}
         onDeployToAdas={handleDeployToAdas}
       />
