@@ -201,6 +201,46 @@ router.post('/:id/chat', async (req, res, next) => {
 });
 
 /**
+ * Suggest user types based on skill names/descriptions
+ * Analyzes skills to infer obvious user types for the solution.
+ */
+function suggestUserTypes(skills) {
+  const text = skills.map(s => `${s.name || ''} ${s.description || ''} ${s.id || ''}`).join(' ').toLowerCase();
+
+  // Pattern matching for common domains
+  const hasCustomerFacing = /customer|support|shopping|order|cart|checkout|ecommerce|e-commerce|retail/i.test(text);
+  const hasSupport = /support|helpdesk|ticket|tier|agent|customer.?service/i.test(text);
+  const hasFinance = /finance|payment|refund|billing|accounting|reconciliation/i.test(text);
+  const hasFulfillment = /fulfillment|shipping|delivery|logistics|warehouse/i.test(text);
+  const hasApproval = skills.some(s => s.role === 'approval');
+  const hasGateway = skills.some(s => s.role === 'gateway');
+
+  const types = [];
+
+  if (hasCustomerFacing) {
+    types.push({ key: 'customer', label: 'Customer', description: 'End user who contacts support or uses services' });
+  }
+  if (hasSupport) {
+    types.push({ key: 'support_agent', label: 'Support Agent', description: 'Staff handling customer requests and tickets' });
+  }
+  if (hasFinance || hasApproval) {
+    types.push({ key: 'admin', label: 'Admin', description: 'Back-office staff with approval and management access' });
+  } else if (hasGateway || skills.length > 2) {
+    types.push({ key: 'admin', label: 'Admin', description: 'System administrator with full access' });
+  }
+
+  // Fallback: if nothing matched, suggest generic types
+  if (types.length === 0) {
+    types.push(
+      { key: 'user', label: 'User', description: 'Primary user of the solution' },
+      { key: 'admin', label: 'Admin', description: 'Administrator with full access' },
+    );
+  }
+
+  return types;
+}
+
+/**
  * Get initial greeting for solution chat
  * GET /api/solutions/:id/greeting
  *
@@ -259,13 +299,22 @@ Let's start! What kind of solution are you building?`,
     if (handoffs.length > 0) statusParts.push(`**${handoffs.length} handoffs** configured`);
     if (channels.length > 0) statusParts.push(`**Routing**: ${channels.join(', ')}`);
     if (contracts.length > 0) statusParts.push(`**${contracts.length} security contracts**`);
-    if (actorTypes.length > 0) statusParts.push(`**Identity**: ${actorTypes.map(a => a.label).join(', ')}`);
+    if (actorTypes.length > 0) statusParts.push(`**Users & Roles**: ${actorTypes.map(a => a.label).join(', ')}`);
 
     // Determine suggested actions based on what's missing
     const suggestions = [];
 
     if (actorTypes.length === 0) {
-      suggestions.push('Define identity — who are the users of this solution? (actor types, admin roles)');
+      // Proactive: suggest user types based on skill analysis
+      const suggestedTypes = suggestUserTypes(skills);
+      if (suggestedTypes.length > 0) {
+        const typeList = suggestedTypes.map(t => `**${t.label}** — ${t.description}`).join('\n- ');
+        statusParts.push(`\n\n**Users & Roles** not defined yet. Based on your skills, I'd suggest:\n- ${typeList}`);
+        suggestions.push('Use these suggested user types');
+        suggestions.push('I want different user types');
+      } else {
+        suggestions.push('Set up Users & Roles — who are the people using this solution?');
+      }
     }
     if (grants.length === 0 && skills.length > 1) {
       suggestions.push('Design the grant economy — what verified claims flow between skills?');
@@ -284,7 +333,7 @@ Let's start! What kind of solution are you building?`,
     suggestions.push('Run validation and review the solution health');
     suggestions.push('Add or modify skills in the topology');
     if (actorTypes.length > 0) {
-      suggestions.push('Review and update identity configuration');
+      suggestions.push('Review and update Users & Roles');
     }
 
     // Cap at 4 options for the selection UI
@@ -293,8 +342,6 @@ Let's start! What kind of solution are you building?`,
     const message = `Welcome back to **${solution.name || 'your solution'}**! Here's where things stand:
 
 ${statusParts.map(p => `- ${p}`).join('\n')}
-
-**Current phase**: ${phase}
 
 What would you like to work on?`;
 

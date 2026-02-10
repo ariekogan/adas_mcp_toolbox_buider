@@ -231,12 +231,13 @@ export default function App() {
     mocks: 'Mocks',
     // Solution panel tabs (lowercase for backend suggested_focus)
     overview: 'Overview',
+    'users-roles': 'Users & Roles',
     'team-map': 'Team Map',
     architecture: 'Architecture',
     'trust-rules': 'Trust Rules',
     // Solution panel tabs (title-case as used by SolutionPanel component)
     'Overview': 'Overview',
-    'Identity': 'Identity',
+    'Users & Roles': 'Users & Roles',
     'Team Map': 'Team Map',
     'Architecture': 'Architecture',
     'Trust Rules': 'Trust Rules',
@@ -244,7 +245,8 @@ export default function App() {
 
   // Maps label → focus object for navigation
   const LABEL_TO_FOCUS = useMemo(() => ({
-    'Identity': { tab: 'identity' },
+    'Users & Roles': { tab: 'Users & Roles' },
+    'Identity': { tab: 'Users & Roles' }, // backward compat: old suggested_focus
     'Problem': { tab: 'identity', section: 'problem' },
     'Scenarios': { tab: 'identity', section: 'scenarios' },
     'Role': { tab: 'identity', section: 'role' },
@@ -276,7 +278,7 @@ export default function App() {
     { pattern: /\b(engine|model|llm|temperature)\b/i, label: 'Engine' },
     { pattern: /\b(trigger|email|webhook|schedule|cron)\b/i, label: 'Triggers' },
     { pattern: /\b(connector|mcp|external.*service)\b/i, label: 'Connectors' },
-    { pattern: /\b(identity|actor|user.*type)\b/i, label: 'Identity' },
+    { pattern: /\b(identity|actor|user.*type|users.*roles)\b/i, label: 'Users & Roles' },
     { pattern: /\b(handoff|routing|team.?map|topology)\b/i, label: 'Team Map' },
     { pattern: /\b(architecture|diagram|overview)\b/i, label: 'Architecture' },
     { pattern: /\b(trust|grant|contract|verification)\b/i, label: 'Trust Rules' },

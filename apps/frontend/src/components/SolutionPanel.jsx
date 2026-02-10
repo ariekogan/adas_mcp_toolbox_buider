@@ -3,7 +3,7 @@
  *
  * Five tabs:
  *   1. Overview — Summary card + verification panel
- *   2. Identity — Actor types, roles, admin privileges
+ *   2. Users & Roles — User types, roles, admin privileges
  *   3. Team Map — SVG graph of skills, handoffs, and channel entries
  *   4. Architecture — Skills + connectors diagram with links
  *   5. Trust Rules — Verification requirements grouped by skill (Story Mode) + raw table (Advanced)
@@ -166,7 +166,7 @@ function SvgIcon({ pathD, color, x, y, size = 14 }) {
   );
 }
 
-const TABS = ['Overview', 'Identity', 'Team Map', 'Architecture', 'Trust Rules'];
+const TABS = ['Overview', 'Users & Roles', 'Team Map', 'Architecture', 'Trust Rules'];
 
 // ═══════════════════════════════════════════════════════════════
 // Shared SVG Defs
@@ -389,7 +389,7 @@ export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate
         {activeTab === 'Overview' && (
           <OverviewView solution={solution} solutionSkills={skills} sidebarSkills={sidebarSkills} onNavigate={onNavigate} />
         )}
-        {activeTab === 'Identity' && (
+        {activeTab === 'Users & Roles' && (
           <IdentityConfigPanel
             identity={solution.identity || {}}
             onUpdate={async (updates) => {
@@ -397,7 +397,7 @@ export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate
                 await api.updateSolution(solution.id, updates);
                 if (onSolutionUpdate) onSolutionUpdate();
               } catch (err) {
-                console.error('[SolutionPanel] Identity update failed:', err);
+                console.error('[SolutionPanel] Users & Roles update failed:', err);
               }
             }}
           />

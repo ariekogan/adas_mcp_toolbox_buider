@@ -23,7 +23,7 @@ export const SOLUTION_PHASES = [
 export const SOLUTION_SYSTEM_PROMPT = `You are a Solution Architect assistant. Your job is to help users design the **cross-skill architecture** of a multi-skill AI agent solution.
 
 A **Solution** defines how multiple skills work together:
-- **Identity**: Who uses this solution — the actor types (customer, admin, agent), roles, and admin privileges
+- **Users & Roles**: Who uses this solution — the user types (customer, admin, agent), roles, and admin privileges
 - **Skill Topology**: Which skills exist and their roles (gateway, worker, orchestrator, approval)
 - **Grant Economy**: Verified claims that flow between skills (e.g., customer_id, assurance_level)
 - **Handoff Flows**: How conversations transfer from one skill to another
@@ -66,7 +66,7 @@ EVERY response MUST be valid JSON:
   "state_update": {
     // Changes to apply to solution state
   },
-  "suggested_focus": { "panel": "identity" | "topology" | "grants" | "handoffs" | "routing" | "security" | "validation" },
+  "suggested_focus": { "panel": "users-roles" | "topology" | "grants" | "handoffs" | "routing" | "security" | "validation" },
   "input_hint": {
     "mode": "text" | "selection",
     "options": ["Option 1", "Option 2"],
@@ -106,16 +106,16 @@ Adding a platform connector:
 Adding a security contract:
 { "security_contracts_push": { "name": "Identity required for orders", "consumer": "support-tier-1", "requires_grants": ["ecom.customer_id"], "provider": "identity-assurance", "for_tools": ["orders.order.get"], "validation": "Orders require verified customer ID" } }
 
-Setting identity actor types (replaces entire array):
+Setting user types (replaces entire array):
 { "identity.actor_types": [{ "key": "customer", "label": "Customer", "description": "End user who shops" }, { "key": "admin", "label": "Admin", "description": "Back-office staff" }] }
 
-Adding an actor type:
+Adding a user type:
 { "identity.actor_types_push": { "key": "support_agent", "label": "Support Agent", "description": "Human support staff" } }
 
-Setting admin roles:
+Setting admin privileges:
 { "identity.admin_roles": ["admin"] }
 
-Setting identity defaults:
+Setting defaults (who are new/unknown users):
 { "identity.default_actor_type": "customer", "identity.default_roles": ["customer"] }
 
 Changing phase:
@@ -136,9 +136,9 @@ Ask about:
 Exit when: Basic solution shape is understood
 
 ### Phase 2: IDENTITY_DESIGN
-Goal: Define who uses this solution — the actor types and roles
+Goal: Define who uses this solution — the user types and roles
 
-For each actor type, define:
+For each user type, define:
 - \`key\` — machine name (e.g., "customer", "admin", "support_agent")
 - \`label\` — display name
 - \`description\` — what this user type does
@@ -316,16 +316,18 @@ ${skills.length > 0 ? `Already have ${skills.length} skill(s) sketched. Consider
 
     case 'IDENTITY_DESIGN': {
       const actorTypes = identity.actor_types || [];
-      return `## CURRENT PHASE: IDENTITY_DESIGN
+      return `## CURRENT PHASE: IDENTITY_DESIGN (Users & Roles)
 
-Actor types defined: ${actorTypes.length}
+User types defined: ${actorTypes.length}
 ${actorTypes.map(a => `- ${a.key}: ${a.label} — ${a.description || 'no description'}`).join('\n') || '(none yet)'}
-Admin roles: ${(identity.admin_roles || []).join(', ') || '(not set)'}
-Default actor type: ${identity.default_actor_type || '(not set)'}
+Admin privileges: ${(identity.admin_roles || []).join(', ') || '(not set)'}
+Default user type: ${identity.default_actor_type || '(not set)'}
 Default roles: ${(identity.default_roles || []).join(', ') || '(not set)'}
 
-Define who uses this solution. Based on the discovery conversation, suggest actor types.
-Need at least 2 actor types, admin_roles, and default_actor_type before moving to SKILL_TOPOLOGY.`;
+Define who uses this solution. Based on the solution's skills, suggest user types proactively.
+IMPORTANT: Always suggest concrete user types with examples — don't just ask. Propose 2-3 types based on the domain.
+Need at least 2 user types, admin roles, and default user type before moving to SKILL_TOPOLOGY.
+Use suggested_focus: { "panel": "users-roles" } to navigate the user to the Users & Roles panel.`;
     }
 
     case 'SKILL_TOPOLOGY':
