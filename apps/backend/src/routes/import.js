@@ -1107,8 +1107,7 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
     }
 
     // ── Phase 2: Deploy skills (direct call, no self-referential HTTP) ──
-    // Get solution ID from the package (stored when importing)
-    const solutionId = pkg.solution?.id;
+    // solutionId already declared above from pkg.solution?.id
 
     for (let i = 0; i < totalSkills; i++) {
       const skillRef = pkg.skills[i];

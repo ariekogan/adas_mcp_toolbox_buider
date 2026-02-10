@@ -294,7 +294,7 @@ function Legend({ items }) {
 // ═══════════════════════════════════════════════════════════════
 // Main Component
 // ═══════════════════════════════════════════════════════════════
-export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate, onSolutionUpdate }) {
+export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate, onSolutionUpdate, onFocusChange }) {
   const [activeTab, setActiveTab] = useState('Overview');
   const [trustRulesFilter, setTrustRulesFilter] = useState(null);
   const [mapHighlight, setMapHighlight] = useState(null);
@@ -375,7 +375,10 @@ export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate
               ...styles.tab,
               ...(activeTab === tab ? styles.tabActive : {}),
             }}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => {
+              setActiveTab(tab);
+              onFocusChange?.({ tab });
+            }}
           >
             {tab}
           </button>

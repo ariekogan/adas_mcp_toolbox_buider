@@ -203,10 +203,27 @@ router.post('/:id/chat', async (req, res, next) => {
 /**
  * Get initial greeting for solution chat
  * GET /api/solutions/:id/greeting
+ *
+ * State-aware: returns different greeting depending on solution maturity.
+ * - New solution (no skills) → discovery greeting
+ * - Existing solution → contextual status + suggested next actions
  */
 router.get('/:id/greeting', async (req, res) => {
-  res.json({
-    message: `Welcome to the Solution Builder! I'll help you design the cross-skill architecture for your solution.
+  try {
+    const solution = await solutionsStore.load(req.params.id);
+    const skills = solution.skills || [];
+    const grants = solution.grants || [];
+    const handoffs = solution.handoffs || [];
+    const routing = solution.routing || {};
+    const contracts = solution.security_contracts || [];
+    const identity = solution.identity || {};
+    const phase = solution.phase || 'SOLUTION_DISCOVERY';
+    const actorTypes = identity.actor_types || [];
+
+    // ── New solution: no skills yet → discovery greeting ──
+    if (skills.length === 0) {
+      return res.json({
+        message: `Welcome to the Solution Builder! I'll help you design the cross-skill architecture for your solution.
 
 A **solution** is a collection of skills that work together. I'll guide you through:
 
@@ -219,16 +236,91 @@ A **solution** is a collection of skills that work together. I'll guide you thro
 ---
 
 Let's start! What kind of solution are you building?`,
-    input_hint: {
-      mode: 'selection',
-      options: [
-        'Customer support with identity verification',
-        'Multi-department workflow (support, fulfillment, finance)',
-        'API-driven automation with scheduled tasks',
-        'Something else — I\'ll describe my use case',
-      ],
-    },
-  });
+        input_hint: {
+          mode: 'selection',
+          options: [
+            'Customer support with identity verification',
+            'Multi-department workflow (support, fulfillment, finance)',
+            'API-driven automation with scheduled tasks',
+            'Something else — I\'ll describe my use case',
+          ],
+        },
+      });
+    }
+
+    // ── Existing solution: contextual greeting ──
+    const channels = Object.keys(routing);
+    const skillList = skills.map(s => `**${s.name || s.id}** (${s.role})`).join(', ');
+
+    // Build status summary
+    const statusParts = [];
+    statusParts.push(`**${skills.length} skills**: ${skillList}`);
+    if (grants.length > 0) statusParts.push(`**${grants.length} grants** defined`);
+    if (handoffs.length > 0) statusParts.push(`**${handoffs.length} handoffs** configured`);
+    if (channels.length > 0) statusParts.push(`**Routing**: ${channels.join(', ')}`);
+    if (contracts.length > 0) statusParts.push(`**${contracts.length} security contracts**`);
+    if (actorTypes.length > 0) statusParts.push(`**Identity**: ${actorTypes.map(a => a.label).join(', ')}`);
+
+    // Determine suggested actions based on what's missing
+    const suggestions = [];
+
+    if (actorTypes.length === 0) {
+      suggestions.push('Define identity — who are the users of this solution? (actor types, admin roles)');
+    }
+    if (grants.length === 0 && skills.length > 1) {
+      suggestions.push('Design the grant economy — what verified claims flow between skills?');
+    }
+    if (handoffs.length === 0 && skills.length > 1) {
+      suggestions.push('Configure handoff flows — how do conversations transfer between skills?');
+    }
+    if (channels.length === 0) {
+      suggestions.push('Set up channel routing — which channels connect to which skills?');
+    }
+    if (contracts.length === 0 && grants.length > 0) {
+      suggestions.push('Add security contracts — which tools require which grants?');
+    }
+
+    // Always offer review/validation
+    suggestions.push('Run validation and review the solution health');
+    suggestions.push('Add or modify skills in the topology');
+    if (actorTypes.length > 0) {
+      suggestions.push('Review and update identity configuration');
+    }
+
+    // Cap at 4 options for the selection UI
+    const options = suggestions.slice(0, 4);
+
+    const message = `Welcome back to **${solution.name || 'your solution'}**! Here's where things stand:
+
+${statusParts.map(p => `- ${p}`).join('\n')}
+
+**Current phase**: ${phase}
+
+What would you like to work on?`;
+
+    res.json({
+      message,
+      input_hint: {
+        mode: 'selection',
+        options,
+      },
+    });
+  } catch (err) {
+    // Fallback to basic greeting if solution can't be loaded
+    console.error(`[Greeting] Failed to load solution ${req.params.id}:`, err.message);
+    res.json({
+      message: `Welcome to the Solution Builder! I'll help you design the cross-skill architecture for your solution.\n\nWhat would you like to work on?`,
+      input_hint: {
+        mode: 'selection',
+        options: [
+          'Customer support with identity verification',
+          'Multi-department workflow (support, fulfillment, finance)',
+          'API-driven automation with scheduled tasks',
+          'Something else — I\'ll describe my use case',
+        ],
+      },
+    });
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════

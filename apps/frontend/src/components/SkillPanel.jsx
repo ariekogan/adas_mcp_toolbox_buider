@@ -925,7 +925,10 @@ export default function SkillPanel({
                 ...styles.tab,
                 ...(activeTab === tab.id ? styles.tabActive : {})
               }}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                setActiveTab(tab.id);
+                onFocusChange?.({ tab: tab.id });
+              }}
             >
               {tab.label}
               {badge && (

@@ -202,6 +202,49 @@ const styles = {
     display: 'flex',
     gap: '6px',
     alignItems: 'center'
+  },
+  // Context indicator - wrapper around the textarea
+  inputWrapper: {
+    flex: 1,
+    position: 'relative'
+  },
+  contextBadge: {
+    position: 'absolute',
+    top: '8px',
+    right: '10px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '3px 10px',
+    background: 'rgba(249, 115, 22, 0.12)',
+    border: '1px solid rgba(249, 115, 22, 0.25)',
+    borderRadius: '10px',
+    fontSize: '10px',
+    fontWeight: '600',
+    color: '#f97316',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    zIndex: 2,
+    userSelect: 'none',
+    letterSpacing: '0.3px',
+    textTransform: 'uppercase',
+    lineHeight: 1
+  },
+  contextBadgeHover: {
+    background: 'rgba(249, 115, 22, 0.2)',
+    borderColor: 'rgba(249, 115, 22, 0.4)'
+  },
+  contextDot: {
+    width: '5px',
+    height: '5px',
+    borderRadius: '50%',
+    background: '#f97316'
+  },
+  contextDismiss: {
+    marginLeft: '2px',
+    opacity: 0.5,
+    fontSize: '9px',
+    lineHeight: 1
   }
 };
 
@@ -219,12 +262,16 @@ export default function SmartInput({
   onSend,
   onFileUpload,
   sending,
-  placeholder = "Type your message..."
+  placeholder = "Type your message...",
+  contextLabel,
+  onContextClick,
+  onContextClear
 }) {
   const [input, setInput] = useState('');
   const [showTextInput, setShowTextInput] = useState(false);
   const [hoveredOption, setHoveredOption] = useState(null);
   const [hoveredUpload, setHoveredUpload] = useState(false);
+  const [hoveredContext, setHoveredContext] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -339,12 +386,40 @@ export default function SmartInput({
     );
   };
 
+  // Context badge rendered as a standalone element (for selection-only views)
+  const contextBadgeElement = contextLabel ? (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
+      <span
+        style={{
+          ...styles.contextBadge,
+          position: 'relative',
+          top: 'auto',
+          right: 'auto',
+          ...(hoveredContext ? styles.contextBadgeHover : {})
+        }}
+        onMouseEnter={() => setHoveredContext(true)}
+        onMouseLeave={() => setHoveredContext(false)}
+        onClick={() => onContextClick?.()}
+        title={`Context: ${contextLabel} — click to navigate`}
+      >
+        <span style={styles.contextDot} />
+        {contextLabel}
+        <span
+          style={styles.contextDismiss}
+          onClick={(e) => { e.stopPropagation(); onContextClear?.(); }}
+          title="Clear context"
+        >×</span>
+      </span>
+    </div>
+  ) : null;
+
   // Selection mode with options (not showing text input)
   if (mode === 'selection' && options.length > 0 && !showTextInput) {
     // List format for long options
     if (useList) {
       return (
         <div style={styles.container}>
+          {contextBadgeElement}
           <div style={styles.listContainer}>
             {options.map((option, i) => (
               <button
@@ -376,6 +451,7 @@ export default function SmartInput({
     // Pill buttons for short options
     return (
       <div style={styles.container}>
+        {contextBadgeElement}
         <div style={styles.selectionContainer}>
           {options.map((option, i) => (
             <button
@@ -427,16 +503,41 @@ export default function SmartInput({
         </div>
       )}
       <div style={styles.inputRowWithUpload}>
-        <textarea
-          ref={inputRef}
-          style={styles.input}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={customPlaceholder}
-          rows={1}
-          disabled={sending}
-        />
+        <div style={styles.inputWrapper}>
+          {contextLabel && (
+            <span
+              style={{
+                ...styles.contextBadge,
+                ...(hoveredContext ? styles.contextBadgeHover : {})
+              }}
+              onMouseEnter={() => setHoveredContext(true)}
+              onMouseLeave={() => setHoveredContext(false)}
+              onClick={() => onContextClick?.()}
+              title={`Context: ${contextLabel} — click to navigate`}
+            >
+              <span style={styles.contextDot} />
+              {contextLabel}
+              <span
+                style={styles.contextDismiss}
+                onClick={(e) => { e.stopPropagation(); onContextClear?.(); }}
+                title="Clear context"
+              >×</span>
+            </span>
+          )}
+          <textarea
+            ref={inputRef}
+            style={{
+              ...styles.input,
+              ...(contextLabel ? { paddingTop: '30px' } : {})
+            }}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={customPlaceholder}
+            rows={1}
+            disabled={sending}
+          />
+        </div>
         <div style={styles.buttonGroup}>
           {renderUploadButton()}
           <button

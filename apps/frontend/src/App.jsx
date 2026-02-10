@@ -229,11 +229,17 @@ export default function App() {
     scenarios: 'Scenarios',
     role: 'Role',
     mocks: 'Mocks',
-    // Solution panel tabs
+    // Solution panel tabs (lowercase for backend suggested_focus)
     overview: 'Overview',
     'team-map': 'Team Map',
     architecture: 'Architecture',
     'trust-rules': 'Trust Rules',
+    // Solution panel tabs (title-case as used by SolutionPanel component)
+    'Overview': 'Overview',
+    'Identity': 'Identity',
+    'Team Map': 'Team Map',
+    'Architecture': 'Architecture',
+    'Trust Rules': 'Trust Rules',
   }), []);
 
   // Maps label → focus object for navigation
@@ -391,12 +397,11 @@ export default function App() {
     setContextLabel(null);
     setSelectedType('solution');
     setInputHint(null);
+    setSolutionGreetingData(null); // Reset — greeting is per-solution
     await loadSolution(id);
-    // Load greeting for solution if conversation is empty
-    if (!solutionGreetingData) {
-      api.getSolutionGreeting(id).then(setSolutionGreetingData).catch(() => {});
-    }
-  }, [loadSolution, solutionGreetingData]);
+    // Always fetch greeting fresh — it's now solution-state-aware
+    api.getSolutionGreeting(id).then(setSolutionGreetingData).catch(() => {});
+  }, [loadSolution]);
 
   const handleCreateSolution = useCallback(async (name) => {
     setSelectedType('solution');
@@ -785,7 +790,7 @@ export default function App() {
                   />
                 }
                 right={
-                  <SolutionPanel solution={currentSolution} sidebarSkills={skills} onSolutionUpdate={() => loadSolution(currentSolution.id)} />
+                  <SolutionPanel solution={currentSolution} sidebarSkills={skills} onSolutionUpdate={() => loadSolution(currentSolution.id)} onFocusChange={setUiFocus} />
                 }
               />
             ) : currentSkill ? (

@@ -813,7 +813,11 @@ export default function ChatPanel({
   // Solution mode props
   solution,
   solutionSkills = [],
-  onNavigate
+  onNavigate,
+  // Context indicator props
+  contextLabel,
+  onContextClick,
+  onContextClear
 }) {
   const messagesEndRef = useRef(null);
 
@@ -941,6 +945,9 @@ export default function ChatPanel({
           onSend={onSendMessage}
           onFileUpload={onFileUpload}
           sending={sending}
+          contextLabel={contextLabel}
+          onContextClick={onContextClick}
+          onContextClear={onContextClear}
         />
       </div>
     </div>
