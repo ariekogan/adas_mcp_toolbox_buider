@@ -98,19 +98,20 @@ const styles = {
     gap: '8px'
   },
   input: {
-    flex: 1,
-    padding: '20px',
+    width: '100%',
+    padding: '12px 14px',
     background: 'var(--bg-secondary)',
     border: '1px solid var(--border)',
     borderRadius: '8px',
     color: 'var(--text-primary)',
-    fontSize: '16px',
-    resize: 'vertical',
-    minHeight: '60px',
-    maxHeight: '400px',
+    fontSize: '14px',
+    resize: 'none',
+    minHeight: '44px',
+    maxHeight: '250px',
     fontFamily: 'inherit',
-    lineHeight: '1.5',
-    boxSizing: 'border-box'
+    lineHeight: '1.4',
+    boxSizing: 'border-box',
+    overflow: 'auto'
   },
   sendButton: {
     padding: '12px 20px',
@@ -195,13 +196,14 @@ const styles = {
   // Input row with upload button inline
   inputRowWithUpload: {
     display: 'flex',
-    gap: '8px',
-    alignItems: 'flex-end'
+    flexDirection: 'column',
+    gap: '6px'
   },
   buttonGroup: {
     display: 'flex',
     gap: '6px',
-    alignItems: 'center'
+    alignItems: 'center',
+    justifyContent: 'flex-end'
   },
   // Context indicator - wrapper around the textarea
   inputWrapper: {
@@ -293,6 +295,14 @@ export default function SmartInput({
       inputRef.current.focus();
     }
   }, [showTextInput]);
+
+  // Auto-resize textarea to fit content
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 250) + 'px';
+  }, [input]);
 
   const handleSend = () => {
     if (input.trim() && !sending) {
