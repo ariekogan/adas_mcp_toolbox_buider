@@ -1,17 +1,19 @@
 /**
  * SolutionPanel — Displays solution-level architecture
  *
- * Four tabs:
+ * Five tabs:
  *   1. Overview — Summary card + verification panel
- *   2. Team Map — SVG graph of skills, handoffs, and channel entries
- *   3. Architecture — Skills + connectors diagram with links
- *   4. Trust Rules — Verification requirements grouped by skill (Story Mode) + raw table (Advanced)
+ *   2. Identity — Actor types, roles, admin privileges
+ *   3. Team Map — SVG graph of skills, handoffs, and channel entries
+ *   4. Architecture — Skills + connectors diagram with links
+ *   5. Trust Rules — Verification requirements grouped by skill (Story Mode) + raw table (Advanced)
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as api from '../api/client';
 import SolutionSummaryCard from './SolutionSummaryCard';
 import SolutionVerificationPanel from './SolutionVerificationPanel';
+import IdentityConfigPanel from './IdentityConfigPanel';
 
 // ═══════════════════════════════════════════════════════════════
 // Styles
@@ -164,7 +166,7 @@ function SvgIcon({ pathD, color, x, y, size = 14 }) {
   );
 }
 
-const TABS = ['Overview', 'Team Map', 'Architecture', 'Trust Rules'];
+const TABS = ['Overview', 'Identity', 'Team Map', 'Architecture', 'Trust Rules'];
 
 // ═══════════════════════════════════════════════════════════════
 // Shared SVG Defs
@@ -292,7 +294,7 @@ function Legend({ items }) {
 // ═══════════════════════════════════════════════════════════════
 // Main Component
 // ═══════════════════════════════════════════════════════════════
-export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate }) {
+export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate, onSolutionUpdate }) {
   const [activeTab, setActiveTab] = useState('Overview');
   const [trustRulesFilter, setTrustRulesFilter] = useState(null);
   const [mapHighlight, setMapHighlight] = useState(null);
@@ -383,6 +385,19 @@ export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate
       <div style={styles.content}>
         {activeTab === 'Overview' && (
           <OverviewView solution={solution} solutionSkills={skills} sidebarSkills={sidebarSkills} onNavigate={onNavigate} />
+        )}
+        {activeTab === 'Identity' && (
+          <IdentityConfigPanel
+            identity={solution.identity || {}}
+            onUpdate={async (updates) => {
+              try {
+                await api.updateSolution(solution.id, updates);
+                if (onSolutionUpdate) onSolutionUpdate();
+              } catch (err) {
+                console.error('[SolutionPanel] Identity update failed:', err);
+              }
+            }}
+          />
         )}
         {activeTab === 'Team Map' && (
           <TopologyView skills={enrichedSkills} handoffs={handoffs} routing={routing} grants={grants} contracts={contracts} onSelectSkill={(skillId) => {
@@ -1472,10 +1487,15 @@ function ArchitectureView({ skills, connectors, handoffs }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Tab 3: Trust Rules — Story Mode + Advanced toggle
+// Tab 3: Trust Rules — Story Mode + System View toggle
 // ═══════════════════════════════════════════════════════════════
+
+// Sensitivity levels for sorting rules
+const SENSITIVITY = { high: 0, standard: 1 };
+
 function TrustRulesView({ grants, contracts, skills, handoffs, filterSkillId, onClearFilter, onHighlightInMap }) {
-  const [mode, setMode] = useState('story'); // 'story' | 'advanced'
+  const [mode, setMode] = useState('story'); // 'story' | 'system'
+  const [expandedRule, setExpandedRule] = useState(null); // index for flow strip
 
   // Build lookups
   const skillRoles = {};
@@ -1523,38 +1543,150 @@ function TrustRulesView({ grants, contracts, skills, handoffs, filterSkillId, on
     ? [filterSkillId]
     : Object.keys(contractsBySkill);
 
-  // Describe a contract in plain English
-  const describeRule = (contract) => {
-    const providerName = skillNames[contract.provider] || contract.provider || 'another skill';
-    const grantNames = (contract.requires_grants || []).map(g => {
-      // Try to produce a human-readable label from the grant key
-      const desc = grantDescriptions[g];
-      if (desc && desc !== g) return desc.toLowerCase();
-      // Fallback: strip namespace prefix, replace dots/underscores with spaces
-      return g.replace(/^[^.]+\./, '').replace(/[._]/g, ' ');
-    });
-    const toolNames = (contract.for_tools || []).map(t => {
-      // Shorten tool names: "orders.order.cancel" → "cancel order"
-      const parts = t.split('.');
-      const action = parts[parts.length - 1].replace(/_/g, ' ');
-      return action;
-    });
-
-    const requiresText = grantNames.length > 0 ? grantNames.join(' and ') : 'verification';
-    const toolsText = toolNames.length > 0 ? toolNames.join(', ') : 'sensitive actions';
+  // ── Determine sensitivity level of a contract ──
+  const getSensitivity = (contract) => {
     const validation = contract.validation || '';
-
-    // If there's an assurance level mentioned, extract it
     const levelMatch = validation.match(/[Ll](?:evel\s*)?(\d+)/);
-    if (levelMatch) {
-      return `${toolsText} requires Verification Level ${levelMatch[1]}+ from ${providerName}`;
-    }
-
-    return `${toolsText} requires ${requiresText} from ${providerName}`;
+    if (levelMatch && parseInt(levelMatch[1]) >= 2) return 'high';
+    // Check tool names for high-risk keywords
+    const tools = (contract.for_tools || []).join(' ').toLowerCase();
+    if (/cancel|delete|refund|remove|revoke|transfer/.test(tools)) return 'high';
+    return 'standard';
   };
 
-  // ── Advanced Mode: original raw table ──
-  const renderAdvancedView = () => (
+  // ── Generate "why" explanation for a contract ──
+  const getWhyExplanation = (contract) => {
+    const sensitivity = getSensitivity(contract);
+    const tools = (contract.for_tools || []).join(' ').toLowerCase();
+    if (/cancel/.test(tools)) return 'Cancellations are irreversible — stronger verification prevents accidental or fraudulent cancellations';
+    if (/refund/.test(tools)) return 'Refunds involve money leaving the system — identity must be confirmed to prevent fraud';
+    if (/delete|remove/.test(tools)) return 'Destructive actions need higher trust to protect customer data';
+    if (/update.*address|shipping/.test(tools)) return 'Address changes can redirect deliveries — basic identity check prevents theft';
+    if (/transfer/.test(tools)) return 'Transfers move value between accounts — requires strong identity confirmation';
+    if (sensitivity === 'high') return 'This is a high-impact action — elevated verification prevents unauthorized changes';
+    // Check for PII masking
+    if (/mask|pii|hide|sensitive/.test(contract.validation || '')) return 'Personal data must be protected until the caller proves their identity';
+    return 'Verification ensures only authorized users can perform this action';
+  };
+
+  // ── Describe a contract as a policy sentence ──
+  const describeRule = (contract) => {
+    const consumerName = skillNames[contract.consumer] || contract.consumer || 'This skill';
+    const providerName = skillNames[contract.provider] || contract.provider || 'another skill';
+    const validation = contract.validation || '';
+
+    // Extract tool action names
+    const toolActions = (contract.for_tools || []).map(t => {
+      const parts = t.split('.');
+      return parts[parts.length - 1].replace(/_/g, ' ');
+    });
+
+    // Build a human-friendly action phrase
+    const actionPhrase = toolActions.length > 0
+      ? toolActions.length <= 2
+        ? toolActions.join(' or ')
+        : `${toolActions.slice(0, 2).join(', ')} and ${toolActions.length - 2} more`
+      : 'perform sensitive actions';
+
+    // Check for assurance level
+    const levelMatch = validation.match(/[Ll](?:evel\s*)?(\d+)/);
+
+    // Check for PII masking pattern
+    if (/mask|pii|hide/i.test(validation) || /mask|pii|hide/i.test(contract.name || '')) {
+      return `${consumerName} hides personal data until ${providerName} confirms the caller's identity`;
+    }
+
+    if (levelMatch) {
+      const level = levelMatch[1];
+      return `${consumerName} can ${actionPhrase} only after ${providerName} confirms Level ${level}`;
+    }
+
+    // Fallback with grant names
+    const grantNames = (contract.requires_grants || []).map(g => {
+      const desc = grantDescriptions[g];
+      if (desc && desc !== g) return desc.toLowerCase();
+      return g.replace(/^[^.]+\./, '').replace(/[._]/g, ' ');
+    });
+    const requiresText = grantNames.length > 0 ? grantNames.join(' and ') : 'verification';
+
+    return `${consumerName} can ${actionPhrase} only after ${providerName} provides ${requiresText}`;
+  };
+
+  // ── Render verification flow strip for a rule ──
+  const renderFlowStrip = (contract) => {
+    const consumerName = skillNames[contract.consumer] || contract.consumer;
+    const providerName = skillNames[contract.provider] || contract.provider || '?';
+    const validation = contract.validation || '';
+    const levelMatch = validation.match(/[Ll](?:evel\s*)?(\d+)/);
+    const levelText = levelMatch ? `Level ${levelMatch[1]} verified` : 'Identity confirmed';
+    const toolActions = (contract.for_tools || []).map(t => t.split('.').pop().replace(/_/g, ' '));
+    const actionText = toolActions.length > 0 ? toolActions[0] : 'proceed';
+
+    const steps = [
+      { icon: ICONS.hub, label: 'Customer', sublabel: 'requests action', color: '#6b7280' },
+      { icon: ICONS.shield, label: providerName, sublabel: levelText, color: '#f59e0b' },
+      { icon: ICONS.check, label: 'Verification', sublabel: 'granted', color: '#10b981' },
+      { icon: ICONS.wrench, label: consumerName, sublabel: actionText, color: '#3b82f6' },
+    ];
+
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0',
+        padding: '12px 16px',
+        background: 'var(--bg-secondary)',
+        borderRadius: '8px',
+        marginTop: '8px',
+        overflow: 'auto',
+      }}>
+        {steps.map((step, i) => (
+          <React.Fragment key={i}>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              minWidth: '80px',
+              flex: '0 0 auto',
+            }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                background: `${step.color}18`,
+                border: `2px solid ${step.color}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '4px',
+              }}>
+                {renderIcon(step.icon, step.color, 14)}
+              </div>
+              <div style={{ fontSize: '10px', fontWeight: '600', color: 'var(--text-primary)', textAlign: 'center', lineHeight: '1.3' }}>
+                {step.label.length > 14 ? step.label.slice(0, 12) + '...' : step.label}
+              </div>
+              <div style={{ fontSize: '9px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                {step.sublabel}
+              </div>
+            </div>
+            {i < steps.length - 1 && (
+              <div style={{
+                flex: '1 1 20px',
+                height: '2px',
+                background: `linear-gradient(to right, ${step.color}60, ${steps[i + 1].color}60)`,
+                margin: '0 4px',
+                marginBottom: '20px',
+                minWidth: '20px',
+              }} />
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  };
+
+  // ── System View: original raw table ──
+  const renderSystemView = () => (
     <div>
       {/* Verifications Table */}
       <div style={styles.section}>
@@ -1716,6 +1848,92 @@ function TrustRulesView({ grants, contracts, skills, handoffs, filterSkillId, on
           const roleColor = ROLE_COLORS[skillRoles[skillId]] || ROLE_COLORS.worker;
           const displayName = skillNames[skillId] || skillId;
 
+          // Sort contracts by sensitivity (high first)
+          const sorted = [...skillContracts].sort((a, b) =>
+            (SENSITIVITY[getSensitivity(a)] || 1) - (SENSITIVITY[getSensitivity(b)] || 1)
+          );
+
+          // Group into high / standard
+          const highRules = sorted.filter(c => getSensitivity(c) === 'high');
+          const standardRules = sorted.filter(c => getSensitivity(c) === 'standard');
+
+          const renderRuleItem = (contract, globalIndex) => {
+            const sensitivity = getSensitivity(contract);
+            const isExpanded = expandedRule === `${skillId}-${globalIndex}`;
+            const ruleKey = `${skillId}-${globalIndex}`;
+
+            return (
+              <div key={globalIndex}>
+                <div
+                  style={{
+                    padding: '10px 16px',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '10px',
+                    cursor: 'pointer',
+                    background: isExpanded ? 'var(--bg-tertiary)' : 'transparent',
+                    transition: 'background 0.15s',
+                  }}
+                  onClick={() => setExpandedRule(isExpanded ? null : ruleKey)}
+                >
+                  {/* Sensitivity indicator */}
+                  <div style={{
+                    width: '18px',
+                    height: '18px',
+                    borderRadius: '50%',
+                    background: sensitivity === 'high' ? '#ef444418' : 'var(--bg-tertiary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    marginTop: '1px',
+                  }}>
+                    <svg viewBox="0 0 24 24" width="11" height="11">
+                      <path d={ICONS.shield} fill={sensitivity === 'high' ? '#ef4444' : 'var(--text-muted)'} />
+                    </svg>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{
+                      fontSize: '13px',
+                      color: 'var(--text-primary)',
+                      lineHeight: '1.5',
+                    }}>
+                      {describeRule(contract)}
+                    </div>
+                    {/* Why explanation - always visible as subtle text */}
+                    <div style={{
+                      marginTop: '3px',
+                      fontSize: '11px',
+                      color: 'var(--text-muted)',
+                      fontStyle: 'italic',
+                    }}>
+                      {getWhyExplanation(contract)}
+                    </div>
+                  </div>
+                  {/* Expand indicator */}
+                  <div style={{
+                    fontSize: '12px',
+                    color: 'var(--text-muted)',
+                    flexShrink: 0,
+                    marginTop: '2px',
+                    transform: isExpanded ? 'rotate(90deg)' : 'none',
+                    transition: 'transform 0.15s',
+                  }}>
+                    ›
+                  </div>
+                </div>
+                {/* Flow strip - shown when expanded */}
+                {isExpanded && (
+                  <div style={{ padding: '0 16px 12px' }}>
+                    {renderFlowStrip(contract)}
+                  </div>
+                )}
+              </div>
+            );
+          };
+
+          let ruleIndex = 0;
+
           return (
             <div key={skillId} style={{
               marginBottom: '20px',
@@ -1773,65 +1991,86 @@ function TrustRulesView({ grants, contracts, skills, handoffs, filterSkillId, on
                 )}
               </div>
 
-              {/* Rules list */}
-              <div style={{ padding: '8px 0' }}>
-                {skillContracts.map((contract, i) => (
-                  <div key={i} style={{
-                    padding: '10px 16px',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '10px',
-                    borderBottom: i < skillContracts.length - 1 ? '1px solid var(--border)' : 'none',
-                  }}>
+              {/* Rules grouped by sensitivity */}
+              <div>
+                {highRules.length > 0 && (
+                  <div>
                     <div style={{
-                      width: '18px',
-                      height: '18px',
-                      borderRadius: '50%',
-                      background: 'var(--bg-tertiary)',
+                      padding: '8px 16px 4px',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      color: '#ef4444',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                      marginTop: '1px',
+                      gap: '5px',
                     }}>
-                      <svg viewBox="0 0 24 24" width="11" height="11">
-                        <path d={ICONS.shield} fill="var(--text-muted)" />
-                      </svg>
+                      <svg viewBox="0 0 24 24" width="10" height="10"><path d={ICONS.shield} fill="#ef4444" /></svg>
+                      Sensitive actions
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{
-                        fontSize: '13px',
-                        color: 'var(--text-primary)',
-                        lineHeight: '1.5',
-                      }}>
-                        {describeRule(contract)}
-                      </div>
-                      {contract.for_tools?.length > 0 && (
-                        <div style={{
-                          marginTop: '4px',
-                          fontSize: '11px',
-                          color: 'var(--text-muted)',
-                        }}>
-                          Affects: {contract.for_tools.map(t => t.split('.').pop().replace(/_/g, ' ')).join(', ')}
-                        </div>
-                      )}
-                    </div>
+                    {highRules.map(contract => {
+                      const item = renderRuleItem(contract, ruleIndex);
+                      ruleIndex++;
+                      return item;
+                    })}
                   </div>
-                ))}
+                )}
+                {standardRules.length > 0 && (
+                  <div>
+                    {highRules.length > 0 && (
+                      <div style={{
+                        padding: '8px 16px 4px',
+                        fontSize: '10px',
+                        fontWeight: '600',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        color: 'var(--text-muted)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                      }}>
+                        <svg viewBox="0 0 24 24" width="10" height="10"><path d={ICONS.shield} fill="var(--text-muted)" /></svg>
+                        Standard verification
+                      </div>
+                    )}
+                    {standardRules.map(contract => {
+                      const item = renderRuleItem(contract, ruleIndex);
+                      ruleIndex++;
+                      return item;
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
 
-        {/* Skills with no rules - brief mention */}
+        {/* Skills with no rules */}
         {!filterSkillId && skills.filter(s => !contractsBySkill[s.id]).length > 0 && (
           <div style={{
-            padding: '12px 16px',
-            fontSize: '12px',
-            color: 'var(--text-muted)',
-            fontStyle: 'italic',
+            padding: '14px 16px',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
           }}>
-            {skills.filter(s => !contractsBySkill[s.id]).map(s => skillNames[s.id] || s.id).join(', ')} — no verification rules required
+            <div style={{
+              width: '18px', height: '18px', borderRadius: '50%',
+              background: '#10b98118', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg viewBox="0 0 24 24" width="11" height="11"><path d={ICONS.check} fill="#10b981" /></svg>
+            </div>
+            <div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {skills.filter(s => !contractsBySkill[s.id]).map(s => skillNames[s.id] || s.id).join(', ')}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                These skills can operate freely — no identity verification required
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -1879,7 +2118,7 @@ function TrustRulesView({ grants, contracts, skills, handoffs, filterSkillId, on
           )}
         </div>
 
-        {/* Story / Advanced toggle */}
+        {/* Story / System View toggle */}
         <div style={{
           display: 'flex',
           background: 'var(--bg-tertiary)',
@@ -1888,7 +2127,7 @@ function TrustRulesView({ grants, contracts, skills, handoffs, filterSkillId, on
         }}>
           {[
             { id: 'story', label: 'Story' },
-            { id: 'advanced', label: 'Advanced' },
+            { id: 'system', label: 'System View' },
           ].map(m => (
             <button
               key={m.id}
@@ -1911,7 +2150,7 @@ function TrustRulesView({ grants, contracts, skills, handoffs, filterSkillId, on
         </div>
       </div>
 
-      {mode === 'story' ? renderStoryView() : renderAdvancedView()}
+      {mode === 'story' ? renderStoryView() : renderSystemView()}
     </div>
   );
 }

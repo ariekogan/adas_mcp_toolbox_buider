@@ -32,7 +32,7 @@ import {
   startConnectorInADAS,
   uploadMcpCodeToADAS
 } from '../services/adasConnectorSync.js';
-import { deploySkillToADAS } from './export.js';
+import { deploySkillToADAS, deployIdentityToADAS } from './export.js';
 
 // Multer config: store uploaded files in /tmp, accept .tar.gz up to 50MB
 const upload = multer({ dest: '/tmp/solution-pack-uploads', limits: { fileSize: 50 * 1024 * 1024 } });
@@ -1035,6 +1035,24 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
     const totalSkills = pkg.skills?.length || 0;
 
     sendEvent('start', { packageName, totalConnectors, totalSkills });
+
+    // ── Phase 0: Deploy solution-level identity config ─────────────
+    const solutionId = pkg.solution?.id;
+    if (solutionId) {
+      sendEvent('identity_progress', { status: 'deploying', message: 'Deploying identity config...' });
+      try {
+        const identityResult = await deployIdentityToADAS(solutionId, console);
+        if (identityResult.ok && !identityResult.skipped) {
+          sendEvent('identity_progress', { status: 'done', message: `Deployed ${identityResult.actor_types?.length || 0} actor types` });
+        } else if (identityResult.skipped) {
+          sendEvent('identity_progress', { status: 'skipped', message: 'No identity config defined' });
+        } else {
+          sendEvent('identity_progress', { status: 'warning', message: `Identity deploy failed: ${identityResult.error}` });
+        }
+      } catch (err) {
+        sendEvent('identity_progress', { status: 'warning', message: `Identity deploy error: ${err.message}` });
+      }
+    }
 
     // ── Phase 1: Deploy connectors ──────────────────────────────────
     for (let i = 0; i < totalConnectors; i++) {

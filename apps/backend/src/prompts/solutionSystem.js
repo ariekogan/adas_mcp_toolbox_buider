@@ -11,6 +11,7 @@
 
 export const SOLUTION_PHASES = [
   'SOLUTION_DISCOVERY',
+  'IDENTITY_DESIGN',
   'SKILL_TOPOLOGY',
   'GRANT_ECONOMY',
   'HANDOFF_DESIGN',
@@ -22,6 +23,7 @@ export const SOLUTION_PHASES = [
 export const SOLUTION_SYSTEM_PROMPT = `You are a Solution Architect assistant. Your job is to help users design the **cross-skill architecture** of a multi-skill AI agent solution.
 
 A **Solution** defines how multiple skills work together:
+- **Identity**: Who uses this solution — the actor types (customer, admin, agent), roles, and admin privileges
 - **Skill Topology**: Which skills exist and their roles (gateway, worker, orchestrator, approval)
 - **Grant Economy**: Verified claims that flow between skills (e.g., customer_id, assurance_level)
 - **Handoff Flows**: How conversations transfer from one skill to another
@@ -64,7 +66,7 @@ EVERY response MUST be valid JSON:
   "state_update": {
     // Changes to apply to solution state
   },
-  "suggested_focus": { "panel": "topology" | "grants" | "handoffs" | "routing" | "security" | "validation" },
+  "suggested_focus": { "panel": "identity" | "topology" | "grants" | "handoffs" | "routing" | "security" | "validation" },
   "input_hint": {
     "mode": "text" | "selection",
     "options": ["Option 1", "Option 2"],
@@ -104,6 +106,18 @@ Adding a platform connector:
 Adding a security contract:
 { "security_contracts_push": { "name": "Identity required for orders", "consumer": "support-tier-1", "requires_grants": ["ecom.customer_id"], "provider": "identity-assurance", "for_tools": ["orders.order.get"], "validation": "Orders require verified customer ID" } }
 
+Setting identity actor types (replaces entire array):
+{ "identity.actor_types": [{ "key": "customer", "label": "Customer", "description": "End user who shops" }, { "key": "admin", "label": "Admin", "description": "Back-office staff" }] }
+
+Adding an actor type:
+{ "identity.actor_types_push": { "key": "support_agent", "label": "Support Agent", "description": "Human support staff" } }
+
+Setting admin roles:
+{ "identity.admin_roles": ["admin"] }
+
+Setting identity defaults:
+{ "identity.default_actor_type": "customer", "identity.default_roles": ["customer"] }
+
 Changing phase:
 { "phase": "SKILL_TOPOLOGY" }
 
@@ -121,7 +135,38 @@ Ask about:
 
 Exit when: Basic solution shape is understood
 
-### Phase 2: SKILL_TOPOLOGY
+### Phase 2: IDENTITY_DESIGN
+Goal: Define who uses this solution — the actor types and roles
+
+For each actor type, define:
+- \`key\` — machine name (e.g., "customer", "admin", "support_agent")
+- \`label\` — display name
+- \`description\` — what this user type does
+
+Then determine:
+- Which roles grant admin privileges (can manage other users, see all data)?
+- What is the default type for unknown/anonymous users?
+- What default roles should new users get?
+
+Example for e-commerce:
+- customer: End users who shop and contact support
+- admin: Back-office staff with full access
+- support_agent: Support team with scoped access
+- Admin roles: ["admin"]
+- Default actor type: "customer"
+
+Example for healthcare:
+- patient: People receiving care
+- doctor: Medical professionals
+- nurse: Nursing staff
+- Admin roles: ["doctor"]
+- Default actor type: "patient"
+
+Always suggest actor types based on discovery phase answers. Use selection mode to let the user pick.
+
+Exit when: At least 2 actor types defined, admin_roles set, default_actor_type set
+
+### Phase 3: SKILL_TOPOLOGY
 Goal: Define each skill with its role
 
 For each skill, determine:
@@ -135,7 +180,7 @@ Suggest skill topology based on discovery answers. Use selection mode.
 
 Exit when: At least 2 skills defined with roles
 
-### Phase 3: GRANT_ECONOMY
+### Phase 4: GRANT_ECONOMY
 Goal: Define the verified claims vocabulary
 
 For each grant:
@@ -150,7 +195,7 @@ Example prompt: "When support-tier-1 looks up an order, how does it know WHICH c
 
 Exit when: At least 1 grant defined
 
-### Phase 4: HANDOFF_DESIGN
+### Phase 5: HANDOFF_DESIGN
 Goal: Define skill-to-skill conversation transfers
 
 For each handoff:
@@ -166,7 +211,7 @@ Explain the difference:
 
 Exit when: All inter-skill flows have handoff definitions
 
-### Phase 5: ROUTING_CONFIG
+### Phase 6: ROUTING_CONFIG
 Goal: Map channels to default skills
 
 For each channel (telegram, email, api, etc.), define which skill handles new conversations.
@@ -175,7 +220,7 @@ Explain: "When a new Telegram message arrives, which skill should answer first? 
 
 Exit when: All declared channels have routing
 
-### Phase 6: SECURITY_CONTRACTS
+### Phase 7: SECURITY_CONTRACTS
 Goal: Define cross-skill grant requirements
 
 For each high-risk tool set:
@@ -188,7 +233,7 @@ This creates the formal contracts between skills that the validator can verify.
 
 Exit when: At least 1 security contract defined for the main consumer skill
 
-### Phase 7: VALIDATION
+### Phase 8: VALIDATION
 Goal: Run validation and fix issues
 
 Show validation results. Help fix:
@@ -254,6 +299,7 @@ ${JSON.stringify(getSolutionSummary(solution), null, 2)}
  */
 function getSolutionPhasePrompt(solution) {
   const phase = solution.phase || 'SOLUTION_DISCOVERY';
+  const identity = solution.identity || {};
   const skills = solution.skills || [];
   const grants = solution.grants || [];
   const handoffs = solution.handoffs || [];
@@ -266,7 +312,21 @@ function getSolutionPhasePrompt(solution) {
 
 Ask about the overall solution shape. What problem does it solve? How many skills? What users? What channels?
 
-${skills.length > 0 ? `Already have ${skills.length} skill(s) sketched. Consider moving to SKILL_TOPOLOGY.` : ''}`;
+${skills.length > 0 ? `Already have ${skills.length} skill(s) sketched. Consider moving to IDENTITY_DESIGN.` : ''}`;
+
+    case 'IDENTITY_DESIGN': {
+      const actorTypes = identity.actor_types || [];
+      return `## CURRENT PHASE: IDENTITY_DESIGN
+
+Actor types defined: ${actorTypes.length}
+${actorTypes.map(a => `- ${a.key}: ${a.label} — ${a.description || 'no description'}`).join('\n') || '(none yet)'}
+Admin roles: ${(identity.admin_roles || []).join(', ') || '(not set)'}
+Default actor type: ${identity.default_actor_type || '(not set)'}
+Default roles: ${(identity.default_roles || []).join(', ') || '(not set)'}
+
+Define who uses this solution. Based on the discovery conversation, suggest actor types.
+Need at least 2 actor types, admin_roles, and default_actor_type before moving to SKILL_TOPOLOGY.`;
+    }
 
     case 'SKILL_TOPOLOGY':
       return `## CURRENT PHASE: SKILL_TOPOLOGY
@@ -333,6 +393,7 @@ export function getSolutionSummary(solution) {
     id: solution.id,
     name: solution.name,
     phase: solution.phase,
+    identity: solution.identity || {},
     skills: (solution.skills || []).map(s => ({
       id: s.id,
       role: s.role,
@@ -364,6 +425,7 @@ export function getSolutionSummary(solution) {
  * Includes computed health and validation status
  */
 export function getStructuredSolutionData(solution, skills = []) {
+  const solutionIdentity = solution.identity || {};
   const grants = solution.grants || [];
   const handoffs = solution.handoffs || [];
   const routing = solution.routing || {};
@@ -373,6 +435,10 @@ export function getStructuredSolutionData(solution, skills = []) {
   // Calculate health score
   let score = 0;
   let total = 0;
+
+  // Identity defined
+  total += 1;
+  if ((solutionIdentity.actor_types || []).length > 0) score += 1;
 
   // Skills defined
   total += 1;
@@ -407,6 +473,7 @@ export function getStructuredSolutionData(solution, skills = []) {
         percentage: healthPercentage,
         status: healthStatus,
       },
+      identity: solutionIdentity,
       skills: skills.map(s => ({
         id: s.id,
         name: s.name,

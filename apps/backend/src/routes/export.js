@@ -13,6 +13,59 @@ import { PREBUILT_CONNECTORS, getAllPrebuiltConnectors } from "./connectors.js";
 const activeSessions = new Map();
 
 /**
+ * Deploy the solution-level identity config to ADAS Core.
+ * Pushes actor_types, admin_roles, default_actor_type, default_roles
+ * to ADAS Core's POST /api/identity endpoint.
+ *
+ * @param {string} solutionId - Solution ID
+ * @param {object} log - Logger (console-compatible)
+ * @returns {Promise<object>} Deploy result { ok, skipped?, error? }
+ */
+export async function deployIdentityToADAS(solutionId, log) {
+  try {
+    const solution = await solutionsStore.get(solutionId);
+    const identity = solution?.identity;
+
+    if (!identity || !identity.actor_types || identity.actor_types.length === 0) {
+      log.info(`[Identity Deploy] No identity config defined for solution ${solutionId}, skipping`);
+      return { ok: true, skipped: true, reason: 'no_identity_config' };
+    }
+
+    const adasUrl = process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
+    const identityUrl = `${adasUrl}/api/identity`;
+    const tenant = (process.env.SB_TENANT || 'main').trim().toLowerCase();
+
+    log.info(`[Identity Deploy] Pushing identity config to ADAS Core: ${identityUrl} (${identity.actor_types.length} actor types)`);
+
+    const response = await fetch(identityUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-ADAS-TENANT": tenant },
+      body: JSON.stringify({
+        actor_types: identity.actor_types,
+        admin_roles: identity.admin_roles || [],
+        default_actor_type: identity.default_actor_type || '',
+        default_roles: identity.default_roles || [],
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      log.error(`[Identity Deploy] ADAS Core rejected identity config: ${JSON.stringify(result)}`);
+      return { ok: false, error: result.error || `HTTP ${response.status}` };
+    }
+
+    log.info(`[Identity Deploy] Successfully deployed: ${result.actor_types?.length || 0} actor types, ${result.admin_roles?.length || 0} admin roles`);
+    return { ok: true, ...result };
+
+  } catch (err) {
+    log.error(`[Identity Deploy] Failed: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
  * Deploy a skill MCP to ADAS Core (shared logic used by both the HTTP route and deploy-all).
  * Reads the generated MCP files, sends to ADAS Core, and syncs linked connectors.
  *
@@ -30,6 +83,19 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
   }
 
   log.info(`[MCP Deploy] Starting deploy for ${skillId} (version ${version})`);
+
+  // Phase 0: Deploy solution-level identity config (actor types, roles)
+  if (solutionId) {
+    try {
+      if (onProgress) onProgress('deploying_identity', 'Deploying identity config...');
+      const identityResult = await deployIdentityToADAS(solutionId, log);
+      if (!identityResult.ok && !identityResult.skipped) {
+        log.warn(`[MCP Deploy] Identity deploy failed (non-fatal): ${identityResult.error}`);
+      }
+    } catch (err) {
+      log.warn(`[MCP Deploy] Identity deploy error (non-fatal): ${err.message}`);
+    }
+  }
 
   const exportPath = await skillsStore.getExportPath(solutionId, skillId, version);
   const fs = await import('fs/promises');
@@ -847,6 +913,18 @@ router.post("/:skillId/adas", async (req, res, next) => {
     }
 
     log.info(`Exporting skill ${skillId} (solution=${solution_id}) to ADAS Core format`);
+
+    // Deploy solution-level identity config before skill deployment
+    if (deploy === "true" && solution_id) {
+      try {
+        const identityResult = await deployIdentityToADAS(solution_id, log);
+        if (identityResult.ok && !identityResult.skipped) {
+          log.info(`[ADAS Export] Identity config deployed: ${identityResult.actor_types?.length || 0} actor types`);
+        }
+      } catch (err) {
+        log.warn(`[ADAS Export] Identity deploy failed (non-fatal): ${err.message}`);
+      }
+    }
 
     // Load skill
     const skill = await skillsStore.load(solution_id, skillId);

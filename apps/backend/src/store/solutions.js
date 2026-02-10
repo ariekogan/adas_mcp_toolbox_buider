@@ -59,6 +59,13 @@ function createEmptySolution(id, name) {
     version: '1.0.0',
     description: '',
     phase: 'SOLUTION_DISCOVERY',
+    // Identity: who uses this solution (actor types, roles, admin privileges)
+    identity: {
+      actor_types: [],
+      admin_roles: [],
+      default_actor_type: '',
+      default_roles: [],
+    },
     // Note: skills are stored in /solutions/{id}/skills/ folder, not in this array
     grants: [],
     handoffs: [],

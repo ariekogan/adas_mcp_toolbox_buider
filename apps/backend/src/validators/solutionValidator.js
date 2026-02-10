@@ -17,6 +17,7 @@ export function validateSolution(solution) {
   const errors = [];
   const warnings = [];
 
+  const identity = solution.identity || {};
   const skills = solution.skills || [];
   const grants = solution.grants || [];
   const handoffs = solution.handoffs || [];
@@ -25,6 +26,40 @@ export function validateSolution(solution) {
   const securityContracts = solution.security_contracts || [];
 
   const skillIds = new Set(skills.map(s => s.id));
+
+  // ─── 0. Identity configuration ─────────────────────────────
+  const actorTypes = identity.actor_types || [];
+  const actorTypeKeys = new Set(actorTypes.map(a => a.key));
+
+  if (actorTypes.length === 0) {
+    warnings.push({
+      check: 'identity_actor_types',
+      message: 'No actor types defined. Define the user types for your solution in the Identity tab.',
+    });
+  }
+
+  if (!(identity.admin_roles || []).length && actorTypes.length > 0) {
+    warnings.push({
+      check: 'identity_admin_roles',
+      message: 'No admin roles defined. Consider setting which actor types have admin privileges.',
+    });
+  }
+
+  if (identity.default_actor_type && actorTypeKeys.size > 0 && !actorTypeKeys.has(identity.default_actor_type)) {
+    errors.push({
+      check: 'identity_default_type_valid',
+      message: `Default actor type "${identity.default_actor_type}" is not a defined actor type`,
+    });
+  }
+
+  for (const role of (identity.admin_roles || [])) {
+    if (actorTypeKeys.size > 0 && !actorTypeKeys.has(role)) {
+      warnings.push({
+        check: 'identity_admin_role_valid',
+        message: `Admin role "${role}" is not a defined actor type`,
+      });
+    }
+  }
 
   // ─── 1. Grant provider exists ──────────────────────────────
   // Every consumed grant must have at least one issuer

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import SkillList from './components/SkillList';
 import ChatPanel from './components/ChatPanel';
 import SkillPanel from './components/SkillPanel';
@@ -190,6 +190,11 @@ export default function App() {
   // Export state
   const [exportModalOpen, setExportModalOpen] = useState(false);
 
+  // Context indicator state - shows what panel/tab the chat is aware of
+  const [contextLabel, setContextLabel] = useState(null);
+  // Reference to control panel navigation from chat side
+  const [pendingNavigation, setPendingNavigation] = useState(null);
+
   // Navigation state - 'skills', 'connectors', 'channels'
   const [currentView, setCurrentView] = useState('skills');
   const [gearMenuOpen, setGearMenuOpen] = useState(false);
@@ -206,6 +211,113 @@ export default function App() {
 
   const messages = currentSkill?.conversation || [];
   const solutionMessages = currentSolution?.conversation || [];
+
+  // ── Context indicator mappings ──────────────────────────────
+  // Maps tab/panel IDs → display labels
+  const CONTEXT_LABELS = useMemo(() => ({
+    // Skill panel tabs
+    identity: 'Identity',
+    intents: 'Intents',
+    tools: 'Tools',
+    connectors: 'Connectors',
+    policy: 'Policy',
+    security: 'Security',
+    engine: 'Engine',
+    triggers: 'Triggers',
+    // Skill sub-sections
+    problem: 'Problem',
+    scenarios: 'Scenarios',
+    role: 'Role',
+    mocks: 'Mocks',
+    // Solution panel tabs
+    overview: 'Overview',
+    'team-map': 'Team Map',
+    architecture: 'Architecture',
+    'trust-rules': 'Trust Rules',
+  }), []);
+
+  // Maps label → focus object for navigation
+  const LABEL_TO_FOCUS = useMemo(() => ({
+    'Identity': { tab: 'identity' },
+    'Problem': { tab: 'identity', section: 'problem' },
+    'Scenarios': { tab: 'identity', section: 'scenarios' },
+    'Role': { tab: 'identity', section: 'role' },
+    'Intents': { tab: 'intents' },
+    'Tools': { tab: 'tools' },
+    'Mocks': { tab: 'tools', section: 'mocks' },
+    'Connectors': { tab: 'connectors' },
+    'Policy': { tab: 'policy' },
+    'Security': { tab: 'security' },
+    'Engine': { tab: 'engine' },
+    'Triggers': { tab: 'triggers' },
+    // Solution tabs
+    'Overview': { tab: 'Overview' },
+    'Team Map': { tab: 'Team Map' },
+    'Architecture': { tab: 'Architecture' },
+    'Trust Rules': { tab: 'Trust Rules' },
+  }), []);
+
+  // Keywords in user input that hint at a context
+  const INPUT_CONTEXT_PATTERNS = useMemo(() => [
+    { pattern: /\b(problem|problem statement|what.*problem)\b/i, label: 'Problem' },
+    { pattern: /\b(scenario|scenarios|use.?case|example)\b/i, label: 'Scenarios' },
+    { pattern: /\b(role|persona|who.*agent|agent.*personality)\b/i, label: 'Role' },
+    { pattern: /\b(intent|intents|user.*wants|what.*can.*do)\b/i, label: 'Intents' },
+    { pattern: /\b(tool|tools|api|function|capability)\b/i, label: 'Tools' },
+    { pattern: /\b(mock|test.*tool|simulate)\b/i, label: 'Mocks' },
+    { pattern: /\b(policy|guardrail|rule|constraint|never|always)\b/i, label: 'Policy' },
+    { pattern: /\b(security|auth|permission|access.*control)\b/i, label: 'Security' },
+    { pattern: /\b(engine|model|llm|temperature)\b/i, label: 'Engine' },
+    { pattern: /\b(trigger|email|webhook|schedule|cron)\b/i, label: 'Triggers' },
+    { pattern: /\b(connector|mcp|external.*service)\b/i, label: 'Connectors' },
+    { pattern: /\b(identity|actor|user.*type)\b/i, label: 'Identity' },
+    { pattern: /\b(handoff|routing|team.?map|topology)\b/i, label: 'Team Map' },
+    { pattern: /\b(architecture|diagram|overview)\b/i, label: 'Architecture' },
+    { pattern: /\b(trust|grant|contract|verification)\b/i, label: 'Trust Rules' },
+  ], []);
+
+  // Sync context label when uiFocus changes (user clicked something in panel)
+  useEffect(() => {
+    if (uiFocus?.tab) {
+      const label = CONTEXT_LABELS[uiFocus.tab] ||
+        (uiFocus.section ? CONTEXT_LABELS[uiFocus.section] : null);
+      if (label) setContextLabel(label);
+    }
+  }, [uiFocus, CONTEXT_LABELS]);
+
+  // Navigate panel when pendingNavigation is set
+  useEffect(() => {
+    if (pendingNavigation) {
+      setUiFocus(pendingNavigation);
+      setPendingNavigation(null);
+    }
+  }, [pendingNavigation]);
+
+  // Detect context from user input and auto-set label
+  const detectContextFromInput = useCallback((text) => {
+    for (const { pattern, label } of INPUT_CONTEXT_PATTERNS) {
+      if (pattern.test(text)) {
+        setContextLabel(label);
+        // Also navigate the panel to match
+        const focus = LABEL_TO_FOCUS[label];
+        if (focus) setPendingNavigation(focus);
+        return;
+      }
+    }
+  }, [INPUT_CONTEXT_PATTERNS, LABEL_TO_FOCUS]);
+
+  // Handle context badge click → navigate to the panel tab
+  const handleContextClick = useCallback(() => {
+    if (contextLabel) {
+      const focus = LABEL_TO_FOCUS[contextLabel];
+      if (focus) setPendingNavigation(focus);
+    }
+  }, [contextLabel, LABEL_TO_FOCUS]);
+
+  // Clear context
+  const handleContextClear = useCallback(() => {
+    setContextLabel(null);
+  }, []);
 
   // Load solutions on mount
   useEffect(() => {
@@ -265,6 +377,7 @@ export default function App() {
 
   const handleSelect = useCallback(async (id) => {
     setUiFocus(null);
+    setContextLabel(null);
     setSelectedType('skill');
     if (!currentSolution?.id) {
       console.error('Cannot select skill without a solution');
@@ -275,6 +388,7 @@ export default function App() {
 
   const handleSelectSolution = useCallback(async (id) => {
     setUiFocus(null);
+    setContextLabel(null);
     setSelectedType('solution');
     setInputHint(null);
     await loadSolution(id);
@@ -302,6 +416,9 @@ export default function App() {
   const handleSendMessage = useCallback(async (message) => {
     if (!currentSkill || !currentSolution?.id) return;
 
+    // Detect context from user input
+    detectContextFromInput(message);
+
     // Clear input hint while sending
     setInputHint(null);
 
@@ -326,6 +443,18 @@ export default function App() {
       });
       // Update input hint from response
       setInputHint(response.input_hint || null);
+      // Update context indicator from suggested_focus
+      if (response.suggested_focus) {
+        const focusKey = response.suggested_focus.tab || response.suggested_focus.panel;
+        if (focusKey) {
+          const label = CONTEXT_LABELS[focusKey.toLowerCase()];
+          if (label) {
+            setContextLabel(label);
+            const focus = LABEL_TO_FOCUS[label];
+            if (focus) setPendingNavigation(focus);
+          }
+        }
+      }
       if (response.skill) {
         updateSkill(response.skill);
       }
@@ -340,10 +469,13 @@ export default function App() {
     } finally {
       setSending(false);
     }
-  }, [currentSkill, currentSolution?.id, uiFocus, addMessage, updateSkill]);
+  }, [currentSkill, currentSolution?.id, uiFocus, addMessage, updateSkill, detectContextFromInput, CONTEXT_LABELS, LABEL_TO_FOCUS]);
 
   const handleSendSolutionMessage = useCallback(async (message) => {
     if (!currentSolution) return;
+
+    // Detect context from user input
+    detectContextFromInput(message);
 
     // Clear input hint while sending
     setInputHint(null);
@@ -368,6 +500,18 @@ export default function App() {
         input_hint: response.input_hint
       });
       setInputHint(response.input_hint || null);
+      // Update context indicator from suggested_focus
+      if (response.suggested_focus) {
+        const focusKey = response.suggested_focus.tab || response.suggested_focus.panel;
+        if (focusKey) {
+          const label = CONTEXT_LABELS[focusKey.toLowerCase()];
+          if (label) {
+            setContextLabel(label);
+            const focus = LABEL_TO_FOCUS[label];
+            if (focus) setPendingNavigation(focus);
+          }
+        }
+      }
       if (response.solution) {
         updateSolution(response.solution);
       }
@@ -382,7 +526,7 @@ export default function App() {
     } finally {
       setSending(false);
     }
-  }, [currentSolution, addSolutionMessage, updateSolution]);
+  }, [currentSolution, addSolutionMessage, updateSolution, detectContextFromInput, CONTEXT_LABELS, LABEL_TO_FOCUS]);
 
   const handleExport = useCallback(() => {
     if (!currentSkill) return;
@@ -635,10 +779,13 @@ export default function App() {
                     skillName={currentSolution.name}
                     inputHint={inputHint}
                     skill={currentSolution}
+                    contextLabel={contextLabel}
+                    onContextClick={handleContextClick}
+                    onContextClear={handleContextClear}
                   />
                 }
                 right={
-                  <SolutionPanel solution={currentSolution} sidebarSkills={skills} />
+                  <SolutionPanel solution={currentSolution} sidebarSkills={skills} onSolutionUpdate={() => loadSolution(currentSolution.id)} />
                 }
               />
             ) : currentSkill ? (
@@ -654,6 +801,9 @@ export default function App() {
                     inputHint={inputHint}
                     skill={currentSkill}
                     onFocusChange={setUiFocus}
+                    contextLabel={contextLabel}
+                    onContextClick={handleContextClick}
+                    onContextClear={handleContextClear}
                   />
                 }
                 right={
