@@ -845,6 +845,28 @@ export async function downloadMCPExport(solutionId, skillId, version) {
   return request(`/export/${skillId}/download/${version}?solution_id=${solutionId}`);
 }
 
+export async function downloadExportBundle(solutionId, skillId, version) {
+  if (!solutionId) throw new Error('solutionId is required');
+  const url = `${API_BASE}/export/${skillId}/download/${version}/bundle?solution_id=${solutionId}`;
+  const response = await fetch(url, {
+    headers: { 'X-ADAS-TENANT': getTenant() }
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || `Download failed: ${response.status}`);
+  }
+  const blob = await response.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = (response.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1]
+    || `skill-export-v${version}.tar.gz`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
+}
+
 export async function getMCPFile(solutionId, skillId, version, filename) {
   if (!solutionId) throw new Error('solutionId is required');
   return request(`/export/${skillId}/files/${version}/${encodeURIComponent(filename)}?solution_id=${solutionId}`);
@@ -990,6 +1012,7 @@ export default {
   previewMCPGeneration,
   generateMCP,
   downloadMCPExport,
+  downloadExportBundle,
   getMCPFile,
   startMCPServer,
   stopMCPServer,

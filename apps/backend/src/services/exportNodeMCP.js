@@ -10,6 +10,8 @@
  *   // Returns [{name: "server.js", content: "..."}, ...]
  */
 
+import { generateAllConnectorFiles } from './exportConnectorTemplate.js';
+
 // ── Helpers ────────────────────────────────────────────────────────────
 
 /** Slugify a name: "Customer Support Tier 1" → "customer-support-tier-1" */
@@ -148,12 +150,14 @@ export function generateNodeMCPFiles(skill) {
   const skillName = skill.name || 'My Skill';
   const slug = slugify(skillName);
   const domain = deriveDomain(tools);
+  const connectorFiles = generateAllConnectorFiles(skill);
 
   const files = [
     { name: 'server.js', content: generateServerJs(skill, tools, domain) },
     { name: 'package.json', content: generatePackageJson(slug, skillName) },
     { name: 'src/store.js', content: generateStoreJs(tools, domain) },
     { name: 'README.md', content: generateReadme(skill, tools, slug) },
+    ...connectorFiles,
   ];
 
   return files;

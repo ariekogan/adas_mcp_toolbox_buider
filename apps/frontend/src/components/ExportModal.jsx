@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { generateMCP, downloadMCPExport, deployMCPToAdas, exportNodeMCPTemplate } from '../api/client';
+import { generateMCP, downloadMCPExport, downloadExportBundle, deployMCPToAdas, exportNodeMCPTemplate, exportSkill } from '../api/client';
 
 const styles = {
   overlay: {
@@ -107,6 +107,21 @@ const styles = {
   },
   templateBtn: {
     background: 'linear-gradient(135deg, #14b8a6, #0d9488)',
+    color: 'white',
+    border: 'none',
+    padding: '14px 24px',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '500',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    transition: 'opacity 0.2s'
+  },
+  bundleBtn: {
+    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
     color: 'white',
     border: 'none',
     padding: '14px 24px',
@@ -360,6 +375,23 @@ export default function ExportModal({
     }
   };
 
+  const handleDownloadBundle = async () => {
+    setLoading('bundle');
+    setError(null);
+    setResult(null);
+    try {
+      // Export first to save files and get a version number
+      const exportResult = await exportSkill(solutionId, skillId);
+      const version = exportResult.version || generatedVersion || 1;
+      await downloadExportBundle(solutionId, skillId, version);
+      setResult({ type: 'bundle', message: 'Downloaded skill bundle (.tar.gz) with connectors and README' });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(null);
+    }
+  };
+
   const handleClose = () => {
     setResult(null);
     setError(null);
@@ -549,6 +581,24 @@ export default function ExportModal({
               disabled={!!loading}
             >
               {loading === 'export' ? 'Exporting...' : 'Download Basic Files'}
+            </button>
+
+            <button
+              style={{
+                ...styles.bundleBtn,
+                ...(loading ? styles.disabledBtn : {})
+              }}
+              onClick={handleDownloadBundle}
+              disabled={!!loading || !solutionId}
+            >
+              {loading === 'bundle' ? (
+                <>
+                  <div style={styles.spinner} />
+                  Bundling...
+                </>
+              ) : (
+                'Download .tar.gz Bundle (Skill + Connectors)'
+              )}
             </button>
           </div>
         </div>

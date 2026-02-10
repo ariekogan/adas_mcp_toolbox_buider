@@ -8,6 +8,8 @@ import { generateMCPWithAgent, generateMCPSimple, isAgentSDKAvailable } from "..
 import { MCPDevelopmentSession, analyzeSkillForMCP, MCP_DEV_PHASES } from "../services/mcpDevelopmentAgent.js";
 import { syncConnectorToADAS, startConnectorInADAS } from "../services/adasConnectorSync.js";
 import { PREBUILT_CONNECTORS, getAllPrebuiltConnectors } from "./connectors.js";
+import { generateAllConnectorFiles } from "../services/exportConnectorTemplate.js";
+import { createTarGzStream } from "../services/exportBundle.js";
 
 // Store active development sessions (in production, use Redis or similar)
 const activeSessions = new Map();
@@ -426,6 +428,62 @@ router.get("/:skillId", async (req, res, next) => {
   } catch (err) {
     if (err.message?.includes('not found') || err.code === "ENOENT") {
       return res.status(404).json({ error: "Skill not found" });
+    }
+    next(err);
+  }
+});
+
+// Download export as tar.gz bundle (skill + connectors + README)
+// NOTE: Must be registered BEFORE /:skillId/download/:version to avoid route shadowing
+router.get("/:skillId/download/:version/bundle", async (req, res, next) => {
+  try {
+    const { skillId, version } = req.params;
+    const { solution_id } = req.query;
+
+    if (!solution_id) {
+      return res.status(400).json({ error: "solution_id query param is required" });
+    }
+
+    // Load skill for connector metadata
+    const skill = await skillsStore.load(solution_id, skillId);
+
+    // Get saved export files
+    const exportedFiles = await skillsStore.getExport(solution_id, skillId, version);
+
+    // Generate connector templates (not in saved export)
+    const connectorFiles = generateAllConnectorFiles(skill);
+
+    // Merge: exported files + connector templates (avoid duplicates)
+    const allFiles = [...exportedFiles];
+    for (const cf of connectorFiles) {
+      if (!allFiles.some(f => f.name === cf.name)) {
+        allFiles.push(cf);
+      }
+    }
+
+    // Create archive name
+    const slug = (skill.name || 'skill')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const archiveName = `${slug}-mcp-v${version}`;
+
+    // Stream tar.gz
+    const archive = createTarGzStream(allFiles, archiveName);
+
+    res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Disposition', `attachment; filename="${archiveName}.tar.gz"`);
+
+    archive.on('error', (err) => {
+      req.app.locals.log?.error(`[Bundle] Archive error: ${err.message}`);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to create archive' });
+      }
+    });
+
+    archive.pipe(res);
+
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      return res.status(404).json({ error: "Export not found" });
     }
     next(err);
   }
