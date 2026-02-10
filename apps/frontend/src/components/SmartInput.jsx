@@ -105,9 +105,9 @@ const styles = {
     borderRadius: '8px',
     color: 'var(--text-primary)',
     fontSize: '16px',
-    resize: 'none',
-    minHeight: '120px',
-    maxHeight: '250px',
+    resize: 'vertical',
+    minHeight: '60px',
+    maxHeight: '400px',
     fontFamily: 'inherit',
     lineHeight: '1.5',
     boxSizing: 'border-box'
