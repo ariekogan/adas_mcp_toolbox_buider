@@ -32,7 +32,7 @@ import {
   startConnectorInADAS,
   uploadMcpCodeToADAS
 } from '../services/adasConnectorSync.js';
-import { deploySkillToADAS, deployIdentityToADAS } from './export.js';
+import { deploySkillToADAS, deployIdentityToADAS } from '../services/exportDeploy.js';
 
 // Multer config: store uploaded files in /tmp, accept .tar.gz up to 50MB
 const upload = multer({ dest: '/tmp/solution-pack-uploads', limits: { fileSize: 50 * 1024 * 1024 } });
