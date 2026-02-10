@@ -502,34 +502,12 @@ export default function SmartInput({
           ))}
         </div>
       )}
+      {contextBadgeElement}
       <div style={styles.inputRowWithUpload}>
         <div style={styles.inputWrapper}>
-          {contextLabel && (
-            <span
-              style={{
-                ...styles.contextBadge,
-                ...(hoveredContext ? styles.contextBadgeHover : {})
-              }}
-              onMouseEnter={() => setHoveredContext(true)}
-              onMouseLeave={() => setHoveredContext(false)}
-              onClick={() => onContextClick?.()}
-              title={`Context: ${contextLabel} — click to navigate`}
-            >
-              <span style={styles.contextDot} />
-              {contextLabel}
-              <span
-                style={styles.contextDismiss}
-                onClick={(e) => { e.stopPropagation(); onContextClear?.(); }}
-                title="Clear context"
-              >×</span>
-            </span>
-          )}
           <textarea
             ref={inputRef}
-            style={{
-              ...styles.input,
-              ...(contextLabel ? { paddingTop: '30px' } : {})
-            }}
+            style={styles.input}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
