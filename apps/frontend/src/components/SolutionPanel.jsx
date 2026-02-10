@@ -3,12 +3,12 @@
  *
  * Four tabs:
  *   1. Overview — Summary card + verification panel
- *   2. Topology — SVG graph of skills, handoffs, and channel entries
+ *   2. Team Map — SVG graph of skills, handoffs, and channel entries
  *   3. Architecture — Skills + connectors diagram with links
- *   4. Access & Grants — Grant economy table + security contracts
+ *   4. Trust Rules — Verification requirements grouped by skill (Story Mode) + raw table (Advanced)
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as api from '../api/client';
 import SolutionSummaryCard from './SolutionSummaryCard';
 import SolutionVerificationPanel from './SolutionVerificationPanel';
@@ -164,7 +164,7 @@ function SvgIcon({ pathD, color, x, y, size = 14 }) {
   );
 }
 
-const TABS = ['Overview', 'Topology', 'Architecture', 'Access & Grants'];
+const TABS = ['Overview', 'Team Map', 'Architecture', 'Trust Rules'];
 
 // ═══════════════════════════════════════════════════════════════
 // Shared SVG Defs
@@ -294,6 +294,8 @@ function Legend({ items }) {
 // ═══════════════════════════════════════════════════════════════
 export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate }) {
   const [activeTab, setActiveTab] = useState('Overview');
+  const [trustRulesFilter, setTrustRulesFilter] = useState(null);
+  const [mapHighlight, setMapHighlight] = useState(null);
 
   if (!solution) {
     return (
@@ -359,7 +361,7 @@ export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate
       <div style={styles.header}>
         <div style={styles.title}>★ {solution.name}</div>
         <div style={styles.subtitle}>
-          {skills.length} skills · {grants.length} grants · {handoffs.length} handoffs
+          {skills.length} skills · {grants.length} verifications · {handoffs.length} handoffs
         </div>
       </div>
 
@@ -382,14 +384,20 @@ export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate
         {activeTab === 'Overview' && (
           <OverviewView solution={solution} solutionSkills={skills} sidebarSkills={sidebarSkills} onNavigate={onNavigate} />
         )}
-        {activeTab === 'Topology' && (
-          <TopologyView skills={enrichedSkills} handoffs={handoffs} routing={routing} />
+        {activeTab === 'Team Map' && (
+          <TopologyView skills={enrichedSkills} handoffs={handoffs} routing={routing} grants={grants} contracts={contracts} onSelectSkill={(skillId) => {
+            setActiveTab('Trust Rules');
+            setTrustRulesFilter(skillId);
+          }} />
         )}
         {activeTab === 'Architecture' && (
           <ArchitectureView skills={enrichedSkills} connectors={connectors} handoffs={handoffs} />
         )}
-        {activeTab === 'Access & Grants' && (
-          <AccessGrantsView grants={grants} contracts={contracts} skills={skills} />
+        {activeTab === 'Trust Rules' && (
+          <TrustRulesView grants={grants} contracts={contracts} skills={skills} handoffs={handoffs} filterSkillId={trustRulesFilter} onClearFilter={() => setTrustRulesFilter(null)} onHighlightInMap={(skillIds) => {
+            setActiveTab('Team Map');
+            setMapHighlight(skillIds);
+          }} />
         )}
       </div>
     </div>
@@ -492,13 +500,45 @@ function OverviewView({ solution, solutionSkills, sidebarSkills, onNavigate }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Tab 2: Topology — SVG skill graph
+// Tab 2: Team Map — SVG skill graph
 // ═══════════════════════════════════════════════════════════════
-function TopologyView({ skills, handoffs, routing }) {
+function TopologyView({ skills, handoffs, routing, grants, contracts, onSelectSkill }) {
   const containerRef = useRef(null);
   const [hoveredNode, setHoveredNode] = useState(null);
   const [hoveredEdge, setHoveredEdge] = useState(null);
   const [tooltip, setTooltip] = useState(null);
+  const [selectedSkill, setSelectedSkill] = useState(null);
+
+  // Build skill name lookup
+  const skillNameMap = {};
+  const skillRoleMap = {};
+  skills.forEach(s => {
+    skillNameMap[s.id] = s.name || s.id;
+    skillRoleMap[s.id] = s.role || 'worker';
+  });
+
+  // Build grant description lookup
+  const grantDescriptions = {};
+  (grants || []).forEach(g => { grantDescriptions[g.key] = g.description || g.key; });
+
+  // Get contracts for a given skill
+  const getSkillContracts = (skillId) => (contracts || []).filter(c => c.consumer === skillId);
+
+  // Describe a rule in plain English (same logic as TrustRulesView)
+  const describeRuleShort = (contract) => {
+    const providerName = skillNameMap[contract.provider] || contract.provider || 'another skill';
+    const toolNames = (contract.for_tools || []).map(t => {
+      const parts = t.split('.');
+      return parts[parts.length - 1].replace(/_/g, ' ');
+    });
+    const toolsText = toolNames.length > 0 ? toolNames.join(', ') : 'sensitive actions';
+    const validation = contract.validation || '';
+    const levelMatch = validation.match(/[Ll](?:evel\s*)?(\d+)/);
+    if (levelMatch) {
+      return `${toolsText} requires Level ${levelMatch[1]}+ from ${providerName}`;
+    }
+    return `${toolsText} requires verification from ${providerName}`;
+  };
 
   if (skills.length === 0) {
     return <EmptyState message="No skills defined yet" hint="Start a conversation to add skills and define your topology." />;
@@ -821,12 +861,15 @@ function TopologyView({ skills, handoffs, routing }) {
             ? (skill.description.length > 35 ? skill.description.slice(0, 33) + '...' : skill.description)
             : '';
 
+          const isSelected = selectedSkill === skill.id;
+
           return (
             <g
               key={skill.id}
               filter={isHovered ? `url(#glow-${pos.role})` : 'none'}
               onMouseEnter={(e) => handleNodeEnter(skill, pos, e)}
               onMouseLeave={handleLeave}
+              onClick={() => setSelectedSkill(isSelected ? null : skill.id)}
               style={{ cursor: 'pointer' }}
               opacity={dimmed ? 0.3 : 1}
             >
@@ -836,7 +879,7 @@ function TopologyView({ skills, handoffs, routing }) {
                 width={NODE_W} height={NODE_H}
                 rx="12" ry="12"
                 fill="var(--bg-card)"
-                stroke={roleColor.stroke}
+                stroke={isSelected ? 'var(--accent)' : roleColor.stroke}
                 strokeWidth={isHovered ? 2.5 : 2}
               />
 
@@ -956,6 +999,110 @@ function TopologyView({ skills, handoffs, routing }) {
 
       {/* Legend */}
       <Legend items={legendItems} />
+
+      {/* Skill detail panel (trust rules summary) */}
+      {selectedSkill && (() => {
+        const skill = skills.find(s => s.id === selectedSkill);
+        if (!skill) return null;
+        const roleColor = ROLE_COLORS[skill.role || 'worker'] || ROLE_COLORS.worker;
+        const skillContracts = getSkillContracts(selectedSkill);
+        const displayName = skillNameMap[selectedSkill] || selectedSkill;
+
+        return (
+          <div style={{
+            position: 'absolute',
+            top: '12px',
+            right: '12px',
+            width: '280px',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: '10px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+            zIndex: 20,
+            overflow: 'hidden',
+          }}>
+            {/* Header with close button */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 14px',
+              borderBottom: '1px solid var(--border)',
+              background: `${roleColor.stroke}08`,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  width: '8px', height: '8px',
+                  borderRadius: '50%', background: roleColor.stroke,
+                }} />
+                <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                  {displayName}
+                </span>
+              </div>
+              <button
+                onClick={() => setSelectedSkill(null)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: '16px', color: 'var(--text-muted)', padding: '0 4px',
+                  lineHeight: '1',
+                }}
+                title="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Trust rules for this skill */}
+            <div style={{ padding: '8px 14px 12px', maxHeight: '300px', overflow: 'auto' }}>
+              {skillContracts.length === 0 ? (
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '8px 0' }}>
+                  No verification rules for this skill
+                </div>
+              ) : (
+                <>
+                  <div style={{
+                    fontSize: '10px', fontWeight: '600',
+                    color: 'var(--text-muted)', textTransform: 'uppercase',
+                    letterSpacing: '0.5px', marginBottom: '8px',
+                  }}>
+                    Trust Rules
+                  </div>
+                  {skillContracts.map((contract, i) => (
+                    <div key={i} style={{
+                      padding: '8px 0',
+                      borderBottom: i < skillContracts.length - 1 ? '1px solid var(--border)' : 'none',
+                      fontSize: '12px',
+                      color: 'var(--text-primary)',
+                      lineHeight: '1.5',
+                    }}>
+                      {describeRuleShort(contract)}
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Link to full Trust Rules tab */}
+              <button
+                onClick={() => onSelectSkill && onSelectSkill(selectedSkill)}
+                style={{
+                  marginTop: '10px',
+                  width: '100%',
+                  padding: '6px 12px',
+                  fontSize: '11px',
+                  fontWeight: '500',
+                  background: 'var(--accent)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                }}
+              >
+                View all rules for {displayName}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1325,10 +1472,12 @@ function ArchitectureView({ skills, connectors, handoffs }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Tab 3: Access & Grants — Grant table + Security contracts
+// Tab 3: Trust Rules — Story Mode + Advanced toggle
 // ═══════════════════════════════════════════════════════════════
-function AccessGrantsView({ grants, contracts, skills }) {
-  // Build lookups for skill pills
+function TrustRulesView({ grants, contracts, skills, handoffs, filterSkillId, onClearFilter, onHighlightInMap }) {
+  const [mode, setMode] = useState('story'); // 'story' | 'advanced'
+
+  // Build lookups
   const skillRoles = {};
   const skillNames = {};
   skills.forEach(s => {
@@ -1336,7 +1485,11 @@ function AccessGrantsView({ grants, contracts, skills }) {
     skillNames[s.id] = s.name || s.id;
   });
 
-  const renderSkillPill = (skillId) => {
+  // Build grant lookup for descriptions
+  const grantDescriptions = {};
+  grants.forEach(g => { grantDescriptions[g.key] = g.description || g.key; });
+
+  const renderSkillPill = (skillId, opts = {}) => {
     const roleColor = ROLE_COLORS[skillRoles[skillId]] || ROLE_COLORS.worker;
     const displayName = skillNames[skillId] || (skillId?.length > 16 ? skillId.slice(0, 14) + '...' : skillId);
     return (
@@ -1350,36 +1503,65 @@ function AccessGrantsView({ grants, contracts, skills }) {
         color: roleColor.color,
         marginRight: '4px',
         marginBottom: '2px',
-      }} title={skillId}>
+        cursor: opts.clickable ? 'pointer' : 'default',
+      }} title={skillId} onClick={opts.onClick}>
         {displayName}
       </span>
     );
   };
 
-  const renderGrantPill = (grantKey) => (
-    <span key={grantKey} style={{
-      display: 'inline-block',
-      padding: '1px 6px',
-      borderRadius: '3px',
-      fontSize: '10px',
-      fontFamily: 'monospace',
-      background: 'var(--bg-tertiary)',
-      color: 'var(--text-secondary)',
-      marginRight: '4px',
-      marginBottom: '2px',
-    }}>
-      {grantKey}
-    </span>
-  );
+  // ── Story Mode: group contracts by consumer skill ──
+  const contractsBySkill = {};
+  contracts.forEach(contract => {
+    const consumer = contract.consumer || 'unknown';
+    if (!contractsBySkill[consumer]) contractsBySkill[consumer] = [];
+    contractsBySkill[consumer].push(contract);
+  });
 
-  return (
+  // Filter if coming from Team Map click
+  const visibleSkillIds = filterSkillId
+    ? [filterSkillId]
+    : Object.keys(contractsBySkill);
+
+  // Describe a contract in plain English
+  const describeRule = (contract) => {
+    const providerName = skillNames[contract.provider] || contract.provider || 'another skill';
+    const grantNames = (contract.requires_grants || []).map(g => {
+      // Try to produce a human-readable label from the grant key
+      const desc = grantDescriptions[g];
+      if (desc && desc !== g) return desc.toLowerCase();
+      // Fallback: strip namespace prefix, replace dots/underscores with spaces
+      return g.replace(/^[^.]+\./, '').replace(/[._]/g, ' ');
+    });
+    const toolNames = (contract.for_tools || []).map(t => {
+      // Shorten tool names: "orders.order.cancel" → "cancel order"
+      const parts = t.split('.');
+      const action = parts[parts.length - 1].replace(/_/g, ' ');
+      return action;
+    });
+
+    const requiresText = grantNames.length > 0 ? grantNames.join(' and ') : 'verification';
+    const toolsText = toolNames.length > 0 ? toolNames.join(', ') : 'sensitive actions';
+    const validation = contract.validation || '';
+
+    // If there's an assurance level mentioned, extract it
+    const levelMatch = validation.match(/[Ll](?:evel\s*)?(\d+)/);
+    if (levelMatch) {
+      return `${toolsText} requires Verification Level ${levelMatch[1]}+ from ${providerName}`;
+    }
+
+    return `${toolsText} requires ${requiresText} from ${providerName}`;
+  };
+
+  // ── Advanced Mode: original raw table ──
+  const renderAdvancedView = () => (
     <div>
-      {/* Grant Economy Section */}
+      {/* Verifications Table */}
       <div style={styles.section}>
-        <div style={styles.sectionTitle}>Grant Economy</div>
+        <div style={styles.sectionTitle}>Verifications</div>
 
         {grants.length === 0 ? (
-          <div style={styles.empty}>No grants defined yet</div>
+          <div style={styles.empty}>No verifications defined yet</div>
         ) : (
           <div style={{
             display: 'grid',
@@ -1389,7 +1571,6 @@ function AccessGrantsView({ grants, contracts, skills }) {
             borderRadius: '8px',
             overflow: 'hidden',
           }}>
-            {/* Header */}
             {['Key', 'Description', 'Issued By', 'Consumed By', 'TTL'].map(h => (
               <div key={h} style={{
                 background: 'var(--bg-secondary)',
@@ -1404,10 +1585,9 @@ function AccessGrantsView({ grants, contracts, skills }) {
               </div>
             ))}
 
-            {/* Rows */}
             {grants.map(grant => (
-              <>
-                <div key={`${grant.key}-key`} style={{
+              <React.Fragment key={grant.key}>
+                <div style={{
                   background: 'var(--bg-card)',
                   padding: '8px 10px',
                   fontSize: '12px',
@@ -1425,7 +1605,7 @@ function AccessGrantsView({ grants, contracts, skills }) {
                     }}>int</span>
                   )}
                 </div>
-                <div key={`${grant.key}-desc`} style={{
+                <div style={{
                   background: 'var(--bg-card)',
                   padding: '8px 10px',
                   fontSize: '12px',
@@ -1433,7 +1613,7 @@ function AccessGrantsView({ grants, contracts, skills }) {
                 }}>
                   {grant.description || '—'}
                 </div>
-                <div key={`${grant.key}-issued`} style={{
+                <div style={{
                   background: 'var(--bg-card)',
                   padding: '8px 10px',
                 }}>
@@ -1442,7 +1622,7 @@ function AccessGrantsView({ grants, contracts, skills }) {
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>—</span>
                   )}
                 </div>
-                <div key={`${grant.key}-consumed`} style={{
+                <div style={{
                   background: 'var(--bg-card)',
                   padding: '8px 10px',
                 }}>
@@ -1451,7 +1631,7 @@ function AccessGrantsView({ grants, contracts, skills }) {
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>—</span>
                   )}
                 </div>
-                <div key={`${grant.key}-ttl`} style={{
+                <div style={{
                   background: 'var(--bg-card)',
                   padding: '8px 10px',
                   fontSize: '11px',
@@ -1459,18 +1639,18 @@ function AccessGrantsView({ grants, contracts, skills }) {
                 }}>
                   {grant.ttl_seconds ? `${grant.ttl_seconds}s` : '—'}
                 </div>
-              </>
+              </React.Fragment>
             ))}
           </div>
         )}
       </div>
 
-      {/* Security Contracts Section */}
+      {/* Rules Table */}
       <div style={styles.section}>
-        <div style={styles.sectionTitle}>Security Contracts</div>
+        <div style={styles.sectionTitle}>Rules</div>
 
         {contracts.length === 0 ? (
-          <div style={styles.empty}>No security contracts defined yet</div>
+          <div style={styles.empty}>No rules defined yet</div>
         ) : (
           contracts.map((contract, i) => (
             <div key={i} style={styles.card}>
@@ -1489,7 +1669,21 @@ function AccessGrantsView({ grants, contracts, skills }) {
                 </div>
                 <div style={{ marginBottom: '4px' }}>
                   <span style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>Requires:</span>{' '}
-                  {(contract.requires_grants || []).map(g => renderGrantPill(g))}
+                  {(contract.requires_grants || []).map(g => (
+                    <span key={g} style={{
+                      display: 'inline-block',
+                      padding: '1px 6px',
+                      borderRadius: '3px',
+                      fontSize: '10px',
+                      fontFamily: 'monospace',
+                      background: 'var(--bg-tertiary)',
+                      color: 'var(--text-secondary)',
+                      marginRight: '4px',
+                      marginBottom: '2px',
+                    }}>
+                      {g}
+                    </span>
+                  ))}
                 </div>
                 {contract.for_tools?.length > 0 && (
                   <div>
@@ -1504,6 +1698,220 @@ function AccessGrantsView({ grants, contracts, skills }) {
           ))
         )}
       </div>
+    </div>
+  );
+
+  // ── Story Mode: human-readable rules grouped by skill ──
+  const renderStoryView = () => {
+    if (contracts.length === 0 && grants.length === 0) {
+      return <EmptyState message="No trust rules defined yet" hint="Use the chat to define verification requirements between skills." />;
+    }
+
+    return (
+      <div>
+        {visibleSkillIds.map(skillId => {
+          const skillContracts = contractsBySkill[skillId] || [];
+          if (skillContracts.length === 0) return null;
+
+          const roleColor = ROLE_COLORS[skillRoles[skillId]] || ROLE_COLORS.worker;
+          const displayName = skillNames[skillId] || skillId;
+
+          return (
+            <div key={skillId} style={{
+              marginBottom: '20px',
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border)',
+              borderRadius: '10px',
+              overflow: 'hidden',
+            }}>
+              {/* Skill header */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--border)',
+                background: `${roleColor.stroke}08`,
+              }}>
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: roleColor.stroke,
+                  flexShrink: 0,
+                }} />
+                <span style={{
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: 'var(--text-primary)',
+                }}>
+                  {displayName}
+                </span>
+                <span style={{
+                  fontSize: '11px',
+                  color: 'var(--text-muted)',
+                }}>
+                  {skillContracts.length} rule{skillContracts.length !== 1 ? 's' : ''}
+                </span>
+                {onHighlightInMap && (
+                  <button
+                    onClick={() => onHighlightInMap([skillId, ...skillContracts.map(c => c.provider).filter(Boolean)])}
+                    style={{
+                      marginLeft: 'auto',
+                      background: 'none',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      padding: '2px 8px',
+                      fontSize: '11px',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                    }}
+                    title="Show in Team Map"
+                  >
+                    Show in map
+                  </button>
+                )}
+              </div>
+
+              {/* Rules list */}
+              <div style={{ padding: '8px 0' }}>
+                {skillContracts.map((contract, i) => (
+                  <div key={i} style={{
+                    padding: '10px 16px',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '10px',
+                    borderBottom: i < skillContracts.length - 1 ? '1px solid var(--border)' : 'none',
+                  }}>
+                    <div style={{
+                      width: '18px',
+                      height: '18px',
+                      borderRadius: '50%',
+                      background: 'var(--bg-tertiary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      marginTop: '1px',
+                    }}>
+                      <svg viewBox="0 0 24 24" width="11" height="11">
+                        <path d={ICONS.shield} fill="var(--text-muted)" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{
+                        fontSize: '13px',
+                        color: 'var(--text-primary)',
+                        lineHeight: '1.5',
+                      }}>
+                        {describeRule(contract)}
+                      </div>
+                      {contract.for_tools?.length > 0 && (
+                        <div style={{
+                          marginTop: '4px',
+                          fontSize: '11px',
+                          color: 'var(--text-muted)',
+                        }}>
+                          Affects: {contract.for_tools.map(t => t.split('.').pop().replace(/_/g, ' ')).join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Skills with no rules - brief mention */}
+        {!filterSkillId && skills.filter(s => !contractsBySkill[s.id]).length > 0 && (
+          <div style={{
+            padding: '12px 16px',
+            fontSize: '12px',
+            color: 'var(--text-muted)',
+            fontStyle: 'italic',
+          }}>
+            {skills.filter(s => !contractsBySkill[s.id]).map(s => skillNames[s.id] || s.id).join(', ')} — no verification rules required
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      {/* Mode toggle + filter bar */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: '16px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {filterSkillId && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              background: 'var(--bg-tertiary)',
+              borderRadius: '6px',
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+            }}>
+              Filtered: {renderSkillPill(filterSkillId)}
+              <button
+                onClick={onClearFilter}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  color: 'var(--text-muted)',
+                  padding: '0 2px',
+                  lineHeight: '1',
+                }}
+                title="Clear filter"
+              >
+                ×
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Story / Advanced toggle */}
+        <div style={{
+          display: 'flex',
+          background: 'var(--bg-tertiary)',
+          borderRadius: '6px',
+          padding: '2px',
+        }}>
+          {[
+            { id: 'story', label: 'Story' },
+            { id: 'advanced', label: 'Advanced' },
+          ].map(m => (
+            <button
+              key={m.id}
+              onClick={() => setMode(m.id)}
+              style={{
+                padding: '4px 12px',
+                fontSize: '11px',
+                fontWeight: '500',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                background: mode === m.id ? 'var(--accent)' : 'transparent',
+                color: mode === m.id ? '#fff' : 'var(--text-muted)',
+                transition: 'background 0.15s, color 0.15s',
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {mode === 'story' ? renderStoryView() : renderAdvancedView()}
     </div>
   );
 }
