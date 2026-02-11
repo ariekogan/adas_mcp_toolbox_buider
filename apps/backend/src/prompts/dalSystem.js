@@ -15,6 +15,7 @@
  */
 
 import { PHASES, PHASE_LABELS } from '../types/DraftSkill.js';
+import { getAllPrebuiltConnectors } from '../routes/connectors.js';
 
 /**
  * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill
@@ -815,7 +816,11 @@ export function buildDALSystemPrompt(skill) {
       response_filters: skill.response_filters?.length || 0,
     },
     connectors: skill.connectors?.length || 0,
-    ui_capable_connectors: skill.connectors?.filter(c => c.ui_capable)?.length || 0,
+    ui_capable_connectors: (() => {
+      if (!skill.connectors?.length) return 0;
+      const catalog = getAllPrebuiltConnectors();
+      return skill.connectors.filter(id => catalog[id]?.ui_capable).length;
+    })(),
     validation: {
       valid: skill.validation?.valid,
       ready_to_export: skill.validation?.ready_to_export,

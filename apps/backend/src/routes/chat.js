@@ -5,6 +5,7 @@ import { applyStateUpdateWithValidation, calculateProgress, shouldSuggestPhaseAd
 import { digestFileContent, getFileType } from "../services/fileDigestion.js";
 import { getHelpDoc, formatHelpDoc } from "../data/helpDocs.js";
 import { enhanceWithStateContext } from "../services/stateSync.js";
+import { getAllPrebuiltConnectors } from "./connectors.js";
 
 const router = Router();
 
@@ -129,11 +130,49 @@ router.post("/skill", async (req, res, next) => {
 
     log.debug("LLM response received", { usage: response.usage });
 
+    // Enrich DAL-created tools with MCP source info for ui_capable connectors
+    // The DAL generates ui.* tools from prompt instructions without source metadata
+    if (response.stateUpdate?.tools_push) {
+      const catalog = getAllPrebuiltConnectors();
+      const uiConnectorIds = (skill.connectors || []).filter(id => catalog[id]?.ui_capable);
+      if (uiConnectorIds.length > 0) {
+        const tools = Array.isArray(response.stateUpdate.tools_push)
+          ? response.stateUpdate.tools_push
+          : [response.stateUpdate.tools_push];
+        for (const tool of tools) {
+          if (tool.name?.startsWith('ui.') && !tool.source) {
+            tool.source = {
+              type: 'mcp_bridge',
+              connection_id: uiConnectorIds[0],
+              mcp_tool: tool.name
+            };
+          }
+        }
+      }
+    }
+
     // Apply state updates with validation
     let updatedSkill = skill;
     if (response.stateUpdate && Object.keys(response.stateUpdate).length > 0) {
       log.debug("Applying state updates", response.stateUpdate);
       updatedSkill = applyStateUpdateWithValidation(skill, response.stateUpdate);
+    }
+
+    // Backfill source on existing ui.* tools missing it (from earlier DAL sessions)
+    if (updatedSkill.tools?.length && updatedSkill.connectors?.length) {
+      const catalog = getAllPrebuiltConnectors();
+      const uiConnId = updatedSkill.connectors.find(id => catalog[id]?.ui_capable);
+      if (uiConnId) {
+        for (const tool of updatedSkill.tools) {
+          if (tool.name?.startsWith('ui.') && !tool.source) {
+            tool.source = {
+              type: 'mcp_bridge',
+              connection_id: uiConnId,
+              mcp_tool: tool.name
+            };
+          }
+        }
+      }
     }
 
     // Save assistant message to skill conversation

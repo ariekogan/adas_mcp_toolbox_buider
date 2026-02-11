@@ -12,6 +12,7 @@ import skillsStore from '../store/skills.js';
 import solutionsStore from '../store/solutions.js';
 import templatesStore from '../store/templates.js';
 import { getValidationSummary } from '../validators/index.js';
+import { getAllPrebuiltConnectors } from './connectors.js';
 
 // mergeParams: true allows access to :solutionId from parent router
 const router = Router({ mergeParams: true });
@@ -87,6 +88,29 @@ router.get('/:skillId', async (req, res, next) => {
   try {
     const { solutionId, skillId } = req.params;
     const skill = await skillsStore.load(solutionId, skillId);
+
+    // Backfill source on ui.* tools missing it (created by DAL without MCP bridge info)
+    if (skill.tools?.length && skill.connectors?.length) {
+      const catalog = getAllPrebuiltConnectors();
+      const uiConnId = skill.connectors.find(id => catalog[id]?.ui_capable);
+      if (uiConnId) {
+        let patched = false;
+        for (const tool of skill.tools) {
+          if (tool.name?.startsWith('ui.') && !tool.source) {
+            tool.source = {
+              type: 'mcp_bridge',
+              connection_id: uiConnId,
+              mcp_tool: tool.name
+            };
+            patched = true;
+          }
+        }
+        if (patched) {
+          await skillsStore.save(skill);
+        }
+      }
+    }
+
     res.json({ skill });
   } catch (err) {
     if (err.message?.includes('not found')) {

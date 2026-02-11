@@ -208,7 +208,8 @@ export default function SkillConnectorsPanel({
   }
 
   // Get linked connectors from skill (those referenced by tools)
-  const linkedConnectors = getLinkedConnectors(tools);
+  // Recalculate when globalConnectors finishes loading so names/metadata resolve
+  const linkedConnectors = getLinkedConnectors(tools, globalConnectors);
 
   // Helper to check if connector is internal (imported from a package/solution)
   function isInternalConnector(connector) {
@@ -227,16 +228,17 @@ export default function SkillConnectorsPanel({
       return (a.name || a.id).localeCompare(b.name || b.id);  // alphabetical
     });
 
-  function getLinkedConnectors(tools) {
+  function getLinkedConnectors(tools, globalConns) {
     const connectorMap = new Map();
 
     tools.forEach(tool => {
       if (tool.source?.type === 'mcp_bridge' && tool.source?.connection_id) {
         const connId = tool.source.connection_id;
         if (!connectorMap.has(connId)) {
+          const globalConn = globalConns.find(gc => gc.id === connId);
           connectorMap.set(connId, {
             id: connId,
-            name: connId,
+            name: globalConn?.name || connId,
             type: guessConnectorType(connId),
             tools: []
           });
@@ -249,7 +251,7 @@ export default function SkillConnectorsPanel({
     if (skill?.connectors) {
       skill.connectors.forEach(connId => {
         if (!connectorMap.has(connId)) {
-          const globalConn = globalConnectors.find(gc => gc.id === connId);
+          const globalConn = globalConns.find(gc => gc.id === connId);
           connectorMap.set(connId, {
             id: connId,
             name: globalConn?.name || connId,
