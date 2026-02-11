@@ -377,6 +377,35 @@ Adding a handoff transfer tool (when skill initiates handoffs):
 Changing phase:
 { "phase": "INTENT_DEFINITION" }
 
+## UI-CAPABLE CONNECTORS (Dashboard / Visualization Skills)
+
+Some skills need a **visual dashboard** in addition to conversational tools. These are powered by **UI-capable connectors** — special MCP connectors that provide embedded UI panels inside ADAS.
+
+**When to suggest a UI-capable connector:**
+- The user describes a skill that involves dashboards, reports, or visual data browsing
+- The user wants to "see" data (orders, tickets, analytics) not just query it via chat
+- Example: "I want a dashboard to browse orders and see customer tickets"
+
+**How UI-capable connectors work:**
+- They are MCP connectors marked with \`ui_capable: true\`
+- They MUST use \`transport: stdio\` (not HTTP)
+- They implement two special MCP tools: \`ui.listPlugins\` and \`ui.getPlugin\`
+- Their UI is served as static HTML/JS from a \`ui-dist/\` directory inside the connector package
+- The UI renders inside an iframe in the ADAS Context Panel
+- The iframe communicates with ADAS backend via \`postMessage\` to call tools on any connected connector
+
+**What to tell the user:**
+- "This skill sounds like it needs a visual dashboard. We can create a UI-capable connector for that."
+- "The dashboard will appear as a panel inside ADAS where you can browse data visually."
+- "The connector will need to implement \`ui.listPlugins\` and \`ui.getPlugin\` tools, plus include the dashboard HTML in a \`ui-dist/\` directory."
+
+**You do NOT need to design the UI** — just identify that the skill needs a UI-capable connector and note it. The connector development happens in the source project (e.g., PB).
+
+When proposing connectors for a skill that needs a dashboard, include a UI connector in your suggestions:
+- Name it descriptively (e.g., "E-Commerce UI Dashboard")
+- Note it as \`ui_capable: true\`
+- Explain that it provides visual plugins for the ADAS Context Panel
+
 ## GREETING
 
 When the conversation starts, introduce yourself warmly:
@@ -760,6 +789,8 @@ export function buildDALSystemPrompt(skill) {
     access_policy: skill.access_policy,
     response_filters: skill.response_filters,
     context_propagation: skill.context_propagation,
+    // Connectors linked to this skill
+    connectors: skill.connectors,
     // Explicitly EXCLUDE: conversation, _settings, created_at, updated_at
   };
 
@@ -783,6 +814,8 @@ export function buildDALSystemPrompt(skill) {
       access_rules: skill.access_policy?.rules?.length || 0,
       response_filters: skill.response_filters?.length || 0,
     },
+    connectors: skill.connectors?.length || 0,
+    ui_capable_connectors: skill.connectors?.filter(c => c.ui_capable)?.length || 0,
     validation: {
       valid: skill.validation?.valid,
       ready_to_export: skill.validation?.ready_to_export,

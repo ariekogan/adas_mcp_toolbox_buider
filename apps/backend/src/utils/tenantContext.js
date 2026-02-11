@@ -12,7 +12,7 @@ import path from "node:path";
 
 const als = new AsyncLocalStorage();
 
-const TENANTS_ROOT = process.env.TENANTS_ROOT || "/tenants";
+const TENANTS_ROOT = process.env.TENANTS_ROOT || path.join(process.cwd(), "data", "tenants");
 const DEFAULT_TENANT = "main";
 const VALID_TENANTS = ["main", "testing", "dev"];
 

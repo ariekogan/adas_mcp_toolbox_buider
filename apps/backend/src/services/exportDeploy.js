@@ -3,6 +3,7 @@ import solutionsStore from "../store/solutions.js";
 import { getAllPrebuiltConnectors } from "../routes/connectors.js";
 import { generateMCPSimple } from "./mcpGenerationAgent.js";
 import { syncConnectorToADAS, startConnectorInADAS } from "./adasConnectorSync.js";
+import { buildConnectorPayload } from "../utils/connectorPayload.js";
 
 /**
  * Helper to get skillSlug from skill
@@ -237,28 +238,7 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
         continue;
       }
       try {
-        const isStdio = connector.transport === 'stdio' || connector.command;
-        // For stdio connectors with mcp-store code, use /mcp-store/ path
-        // (the original args from the catalog point to bare "server.js")
-        const stdioCfg = isStdio ? {
-          command: connector.command,
-          args: connector.args || [],
-          env: connector.envDefaults || connector.env || {}
-        } : undefined;
-        // If connector has mcp_store code, OR if args is just "server.js" (no path),
-        // use the /mcp-store/ path so ADAS Core can find the code
-        if (stdioCfg) {
-          const hasBarePath = stdioCfg.args?.length === 1 && !stdioCfg.args[0].includes('/');
-          if (connector.mcp_store_included || hasBarePath) {
-            stdioCfg.args = [`/mcp-store/${connectorId}/server.js`];
-          }
-        }
-        await syncConnectorToADAS({
-          id: connectorId, name: connector.name, type: 'mcp',
-          transport: isStdio ? 'stdio' : 'http', endpoint: connector.endpoint,
-          config: stdioCfg,
-          credentials: {}
-        });
+        await syncConnectorToADAS(buildConnectorPayload(connector));
         const startResult = await startConnectorInADAS(connectorId);
         const toolCount = startResult?.tools?.length || 0;
         log.info(`[MCP Deploy] Connector "${connectorId}" started: ${toolCount} tools`);

@@ -33,6 +33,7 @@ import {
   uploadMcpCodeToADAS
 } from '../services/adasConnectorSync.js';
 import { deploySkillToADAS, deployIdentityToADAS } from '../services/exportDeploy.js';
+import { deriveEndpoint, buildConnectorPayload, buildCatalogEntry } from '../utils/connectorPayload.js';
 
 // Multer config: store uploaded files in /tmp, accept .tar.gz up to 50MB
 const upload = multer({ dest: '/tmp/solution-pack-uploads', limits: { fileSize: 50 * 1024 * 1024 } });
@@ -73,6 +74,7 @@ function loadPersistedPackages() {
             requiresAuth: mcp.requiresAuth,
             category: mcp.category,
             layer: mcp.layer,
+            ui_capable: mcp.ui_capable || false,
             mcp_store_included: !!pkg.mcp_store_included,
             importedFrom: pkg.name
           });
@@ -176,45 +178,11 @@ router.post('/', async (req, res) => {
     const connectorConfigs = [];
 
     for (const mcp of mcps) {
-      // Support both stdio (command/args) and http (endpoint) transports
-      const isStdio = mcp.transport === 'stdio' || mcp.command;
-
-      const connectorConfig = {
-        id: mcp.id,
-        name: mcp.name,
-        description: mcp.description,
-        transport: isStdio ? 'stdio' : 'http',
-        category: mcp.category || 'custom',
-        requiresAuth: mcp.requiresAuth || false,
-        layer: mcp.layer || 'tenant'
-      };
-
-      // Add transport-specific fields
-      if (isStdio) {
-        connectorConfig.command = mcp.command;
-        connectorConfig.args = mcp.args || [];
-        connectorConfig.env = mcp.env || {};
-      } else {
-        connectorConfig.endpoint = mcp.endpoint || `http://${mcp.id}:${mcp.port}/mcp`;
-        connectorConfig.port = mcp.port;
-      }
-
+      const connectorConfig = buildCatalogEntry(mcp);
       connectorConfigs.push(connectorConfig);
 
-      // Register in Skill Builder's prebuilt catalog
-      // This makes it available in the connector list for skills
       registerImportedConnector(mcp.id, {
-        name: mcp.name,
-        description: mcp.description,
-        transport: connectorConfig.transport,
-        command: connectorConfig.command,
-        args: connectorConfig.args,
-        env: connectorConfig.env,
-        endpoint: connectorConfig.endpoint,
-        port: connectorConfig.port,
-        requiresAuth: connectorConfig.requiresAuth,
-        category: connectorConfig.category,
-        layer: connectorConfig.layer,
+        ...connectorConfig,
         importedFrom: manifest.name
       });
 
@@ -323,28 +291,21 @@ router.patch('/packages/:packageName/connectors/:connectorId', async (req, res) 
     }
 
     // Apply updates
-    const allowedFields = ['name', 'description', 'endpoint', 'port', 'layer'];
+    const allowedFields = ['name', 'description', 'endpoint', 'port', 'layer', 'ui_capable'];
     for (const field of allowedFields) {
       if (updates[field] !== undefined) {
         mcp[field] = updates[field];
       }
     }
 
-    // Update endpoint if port changed
-    if (updates.port) {
-      mcp.endpoint = `http://${connectorId}:${updates.port}/mcp`;
+    // Re-derive endpoint if port changed
+    if (updates.port && !updates.endpoint) {
+      mcp.endpoint = deriveEndpoint(mcp);
     }
 
     // Update in catalog
     registerImportedConnector(connectorId, {
-      name: mcp.name,
-      description: mcp.description,
-      transportType: mcp.transportType,
-      endpoint: mcp.endpoint,
-      port: mcp.port,
-      requiresAuth: false,
-      category: 'custom',
-      layer: mcp.layer,
+      ...buildCatalogEntry(mcp),
       importedFrom: packageName
     });
 
@@ -837,21 +798,7 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
 
     const connectorConfigs = [];
     for (const mcp of mcps) {
-      const isStdio = mcp.transport === 'stdio' || mcp.command;
-      const connectorConfig = {
-        id: mcp.id,
-        name: mcp.name,
-        description: mcp.description,
-        transport: isStdio ? 'stdio' : 'http',
-        command: isStdio ? mcp.command : undefined,
-        args: isStdio ? mcp.args || [] : undefined,
-        env: mcp.env || {},
-        endpoint: !isStdio ? mcp.endpoint : undefined,
-        port: mcp.port,
-        category: mcp.category || 'custom',
-        requiresAuth: mcp.requiresAuth || false,
-        layer: mcp.layer || 'tenant'
-      };
+      const connectorConfig = buildCatalogEntry(mcp);
       connectorConfigs.push(connectorConfig);
 
       registerImportedConnector(mcp.id, {
@@ -1069,26 +1016,8 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
           }
         }
 
-        // Build connector config for ADAS
-        const isStdio = mcp.transport === 'stdio' || mcp.command;
-        const connectorPayload = {
-          id: mcp.id,
-          name: mcp.name,
-          type: 'mcp',
-          transport: isStdio ? 'stdio' : 'http',
-          endpoint: mcp.endpoint,
-          config: isStdio ? {
-            command: mcp.command,
-            args: mcp.args || [],
-            env: mcp.env || {}
-          } : undefined,
-          credentials: {}
-        };
-
-        // If we uploaded code, use /mcp-store path for args
-        if (pkg.mcp_store_included && isStdio) {
-          connectorPayload.config.args = [`/mcp-store/${mcp.id}/server.js`];
-        }
+        // Build connector payload — pass through manifest data as-is
+        const connectorPayload = buildConnectorPayload(mcp);
 
         sendEvent('connector_progress', { connectorId: mcp.id, status: 'deploying', step: 'registering', message: 'Registering in ADAS...' });
         await syncConnectorToADAS(connectorPayload);

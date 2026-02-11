@@ -41,6 +41,7 @@ skills:
     description: string       # Brief role description
     entry_channels: [string]  # Optional. Channels this skill receives (telegram, email, api)
     connectors: [string]      # MCP connectors this skill uses
+    ui_capable: boolean       # Optional. If true, this skill includes a UI dashboard connector
 
 # Skill Roles:
 #   gateway       — Entry point that gates access (e.g., identity verification)
@@ -123,6 +124,31 @@ platform_connectors:
 
 # Platform connectors are infrastructure MCPs provided by ADAS Core,
 # not domain-specific MCPs bundled in the solution pack.
+
+# =============================================================================
+# SOLUTION CONNECTORS — domain-specific MCPs bundled in the solution pack
+# =============================================================================
+# Solution connectors are declared in the manifest.json of the solution pack.
+# They run as stdio child processes in ADAS Core (never HTTP, never Docker).
+#
+# UI-capable connectors provide visual dashboard plugins:
+#   - Marked with ui_capable: true in manifest.json
+#   - MUST use transport: stdio
+#   - MUST implement ui.listPlugins and ui.getPlugin MCP tools
+#   - Include static UI assets in ui-dist/ directory
+#   - ADAS Core serves static files at /mcp-ui/<connector-id>/<path>
+#   - Dashboard renders in ADAS Context Panel as an iframe
+#   - Iframe communicates with ADAS via postMessage protocol
+#
+# Example manifest entry for a UI-capable connector:
+#   {
+#     "id": "ecommerce-ui-mcp",
+#     "name": "E-Commerce UI Dashboard",
+#     "command": "node",
+#     "args": ["/mcp-store/ecommerce-ui-mcp/server.js"],
+#     "transport": "stdio",
+#     "ui_capable": true
+#   }
 
 # =============================================================================
 # SECURITY CONTRACTS — cross-skill grant requirements

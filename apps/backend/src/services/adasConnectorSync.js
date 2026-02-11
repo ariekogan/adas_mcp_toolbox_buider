@@ -69,6 +69,14 @@ export async function syncConnectorToADAS(connector) {
   if (transport === 'http' || endpoint) {
     payload.transport = 'http';
     payload.endpoint = endpoint;
+    // HTTP connectors may also have config for process spawning (e.g., http-wrapper.js)
+    if (config?.command) {
+      payload.config = {
+        command: config.command,
+        args: config.args || [],
+        env: config.env || {}
+      };
+    }
   }
   // stdio transport: uses command/args/env
   else {

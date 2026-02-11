@@ -1174,6 +1174,9 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
                           <span style={{ ...styles.statusDot, ...styles.connectedDot }}></span>
                           <span style={{ fontSize: '13px', fontWeight: '500' }}>{conn.name}</span>
                           <span style={styles.tag}>{conn.toolCount} tools</span>
+                          {prebuilt?.ui_capable && (
+                            <span style={{ fontSize: '10px', padding: '2px 6px', background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa', borderRadius: '4px' }}>UI Plugin</span>
+                          )}
                         </div>
                         {prebuilt?.description && (
                           <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '4px 0 0 18px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1224,7 +1227,12 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
                       <div key={connector.id} style={styles.card}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <span style={{ fontSize: '13px', fontWeight: '500' }}>{connector.name}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '13px', fontWeight: '500' }}>{connector.name}</span>
+                              {connector.ui_capable && (
+                                <span style={{ fontSize: '10px', padding: '2px 6px', background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa', borderRadius: '4px' }}>UI Plugin</span>
+                              )}
+                            </div>
                             <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '2px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {connector.description}
                             </p>

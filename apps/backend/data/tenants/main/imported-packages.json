@@ -1,0 +1,168 @@
+[
+  {
+    "name": "ecommerce-package",
+    "version": "20260210-010249",
+    "description": "E-Commerce MCPs and Skills for ADAS",
+    "importedAt": "2026-02-11T15:29:49.151Z",
+    "mcps": [
+      {
+        "id": "orders-mcp",
+        "name": "Orders Management",
+        "description": "Manage orders, customers, shipments, and refunds",
+        "transport": "stdio",
+        "category": "custom",
+        "requiresAuth": false,
+        "layer": "tenant",
+        "command": "node",
+        "args": [
+          "/mcp-store/orders-mcp/server.js"
+        ],
+        "env": {}
+      },
+      {
+        "id": "fulfillment-mcp",
+        "name": "Fulfillment Operations",
+        "description": "Manage fulfillment providers, orders, and tracking",
+        "transport": "stdio",
+        "category": "custom",
+        "requiresAuth": false,
+        "layer": "tenant",
+        "command": "node",
+        "args": [
+          "/mcp-store/fulfillment-mcp/server.js"
+        ],
+        "env": {}
+      },
+      {
+        "id": "support-mcp",
+        "name": "Customer Support",
+        "description": "Manage support tickets, messages, and canned responses",
+        "transport": "stdio",
+        "category": "custom",
+        "requiresAuth": false,
+        "layer": "tenant",
+        "command": "node",
+        "args": [
+          "/mcp-store/support-mcp/server.js"
+        ],
+        "env": {}
+      },
+      {
+        "id": "returns-mcp",
+        "name": "Returns Processing",
+        "description": "Process returns with labels, refunds, and approval gates",
+        "transport": "stdio",
+        "category": "custom",
+        "requiresAuth": false,
+        "layer": "tenant",
+        "command": "node",
+        "args": [
+          "/mcp-store/returns-mcp/server.js"
+        ],
+        "env": {}
+      },
+      {
+        "id": "identity-mcp",
+        "name": "Identity Assurance",
+        "description": "Risk-based identity verification with step-up challenges and scoped session tokens",
+        "transport": "stdio",
+        "category": "custom",
+        "requiresAuth": false,
+        "layer": "tenant",
+        "command": "node",
+        "args": [
+          "/mcp-store/identity-mcp/server.js"
+        ],
+        "env": {}
+      },
+      {
+        "id": "ecommerce-ui-mcp",
+        "name": "E-Commerce UI Dashboard",
+        "description": "UI plugins for browsing orders, customers, tickets, returns, and fulfillment data",
+        "transport": "stdio",
+        "category": "custom",
+        "requiresAuth": false,
+        "layer": "tenant",
+        "command": "node",
+        "args": [
+          "/mcp-store/ecommerce-ui-mcp/server.js"
+        ],
+        "env": {},
+        "ui_capable": true
+      }
+    ],
+    "skills": [
+      {
+        "id": "support-tier-1",
+        "name": "Customer Support Tier 1",
+        "file": "skills/support-tier-1.yaml",
+        "connectors": [
+          "orders-mcp",
+          "fulfillment-mcp",
+          "identity-mcp",
+          "support-mcp"
+        ]
+      },
+      {
+        "id": "ecom-orchestrator",
+        "name": "E-Commerce Orchestrator",
+        "file": "skills/ecom-orchestrator.yaml",
+        "connectors": [
+          "orders-mcp"
+        ]
+      },
+      {
+        "id": "fulfillment-ops",
+        "name": "Fulfillment Operations",
+        "file": "skills/fulfillment-ops.yaml",
+        "connectors": [
+          "orders-mcp",
+          "fulfillment-mcp",
+          "support-mcp"
+        ]
+      },
+      {
+        "id": "returns-ops",
+        "name": "Returns Operations",
+        "file": "skills/returns-ops.yaml",
+        "connectors": [
+          "orders-mcp",
+          "returns-mcp",
+          "support-mcp"
+        ]
+      },
+      {
+        "id": "finance-ops",
+        "name": "Finance Operations",
+        "file": "skills/finance-ops.yaml",
+        "connectors": [
+          "orders-mcp",
+          "returns-mcp"
+        ]
+      },
+      {
+        "id": "identity-assurance",
+        "name": "Identity Assurance Manager",
+        "file": "skills/identity-assurance.yaml",
+        "connectors": [
+          "identity-mcp",
+          "orders-mcp",
+          "support-mcp"
+        ]
+      },
+      {
+        "id": "ecom-dashboard",
+        "name": "E-Commerce Dashboard",
+        "file": "skills/ecom-dashboard.yaml",
+        "connectors": [
+          "ecommerce-ui-mcp",
+          "orders-mcp",
+          "fulfillment-mcp",
+          "returns-mcp",
+          "support-mcp"
+        ],
+        "ui_capable": true
+      }
+    ]
+  }
+]
