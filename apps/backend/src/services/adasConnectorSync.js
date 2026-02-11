@@ -50,6 +50,11 @@ function adasJsonHeaders() {
 export async function syncConnectorToADAS(connector) {
   const { id, name, type, transport, endpoint, config, credentials, layer } = connector;
 
+  // Guard: refuse to sync without a concrete ID (would create ghost duplicates)
+  if (!id) {
+    throw new Error('[ADASSync] Cannot sync connector without an id');
+  }
+
   // Build payload based on transport type
   const payload = {
     id,

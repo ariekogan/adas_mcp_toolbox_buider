@@ -238,7 +238,7 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
         continue;
       }
       try {
-        await syncConnectorToADAS(buildConnectorPayload(connector));
+        await syncConnectorToADAS(buildConnectorPayload({ id: connectorId, ...connector }));
         const startResult = await startConnectorInADAS(connectorId);
         const toolCount = startResult?.tools?.length || 0;
         log.info(`[MCP Deploy] Connector "${connectorId}" started: ${toolCount} tools`);
