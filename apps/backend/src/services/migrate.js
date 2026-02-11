@@ -5,7 +5,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { createEmptyDraftSkill, createEmptyValidation } from '../utils/defaults.js';
-import { validateDraftSkill } from '../validators/index.js';
+import { validateDraftSkill } from '@adas/skill-validator';
 
 /**
  * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill

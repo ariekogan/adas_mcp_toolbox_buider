@@ -11,7 +11,7 @@ import { Router } from 'express';
 import skillsStore from '../store/skills.js';
 import solutionsStore from '../store/solutions.js';
 import templatesStore from '../store/templates.js';
-import { getValidationSummary } from '../validators/index.js';
+import { getValidationSummary } from '@adas/skill-validator';
 import { getAllPrebuiltConnectors } from './connectors.js';
 
 // mergeParams: true allows access to :solutionId from parent router

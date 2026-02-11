@@ -6,7 +6,7 @@
  */
 
 import { createAdapter } from './llm/adapter.js';
-import { validateSecurity } from '../validators/securityValidator.js';
+import { validateSecurity } from '@adas/skill-validator';
 
 /**
  * Detect naming convention of a string

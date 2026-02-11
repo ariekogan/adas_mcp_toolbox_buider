@@ -1,0 +1,18 @@
+{
+  "name": "@adas/skill-validator",
+  "version": "1.0.0",
+  "description": "ADAS Skill & Solution validation service — schema, references, completeness, security, and LLM quality scoring",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "skill-validator": "bin/validate.js"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5"
+  }
+}

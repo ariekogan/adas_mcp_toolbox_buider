@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { validateDraftSkill } from "../validators/index.js";
+import { validateDraftSkill } from '@adas/skill-validator';
 import { PHASES } from "../types/DraftSkill.js";
 
 /**

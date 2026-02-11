@@ -10,9 +10,7 @@ import { Router } from 'express';
 import solutionsStore from '../store/solutions.js';
 import skillsStore from '../store/skills.js';
 import { processSolutionMessage } from '../services/solutionConversation.js';
-import { validateSolution } from '../validators/solutionValidator.js';
-import { validateSecurity } from '../validators/securityValidator.js';
-import { validateSolutionQuality } from '../validators/solutionQualityValidator.js';
+import { validateSolution, validateSecurity, validateSolutionQuality } from '@adas/skill-validator';
 import skillsRouter from './skills.js';
 import validationRouter from "./solutionsValidation.js";
 

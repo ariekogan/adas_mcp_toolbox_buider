@@ -1,9 +1,7 @@
 import { Router } from 'express';
 import solutionsStore from '../store/solutions.js';
 import skillsStore from '../store/skills.js';
-import { validateSolution } from '../validators/solutionValidator.js';
-import { validateSecurity } from '../validators/securityValidator.js';
-import { validateSolutionQuality } from '../validators/solutionQualityValidator.js';
+import { validateSolution, validateSecurity, validateSolutionQuality } from '@adas/skill-validator';
 
 const router = Router({ mergeParams: true });
 

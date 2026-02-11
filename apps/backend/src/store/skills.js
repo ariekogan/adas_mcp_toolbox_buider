@@ -13,7 +13,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { createEmptyDraftSkill } from '../utils/defaults.js';
-import { validateDraftSkill } from '../validators/index.js';
+import { validateDraftSkill } from '@adas/skill-validator';
 import { migrateToV2 } from '../services/migrate.js';
 import templatesStore from './templates.js';
 import solutionsStore from './solutions.js';
