@@ -81,9 +81,14 @@ export async function syncConnectorToADAS(connector) {
   // stdio transport: uses command/args/env
   else {
     payload.transport = 'stdio';
+    // Normalize args: stdio connectors should use server.js, not http-wrapper.js
+    let args = config?.args || [];
+    args = args.map(arg =>
+      typeof arg === 'string' ? arg.replace(/\/http-wrapper\.js$/, '/server.js') : arg
+    );
     payload.config = {
       command: config?.command,
-      args: config?.args || [],
+      args,
       env: config?.env || {}
     };
   }
