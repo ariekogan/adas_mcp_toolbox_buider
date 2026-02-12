@@ -1,6 +1,8 @@
 import express from "express";
 import cors from "cors";
 import multer from "multer";
+import { fork } from "child_process";
+import path from "path";
 
 import chatRouter from "./routes/chat.js";
 import templatesRouter from "./routes/templates.js";
@@ -104,6 +106,17 @@ app.listen(port, "0.0.0.0", () => {
   log.info(`LLM Provider: ${process.env.LLM_PROVIDER || "anthropic"}`);
   log.info(`Memory Path: ${process.env.MEMORY_PATH || "/memory"}`);
   log.info(`Tenant: ${process.env.SB_TENANT || "main"}`);
+
+  // Start the skill-validator (External Agent API) on port 3200
+  const validatorPath = path.resolve('/packages/skill-validator/src/server.js');
+  const validatorProc = fork(validatorPath, [], {
+    env: { ...process.env, VALIDATOR_PORT: '3200' },
+    stdio: 'inherit',
+  });
+  validatorProc.on('error', (err) => log.error('[Validator] Failed to start:', err.message));
+  validatorProc.on('exit', (code) => {
+    if (code !== 0) log.warn(`[Validator] Exited with code ${code}`);
+  });
 
   // Auto-reconnect saved connectors (fire-and-forget, non-blocking)
   (async () => {
