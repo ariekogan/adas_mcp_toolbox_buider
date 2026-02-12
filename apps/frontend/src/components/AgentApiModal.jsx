@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getAgentApiStatus, startAgentApiTunnel, stopAgentApiTunnel, getTenant } from '../api/client';
+import {
+  getAgentApiStatus,
+  startAgentApiTunnel,
+  stopAgentApiTunnel,
+  rotateAgentApiKey,
+  getTenant
+} from '../api/client';
 
 const styles = {
   overlay: {
@@ -187,15 +193,54 @@ const styles = {
     fontSize: '13px',
     color: 'var(--text-secondary)',
     lineHeight: '1.5'
+  },
+  keyRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '10px 14px',
+    background: 'var(--bg-secondary)',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    marginBottom: '8px'
+  },
+  keyText: {
+    fontFamily: 'monospace',
+    fontSize: '13px',
+    color: 'var(--text-primary)',
+    flex: 1,
+    wordBreak: 'break-all'
+  },
+  smallBtn: {
+    background: 'transparent',
+    border: '1px solid var(--border)',
+    borderRadius: '4px',
+    padding: '4px 8px',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    whiteSpace: 'nowrap'
   }
 };
+
+/**
+ * Mask an API key for display: show prefix + first 4 hex chars + dots
+ */
+function maskKey(key) {
+  if (!key) return '—';
+  if (key.length <= 9) return key;
+  return key.substring(0, 9) + '••••••••••••';
+}
 
 export default function AgentApiModal({ onClose }) {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [copied, setCopied] = useState(null); // 'url' | 'snippet' | null
+  const [copied, setCopied] = useState(null); // 'url' | 'snippet' | 'key' | null
+  const [showKey, setShowKey] = useState(false);
+  const [rotateConfirm, setRotateConfirm] = useState(false);
+  const [rotateLoading, setRotateLoading] = useState(false);
 
   const tenant = getTenant();
 
@@ -241,6 +286,21 @@ export default function AgentApiModal({ onClose }) {
     }
   };
 
+  const handleRotateKey = async () => {
+    setRotateLoading(true);
+    setError(null);
+    try {
+      const result = await rotateAgentApiKey();
+      setStatus(prev => ({ ...prev, apiKey: result.apiKey }));
+      setRotateConfirm(false);
+      setShowKey(true); // Show the new key after rotation
+    } catch (err) {
+      setError(err.message || 'Failed to rotate key');
+    } finally {
+      setRotateLoading(false);
+    }
+  };
+
   const copyToClipboard = (text, type) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(type);
@@ -249,11 +309,13 @@ export default function AgentApiModal({ onClose }) {
   };
 
   const tunnelUrl = status?.url || `https://${status?.domain || 'agent-api.ateam-ai.com'}`;
+  const apiKey = status?.apiKey;
 
   const instructionSnippet = [
     'Use this API to build and deploy ADAS solutions:',
     `Base URL: ${tunnelUrl}`,
     `Header: X-ADAS-TENANT: ${tenant}`,
+    ...(apiKey ? [`Header: X-API-KEY: ${apiKey}`] : []),
     'Start: GET /spec',
   ].join('\n');
 
@@ -332,12 +394,65 @@ export default function AgentApiModal({ onClose }) {
                 </div>
               )}
 
+              {/* API Key Section */}
+              {apiKey && (
+                <div style={styles.section}>
+                  <div style={styles.sectionTitle}>API Key</div>
+                  <div style={styles.keyRow}>
+                    <span style={styles.keyText}>
+                      {showKey ? apiKey : maskKey(apiKey)}
+                    </span>
+                    <button
+                      style={styles.smallBtn}
+                      onClick={() => setShowKey(prev => !prev)}
+                      title={showKey ? 'Hide key' : 'Show key'}
+                    >
+                      {showKey ? '🙈' : '👁'}
+                    </button>
+                    <button
+                      style={styles.smallBtn}
+                      onClick={() => copyToClipboard(apiKey, 'key')}
+                    >
+                      {copied === 'key' ? '✓' : '📋'}
+                    </button>
+                    {!rotateConfirm ? (
+                      <button
+                        style={styles.smallBtn}
+                        onClick={() => setRotateConfirm(true)}
+                        title="Rotate API key"
+                      >
+                        🔄
+                      </button>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button
+                          style={{ ...styles.smallBtn, color: '#ef4444', borderColor: '#ef4444' }}
+                          onClick={handleRotateKey}
+                          disabled={rotateLoading}
+                        >
+                          {rotateLoading ? '...' : 'Rotate'}
+                        </button>
+                        <button
+                          style={styles.smallBtn}
+                          onClick={() => setRotateConfirm(false)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Agents must include this key via the <code style={{ background: 'var(--bg-secondary)', padding: '1px 4px', borderRadius: '3px' }}>X-API-KEY</code> header.
+                  </div>
+                </div>
+              )}
+
               {/* Error */}
               {error && (
                 <div style={styles.errorText}>{error}</div>
               )}
 
-              {/* Tenant Note */}
+              {/* Details shown when tunnel is active */}
               {status?.active && (
                 <>
                   <div style={styles.section}>

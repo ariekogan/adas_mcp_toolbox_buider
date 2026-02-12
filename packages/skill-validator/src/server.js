@@ -29,6 +29,7 @@
 
 import express from 'express';
 import cors from 'cors';
+import apiKeyAuth from './middleware/apiKeyAuth.js';
 import validateRoutes from './routes/validate.js';
 import specRoutes from './routes/spec.js';
 import examplesRoutes from './routes/examples.js';
@@ -39,6 +40,9 @@ const PORT = process.env.VALIDATOR_PORT || 3200;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// API key authentication (skips GET /health)
+app.use(apiKeyAuth);
 
 // Routes
 app.use('/', validateRoutes);

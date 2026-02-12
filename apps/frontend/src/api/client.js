@@ -937,6 +937,14 @@ export async function stopAgentApiTunnel() {
   return request('/agent-api/tunnel', { method: 'DELETE' });
 }
 
+export async function getAgentApiKey() {
+  return request('/agent-api/key');
+}
+
+export async function rotateAgentApiKey() {
+  return request('/agent-api/key/rotate', { method: 'POST' });
+}
+
 export default {
   checkHealth,
   listTemplates,
