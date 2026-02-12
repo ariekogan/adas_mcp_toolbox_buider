@@ -8,8 +8,9 @@ RUN pip3 install --break-system-packages fastmcp httpx uvicorn
 
 RUN corepack enable
 
-# Copy linked local package first
+# Copy linked local package and install its deps
 COPY packages/skill-validator /packages/skill-validator
+RUN cd /packages/skill-validator && pnpm install --prod --no-frozen-lockfile
 
 WORKDIR /app
 
