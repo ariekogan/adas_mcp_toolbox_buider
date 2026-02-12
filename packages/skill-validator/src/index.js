@@ -41,3 +41,12 @@ export {
   COVERAGE_GAPS,
   ALL_COVERAGE
 } from './validators/coverage.js';
+
+// Spec constants (enums, classifications, system tools)
+export { VALID_DATA_TYPES, VALID_TRIGGER_TYPES, VALID_PHASES } from './validators/schemaValidator.js';
+export { VALID_CLASSIFICATIONS, VALID_RISK_LEVELS, VALID_EFFECTS, HIGH_RISK_CLASSIFICATIONS } from './validators/securityValidator.js';
+export { SYSTEM_TOOL_PREFIXES } from './validators/referenceResolver.js';
+export { DIMENSION_WEIGHTS, GRADE_THRESHOLDS } from './validators/solutionQualityValidator.js';
+
+// Types
+export { PHASES, PHASE_LABELS } from './types/DraftSkill.js';

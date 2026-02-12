@@ -10,6 +10,24 @@
  */
 
 /**
+ * ADAS platform system tool prefixes.
+ * Tools with these prefixes are provided by the ADAS runtime and
+ * do not need to be defined in the skill's tools array.
+ */
+export const SYSTEM_TOOL_PREFIXES = ['sys.', 'ui.', 'cp.'];
+
+/**
+ * Check if a tool name is a known ADAS system/platform tool.
+ * @param {string} name
+ * @returns {boolean}
+ */
+function isSystemTool(name) {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return SYSTEM_TOOL_PREFIXES.some(prefix => lower.startsWith(prefix));
+}
+
+/**
  * Coverage metadata for auto-generating documentation
  * @type {Array<{section: string, field: string, check: string, type: string}>}
  */
@@ -62,8 +80,8 @@ export function resolveReferences(skill, unresolved) {
     }
 
     workflow.steps.forEach((stepId, si) => {
-      // Check if step references a valid tool (by ID or name)
-      const resolved = toolIds.has(stepId) || toolNames.has(stepId.toLowerCase());
+      // Check if step references a valid tool (by ID, name, or system tool)
+      const resolved = toolIds.has(stepId) || toolNames.has(stepId.toLowerCase()) || isSystemTool(stepId);
       workflow.steps_resolved[si] = resolved;
 
       if (!resolved) {
@@ -107,7 +125,7 @@ export function resolveReferences(skill, unresolved) {
 
   // Check approval rules reference valid tools
   approvals.forEach((rule, ri) => {
-    const resolved = toolIds.has(rule.tool_id) || toolNames.has(rule.tool_id.toLowerCase());
+    const resolved = toolIds.has(rule.tool_id) || toolNames.has(rule.tool_id.toLowerCase()) || isSystemTool(rule.tool_id);
     rule.tool_id_resolved = resolved;
 
     if (!resolved && rule.tool_id) {
@@ -200,6 +218,12 @@ export function resolveReferences(skill, unresolved) {
     seenScenarioIds.add(scenario.id);
   });
 
+  // Check intent → tool mapping (can each intent be fulfilled?)
+  issues.push(...validateIntentToolMapping(skill, toolNames, workflowIds, workflows));
+
+  // Check for workflow circular references
+  issues.push(...detectWorkflowCycles(workflows, workflowIds));
+
   return issues;
 }
 
@@ -255,7 +279,7 @@ export function getUnresolvedToolRefs(skill) {
   // From workflows
   for (const workflow of (skill.policy?.workflows || [])) {
     for (const stepId of (workflow.steps || [])) {
-      if (!toolIds.has(stepId) && !toolNames.has(stepId.toLowerCase())) {
+      if (!toolIds.has(stepId) && !toolNames.has(stepId.toLowerCase()) && !isSystemTool(stepId)) {
         unresolved.add(stepId);
       }
     }
@@ -263,12 +287,145 @@ export function getUnresolvedToolRefs(skill) {
 
   // From approval rules
   for (const approval of (skill.policy?.approvals || [])) {
-    if (approval.tool_id && !toolIds.has(approval.tool_id) && !toolNames.has(approval.tool_id.toLowerCase())) {
+    if (approval.tool_id && !toolIds.has(approval.tool_id) && !toolNames.has(approval.tool_id.toLowerCase()) && !isSystemTool(approval.tool_id)) {
       unresolved.add(approval.tool_id);
     }
   }
 
   return Array.from(unresolved);
+}
+
+/**
+ * Validate that each intent has a structural connection to tools or workflows.
+ *
+ * An intent is considered "connected" if ANY of these are true:
+ *  1. intent.maps_to_workflow references a valid workflow
+ *  2. A workflow.trigger matches the intent.id
+ *  3. A tool name contains a keyword from the intent.id (underscore-split)
+ *
+ * Intents with no connection at all get a warning — they exist but nothing fulfills them.
+ *
+ * @param {DraftSkill} skill
+ * @param {Set<string>} toolNames - lowercase tool names
+ * @param {Set<string>} workflowIds
+ * @param {Array} workflows
+ * @returns {ValidationIssue[]}
+ */
+function validateIntentToolMapping(skill, toolNames, workflowIds, workflows) {
+  const issues = [];
+  const intents = skill.intents?.supported || [];
+  if (intents.length === 0) return issues;
+
+  // Build a set of workflow triggers for reverse-lookup
+  const workflowTriggers = new Set();
+  for (const wf of workflows) {
+    if (wf.trigger) workflowTriggers.add(wf.trigger);
+  }
+
+  // Build a flat string of all tool names for keyword matching
+  const toolNameString = Array.from(toolNames).join(' ');
+
+  for (let i = 0; i < intents.length; i++) {
+    const intent = intents[i];
+    if (!intent.id) continue;
+
+    // 1. Has maps_to_workflow that resolved? Skip — already covered.
+    if (intent.maps_to_workflow && workflowIds.has(intent.maps_to_workflow)) {
+      continue;
+    }
+
+    // 2. A workflow.trigger matches this intent?
+    if (workflowTriggers.has(intent.id)) {
+      continue;
+    }
+
+    // 3. Keyword match: split intent.id by underscores/hyphens, check tool names
+    const keywords = intent.id.toLowerCase().split(/[_\-.]/).filter(k => k.length > 2);
+    const hasToolMatch = keywords.some(kw => toolNameString.includes(kw));
+    if (hasToolMatch) {
+      continue;
+    }
+
+    // No connection found
+    issues.push({
+      code: 'INTENT_NO_TOOLS',
+      severity: 'warning',
+      path: `intents.supported[${i}]`,
+      message: `Intent "${intent.id}" has no mapped workflow and no obviously related tools`,
+      suggestion: `Add maps_to_workflow, create a workflow with trigger "${intent.id}", or ensure tool names relate to this intent`,
+    });
+  }
+
+  return issues;
+}
+
+/**
+ * Detect circular references in workflows.
+ *
+ * A workflow step can reference another workflow's ID (sub-workflow call).
+ * If workflow A → step calls workflow B → step calls workflow A, that's a cycle.
+ *
+ * Uses DFS with a "currently visiting" set to detect back-edges.
+ *
+ * @param {Array} workflows
+ * @param {Set<string>} workflowIds
+ * @returns {ValidationIssue[]}
+ */
+function detectWorkflowCycles(workflows, workflowIds) {
+  const issues = [];
+  if (workflows.length === 0) return issues;
+
+  // Build adjacency: workflow.id → set of other workflow IDs it references
+  const adj = new Map();
+  for (const wf of workflows) {
+    const refs = new Set();
+    for (const step of wf.steps || []) {
+      if (workflowIds.has(step) && step !== wf.id) {
+        refs.add(step);
+      }
+    }
+    adj.set(wf.id, refs);
+  }
+
+  // DFS cycle detection
+  const visited = new Set();    // fully processed
+  const visiting = new Set();   // currently in stack
+
+  function dfs(nodeId, path) {
+    if (visiting.has(nodeId)) {
+      // Found a cycle — report the loop path
+      const cycleStart = path.indexOf(nodeId);
+      const cycle = path.slice(cycleStart).concat(nodeId);
+      issues.push({
+        code: 'WORKFLOW_CIRCULAR',
+        severity: 'error',
+        path: 'policy.workflows',
+        message: `Circular workflow reference detected: ${cycle.join(' → ')}`,
+        suggestion: 'Remove the circular dependency between workflows',
+      });
+      return;
+    }
+    if (visited.has(nodeId)) return;
+
+    visiting.add(nodeId);
+    path.push(nodeId);
+
+    for (const neighbor of adj.get(nodeId) || []) {
+      dfs(neighbor, path);
+    }
+
+    path.pop();
+    visiting.delete(nodeId);
+    visited.add(nodeId);
+  }
+
+  for (const wf of workflows) {
+    if (!visited.has(wf.id)) {
+      dfs(wf.id, []);
+    }
+  }
+
+  return issues;
 }
 
 /**

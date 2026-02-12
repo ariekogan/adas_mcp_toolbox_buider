@@ -19,14 +19,14 @@ import { createAdapter } from '../services/llm/adapter.js';
 // CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════
 
-const GRADE_THRESHOLDS = {
+export const GRADE_THRESHOLDS = {
   excellent: 80,
   good: 60,
   fair: 40,
   bad: 0,
 };
 
-const DIMENSION_WEIGHTS = {
+export const DIMENSION_WEIGHTS = {
   goal_coverage: 0.25,
   scenario_completeness: 0.20,
   skill_coherence: 0.15,

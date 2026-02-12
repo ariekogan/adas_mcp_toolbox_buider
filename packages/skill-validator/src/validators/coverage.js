@@ -91,6 +91,9 @@ export const REFERENCE_COVERAGE = [
   { section: 'policy', field: 'policy.workflows[].id', check: 'No duplicate IDs', type: 'reference' },
   { section: 'mocks', field: 'mocks[].toolId', check: 'References existing tool', type: 'reference' },
   { section: 'cross-section', field: 'all IDs', check: 'Global ID uniqueness across sections', type: 'reference' },
+  { section: 'cross-section', field: 'intents.supported[]', check: 'Intent has mapped workflow or related tools', type: 'reference' },
+  { section: 'policy', field: 'policy.workflows[]', check: 'No circular workflow references', type: 'reference' },
+  { section: 'security', field: 'policy.guardrails vs tools', check: 'Guardrails vs tool capability conflict detection', type: 'reference' },
 ];
 
 /**
@@ -135,10 +138,7 @@ export const CONSISTENCY_COVERAGE = [
  * Known gaps - checks that should be implemented
  */
 export const COVERAGE_GAPS = [
-  { section: 'cross-section', check: 'Intent → Tool mapping (can intent be fulfilled?)', priority: 'high', suggestedMethod: 'llm' },
   { section: 'cross-section', check: 'Scenario → Intent coverage', priority: 'medium', suggestedMethod: 'llm' },
-  { section: 'cross-section', check: 'Guardrails vs Tool capabilities conflict', priority: 'high', suggestedMethod: 'llm' },
-  { section: 'policy', check: 'Workflow circular references', priority: 'medium', suggestedMethod: 'deterministic' },
   { section: 'engine', check: 'Settings compatibility', priority: 'low', suggestedMethod: 'deterministic' },
 ];
 

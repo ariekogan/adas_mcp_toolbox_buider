@@ -9,10 +9,28 @@
  */
 
 /**
+ * ADAS platform system tool prefixes.
+ * Tools with these prefixes are provided by the ADAS runtime and
+ * do not need to be defined in the skill's tools array.
+ */
+const SYSTEM_TOOL_PREFIXES = ['sys.', 'ui.', 'cp.'];
+
+/**
+ * Check if a tool name is a known ADAS system/platform tool.
+ * @param {string} name
+ * @returns {boolean}
+ */
+function isSystemTool(name) {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return SYSTEM_TOOL_PREFIXES.some(prefix => lower.startsWith(prefix));
+}
+
+/**
  * Classifications that REQUIRE an access policy rule.
  * Tools with these classifications produce errors if uncovered.
  */
-const HIGH_RISK_CLASSIFICATIONS = ['pii_write', 'financial', 'destructive'];
+export const HIGH_RISK_CLASSIFICATIONS = ['pii_write', 'financial', 'destructive'];
 
 /**
  * Classifications that RECOMMEND response filters.
@@ -23,17 +41,17 @@ const PII_CLASSIFICATIONS = ['pii_read', 'pii_write'];
 /**
  * Valid security classification values.
  */
-const VALID_CLASSIFICATIONS = ['public', 'pii_read', 'pii_write', 'financial', 'destructive'];
+export const VALID_CLASSIFICATIONS = ['public', 'pii_read', 'pii_write', 'financial', 'destructive'];
 
 /**
  * Valid risk levels.
  */
-const VALID_RISK_LEVELS = ['low', 'medium', 'high', 'critical'];
+export const VALID_RISK_LEVELS = ['low', 'medium', 'high', 'critical'];
 
 /**
  * Valid access policy effects.
  */
-const VALID_EFFECTS = ['allow', 'deny', 'constrain'];
+export const VALID_EFFECTS = ['allow', 'deny', 'constrain'];
 
 /**
  * Regex for syntactically valid field paths used in response filters.
@@ -295,7 +313,7 @@ export function validateSecurity(skill) {
   // 3  Grant mappings reference valid tools
   // -----------------------------------------------------------------------
   (skill.grant_mappings || []).forEach((mapping, i) => {
-    if (mapping.tool && !toolNames.has(mapping.tool)) {
+    if (mapping.tool && !toolNames.has(mapping.tool) && !isSystemTool(mapping.tool)) {
       issues.push({
         code: 'GRANT_MAPPING_INVALID_TOOL',
         severity: 'error',
@@ -312,7 +330,7 @@ export function validateSecurity(skill) {
   (skill.access_policy?.rules || []).forEach((rule, i) => {
     (rule.tools || []).forEach((toolRef, j) => {
       if (toolRef === '*') return; // wildcard is always valid
-      if (!toolNames.has(toolRef)) {
+      if (!toolNames.has(toolRef) && !isSystemTool(toolRef)) {
         issues.push({
           code: 'ACCESS_POLICY_INVALID_TOOL',
           severity: 'error',
@@ -369,6 +387,94 @@ export function validateSecurity(skill) {
       }
     });
   });
+
+  // -----------------------------------------------------------------------
+  // 7  Guardrails vs Tool capability conflict detection
+  // -----------------------------------------------------------------------
+  issues.push(...validateGuardrailToolAlignment(skill, tools, coveredTools, hasWildcard));
+
+  return issues;
+}
+
+// ---------------------------------------------------------------------------
+// Guardrail ↔ Tool alignment
+// ---------------------------------------------------------------------------
+
+/**
+ * Keyword groups that map guardrail language to security classifications.
+ * If a "never" guardrail mentions these keywords AND a tool has the matching
+ * classification WITHOUT a constraining access policy, we emit a warning.
+ */
+const GUARDRAIL_KEYWORD_MAP = [
+  {
+    keywords: ['pii', 'personal', 'customer data', 'sensitive data', 'private', 'customer info', 'customer information'],
+    classifications: ['pii_read', 'pii_write'],
+  },
+  {
+    keywords: ['payment', 'credit card', 'financial', 'billing', 'bank', 'card number'],
+    classifications: ['financial'],
+  },
+  {
+    keywords: ['delete', 'destroy', 'remove permanently', 'purge', 'wipe'],
+    classifications: ['destructive'],
+  },
+];
+
+/**
+ * Check for conflicts between guardrail "never" rules and tool capabilities.
+ *
+ * A conflict exists when:
+ *  - A guardrail says "never do X"
+ *  - A tool has a classification that implies doing X
+ *  - No access_policy constrains or denies that tool
+ *
+ * @param {DraftSkill} skill
+ * @param {Array} tools
+ * @param {Set<string>} coveredTools - tools covered by access_policy
+ * @param {boolean} hasWildcard - access_policy has wildcard rule
+ * @returns {ValidationIssue[]}
+ */
+function validateGuardrailToolAlignment(skill, tools, coveredTools, hasWildcard) {
+  const issues = [];
+
+  const neverRules = skill.policy?.guardrails?.never || [];
+  if (neverRules.length === 0 || tools.length === 0) return issues;
+
+  // Pre-check: if all tools are covered by access policy, no conflict possible
+  if (hasWildcard) return issues;
+
+  // Normalize never rules to lowercase
+  const neverText = neverRules.map(r => (typeof r === 'string' ? r : '').toLowerCase());
+
+  // For each keyword group, find matching guardrails
+  for (const group of GUARDRAIL_KEYWORD_MAP) {
+    // Does any guardrail mention these keywords?
+    const matchingGuardrails = neverText.filter(text =>
+      group.keywords.some(kw => text.includes(kw))
+    );
+    if (matchingGuardrails.length === 0) continue;
+
+    // Find tools with matching classification that LACK access policy coverage
+    for (let i = 0; i < tools.length; i++) {
+      const tool = tools[i];
+      const classification = getToolClassification(tool);
+      if (!classification) continue;
+      if (!group.classifications.includes(classification)) continue;
+
+      // Tool has matching classification — is it constrained?
+      const covered = coveredTools.has(tool.name);
+      if (covered) continue;
+
+      // Conflict: guardrail prohibits, tool enables, no policy constrains
+      issues.push({
+        code: 'GUARDRAIL_TOOL_CONFLICT',
+        severity: 'warning',
+        path: `tools[${i}].security`,
+        message: `Guardrail "${matchingGuardrails[0]}" conflicts with tool "${tool.name}" (${classification}) — no access policy constrains this tool`,
+        suggestion: 'Add an access_policy rule with effect "constrain" or "deny" to enforce the guardrail, or refine the guardrail',
+      });
+    }
+  }
 
   return issues;
 }

@@ -95,10 +95,10 @@ export const COVERAGE = [
   { section: 'triggers', field: 'triggers[].event', check: 'Has event name (event trigger)', type: 'schema' },
 ];
 
-const VALID_DATA_TYPES = ['string', 'number', 'boolean', 'object', 'array', 'text'];
+export const VALID_DATA_TYPES = ['string', 'number', 'boolean', 'object', 'array', 'text'];
 // Note: 'text' is an alias for 'string' - both are valid
-const VALID_TRIGGER_TYPES = ['schedule', 'event'];
-const VALID_PHASES = [
+export const VALID_TRIGGER_TYPES = ['schedule', 'event'];
+export const VALID_PHASES = [
   'PROBLEM_DISCOVERY',
   'SCENARIO_EXPLORATION',
   'INTENT_DEFINITION',
