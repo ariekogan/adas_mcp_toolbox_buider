@@ -12,6 +12,9 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo}
       - TENANTS_ROOT=/tenants
+      # ngrok tunnel for Agent API
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN:-}
+      - AGENT_API_DOMAIN=${AGENT_API_DOMAIN:-}
       # ADAS CORE connection (uses host.docker.internal since both run on same machine)
       - ADAS_CORE_URL=${ADAS_CORE_URL:-http://host.docker.internal:4100}
       - CORE_MCP_URL=${CORE_MCP_URL:-http://host.docker.internal:4310/mcp}

@@ -14,7 +14,7 @@ let ngrokModule = null;
 let activeTunnel = null; // { url, domain, listener }
 
 const VALIDATOR_URL = process.env.VALIDATOR_URL || 'http://localhost:3200';
-const DOMAIN = process.env.AGENT_API_DOMAIN || 'agent-api.ateam-ai.com';
+const DOMAIN = process.env.AGENT_API_DOMAIN || null; // null = ngrok assigns random URL
 
 /**
  * Lazily load the @ngrok/ngrok module.
@@ -52,19 +52,19 @@ export async function startTunnel() {
     throw new Error('@ngrok/ngrok package is not installed. Run: npm install @ngrok/ngrok');
   }
 
-  console.log(`[AgentAPI] Starting ngrok tunnel → ${VALIDATOR_URL} (domain: ${DOMAIN})`);
+  console.log(`[AgentAPI] Starting ngrok tunnel → ${VALIDATOR_URL}${DOMAIN ? ` (domain: ${DOMAIN})` : ''}`);
 
-  const listener = await ngrok.default.forward({
-    addr: VALIDATOR_URL,
-    authtoken,
-    domain: DOMAIN,
-  });
+  const forwardOpts = { addr: VALIDATOR_URL, authtoken };
+  if (DOMAIN) forwardOpts.domain = DOMAIN;
+
+  const listener = await ngrok.default.forward(forwardOpts);
 
   const url = listener.url();
-  activeTunnel = { url, domain: DOMAIN, listener };
+  const domain = DOMAIN || new URL(url).hostname;
+  activeTunnel = { url, domain, listener };
 
   console.log(`[AgentAPI] Tunnel active: ${url}`);
-  return { url, domain: DOMAIN };
+  return { url, domain };
 }
 
 /**
