@@ -8,6 +8,7 @@ import ExportModal from './components/ExportModal';
 import ConnectorsPage from './components/ConnectorsPage';
 import TenantChannelsPage from './components/TenantChannelsPage';
 import PoliciesPage from './components/PoliciesPage';
+import AgentApiModal from './components/AgentApiModal';
 import SolutionPanel from './components/SolutionPanel';
 import ResizableSplit from './components/ResizableSplit';
 import { useSkill } from './hooks/useSkill';
@@ -189,6 +190,9 @@ export default function App() {
 
   // Export state
   const [exportModalOpen, setExportModalOpen] = useState(false);
+
+  // Agent API modal
+  const [showAgentApiModal, setShowAgentApiModal] = useState(false);
 
   // Context indicator state - shows what panel/tab the chat is aware of
   const [contextLabel, setContextLabel] = useState(null);
@@ -729,6 +733,13 @@ export default function App() {
                   >
                     Download MCP Template
                   </button>
+                  <div style={{ height: '1px', background: 'var(--border)', margin: '2px 0' }} />
+                  <button
+                    style={styles.gearMenuItem}
+                    onClick={() => { setShowAgentApiModal(true); setGearMenuOpen(false); }}
+                  >
+                    🤖 Agent API
+                  </button>
                 </div>
               </>
             )}
@@ -880,6 +891,10 @@ export default function App() {
         onExportFiles={handleExportFiles}
         onDeployToAdas={handleDeployToAdas}
       />
+
+      {showAgentApiModal && (
+        <AgentApiModal onClose={() => setShowAgentApiModal(false)} />
+      )}
     </div>
   );
 }

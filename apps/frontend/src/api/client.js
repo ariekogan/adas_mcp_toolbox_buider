@@ -921,6 +921,22 @@ export async function getTriggerHistory(solutionId, skillId, triggerId, limit = 
   return request(`/export/${skillId}/triggers/${encodeURIComponent(triggerId)}/history?limit=${limit}&solution_id=${solutionId}`);
 }
 
+// ============================================
+// Agent API (External Agent Tunnel)
+// ============================================
+
+export async function getAgentApiStatus() {
+  return request('/agent-api/status');
+}
+
+export async function startAgentApiTunnel() {
+  return request('/agent-api/tunnel', { method: 'POST' });
+}
+
+export async function stopAgentApiTunnel() {
+  return request('/agent-api/tunnel', { method: 'DELETE' });
+}
+
 export default {
   checkHealth,
   listTemplates,

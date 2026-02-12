@@ -10,6 +10,7 @@
   "dependencies": {
     "@adas/skill-validator": "file:../../packages/skill-validator",
     "@anthropic-ai/sdk": "^0.39.0",
+    "@ngrok/ngrok": "^1.7.0",
     "archiver": "^7.0.1",
     "cors": "^2.8.5",
     "express": "^4.19.2",
