@@ -1,7 +1,8 @@
 services:
   backend:
     build:
-      context: ./apps/backend
+      context: .
+      dockerfile: apps/backend/Dockerfile
     environment:
       - NODE_ENV=production
       - PORT=4000

@@ -8,12 +8,15 @@ RUN pip3 install --break-system-packages fastmcp httpx uvicorn
 
 RUN corepack enable
 
+# Copy linked local package first
+COPY packages/skill-validator /packages/skill-validator
+
 WORKDIR /app
 
-COPY package.json ./
+COPY apps/backend/package.json ./
 RUN pnpm install --prod --no-frozen-lockfile
 
-COPY src ./src
+COPY apps/backend/src ./src
 
 ENV PORT=4000
 EXPOSE 4000
