@@ -39,7 +39,7 @@ export function getSkillSlug(skill, skillId) {
  */
 export async function deployIdentityToADAS(solutionId, log) {
   try {
-    const solution = await solutionsStore.get(solutionId);
+    const solution = await solutionsStore.load(solutionId);
     const identity = solution?.identity;
 
     if (!identity || !identity.actor_types || identity.actor_types.length === 0) {
