@@ -19,6 +19,14 @@ const router = Router();
 
 const SKILL_BUILDER_URL = (process.env.SKILL_BUILDER_URL || 'http://localhost:4000').replace(/\/$/, '');
 
+/** Build headers for Skill Builder requests, forwarding the tenant from the incoming request */
+function sbHeaders(req) {
+  const h = { 'Content-Type': 'application/json' };
+  const tenant = req.headers['x-adas-tenant'];
+  if (tenant) h['X-ADAS-TENANT'] = tenant;
+  return h;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /deploy/connector
 // Register a connector in the Skill Builder and connect it in ADAS Core.
@@ -48,7 +56,7 @@ router.post('/connector', async (req, res) => {
     // Import into Skill Builder
     const importResp = await fetch(`${SKILL_BUILDER_URL}/api/import/solution-pack`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: sbHeaders(req),
       body: JSON.stringify({ manifest }),
       signal: AbortSignal.timeout(30000),
     });
@@ -60,7 +68,7 @@ router.post('/connector', async (req, res) => {
 
     // Deploy to ADAS Core via Skill Builder
     const packageName = manifest.name;
-    const deployResult = await consumeDeploySSE(packageName);
+    const deployResult = await consumeDeploySSE(packageName, req);
 
     // Find this connector's result
     const connResult = deployResult.connectorResults?.find(r => r.id === connector.id);
@@ -117,7 +125,7 @@ router.post('/skill', async (req, res) => {
     // Import into Skill Builder
     const importResp = await fetch(`${SKILL_BUILDER_URL}/api/import/solution-pack`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: sbHeaders(req),
       body: JSON.stringify({ manifest, skills }),
       signal: AbortSignal.timeout(30000),
     });
@@ -131,7 +139,7 @@ router.post('/skill', async (req, res) => {
 
     // Deploy to ADAS Core via Skill Builder
     const packageName = manifest.name;
-    const deployResult = await consumeDeploySSE(packageName);
+    const deployResult = await consumeDeploySSE(packageName, req);
 
     const skillResult = deployResult.skillResults?.find(r => r.id === skill.id);
 
@@ -216,7 +224,7 @@ router.post('/solution', async (req, res) => {
     // ── Import into Skill Builder ──
     const importResp = await fetch(`${SKILL_BUILDER_URL}/api/import/solution-pack`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: sbHeaders(req),
       body: JSON.stringify({
         manifest,
         skills: skillFiles,
@@ -234,7 +242,7 @@ router.post('/solution', async (req, res) => {
     const packageName = importData.package?.name || manifest.name;
 
     // ── Deploy to ADAS Core via Skill Builder ──
-    const deployResult = await consumeDeploySSE(packageName);
+    const deployResult = await consumeDeploySSE(packageName, req);
 
     res.json({
       ok: deployResult.ok,
@@ -263,10 +271,10 @@ export default router;
  * Call the Skill Builder's deploy-all endpoint and consume the SSE stream,
  * collecting all events into a single result object.
  */
-async function consumeDeploySSE(packageName) {
+async function consumeDeploySSE(packageName, req) {
   const resp = await fetch(`${SKILL_BUILDER_URL}/api/import/packages/${encodeURIComponent(packageName)}/deploy-all`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: sbHeaders(req),
     signal: AbortSignal.timeout(300000), // 5 min for large deploys
   });
 
