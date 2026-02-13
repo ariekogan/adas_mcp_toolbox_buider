@@ -104,7 +104,7 @@ router.patch('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
   try {
     await solutionsStore.remove(req.params.id);
-    res.json({ success: true });
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }
@@ -592,12 +592,19 @@ router.get('/:id/export', async (req, res, next) => {
         if (skill.original_skill_id) {
           exportSkill.id = skill.original_skill_id;
         }
-        // Remove internal fields
+        // Remove internal/deployment fields
         delete exportSkill._settings;
         delete exportSkill._fromTemplate;
         delete exportSkill.validation;
         delete exportSkill.conversation;
         delete exportSkill.solution_id;
+        delete exportSkill.original_skill_id;
+        delete exportSkill.mcpUri;
+        delete exportSkill.deployedAt;
+        delete exportSkill.deployedTo;
+        delete exportSkill.connectorId;
+        delete exportSkill.lastExportedAt;
+        delete exportSkill.lastExportType;
         skills.push(exportSkill);
 
         // Collect connector IDs

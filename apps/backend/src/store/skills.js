@@ -547,18 +547,22 @@ function applyUpdates(skill, updates) {
         // Support pushing multiple items at once
         const items = Array.isArray(value) ? value : [value];
         for (const item of items) {
-          if (item.name && arr.some(existing => existing.name === item.name)) {
-            // Update existing item by name - MERGE fields, don't replace
-            const idx = arr.findIndex(existing => existing.name === item.name);
-            arr[idx] = { ...arr[idx], ...item };
-            console.log(`[Store] Updated existing "${item.name}" in ${arrayKey}`);
+          // Match by name or id to prevent duplicates
+          const matchKey = item.name || item.id;
+          const existingIdx = matchKey ? arr.findIndex(existing =>
+            (item.name && existing.name === item.name) || (item.id && existing.id === item.id)
+          ) : -1;
+          if (existingIdx !== -1) {
+            // Update existing item - MERGE fields, don't replace
+            arr[existingIdx] = { ...arr[existingIdx], ...item };
+            console.log(`[Store] Updated existing "${matchKey}" in ${arrayKey}`);
           } else {
             // New item - must have minimum required fields for tools
             if (arrayKey === 'tools' && !item.description) {
               console.log(`[Store] WARNING: Adding tool "${item.name}" without description`);
             }
             arr.push(item);
-            console.log(`[Store] Added "${item.name || 'item'}" to ${arrayKey}`);
+            console.log(`[Store] Added "${matchKey || 'item'}" to ${arrayKey}`);
           }
         }
       }

@@ -358,6 +358,11 @@ router.get('/solutions/:solutionId/definition', async (req, res) => {
       signal: AbortSignal.timeout(15000),
     });
     const data = await resp.json();
+    // Strip internal fields from the response
+    if (data.solution) {
+      delete data.solution.linked_skills;
+      delete data.solution.conversation;
+    }
     res.status(resp.status).json(data);
   } catch (err) {
     console.error('[Deploy] Get solution definition error:', err.message);
@@ -660,11 +665,9 @@ router.post('/solutions/:solutionId/skills', async (req, res) => {
     if (skill.intents) {
       if (skill.intents.thresholds) updates['intents.thresholds'] = skill.intents.thresholds;
       if (skill.intents.out_of_domain) updates['intents.out_of_domain'] = skill.intents.out_of_domain;
-      // Push supported intents one by one
-      if (Array.isArray(skill.intents.supported)) {
-        for (const intent of skill.intents.supported) {
-          updates['intents.supported_push'] = intent;
-        }
+      // Push all supported intents at once (backend _push accepts arrays)
+      if (Array.isArray(skill.intents.supported) && skill.intents.supported.length > 0) {
+        updates['intents.supported_push'] = skill.intents.supported;
       }
     }
 
@@ -674,11 +677,14 @@ router.post('/solutions/:solutionId/skills', async (req, res) => {
       if (skill[f] !== undefined) updates[f] = skill[f];
     }
 
-    // Push tools (protected array)
-    if (Array.isArray(skill.tools)) {
-      for (const tool of skill.tools) {
-        updates['tools_push'] = tool;
-      }
+    // Push all tools at once (backend _push accepts arrays)
+    if (Array.isArray(skill.tools) && skill.tools.length > 0) {
+      updates['tools_push'] = skill.tools;
+    }
+
+    // Push meta_tools (protected array)
+    if (Array.isArray(skill.meta_tools) && skill.meta_tools.length > 0) {
+      updates['meta_tools_push'] = skill.meta_tools;
     }
 
     // Push policy guardrails
@@ -686,15 +692,11 @@ router.post('/solutions/:solutionId/skills', async (req, res) => {
       if (skill.policy.workflows) updates['policy.workflows'] = skill.policy.workflows;
       if (skill.policy.approvals) updates['policy.approvals'] = skill.policy.approvals;
       if (skill.policy.escalation) updates['policy.escalation'] = skill.policy.escalation;
-      if (Array.isArray(skill.policy.guardrails?.always)) {
-        for (const rule of skill.policy.guardrails.always) {
-          updates['policy.guardrails.always_push'] = rule;
-        }
+      if (Array.isArray(skill.policy.guardrails?.always) && skill.policy.guardrails.always.length > 0) {
+        updates['policy.guardrails.always_push'] = skill.policy.guardrails.always;
       }
-      if (Array.isArray(skill.policy.guardrails?.never)) {
-        for (const rule of skill.policy.guardrails.never) {
-          updates['policy.guardrails.never_push'] = rule;
-        }
+      if (Array.isArray(skill.policy.guardrails?.never) && skill.policy.guardrails.never.length > 0) {
+        updates['policy.guardrails.never_push'] = skill.policy.guardrails.never;
       }
     }
 

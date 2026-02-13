@@ -513,7 +513,7 @@ async function run() {
   const delResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test', {
     method: 'DELETE', headers: hdr,
   }).then(r => r.json());
-  ok('DELETE solution', Boolean(delResp.success) || delResp.ok !== false);
+  ok('DELETE solution', delResp.ok === true);
 
   const afterDel = await fetch(API + '/deploy/status/e2e-lifecycle-test', { headers: hdr });
   ok('Solution gone after delete', afterDel.status === 404, 'status=' + afterDel.status);

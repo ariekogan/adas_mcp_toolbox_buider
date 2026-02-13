@@ -481,7 +481,7 @@ router.post('/skill', async (req, res) => {
 
     // Link skillId back to any package that references this skill by its original ID.
     // This allows deploy-all to find the skillId for each package skill entry.
-    for (const [, pkg] of importedPackages) {
+    for (const [, pkg] of getImportedPackages()) {
       if (!Array.isArray(pkg.skills)) continue;
       for (const skillRef of pkg.skills) {
         if (skillRef.id === originalSkillId) {

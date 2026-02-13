@@ -251,7 +251,28 @@ router.delete('/:skillId', async (req, res, next) => {
   try {
     const { solutionId, skillId } = req.params;
     const internalId = await resolveSkillId(skillId);
+
+    // Load skill to get original_skill_id before deleting
+    let originalId = skillId;
+    try {
+      const skill = await skillsStore.load(solutionId, internalId);
+      if (skill.original_skill_id) originalId = skill.original_skill_id;
+    } catch { /* proceed with deletion anyway */ }
+
     await skillsStore.remove(solutionId, internalId);
+
+    // Also remove from solution's architecture skills array
+    try {
+      const solution = await solutionsStore.load(solutionId);
+      if (Array.isArray(solution.skills)) {
+        const idx = solution.skills.findIndex(s => s.id === originalId || s.id === internalId || s.id === skillId);
+        if (idx !== -1) {
+          solution.skills.splice(idx, 1);
+          await solutionsStore.save(solution);
+        }
+      }
+    } catch { /* non-fatal — solution may not exist */ }
+
     res.status(204).send();
   } catch (err) {
     next(err);
