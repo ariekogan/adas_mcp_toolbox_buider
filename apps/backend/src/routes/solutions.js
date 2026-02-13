@@ -125,15 +125,27 @@ router.get('/:id/deploy-status', async (req, res, next) => {
     const solution = await solutionsStore.load(req.params.id);
     const linkedSkills = solution.skills || [];
 
+    // Build a lookup: original_skill_id → internal dom ID
+    // Skills are stored as dom_xxx with original_skill_id pointing back to the ref.
+    const allSkills = await skillsStore.list();
+    const skillIndex = new Map(); // original_skill_id → internal id
+    for (const s of allSkills) {
+      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
+    }
+
     // Load full skill objects in parallel
     const skills = await Promise.all(
       linkedSkills.map(async (ref) => {
+        // Resolve: try internal ID first (ref.id might be dom_xxx already),
+        // then look up by original_skill_id
+        const internalId = skillIndex.get(ref.id) || ref.id;
         try {
-          const skill = await skillsStore.load(req.params.id, ref.id);
+          const skill = await skillsStore.load(req.params.id, internalId);
           return {
             id: ref.id,
+            internal_id: internalId !== ref.id ? internalId : undefined,
             name: skill.name || ref.name,
-            slug: getSkillSlug(skill, ref.id),
+            slug: getSkillSlug(skill, internalId),
             phase: skill.phase || 'UNKNOWN',
             deployedAt: skill.deployedAt || null,
             mcpUri: skill.mcpUri || null,
