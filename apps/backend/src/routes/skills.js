@@ -18,6 +18,26 @@ import { getAllPrebuiltConnectors } from './connectors.js';
 const router = Router({ mergeParams: true });
 
 /**
+ * Resolve a skill ID — tries direct load, then falls back to original_skill_id lookup.
+ * External agents use original IDs (e.g., "e2e-greeter") but skills are stored
+ * with internal IDs (e.g., "dom_xxx").
+ * @returns {string} The internal skill ID
+ */
+async function resolveSkillId(skillId) {
+  // Check if the skillId exists directly as a directory
+  try {
+    await skillsStore.load(skillId);
+    return skillId;
+  } catch {
+    // Not found — search by original_skill_id
+    const allSkills = await skillsStore.list();
+    const match = allSkills.find(s => s.original_skill_id === skillId);
+    if (match) return match.id;
+    throw new Error(`Skill ${skillId} not found`);
+  }
+}
+
+/**
  * List all skills for a solution
  * GET /api/solutions/:solutionId/skills
  */
@@ -87,7 +107,8 @@ router.post('/', async (req, res, next) => {
 router.get('/:skillId', async (req, res, next) => {
   try {
     const { solutionId, skillId } = req.params;
-    const skill = await skillsStore.load(solutionId, skillId);
+    const internalId = await resolveSkillId(skillId);
+    const skill = await skillsStore.load(solutionId, internalId);
 
     // Backfill source on ui.* tools missing it (created by DAL without MCP bridge info)
     if (skill.tools?.length && skill.connectors?.length) {
@@ -138,7 +159,8 @@ router.patch('/:skillId', async (req, res, next) => {
       return res.status(400).json({ error: 'Updates object is required' });
     }
 
-    const skill = await skillsStore.updateState(solutionId, skillId, updates);
+    const internalId = await resolveSkillId(skillId);
+    const skill = await skillsStore.updateState(solutionId, internalId, updates);
     res.json({ skill });
   } catch (err) {
     if (err.message?.includes('not found')) {
@@ -176,9 +198,43 @@ router.patch('/:skillId/settings', async (req, res, next) => {
 router.get('/:skillId/validation', async (req, res, next) => {
   try {
     const { solutionId, skillId } = req.params;
-    const skill = await skillsStore.load(solutionId, skillId);
+    const internalId = await resolveSkillId(skillId);
+    const skill = await skillsStore.load(solutionId, internalId);
     const summary = getValidationSummary(skill);
     res.json({ validation: summary });
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ error: 'Skill not found' });
+    }
+    next(err);
+  }
+});
+
+/**
+ * Get skill conversation history
+ * GET /api/solutions/:solutionId/skills/:skillId/conversation
+ *
+ * Returns just the conversation array, optionally limited by ?limit=N (most recent N messages).
+ */
+router.get('/:skillId/conversation', async (req, res, next) => {
+  try {
+    const { solutionId, skillId } = req.params;
+    const internalId = await resolveSkillId(skillId);
+    const skill = await skillsStore.load(solutionId, internalId);
+    let messages = skill.conversation || [];
+
+    // Optional limit parameter (return most recent N messages)
+    const limit = parseInt(req.query.limit);
+    if (limit > 0 && messages.length > limit) {
+      messages = messages.slice(-limit);
+    }
+
+    res.json({
+      skill_id: skillId,
+      internal_id: internalId !== skillId ? internalId : undefined,
+      message_count: (skill.conversation || []).length,
+      messages,
+    });
   } catch (err) {
     if (err.message?.includes('not found')) {
       return res.status(404).json({ error: 'Skill not found' });
@@ -194,7 +250,8 @@ router.get('/:skillId/validation', async (req, res, next) => {
 router.delete('/:skillId', async (req, res, next) => {
   try {
     const { solutionId, skillId } = req.params;
-    await skillsStore.remove(solutionId, skillId);
+    const internalId = await resolveSkillId(skillId);
+    await skillsStore.remove(solutionId, internalId);
     res.status(204).send();
   } catch (err) {
     next(err);

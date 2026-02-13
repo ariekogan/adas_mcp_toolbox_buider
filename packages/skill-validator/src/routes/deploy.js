@@ -8,9 +8,36 @@
  *
  * External agents do NOT need to provide slugs or Python MCP code.
  *
- * POST /deploy/connector  — Register + connect a connector via Skill Builder
- * POST /deploy/skill      — Import a skill definition via Skill Builder
- * POST /deploy/solution   — Import + deploy a full solution via Skill Builder
+ * POST /deploy/connector              — Register + connect a connector via Skill Builder
+ * POST /deploy/skill                  — Import a skill definition via Skill Builder
+ * POST /deploy/solution               — Import + deploy a full solution via Skill Builder
+ * GET  /deploy/solutions              — List all solutions
+ * GET  /deploy/status/:solutionId     — Aggregated deploy status (skills, connectors, health)
+ * DELETE /deploy/solutions/:solutionId — Remove a solution
+ *
+ * Read-back:
+ * GET  /deploy/solutions/:id/definition       — Full solution definition
+ * GET  /deploy/solutions/:id/skills           — List skills (summaries)
+ * GET  /deploy/solutions/:id/skills/:sk       — Full skill definition
+ *
+ * Updates:
+ * PATCH /deploy/solutions/:id                 — Update solution incrementally
+ * PATCH /deploy/solutions/:id/skills/:sk      — Update skill incrementally
+ * POST  /deploy/solutions/:id/skills/:sk/redeploy — Re-deploy after PATCH
+ * DELETE /deploy/solutions/:id/skills/:sk     — Remove a single skill
+ *
+ * Operate:
+ * POST /deploy/solutions/:id/chat             — Send message to Solution Bot
+ * POST /deploy/solutions/:id/redeploy         — Re-deploy ALL skills at once
+ * POST /deploy/solutions/:id/skills           — Add a new skill to an existing solution
+ * GET  /deploy/solutions/:id/export           — Export as re-importable JSON bundle
+ *
+ * Inspect:
+ * GET  /deploy/solutions/:id/validate         — Validate solution from stored state
+ * GET  /deploy/solutions/:id/skills/:sk/validate — Validate skill from stored state
+ * GET  /deploy/solutions/:id/connectors/health — Connector health from ADAS Core
+ * GET  /deploy/solutions/:id/skills/:sk/conversation — Skill chat history
+ * GET  /deploy/solutions/:id/health           — Live health check
  */
 
 import { Router } from 'express';
@@ -258,6 +285,540 @@ router.post('/solution', async (req, res) => {
   } catch (err) {
     console.error('[Deploy] Solution error:', err.message);
     res.status(502).json({ ok: false, error: err.message, skill_builder_url: SKILL_BUILDER_URL });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SOLUTION LIFECYCLE — proxy to Skill Builder
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /deploy/solutions — List all solutions
+ */
+router.get('/solutions', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] List solutions error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/status/:solutionId — Aggregated deploy status
+ */
+router.get('/status/:solutionId', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/deploy-status`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Status error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * DELETE /deploy/solutions/:solutionId — Remove a solution
+ */
+router.delete('/solutions/:solutionId', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}`, {
+      method: 'DELETE',
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Delete solution error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// READ BACK — retrieve deployed definitions
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /deploy/solutions/:solutionId/definition — Read back the full solution definition
+ */
+router.get('/solutions/:solutionId/definition', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Get solution definition error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/skills — List skills in a solution (summaries)
+ */
+router.get('/solutions/:solutionId/skills', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/skills`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] List skills error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/skills/:skillId — Read back a full skill definition
+ * Accepts either the original skill ID (e.g., "e2e-greeter") or internal ID (e.g., "dom_xxx")
+ */
+router.get('/solutions/:solutionId/skills/:skillId', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Get skill definition error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INCREMENTAL UPDATES — PATCH deployed definitions
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * PATCH /deploy/solutions/:solutionId — Update solution definition
+ * Body: { state_update: { "phase": "DEPLOYED", "grants_push": {...}, ... } }
+ *
+ * Supports dot notation, _push, _delete, _update operations.
+ * See GET /spec for full documentation.
+ */
+router.patch('/solutions/:solutionId', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}`, {
+      method: 'PATCH',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Patch solution error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/connectors/health — Connector health from ADAS Core
+ * Returns status, discovered tools, and errors for each connector.
+ */
+router.get('/solutions/:solutionId/connectors/health', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/connectors/health`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Connector health error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * PATCH /deploy/solutions/:solutionId/skills/:skillId — Update a skill definition
+ * Body: { updates: { "tools_push": {...}, "problem.statement": "...", ... } }
+ *
+ * Accepts original skill ID (e.g., "e2e-greeter") or internal ID (e.g., "dom_xxx").
+ * Supports: dot notation, tools_push, tools_delete, tools_update, tools_rename,
+ * intents.supported_push, policy.guardrails.always_push, etc.
+ */
+router.patch('/solutions/:solutionId/skills/:skillId', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}`, {
+      method: 'PATCH',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Patch skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REDEPLOY — regenerate MCP and push to ADAS Core
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/solutions/:solutionId/skills/:skillId/redeploy
+ *
+ * Re-deploy a single skill after PATCH updates.
+ * Reads the stored skill, regenerates the MCP server, pushes to ADAS Core.
+ * Accepts original skill ID or internal ID.
+ * Longer timeout (60s) because MCP generation + ADAS Core deploy can be slow.
+ */
+router.post('/solutions/:solutionId/skills/:skillId/redeploy', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}/redeploy`, {
+      method: 'POST',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body || {}),
+      signal: AbortSignal.timeout(60000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Redeploy skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONVERSATION & HEALTH
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /deploy/solutions/:solutionId/skills/:skillId/conversation — Skill chat history
+ * Optional: ?limit=N for most recent N messages
+ */
+router.get('/solutions/:solutionId/skills/:skillId/conversation', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const qs = req.query.limit ? `?limit=${encodeURIComponent(req.query.limit)}` : '';
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}/conversation${qs}`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Get conversation error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/health — Live health check
+ * Cross-checks definition vs ADAS Core: skills deployed, connectors connected, grant chains intact.
+ */
+router.get('/solutions/:solutionId/health', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/health`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Health check error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SOLUTION CHAT
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/solutions/:solutionId/chat — Send a message to the Solution Bot
+ * Body: { message: string }
+ * Returns: { message, solution, suggested_focus, input_hint, validation, usage }
+ */
+router.post('/solutions/:solutionId/chat', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/chat`, {
+      method: 'POST',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(60000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Solution chat error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BULK REDEPLOY
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/solutions/:solutionId/redeploy — Re-deploy ALL skills in a solution
+ * Regenerates MCP servers for every skill and pushes to ADAS Core.
+ * Returns per-skill results with deployed/failed counts.
+ */
+router.post('/solutions/:solutionId/redeploy', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/redeploy`, {
+      method: 'POST',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body || {}),
+      signal: AbortSignal.timeout(300000), // 5 min for large solutions
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Bulk redeploy error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADD SKILL TO EXISTING SOLUTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/solutions/:solutionId/skills — Add a new skill to an existing solution
+ * Body: { skill: { id, name, ... full skill definition } }
+ *
+ * Creates the skill in the Skill Builder and links it to the solution.
+ * Also updates the solution's skills array if the skill has a role.
+ */
+router.post('/solutions/:solutionId/skills', async (req, res) => {
+  const { skill } = req.body;
+
+  if (!skill?.id) {
+    return res.status(400).json({ ok: false, error: 'Missing skill.id in body' });
+  }
+  if (!skill?.name) {
+    return res.status(400).json({ ok: false, error: 'Missing skill.name in body' });
+  }
+
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+
+    // Step 1: Create the skill via the existing create endpoint
+    const createResp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills`, {
+      method: 'POST',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: skill.name }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!createResp.ok) {
+      const errData = await createResp.json().catch(() => ({ error: createResp.statusText }));
+      return res.status(createResp.status).json({ ok: false, ...errData });
+    }
+
+    const createData = await createResp.json();
+    const internalId = createData.skill?.id;
+
+    if (!internalId) {
+      return res.status(500).json({ ok: false, error: 'Skill created but no ID returned' });
+    }
+
+    // Step 2: PATCH the skill with the full definition
+    // Set original_skill_id and apply all the fields from the provided skill
+    const updates = { original_skill_id: skill.id };
+
+    // Copy scalar fields via dot notation
+    const scalarFields = ['description', 'version', 'phase', 'ui_capable', 'prompt'];
+    for (const f of scalarFields) {
+      if (skill[f] !== undefined) updates[f] = skill[f];
+    }
+
+    // Copy object fields
+    const objectFields = ['problem', 'role', 'glossary', 'engine', 'access_policy'];
+    for (const f of objectFields) {
+      if (skill[f] !== undefined) updates[f] = skill[f];
+    }
+
+    // Copy intents (but not intents.supported — that's a protected array)
+    if (skill.intents) {
+      if (skill.intents.thresholds) updates['intents.thresholds'] = skill.intents.thresholds;
+      if (skill.intents.out_of_domain) updates['intents.out_of_domain'] = skill.intents.out_of_domain;
+      // Push supported intents one by one
+      if (Array.isArray(skill.intents.supported)) {
+        for (const intent of skill.intents.supported) {
+          updates['intents.supported_push'] = intent;
+        }
+      }
+    }
+
+    // Copy scenarios, connectors, grant_mappings, response_filters, channels, triggers
+    const arrayFields = ['scenarios', 'connectors', 'grant_mappings', 'response_filters', 'channels', 'triggers', 'example_conversations'];
+    for (const f of arrayFields) {
+      if (skill[f] !== undefined) updates[f] = skill[f];
+    }
+
+    // Push tools (protected array)
+    if (Array.isArray(skill.tools)) {
+      for (const tool of skill.tools) {
+        updates['tools_push'] = tool;
+      }
+    }
+
+    // Push policy guardrails
+    if (skill.policy) {
+      if (skill.policy.workflows) updates['policy.workflows'] = skill.policy.workflows;
+      if (skill.policy.approvals) updates['policy.approvals'] = skill.policy.approvals;
+      if (skill.policy.escalation) updates['policy.escalation'] = skill.policy.escalation;
+      if (Array.isArray(skill.policy.guardrails?.always)) {
+        for (const rule of skill.policy.guardrails.always) {
+          updates['policy.guardrails.always_push'] = rule;
+        }
+      }
+      if (Array.isArray(skill.policy.guardrails?.never)) {
+        for (const rule of skill.policy.guardrails.never) {
+          updates['policy.guardrails.never_push'] = rule;
+        }
+      }
+    }
+
+    const patchResp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${encodeURIComponent(internalId)}`, {
+      method: 'PATCH',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    const patchData = await patchResp.json();
+
+    // Step 3: Update the solution's skills array to include this new skill
+    const skillRef = { id: skill.id, name: skill.name, role: skill.role || 'worker', description: skill.description || '' };
+    await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}`, {
+      method: 'PATCH',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state_update: { 'skills_push': skillRef } }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    res.status(201).json({
+      ok: true,
+      skill_id: skill.id,
+      internal_id: internalId,
+      skill: patchData.skill || createData.skill,
+    });
+  } catch (err) {
+    console.error('[Deploy] Add skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /deploy/solutions/:solutionId/export — Export solution as a JSON bundle
+ * Returns the full solution + skill definitions + connector metadata
+ * in a format compatible with POST /deploy/solution for re-import.
+ */
+router.get('/solutions/:solutionId/export', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/export`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Export error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DELETE SINGLE SKILL
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * DELETE /deploy/solutions/:solutionId/skills/:skillId — Remove a single skill
+ * Accepts original skill ID or internal ID.
+ */
+router.delete('/solutions/:solutionId/skills/:skillId', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}`, {
+      method: 'DELETE',
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (resp.status === 204) {
+      return res.status(204).send();
+    }
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Delete skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VALIDATE FROM STORED STATE
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /deploy/solutions/:solutionId/validate — Re-validate solution from stored state
+ * Runs full validation (structural + cross-skill) on what's already deployed.
+ */
+router.get('/solutions/:solutionId/validate', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/validation`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Validate solution error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/skills/:skillId/validate — Re-validate a single skill from stored state
+ * Accepts original skill ID or internal ID.
+ */
+router.get('/solutions/:solutionId/skills/:skillId/validate', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}/validation`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Validate skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
   }
 });
 

@@ -11,6 +11,8 @@ import solutionsStore from '../store/solutions.js';
 import skillsStore from '../store/skills.js';
 import { processSolutionMessage } from '../services/solutionConversation.js';
 import { validateSolution, validateSecurity, validateSolutionQuality } from '@adas/skill-validator';
+import { getSkillSlug, deploySkillToADAS } from '../services/exportDeploy.js';
+import adasCore from '../services/adasCoreClient.js';
 import skillsRouter from './skills.js';
 import validationRouter from "./solutionsValidation.js";
 
@@ -104,6 +106,547 @@ router.delete('/:id', async (req, res, next) => {
     await solutionsStore.remove(req.params.id);
     res.json({ success: true });
   } catch (err) {
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// DEPLOY STATUS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Aggregated deploy status for a solution.
+ * GET /api/solutions/:id/deploy-status
+ *
+ * Returns solution metadata + per-skill deploy state + ADAS Core connector health.
+ */
+router.get('/:id/deploy-status', async (req, res, next) => {
+  try {
+    const solution = await solutionsStore.load(req.params.id);
+    const linkedSkills = solution.skills || [];
+
+    // Build a lookup: original_skill_id → internal dom ID
+    // Skills are stored as dom_xxx with original_skill_id pointing back to the ref.
+    const allSkills = await skillsStore.list();
+    const skillIndex = new Map(); // original_skill_id → internal id
+    for (const s of allSkills) {
+      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
+    }
+
+    // Load full skill objects in parallel
+    const skills = await Promise.all(
+      linkedSkills.map(async (ref) => {
+        // Resolve: try internal ID first (ref.id might be dom_xxx already),
+        // then look up by original_skill_id
+        const internalId = skillIndex.get(ref.id) || ref.id;
+        try {
+          const skill = await skillsStore.load(req.params.id, internalId);
+          return {
+            id: ref.id,
+            internal_id: internalId !== ref.id ? internalId : undefined,
+            name: skill.name || ref.name,
+            slug: getSkillSlug(skill, internalId),
+            phase: skill.phase || 'UNKNOWN',
+            deployedAt: skill.deployedAt || null,
+            mcpUri: skill.mcpUri || null,
+            tools_count: (skill.tools || []).length,
+            connectors: skill.connectors || [],
+          };
+        } catch {
+          return { id: ref.id, name: ref.name, phase: 'NOT_FOUND', error: 'skill not loaded' };
+        }
+      })
+    );
+
+    // Query ADAS Core connector status (best-effort)
+    let adasConnectors = [];
+    let adasReachable = false;
+    try {
+      adasConnectors = await adasCore.getConnectors();
+      adasReachable = true;
+    } catch {
+      // ADAS Core unreachable — continue with empty
+    }
+
+    // Map connector statuses for connectors referenced by skills
+    const usedConnectorIds = [...new Set(skills.flatMap(s => s.connectors || []))];
+    const connectors = usedConnectorIds.map(cid => {
+      const ac = adasConnectors.find(c => c.id === cid);
+      return {
+        id: cid,
+        status: ac?.status || 'unknown',
+        tools: ac?.tools?.length || 0,
+      };
+    });
+
+    // Identity deployed?
+    const identity = solution.identity || {};
+    const identityDeployed = (identity.actor_types || []).length > 0;
+
+    res.json({
+      ok: true,
+      solution: {
+        id: solution.id,
+        name: solution.name,
+        phase: solution.phase || 'UNKNOWN',
+        updated_at: solution.updated_at || null,
+      },
+      identity_deployed: identityDeployed,
+      skills,
+      connectors,
+      adas_reachable: adasReachable,
+    });
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ ok: false, error: 'Solution not found' });
+    }
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// CONNECTOR HEALTH
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Get connector health for a solution's connectors.
+ * GET /api/solutions/:id/connectors/health
+ *
+ * Queries ADAS Core for each connector referenced by skills in this solution.
+ * Returns status, discovered tools, and error info.
+ */
+router.get('/:id/connectors/health', async (req, res, next) => {
+  try {
+    const solution = await solutionsStore.load(req.params.id);
+
+    // Collect all connector IDs from the solution's skills
+    const linkedSkills = solution.skills || [];
+    const allSkills = await skillsStore.list();
+    const skillIndex = new Map();
+    for (const s of allSkills) {
+      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
+    }
+
+    const connectorIds = new Set();
+    // From solution-level platform_connectors
+    for (const pc of (solution.platform_connectors || [])) {
+      if (pc.id) connectorIds.add(pc.id);
+    }
+    // From skill-level connectors
+    for (const ref of linkedSkills) {
+      const internalId = skillIndex.get(ref.id) || ref.id;
+      try {
+        const skill = await skillsStore.load(req.params.id, internalId);
+        for (const cid of (skill.connectors || [])) {
+          connectorIds.add(cid);
+        }
+      } catch { /* skip missing skills */ }
+    }
+
+    // Query ADAS Core for each connector
+    const connectors = [];
+    let adasReachable = false;
+    for (const cid of connectorIds) {
+      try {
+        const coreData = await adasCore.getConnector(cid);
+        adasReachable = true;
+        if (coreData) {
+          connectors.push({
+            id: cid,
+            status: coreData.status || 'unknown',
+            transport: coreData.transport || null,
+            tools: (coreData.tools || []).map(t => ({ name: t.name, description: t.description })),
+            tools_count: (coreData.tools || []).length,
+            error: coreData.error || null,
+            last_connected: coreData.last_connected || null,
+          });
+        } else {
+          connectors.push({ id: cid, status: 'not_found', tools: [], tools_count: 0, error: 'Not registered in ADAS Core' });
+        }
+      } catch (err) {
+        connectors.push({ id: cid, status: 'unreachable', tools: [], tools_count: 0, error: err.message });
+      }
+    }
+
+    if (connectorIds.size > 0 && connectors.some(c => c.status !== 'unreachable')) {
+      adasReachable = true;
+    }
+
+    res.json({
+      ok: true,
+      solution_id: req.params.id,
+      adas_reachable: adasReachable,
+      connectors,
+    });
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ ok: false, error: 'Solution not found' });
+    }
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// LIVE HEALTH CHECK
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Cross-check definition vs live ADAS Core state.
+ * GET /api/solutions/:id/health
+ *
+ * Returns per-skill and per-connector health with issues list.
+ * Issues are problems found: skill not deployed, connector down, grant chain broken, etc.
+ */
+router.get('/:id/health', async (req, res, next) => {
+  try {
+    const solution = await solutionsStore.load(req.params.id);
+    const linkedSkills = solution.skills || [];
+    const grants = solution.grants || [];
+    const handoffs = solution.handoffs || [];
+    const issues = [];
+
+    // Build skill ID lookup
+    const allSkills = await skillsStore.list();
+    const skillIndex = new Map();
+    for (const s of allSkills) {
+      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
+    }
+
+    // Check each skill
+    const skillHealth = [];
+    for (const ref of linkedSkills) {
+      const internalId = skillIndex.get(ref.id) || ref.id;
+      try {
+        const skill = await skillsStore.load(req.params.id, internalId);
+        const deployed = skill.phase === 'DEPLOYED';
+        const hasMcpUri = Boolean(skill.mcpUri);
+        const hasTools = (skill.tools || []).length > 0;
+
+        if (!deployed) issues.push({ severity: 'error', skill: ref.id, message: `Skill phase is ${skill.phase}, not DEPLOYED` });
+        if (!hasMcpUri && deployed) issues.push({ severity: 'warning', skill: ref.id, message: 'Skill is DEPLOYED but has no mcpUri' });
+        if (!hasTools) issues.push({ severity: 'warning', skill: ref.id, message: 'Skill has no tools defined' });
+
+        skillHealth.push({
+          id: ref.id,
+          internal_id: internalId !== ref.id ? internalId : undefined,
+          phase: skill.phase || 'UNKNOWN',
+          deployed,
+          mcpUri: skill.mcpUri || null,
+          tools_count: (skill.tools || []).length,
+          connectors: skill.connectors || [],
+        });
+      } catch {
+        issues.push({ severity: 'error', skill: ref.id, message: 'Skill definition not found on disk' });
+        skillHealth.push({ id: ref.id, phase: 'NOT_FOUND', deployed: false });
+      }
+    }
+
+    // Check connectors via ADAS Core
+    const connectorIds = new Set();
+    for (const sh of skillHealth) {
+      for (const cid of (sh.connectors || [])) connectorIds.add(cid);
+    }
+    for (const pc of (solution.platform_connectors || [])) {
+      if (pc.id) connectorIds.add(pc.id);
+    }
+
+    const connectorHealth = [];
+    let adasReachable = false;
+    for (const cid of connectorIds) {
+      try {
+        const coreData = await adasCore.getConnector(cid);
+        adasReachable = true;
+        if (coreData) {
+          const healthy = coreData.status === 'connected' || coreData.status === 'running';
+          if (!healthy) issues.push({ severity: 'warning', connector: cid, message: `Connector status is "${coreData.status}"` });
+          connectorHealth.push({
+            id: cid,
+            status: coreData.status || 'unknown',
+            healthy,
+            tools_count: (coreData.tools || []).length,
+          });
+        } else {
+          issues.push({ severity: 'error', connector: cid, message: 'Connector not registered in ADAS Core' });
+          connectorHealth.push({ id: cid, status: 'not_found', healthy: false, tools_count: 0 });
+        }
+      } catch (err) {
+        connectorHealth.push({ id: cid, status: 'unreachable', healthy: false, tools_count: 0 });
+      }
+    }
+
+    if (connectorIds.size > 0 && connectorHealth.some(c => c.status !== 'unreachable')) {
+      adasReachable = true;
+    }
+
+    // Check grant chains: every consumed grant has at least one issuer skill that's DEPLOYED
+    for (const grant of grants) {
+      const issuers = grant.issued_by || [];
+      const consumers = grant.consumed_by || [];
+      const deployedIssuers = issuers.filter(sid => skillHealth.find(s => s.id === sid && s.deployed));
+      if (consumers.length > 0 && deployedIssuers.length === 0) {
+        issues.push({ severity: 'error', grant: grant.key, message: `No deployed issuer for grant "${grant.key}" — consumers: ${consumers.join(', ')}` });
+      }
+    }
+
+    // Check handoff paths: both source and target should be deployed
+    for (const h of handoffs) {
+      const fromDeployed = skillHealth.find(s => s.id === h.from && s.deployed);
+      const toDeployed = skillHealth.find(s => s.id === h.to && s.deployed);
+      if (!fromDeployed) issues.push({ severity: 'warning', handoff: h.id, message: `Handoff source "${h.from}" not deployed` });
+      if (!toDeployed) issues.push({ severity: 'warning', handoff: h.id, message: `Handoff target "${h.to}" not deployed` });
+    }
+
+    // Identity check
+    const identity = solution.identity || {};
+    const identityDeployed = (identity.actor_types || []).length > 0;
+    if (!identityDeployed) issues.push({ severity: 'warning', message: 'No identity actor types defined' });
+
+    // Summary
+    const allSkillsDeployed = skillHealth.every(s => s.deployed);
+    const allConnectorsHealthy = connectorHealth.every(c => c.healthy);
+    const errorCount = issues.filter(i => i.severity === 'error').length;
+    const warningCount = issues.filter(i => i.severity === 'warning').length;
+
+    let overall;
+    if (errorCount > 0) overall = 'unhealthy';
+    else if (warningCount > 0) overall = 'degraded';
+    else overall = 'healthy';
+
+    res.json({
+      ok: true,
+      solution_id: req.params.id,
+      overall,
+      adas_reachable: adasReachable,
+      identity_deployed: identityDeployed,
+      all_skills_deployed: allSkillsDeployed,
+      all_connectors_healthy: allConnectorsHealthy,
+      skills: skillHealth,
+      connectors: connectorHealth,
+      issues,
+      error_count: errorCount,
+      warning_count: warningCount,
+    });
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ ok: false, error: 'Solution not found' });
+    }
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// REDEPLOY SINGLE SKILL
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Re-deploy a single skill after PATCH updates.
+ * POST /api/solutions/:id/skills/:skillId/redeploy
+ *
+ * Reads the stored skill definition, regenerates the MCP server,
+ * and pushes to ADAS Core — without re-deploying the whole solution.
+ *
+ * Accepts original skill ID (e.g., "e2e-greeter") or internal ID (e.g., "dom_xxx").
+ */
+router.post('/:id/skills/:skillId/redeploy', async (req, res, next) => {
+  try {
+    const solutionId = req.params.id;
+    const requestedSkillId = req.params.skillId;
+    const log = req.app.locals.log;
+
+    // Resolve skill ID: original_skill_id → internal dom_xxx
+    const allSkills = await skillsStore.list();
+    let internalId = requestedSkillId;
+    const match = allSkills.find(s => s.original_skill_id === requestedSkillId);
+    if (match) {
+      internalId = match.id;
+    } else {
+      // Verify the direct ID exists
+      const direct = allSkills.find(s => s.id === requestedSkillId);
+      if (!direct) {
+        return res.status(404).json({ ok: false, error: `Skill ${requestedSkillId} not found` });
+      }
+    }
+
+    log.info(`[Redeploy] Redeploying skill ${requestedSkillId} (internal: ${internalId}) in solution ${solutionId}`);
+
+    const result = await deploySkillToADAS(solutionId, internalId, log);
+
+    res.json({
+      ok: true,
+      skill_id: requestedSkillId,
+      internal_id: internalId !== requestedSkillId ? internalId : undefined,
+      ...result,
+    });
+  } catch (err) {
+    if (err.code === 'NO_EXPORT') {
+      return res.status(400).json({ ok: false, error: err.message, hint: 'Skill has no export version. Deploy the full solution first.' });
+    }
+    if (err.code === 'NO_SERVER') {
+      return res.status(400).json({ ok: false, error: err.message, hint: 'No server.py found — MCP auto-generation will be attempted.' });
+    }
+    if (err.message?.includes('not found') || err.code === 'ENOENT') {
+      return res.status(404).json({ ok: false, error: 'Skill not found' });
+    }
+    if (err.message?.includes('Failed to fetch') || err.message?.includes('fetch failed')) {
+      return res.status(502).json({ ok: false, error: 'Failed to connect to ADAS Core', details: err.message });
+    }
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// BULK REDEPLOY
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Re-deploy ALL skills in a solution.
+ * POST /api/solutions/:id/redeploy
+ *
+ * Iterates all linked skills, regenerates MCP servers, pushes to ADAS Core.
+ * Returns per-skill results.
+ */
+router.post('/:id/redeploy', async (req, res, next) => {
+  try {
+    const solutionId = req.params.id;
+    const log = req.app.locals.log;
+
+    const solution = await solutionsStore.load(solutionId);
+    const linkedSkills = solution.skills || [];
+
+    if (linkedSkills.length === 0) {
+      return res.json({ ok: true, solution_id: solutionId, skills: [], message: 'No skills to redeploy' });
+    }
+
+    // Build skill ID lookup
+    const allSkills = await skillsStore.list();
+    const skillIndex = new Map();
+    for (const s of allSkills) {
+      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
+    }
+
+    // Deploy each skill
+    const results = [];
+    let deployed = 0;
+    let failed = 0;
+    for (const ref of linkedSkills) {
+      const internalId = skillIndex.get(ref.id) || ref.id;
+      try {
+        log.info(`[BulkRedeploy] Deploying ${ref.id} (internal: ${internalId})`);
+        const result = await deploySkillToADAS(solutionId, internalId, log);
+        deployed++;
+        results.push({ skill_id: ref.id, internal_id: internalId !== ref.id ? internalId : undefined, ok: true, ...result });
+      } catch (err) {
+        failed++;
+        results.push({ skill_id: ref.id, internal_id: internalId !== ref.id ? internalId : undefined, ok: false, error: err.message });
+      }
+    }
+
+    res.json({
+      ok: failed === 0,
+      solution_id: solutionId,
+      deployed,
+      failed,
+      total: linkedSkills.length,
+      skills: results,
+    });
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ ok: false, error: 'Solution not found' });
+    }
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Export a full solution as a JSON bundle.
+ * GET /api/solutions/:id/export
+ *
+ * Returns the complete solution + all skill definitions + connector metadata
+ * in a format compatible with POST /deploy/solution for re-import.
+ */
+router.get('/:id/export', async (req, res, next) => {
+  try {
+    const solution = await solutionsStore.load(req.params.id);
+    const linkedSkills = solution.skills || [];
+
+    // Build skill ID lookup
+    const allSkills = await skillsStore.list();
+    const skillIndex = new Map();
+    for (const s of allSkills) {
+      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
+    }
+
+    // Load full skill definitions
+    const skills = [];
+    const connectorIds = new Set();
+    for (const ref of linkedSkills) {
+      const internalId = skillIndex.get(ref.id) || ref.id;
+      try {
+        const skill = await skillsStore.load(req.params.id, internalId);
+        // Use original_skill_id as the skill id in the export
+        const exportSkill = { ...skill };
+        if (skill.original_skill_id) {
+          exportSkill.id = skill.original_skill_id;
+        }
+        // Remove internal fields
+        delete exportSkill._settings;
+        delete exportSkill._fromTemplate;
+        delete exportSkill.validation;
+        delete exportSkill.conversation;
+        delete exportSkill.solution_id;
+        skills.push(exportSkill);
+
+        // Collect connector IDs
+        for (const cid of (skill.connectors || [])) {
+          connectorIds.add(cid);
+        }
+      } catch {
+        // Skip skills that can't be loaded
+      }
+    }
+
+    // Build connector stubs from solution metadata
+    const connectors = [];
+    for (const pc of (solution.platform_connectors || [])) {
+      if (pc.id) connectors.push(pc);
+    }
+    // Add any connector IDs referenced by skills but not in platform_connectors
+    for (const cid of connectorIds) {
+      if (!connectors.find(c => c.id === cid)) {
+        connectors.push({ id: cid, name: cid });
+      }
+    }
+
+    // Build the export bundle (same format as POST /deploy/solution body)
+    const bundle = {
+      solution: {
+        id: solution.id,
+        name: solution.name,
+        version: solution.version || '1.0.0',
+        description: solution.description,
+        identity: solution.identity,
+        skills: solution.skills,
+        grants: solution.grants,
+        handoffs: solution.handoffs,
+        routing: solution.routing,
+        platform_connectors: solution.platform_connectors,
+        security_contracts: solution.security_contracts,
+      },
+      skills,
+      connectors,
+      exported_at: new Date().toISOString(),
+      export_version: '1.0.0',
+    };
+
+    res.json(bundle);
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ ok: false, error: 'Solution not found' });
+    }
     next(err);
   }
 });

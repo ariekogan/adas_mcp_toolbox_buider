@@ -206,6 +206,8 @@ async function list() {
             updated_at: skill.updated_at,
             tools_count: skill.tools?.length || 0,
             connectors: skill.connectors || [],
+            original_skill_id: skill.original_skill_id || null,
+            solution_id: skill.solution_id || null,
             progress: skill.validation?.completeness
               ? calculateOverallProgress(skill.validation.completeness)
               : 0,
