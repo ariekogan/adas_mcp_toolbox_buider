@@ -96,5 +96,7 @@ app.listen(PORT, () => {
   console.log(`  GET  /deploy/solutions/:id/validate     — Validate from stored state`);
   console.log(`  GET  /deploy/solutions/:id/skills/:sk/validate — Validate skill`);
   console.log(`  GET  /deploy/solutions/:id/connectors/health — Connector health`);
+  console.log(`  GET  /deploy/solutions/:id/skills/:sk/conversation — Skill chat history`);
+  console.log(`  GET  /deploy/solutions/:id/health — Live health check`);
   console.log(`  GET  /health                     — Health check`);
 });

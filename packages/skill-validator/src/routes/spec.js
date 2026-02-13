@@ -117,6 +117,8 @@ function buildIndex() {
       'GET /deploy/solutions/:solutionId/validate': 'Re-validate solution from stored state (structural + cross-skill checks)',
       'GET /deploy/solutions/:solutionId/skills/:skillId/validate': 'Re-validate a single skill from stored state',
       'GET /deploy/solutions/:solutionId/connectors/health': 'Connector health — status, discovered tools, errors from ADAS Core',
+      'GET /deploy/solutions/:solutionId/skills/:skillId/conversation': 'Skill conversation history — returns chat messages, optional ?limit=N',
+      'GET /deploy/solutions/:solutionId/health': 'Live health check — cross-checks definition vs ADAS Core (skills deployed, connectors connected, issues)',
       'GET /health': 'Health check',
     },
     deploy_guide: {

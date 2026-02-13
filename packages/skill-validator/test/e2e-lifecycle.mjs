@@ -131,6 +131,10 @@ async function run() {
     spec.also_available['GET /deploy/status/:solutionId'] &&
     spec.also_available['DELETE /deploy/solutions/:solutionId']
   );
+  ok('Spec lists conversation + health endpoints',
+    spec.also_available['GET /deploy/solutions/:solutionId/skills/:skillId/conversation'] &&
+    spec.also_available['GET /deploy/solutions/:solutionId/health']
+  );
 
   const enums = await fetch(API + '/spec/enums', { headers: hdr }).then(r => r.json());
   ok('GET /spec/enums', Boolean(enums.enums?.phase));
@@ -346,8 +350,40 @@ async function run() {
       'id=' + c.id + ' status=' + c.status + ' tools=' + c.tools_count);
   }
 
-  // ── Phase 10: Error handling ──
-  console.log('\n── Phase 10: Error handling ──');
+  // ── Phase 10: Conversation & health ──
+  console.log('\n── Phase 10: Conversation & health ──');
+
+  // Conversation read-back (skill should have empty or existing conversation)
+  const convResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/e2e-greeter/conversation', { headers: hdr }).then(r => r.json());
+  ok('GET skill conversation', convResp.skill_id === 'e2e-greeter', 'skill_id=' + convResp.skill_id);
+  ok('Conversation has message_count', convResp.message_count !== undefined, 'messages=' + convResp.message_count);
+  ok('Conversation has messages array', Array.isArray(convResp.messages), 'len=' + convResp.messages?.length);
+
+  // Conversation with ?limit=1
+  const convLimitResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/e2e-greeter/conversation?limit=1', { headers: hdr }).then(r => r.json());
+  ok('Conversation ?limit=1', Array.isArray(convLimitResp.messages) && convLimitResp.messages.length <= 1, 'len=' + convLimitResp.messages?.length);
+
+  // Conversation 404 for non-existent skill
+  const convNotFound = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/does-not-exist/conversation', { headers: hdr });
+  ok('Conversation 404 for missing skill', convNotFound.status === 404, 'status=' + convNotFound.status);
+
+  // Live health check
+  const healthCheck = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/health', { headers: hdr }).then(r => r.json());
+  ok('GET solution health', healthCheck.ok === true, 'overall=' + healthCheck.overall);
+  ok('Health has overall status', ['healthy', 'degraded', 'unhealthy'].includes(healthCheck.overall), healthCheck.overall);
+  ok('Health has skills array', Array.isArray(healthCheck.skills), 'count=' + healthCheck.skills?.length);
+  ok('Health has connectors array', Array.isArray(healthCheck.connectors), 'count=' + healthCheck.connectors?.length);
+  ok('Health has issues array', Array.isArray(healthCheck.issues), 'count=' + healthCheck.issues?.length);
+  ok('Health has adas_reachable', typeof healthCheck.adas_reachable === 'boolean', String(healthCheck.adas_reachable));
+  ok('Health has error/warning counts', healthCheck.error_count !== undefined && healthCheck.warning_count !== undefined,
+    'errors=' + healthCheck.error_count + ' warnings=' + healthCheck.warning_count);
+
+  // Health 404 for non-existent solution
+  const healthNotFound = await fetch(API + '/deploy/solutions/does-not-exist-xyz/health', { headers: hdr });
+  ok('Health 404 for missing solution', healthNotFound.status === 404, 'status=' + healthNotFound.status);
+
+  // ── Phase 11: Error handling ──
+  console.log('\n── Phase 11: Error handling ──');
 
   const notFound = await fetch(API + '/deploy/status/does-not-exist-xyz', { headers: hdr });
   ok('Status 404 for missing solution', notFound.status === 404, 'status=' + notFound.status);
@@ -363,8 +399,8 @@ async function run() {
   ok('Validate empty skill → errors', (badValidate.errors?.length || 0) > 0,
     'errors=' + (badValidate.errors?.length || 0));
 
-  // ── Phase 11: Cleanup ──
-  console.log('\n── Phase 11: Cleanup ──');
+  // ── Phase 12: Cleanup ──
+  console.log('\n── Phase 12: Cleanup ──');
 
   // Delete single skill first (test the new endpoint)
   const delSkillResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/e2e-greeter', {

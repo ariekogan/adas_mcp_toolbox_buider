@@ -14,6 +14,24 @@
  * GET  /deploy/solutions              — List all solutions
  * GET  /deploy/status/:solutionId     — Aggregated deploy status (skills, connectors, health)
  * DELETE /deploy/solutions/:solutionId — Remove a solution
+ *
+ * Read-back:
+ * GET  /deploy/solutions/:id/definition       — Full solution definition
+ * GET  /deploy/solutions/:id/skills           — List skills (summaries)
+ * GET  /deploy/solutions/:id/skills/:sk       — Full skill definition
+ *
+ * Updates:
+ * PATCH /deploy/solutions/:id                 — Update solution incrementally
+ * PATCH /deploy/solutions/:id/skills/:sk      — Update skill incrementally
+ * POST  /deploy/solutions/:id/skills/:sk/redeploy — Re-deploy after PATCH
+ * DELETE /deploy/solutions/:id/skills/:sk     — Remove a single skill
+ *
+ * Inspect:
+ * GET  /deploy/solutions/:id/validate         — Validate solution from stored state
+ * GET  /deploy/solutions/:id/skills/:sk/validate — Validate skill from stored state
+ * GET  /deploy/solutions/:id/connectors/health — Connector health from ADAS Core
+ * GET  /deploy/solutions/:id/skills/:sk/conversation — Skill chat history
+ * GET  /deploy/solutions/:id/health           — Live health check
  */
 
 import { Router } from 'express';
@@ -475,6 +493,49 @@ router.post('/solutions/:solutionId/skills/:skillId/redeploy', async (req, res) 
     res.status(resp.status).json(data);
   } catch (err) {
     console.error('[Deploy] Redeploy skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONVERSATION & HEALTH
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /deploy/solutions/:solutionId/skills/:skillId/conversation — Skill chat history
+ * Optional: ?limit=N for most recent N messages
+ */
+router.get('/solutions/:solutionId/skills/:skillId/conversation', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const qs = req.query.limit ? `?limit=${encodeURIComponent(req.query.limit)}` : '';
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}/conversation${qs}`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Get conversation error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/health — Live health check
+ * Cross-checks definition vs ADAS Core: skills deployed, connectors connected, grant chains intact.
+ */
+router.get('/solutions/:solutionId/health', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/health`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Health check error:', err.message);
     res.status(502).json({ ok: false, error: err.message });
   }
 });

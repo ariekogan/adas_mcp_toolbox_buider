@@ -211,6 +211,39 @@ router.get('/:skillId/validation', async (req, res, next) => {
 });
 
 /**
+ * Get skill conversation history
+ * GET /api/solutions/:solutionId/skills/:skillId/conversation
+ *
+ * Returns just the conversation array, optionally limited by ?limit=N (most recent N messages).
+ */
+router.get('/:skillId/conversation', async (req, res, next) => {
+  try {
+    const { solutionId, skillId } = req.params;
+    const internalId = await resolveSkillId(skillId);
+    const skill = await skillsStore.load(solutionId, internalId);
+    let messages = skill.conversation || [];
+
+    // Optional limit parameter (return most recent N messages)
+    const limit = parseInt(req.query.limit);
+    if (limit > 0 && messages.length > limit) {
+      messages = messages.slice(-limit);
+    }
+
+    res.json({
+      skill_id: skillId,
+      internal_id: internalId !== skillId ? internalId : undefined,
+      message_count: (skill.conversation || []).length,
+      messages,
+    });
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ error: 'Skill not found' });
+    }
+    next(err);
+  }
+});
+
+/**
  * Delete skill
  * DELETE /api/solutions/:solutionId/skills/:skillId
  */

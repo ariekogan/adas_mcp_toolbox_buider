@@ -287,6 +287,154 @@ router.get('/:id/connectors/health', async (req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// LIVE HEALTH CHECK
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Cross-check definition vs live ADAS Core state.
+ * GET /api/solutions/:id/health
+ *
+ * Returns per-skill and per-connector health with issues list.
+ * Issues are problems found: skill not deployed, connector down, grant chain broken, etc.
+ */
+router.get('/:id/health', async (req, res, next) => {
+  try {
+    const solution = await solutionsStore.load(req.params.id);
+    const linkedSkills = solution.skills || [];
+    const grants = solution.grants || [];
+    const handoffs = solution.handoffs || [];
+    const issues = [];
+
+    // Build skill ID lookup
+    const allSkills = await skillsStore.list();
+    const skillIndex = new Map();
+    for (const s of allSkills) {
+      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
+    }
+
+    // Check each skill
+    const skillHealth = [];
+    for (const ref of linkedSkills) {
+      const internalId = skillIndex.get(ref.id) || ref.id;
+      try {
+        const skill = await skillsStore.load(req.params.id, internalId);
+        const deployed = skill.phase === 'DEPLOYED';
+        const hasMcpUri = Boolean(skill.mcpUri);
+        const hasTools = (skill.tools || []).length > 0;
+
+        if (!deployed) issues.push({ severity: 'error', skill: ref.id, message: `Skill phase is ${skill.phase}, not DEPLOYED` });
+        if (!hasMcpUri && deployed) issues.push({ severity: 'warning', skill: ref.id, message: 'Skill is DEPLOYED but has no mcpUri' });
+        if (!hasTools) issues.push({ severity: 'warning', skill: ref.id, message: 'Skill has no tools defined' });
+
+        skillHealth.push({
+          id: ref.id,
+          internal_id: internalId !== ref.id ? internalId : undefined,
+          phase: skill.phase || 'UNKNOWN',
+          deployed,
+          mcpUri: skill.mcpUri || null,
+          tools_count: (skill.tools || []).length,
+          connectors: skill.connectors || [],
+        });
+      } catch {
+        issues.push({ severity: 'error', skill: ref.id, message: 'Skill definition not found on disk' });
+        skillHealth.push({ id: ref.id, phase: 'NOT_FOUND', deployed: false });
+      }
+    }
+
+    // Check connectors via ADAS Core
+    const connectorIds = new Set();
+    for (const sh of skillHealth) {
+      for (const cid of (sh.connectors || [])) connectorIds.add(cid);
+    }
+    for (const pc of (solution.platform_connectors || [])) {
+      if (pc.id) connectorIds.add(pc.id);
+    }
+
+    const connectorHealth = [];
+    let adasReachable = false;
+    for (const cid of connectorIds) {
+      try {
+        const coreData = await adasCore.getConnector(cid);
+        adasReachable = true;
+        if (coreData) {
+          const healthy = coreData.status === 'connected' || coreData.status === 'running';
+          if (!healthy) issues.push({ severity: 'warning', connector: cid, message: `Connector status is "${coreData.status}"` });
+          connectorHealth.push({
+            id: cid,
+            status: coreData.status || 'unknown',
+            healthy,
+            tools_count: (coreData.tools || []).length,
+          });
+        } else {
+          issues.push({ severity: 'error', connector: cid, message: 'Connector not registered in ADAS Core' });
+          connectorHealth.push({ id: cid, status: 'not_found', healthy: false, tools_count: 0 });
+        }
+      } catch (err) {
+        connectorHealth.push({ id: cid, status: 'unreachable', healthy: false, tools_count: 0 });
+      }
+    }
+
+    if (connectorIds.size > 0 && connectorHealth.some(c => c.status !== 'unreachable')) {
+      adasReachable = true;
+    }
+
+    // Check grant chains: every consumed grant has at least one issuer skill that's DEPLOYED
+    for (const grant of grants) {
+      const issuers = grant.issued_by || [];
+      const consumers = grant.consumed_by || [];
+      const deployedIssuers = issuers.filter(sid => skillHealth.find(s => s.id === sid && s.deployed));
+      if (consumers.length > 0 && deployedIssuers.length === 0) {
+        issues.push({ severity: 'error', grant: grant.key, message: `No deployed issuer for grant "${grant.key}" — consumers: ${consumers.join(', ')}` });
+      }
+    }
+
+    // Check handoff paths: both source and target should be deployed
+    for (const h of handoffs) {
+      const fromDeployed = skillHealth.find(s => s.id === h.from && s.deployed);
+      const toDeployed = skillHealth.find(s => s.id === h.to && s.deployed);
+      if (!fromDeployed) issues.push({ severity: 'warning', handoff: h.id, message: `Handoff source "${h.from}" not deployed` });
+      if (!toDeployed) issues.push({ severity: 'warning', handoff: h.id, message: `Handoff target "${h.to}" not deployed` });
+    }
+
+    // Identity check
+    const identity = solution.identity || {};
+    const identityDeployed = (identity.actor_types || []).length > 0;
+    if (!identityDeployed) issues.push({ severity: 'warning', message: 'No identity actor types defined' });
+
+    // Summary
+    const allSkillsDeployed = skillHealth.every(s => s.deployed);
+    const allConnectorsHealthy = connectorHealth.every(c => c.healthy);
+    const errorCount = issues.filter(i => i.severity === 'error').length;
+    const warningCount = issues.filter(i => i.severity === 'warning').length;
+
+    let overall;
+    if (errorCount > 0) overall = 'unhealthy';
+    else if (warningCount > 0) overall = 'degraded';
+    else overall = 'healthy';
+
+    res.json({
+      ok: true,
+      solution_id: req.params.id,
+      overall,
+      adas_reachable: adasReachable,
+      identity_deployed: identityDeployed,
+      all_skills_deployed: allSkillsDeployed,
+      all_connectors_healthy: allConnectorsHealthy,
+      skills: skillHealth,
+      connectors: connectorHealth,
+      issues,
+      error_count: errorCount,
+      warning_count: warningCount,
+    });
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ ok: false, error: 'Solution not found' });
+    }
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // REDEPLOY SINGLE SKILL
 // ═══════════════════════════════════════════════════════════════
 
