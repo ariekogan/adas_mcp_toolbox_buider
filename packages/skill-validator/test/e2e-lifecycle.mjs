@@ -208,8 +208,31 @@ async function run() {
       'id=' + c.id + ' status=' + c.status + ' tools=' + c.tools);
   }
 
-  // ── Phase 6: Error handling ──
-  console.log('\n── Phase 6: Error handling ──');
+  // ── Phase 6: Read back definitions (NEW) ──
+  console.log('\n── Phase 6: Read back definitions (NEW) ──');
+
+  const solDef = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/definition', { headers: hdr }).then(r => r.json());
+  ok('GET solution definition', Boolean(solDef.solution?.id), 'id=' + solDef.solution?.id);
+  ok('Solution has identity', Boolean(solDef.solution?.identity), 'actor_types=' + (solDef.solution?.identity?.actor_types?.length || 0));
+  ok('Solution has skills array', Array.isArray(solDef.solution?.skills), 'count=' + solDef.solution?.skills?.length);
+
+  const skillsList = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills', { headers: hdr }).then(r => r.json());
+  ok('GET skills list', Array.isArray(skillsList.skills), 'count=' + skillsList.skills?.length);
+
+  if (skillsList.skills?.length > 0) {
+    const firstSkill = skillsList.skills[0];
+    ok('Skill summary has original_skill_id', Boolean(firstSkill.original_skill_id), 'original=' + firstSkill.original_skill_id);
+
+    // Read back the full skill by original ID
+    const skillDef = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/' + firstSkill.original_skill_id, { headers: hdr }).then(r => r.json());
+    ok('GET skill by original ID', Boolean(skillDef.skill?.id || skillDef.skill?.name), 'name=' + skillDef.skill?.name);
+    ok('Skill has tools', Array.isArray(skillDef.skill?.tools), 'tools=' + skillDef.skill?.tools?.length);
+    ok('Skill has role', Boolean(skillDef.skill?.role?.name), 'role=' + skillDef.skill?.role?.name);
+    ok('Skill has intents', Boolean(skillDef.skill?.intents?.supported), 'intents=' + skillDef.skill?.intents?.supported?.length);
+  }
+
+  // ── Phase 7: Error handling ──
+  console.log('\n── Phase 7: Error handling ──');
 
   const notFound = await fetch(API + '/deploy/status/does-not-exist-xyz', { headers: hdr });
   ok('Status 404 for missing solution', notFound.status === 404, 'status=' + notFound.status);
@@ -225,8 +248,8 @@ async function run() {
   ok('Validate empty skill → errors', (badValidate.errors?.length || 0) > 0,
     'errors=' + (badValidate.errors?.length || 0));
 
-  // ── Phase 7: Cleanup ──
-  console.log('\n── Phase 7: Cleanup ──');
+  // ── Phase 8: Cleanup ──
+  console.log('\n── Phase 8: Cleanup ──');
 
   const delResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test', {
     method: 'DELETE', headers: hdr,

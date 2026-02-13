@@ -86,5 +86,8 @@ app.listen(PORT, () => {
   console.log(`  GET  /deploy/solutions           — List all solutions`);
   console.log(`  GET  /deploy/status/:solutionId  — Aggregated deploy status`);
   console.log(`  DELETE /deploy/solutions/:id      — Remove a solution`);
+  console.log(`  GET  /deploy/solutions/:id/definition — Read back solution definition`);
+  console.log(`  GET  /deploy/solutions/:id/skills     — List skills in a solution`);
+  console.log(`  GET  /deploy/solutions/:id/skills/:sk — Read back a skill definition`);
   console.log(`  GET  /health                     — Health check`);
 });

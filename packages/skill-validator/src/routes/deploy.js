@@ -320,6 +320,64 @@ router.delete('/solutions/:solutionId', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// READ BACK — retrieve deployed definitions
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /deploy/solutions/:solutionId/definition — Read back the full solution definition
+ */
+router.get('/solutions/:solutionId/definition', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Get solution definition error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/skills — List skills in a solution (summaries)
+ */
+router.get('/solutions/:solutionId/skills', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/skills`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] List skills error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/skills/:skillId — Read back a full skill definition
+ * Accepts either the original skill ID (e.g., "e2e-greeter") or internal ID (e.g., "dom_xxx")
+ */
+router.get('/solutions/:solutionId/skills/:skillId', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Get skill definition error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
 export default router;
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -59,6 +59,8 @@ function buildIndex() {
       '5. GET /spec/solution — read the solution specification when ready to compose skills',
       '6. POST /validate/solution — validate the full solution',
       '7. POST /deploy/solution — deploy everything to ADAS Core (the Skill Builder auto-generates MCP servers from your tool definitions — no slug or Python code needed)',
+      '8. GET /deploy/solutions/:id/definition — read back the deployed solution to verify',
+      '9. GET /deploy/solutions/:id/skills/:skillId — read back individual skills, iterate and re-deploy as needed',
     ],
     endpoints: {
       '/spec/enums': {
@@ -103,6 +105,9 @@ function buildIndex() {
       'GET /deploy/solutions': 'List all solutions stored in the Skill Builder',
       'GET /deploy/status/:solutionId': 'Get aggregated deploy status — skills, connectors, ADAS Core health',
       'DELETE /deploy/solutions/:solutionId': 'Remove a solution from the Skill Builder',
+      'GET /deploy/solutions/:solutionId/definition': 'Read back the full solution definition (identity, grants, handoffs, routing)',
+      'GET /deploy/solutions/:solutionId/skills': 'List skills in a solution (summaries with original and internal IDs)',
+      'GET /deploy/solutions/:solutionId/skills/:skillId': 'Read back a full skill definition (accepts original or internal skill ID)',
       'GET /health': 'Health check',
     },
     deploy_guide: {

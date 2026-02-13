@@ -87,7 +87,21 @@ router.post('/', async (req, res, next) => {
 router.get('/:skillId', async (req, res, next) => {
   try {
     const { solutionId, skillId } = req.params;
-    const skill = await skillsStore.load(solutionId, skillId);
+
+    // Resolve skill ID: try direct load first, then search by original_skill_id
+    let skill;
+    try {
+      skill = await skillsStore.load(solutionId, skillId);
+    } catch (directErr) {
+      // Not found by internal ID — try resolving via original_skill_id
+      const allSkills = await skillsStore.list();
+      const match = allSkills.find(s => s.original_skill_id === skillId);
+      if (match) {
+        skill = await skillsStore.load(solutionId, match.id);
+      } else {
+        throw directErr; // re-throw original not-found error
+      }
+    }
 
     // Backfill source on ui.* tools missing it (created by DAL without MCP bridge info)
     if (skill.tools?.length && skill.connectors?.length) {
