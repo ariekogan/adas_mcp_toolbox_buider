@@ -263,6 +263,22 @@ function buildIndex() {
         ],
       },
     },
+    id_remapping_guide: {
+      _note: 'IMPORTANT: After POST /deploy/solution, skill IDs are remapped to internal dom_xxx IDs. You MUST update all references in the solution definition.',
+      why: 'The Skill Builder assigns internal IDs (e.g., dom_abc123) to each skill. Your solution definition (grants, handoffs, routing, security_contracts) still references the original human-readable IDs. You must PATCH the solution with the internal IDs so that health checks, grant chains, and handoff paths resolve correctly.',
+      step_by_step: [
+        '1. POST /deploy/solution — deploy your full solution. The response includes import.skills[] with both originalId and id (the internal ID).',
+        '2. Build an ID map from the response: { "identity-assurance": "dom_abc123", "support-tier-1": "dom_def456" } using import.skills[].originalId → import.skills[].id',
+        '3. Deep-replace all original IDs with internal IDs in your solution definition: grants[].issued_by, grants[].consumed_by, handoffs[].from, handoffs[].to, routing.<channel>.default_skill, security_contracts[].consumer, security_contracts[].provider',
+        '4. PATCH /deploy/solutions/:id — send { state_update: { grants: [...remapped], handoffs: [...remapped], routing: {...remapped}, security_contracts: [...remapped] } }',
+        '5. GET /deploy/solutions/:id/health — verify 0 errors. Grant chains and handoff paths should now resolve correctly.',
+      ],
+      example_response_fragment: {
+        'import.skills[0]': { id: 'dom_04f014ac', originalId: 'identity-assurance', name: 'Identity Assurance Manager', status: 'imported' },
+        'import.skills[1]': { id: 'dom_492a7855', originalId: 'support-tier-1', name: 'Customer Support Tier 1', status: 'imported' },
+      },
+      tip: 'Use human-readable IDs (e.g., identity-assurance) in your source files and remap programmatically after deploy. See the deploy_guide for POST /deploy/solution response format.',
+    },
   };
 }
 

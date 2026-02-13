@@ -110,7 +110,8 @@ async function importSkillPayload(payload) {
  */
 async function getConnector(connectorId) {
   try {
-    return await request(`/api/connectors/${connectorId}`);
+    const data = await request(`/api/connectors/${connectorId}`);
+    return data.connector || data;
   } catch (err) {
     if (err.status === 404) return null;
     throw err;

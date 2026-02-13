@@ -168,7 +168,17 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
   log.info(`[MCP Deploy] Using skillSlug: "${skillSlug}" (from skill.name: "${skill.name}")`);
   log.info(`[MCP Deploy] Sending to ADAS Core: ${adasCore.getBaseUrl()}/api/skills/deploy-mcp`);
 
-  const result = await adasCore.deployMcp(skillSlug, mcpServer, requirements);
+  let result;
+  try {
+    result = await adasCore.deployMcp(skillSlug, mcpServer, requirements);
+  } catch (deployErr) {
+    // Enrich error with stderr/stdout from ADAS Core for debugging
+    const enriched = Object.assign(
+      new Error(deployErr.message || 'MCP deploy failed'),
+      { code: 'DEPLOY_FAILED', data: deployErr.data || {} }
+    );
+    throw enriched;
+  }
 
   // Register skill definition in ADAS Core so it appears in GET /api/skills
   try {

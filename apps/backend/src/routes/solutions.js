@@ -114,7 +114,7 @@ router.delete('/:id', async (req, res, next) => {
         adasCleanup.push({ slug, ok: true });
         console.log(`[Solutions] Cleaned up ADAS Core skill: ${slug}`);
       } catch (err) {
-        adasCleanup.push({ slug, ok: false, error: err.message });
+        adasCleanup.push({ slug, ok: false, error: err.message, deploy_log: err.data || undefined });
         console.log(`[Solutions] Warning: ADAS Core cleanup failed for ${slug}: ${err.message}`);
       }
     }
@@ -506,6 +506,9 @@ router.post('/:id/skills/:skillId/redeploy', async (req, res, next) => {
     if (err.message?.includes('not found') || err.code === 'ENOENT') {
       return res.status(404).json({ ok: false, error: 'Skill not found' });
     }
+    if (err.code === 'DEPLOY_FAILED') {
+      return res.status(500).json({ ok: false, error: err.message, deploy_log: err.data || {} });
+    }
     if (err.message?.includes('Failed to fetch') || err.message?.includes('fetch failed')) {
       return res.status(502).json({ ok: false, error: 'Failed to connect to ADAS Core', details: err.message });
     }
@@ -556,7 +559,7 @@ router.post('/:id/redeploy', async (req, res, next) => {
         results.push({ skill_id: ref.id, internal_id: internalId !== ref.id ? internalId : undefined, ok: true, ...result });
       } catch (err) {
         failed++;
-        results.push({ skill_id: ref.id, internal_id: internalId !== ref.id ? internalId : undefined, ok: false, error: err.message });
+        results.push({ skill_id: ref.id, internal_id: internalId !== ref.id ? internalId : undefined, ok: false, error: err.message, deploy_log: err.data || undefined });
       }
     }
 

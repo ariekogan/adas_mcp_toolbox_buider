@@ -875,7 +875,7 @@ async function consumeDeploySSE(packageName, req) {
 
   const skillResults = events
     .filter(e => e.type === 'skill_progress' && (e.status === 'done' || e.status === 'error'))
-    .map(e => ({ id: e.skillId, ok: e.status === 'done', mcpUri: e.mcpUri, error: e.error }));
+    .map(e => ({ id: e.skillId, ok: e.status === 'done', mcpUri: e.mcpUri, error: e.error, deploy_log: e.deploy_log || undefined }));
 
   return {
     ok: connectorResults.every(r => r.ok) && skillResults.every(r => r.ok),
