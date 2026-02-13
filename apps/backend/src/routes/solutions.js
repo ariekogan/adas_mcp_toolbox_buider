@@ -205,6 +205,88 @@ router.get('/:id/deploy-status', async (req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// CONNECTOR HEALTH
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Get connector health for a solution's connectors.
+ * GET /api/solutions/:id/connectors/health
+ *
+ * Queries ADAS Core for each connector referenced by skills in this solution.
+ * Returns status, discovered tools, and error info.
+ */
+router.get('/:id/connectors/health', async (req, res, next) => {
+  try {
+    const solution = await solutionsStore.load(req.params.id);
+
+    // Collect all connector IDs from the solution's skills
+    const linkedSkills = solution.skills || [];
+    const allSkills = await skillsStore.list();
+    const skillIndex = new Map();
+    for (const s of allSkills) {
+      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
+    }
+
+    const connectorIds = new Set();
+    // From solution-level platform_connectors
+    for (const pc of (solution.platform_connectors || [])) {
+      if (pc.id) connectorIds.add(pc.id);
+    }
+    // From skill-level connectors
+    for (const ref of linkedSkills) {
+      const internalId = skillIndex.get(ref.id) || ref.id;
+      try {
+        const skill = await skillsStore.load(req.params.id, internalId);
+        for (const cid of (skill.connectors || [])) {
+          connectorIds.add(cid);
+        }
+      } catch { /* skip missing skills */ }
+    }
+
+    // Query ADAS Core for each connector
+    const connectors = [];
+    let adasReachable = false;
+    for (const cid of connectorIds) {
+      try {
+        const coreData = await adasCore.getConnector(cid);
+        adasReachable = true;
+        if (coreData) {
+          connectors.push({
+            id: cid,
+            status: coreData.status || 'unknown',
+            transport: coreData.transport || null,
+            tools: (coreData.tools || []).map(t => ({ name: t.name, description: t.description })),
+            tools_count: (coreData.tools || []).length,
+            error: coreData.error || null,
+            last_connected: coreData.last_connected || null,
+          });
+        } else {
+          connectors.push({ id: cid, status: 'not_found', tools: [], tools_count: 0, error: 'Not registered in ADAS Core' });
+        }
+      } catch (err) {
+        connectors.push({ id: cid, status: 'unreachable', tools: [], tools_count: 0, error: err.message });
+      }
+    }
+
+    if (connectorIds.size > 0 && connectors.some(c => c.status !== 'unreachable')) {
+      adasReachable = true;
+    }
+
+    res.json({
+      ok: true,
+      solution_id: req.params.id,
+      adas_reachable: adasReachable,
+      connectors,
+    });
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ ok: false, error: 'Solution not found' });
+    }
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // REDEPLOY SINGLE SKILL
 // ═══════════════════════════════════════════════════════════════
 

@@ -325,8 +325,29 @@ async function run() {
   });
   ok('Redeploy 404 for missing skill', redeployNotFound.status === 404, 'status=' + redeployNotFound.status);
 
-  // ── Phase 9: Error handling ──
-  console.log('\n── Phase 9: Error handling ──');
+  // ── Phase 9: Validate & connector health ──
+  console.log('\n── Phase 9: Validate & connector health ──');
+
+  // Validate solution from stored state
+  const valSol = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/validate', { headers: hdr }).then(r => r.json());
+  ok('GET solution validate', Boolean(valSol.validation || valSol.errors !== undefined), 'ok');
+
+  // Validate single skill from stored state
+  const valSkill = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/e2e-greeter/validate', { headers: hdr }).then(r => r.json());
+  ok('GET skill validate', Boolean(valSkill.validation), 'ok');
+
+  // Connector health
+  const connHealth = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/connectors/health', { headers: hdr }).then(r => r.json());
+  ok('GET connectors/health', connHealth.ok === true, 'connectors=' + connHealth.connectors?.length);
+  ok('Health has adas_reachable', typeof connHealth.adas_reachable === 'boolean', String(connHealth.adas_reachable));
+  if (connHealth.connectors?.length > 0) {
+    const c = connHealth.connectors[0];
+    ok('Connector has status + tools', Boolean(c.id) && c.status !== undefined,
+      'id=' + c.id + ' status=' + c.status + ' tools=' + c.tools_count);
+  }
+
+  // ── Phase 10: Error handling ──
+  console.log('\n── Phase 10: Error handling ──');
 
   const notFound = await fetch(API + '/deploy/status/does-not-exist-xyz', { headers: hdr });
   ok('Status 404 for missing solution', notFound.status === 404, 'status=' + notFound.status);
@@ -342,9 +363,20 @@ async function run() {
   ok('Validate empty skill → errors', (badValidate.errors?.length || 0) > 0,
     'errors=' + (badValidate.errors?.length || 0));
 
-  // ── Phase 10: Cleanup ──
-  console.log('\n── Phase 10: Cleanup ──');
+  // ── Phase 11: Cleanup ──
+  console.log('\n── Phase 11: Cleanup ──');
 
+  // Delete single skill first (test the new endpoint)
+  const delSkillResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/e2e-greeter', {
+    method: 'DELETE', headers: hdr,
+  });
+  ok('DELETE single skill', delSkillResp.status === 204, 'status=' + delSkillResp.status);
+
+  // Verify skill is gone
+  const afterSkillDel = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/e2e-greeter', { headers: hdr });
+  ok('Skill gone after delete', afterSkillDel.status === 404, 'status=' + afterSkillDel.status);
+
+  // Now delete the solution
   const delResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test', {
     method: 'DELETE', headers: hdr,
   }).then(r => r.json());

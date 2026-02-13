@@ -113,6 +113,10 @@ function buildIndex() {
       'PATCH /deploy/solutions/:solutionId': 'Update solution definition incrementally (grants, handoffs, routing, identity)',
       'PATCH /deploy/solutions/:solutionId/skills/:skillId': 'Update a skill incrementally (tools, intents, policy, engine — accepts original or internal ID)',
       'POST /deploy/solutions/:solutionId/skills/:skillId/redeploy': 'Re-deploy a single skill after PATCH — regenerates MCP server and pushes to ADAS Core',
+      'DELETE /deploy/solutions/:solutionId/skills/:skillId': 'Remove a single skill from a solution (accepts original or internal ID)',
+      'GET /deploy/solutions/:solutionId/validate': 'Re-validate solution from stored state (structural + cross-skill checks)',
+      'GET /deploy/solutions/:solutionId/skills/:skillId/validate': 'Re-validate a single skill from stored state',
+      'GET /deploy/solutions/:solutionId/connectors/health': 'Connector health — status, discovered tools, errors from ADAS Core',
       'GET /health': 'Health check',
     },
     deploy_guide: {

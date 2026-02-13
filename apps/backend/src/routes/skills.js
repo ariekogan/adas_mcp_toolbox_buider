@@ -198,7 +198,8 @@ router.patch('/:skillId/settings', async (req, res, next) => {
 router.get('/:skillId/validation', async (req, res, next) => {
   try {
     const { solutionId, skillId } = req.params;
-    const skill = await skillsStore.load(solutionId, skillId);
+    const internalId = await resolveSkillId(skillId);
+    const skill = await skillsStore.load(solutionId, internalId);
     const summary = getValidationSummary(skill);
     res.json({ validation: summary });
   } catch (err) {
@@ -216,7 +217,8 @@ router.get('/:skillId/validation', async (req, res, next) => {
 router.delete('/:skillId', async (req, res, next) => {
   try {
     const { solutionId, skillId } = req.params;
-    await skillsStore.remove(solutionId, skillId);
+    const internalId = await resolveSkillId(skillId);
+    await skillsStore.remove(solutionId, internalId);
     res.status(204).send();
   } catch (err) {
     next(err);

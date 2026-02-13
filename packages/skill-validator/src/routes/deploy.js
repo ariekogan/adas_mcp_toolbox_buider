@@ -406,6 +406,24 @@ router.patch('/solutions/:solutionId', async (req, res) => {
 });
 
 /**
+ * GET /deploy/solutions/:solutionId/connectors/health — Connector health from ADAS Core
+ * Returns status, discovered tools, and errors for each connector.
+ */
+router.get('/solutions/:solutionId/connectors/health', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/connectors/health`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Connector health error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * PATCH /deploy/solutions/:solutionId/skills/:skillId — Update a skill definition
  * Body: { updates: { "tools_push": {...}, "problem.statement": "...", ... } }
  *
@@ -457,6 +475,77 @@ router.post('/solutions/:solutionId/skills/:skillId/redeploy', async (req, res) 
     res.status(resp.status).json(data);
   } catch (err) {
     console.error('[Deploy] Redeploy skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DELETE SINGLE SKILL
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * DELETE /deploy/solutions/:solutionId/skills/:skillId — Remove a single skill
+ * Accepts original skill ID or internal ID.
+ */
+router.delete('/solutions/:solutionId/skills/:skillId', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}`, {
+      method: 'DELETE',
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (resp.status === 204) {
+      return res.status(204).send();
+    }
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Delete skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VALIDATE FROM STORED STATE
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /deploy/solutions/:solutionId/validate — Re-validate solution from stored state
+ * Runs full validation (structural + cross-skill) on what's already deployed.
+ */
+router.get('/solutions/:solutionId/validate', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/validation`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Validate solution error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/skills/:skillId/validate — Re-validate a single skill from stored state
+ * Accepts original skill ID or internal ID.
+ */
+router.get('/solutions/:solutionId/skills/:skillId/validate', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}/validation`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Validate skill error:', err.message);
     res.status(502).json({ ok: false, error: err.message });
   }
 });
