@@ -100,6 +100,9 @@ function buildIndex() {
       'POST /deploy/connector': 'Deploy a connector via Skill Builder → ADAS Core',
       'POST /deploy/skill': 'Deploy a single skill via Skill Builder (requires solution_id)',
       'POST /deploy/solution': 'Deploy a full solution via Skill Builder → ADAS Core (identity + connectors + skills). No slug or Python MCP code needed.',
+      'GET /deploy/solutions': 'List all solutions stored in the Skill Builder',
+      'GET /deploy/status/:solutionId': 'Get aggregated deploy status — skills, connectors, ADAS Core health',
+      'DELETE /deploy/solutions/:solutionId': 'Remove a solution from the Skill Builder',
       'GET /health': 'Health check',
     },
     deploy_guide: {

@@ -83,5 +83,8 @@ app.listen(PORT, () => {
   console.log(`  POST /deploy/connector           — Deploy connector via Skill Builder`);
   console.log(`  POST /deploy/skill               — Deploy skill via Skill Builder`);
   console.log(`  POST /deploy/solution            — Deploy solution via Skill Builder`);
+  console.log(`  GET  /deploy/solutions           — List all solutions`);
+  console.log(`  GET  /deploy/status/:solutionId  — Aggregated deploy status`);
+  console.log(`  DELETE /deploy/solutions/:id      — Remove a solution`);
   console.log(`  GET  /health                     — Health check`);
 });

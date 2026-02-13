@@ -11,6 +11,8 @@ import solutionsStore from '../store/solutions.js';
 import skillsStore from '../store/skills.js';
 import { processSolutionMessage } from '../services/solutionConversation.js';
 import { validateSolution, validateSecurity, validateSolutionQuality } from '@adas/skill-validator';
+import { getSkillSlug } from '../services/exportDeploy.js';
+import adasCore from '../services/adasCoreClient.js';
 import skillsRouter from './skills.js';
 import validationRouter from "./solutionsValidation.js";
 
@@ -104,6 +106,88 @@ router.delete('/:id', async (req, res, next) => {
     await solutionsStore.remove(req.params.id);
     res.json({ success: true });
   } catch (err) {
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// DEPLOY STATUS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Aggregated deploy status for a solution.
+ * GET /api/solutions/:id/deploy-status
+ *
+ * Returns solution metadata + per-skill deploy state + ADAS Core connector health.
+ */
+router.get('/:id/deploy-status', async (req, res, next) => {
+  try {
+    const solution = await solutionsStore.load(req.params.id);
+    const linkedSkills = solution.skills || [];
+
+    // Load full skill objects in parallel
+    const skills = await Promise.all(
+      linkedSkills.map(async (ref) => {
+        try {
+          const skill = await skillsStore.load(req.params.id, ref.id);
+          return {
+            id: ref.id,
+            name: skill.name || ref.name,
+            slug: getSkillSlug(skill, ref.id),
+            phase: skill.phase || 'UNKNOWN',
+            deployedAt: skill.deployedAt || null,
+            mcpUri: skill.mcpUri || null,
+            tools_count: (skill.tools || []).length,
+            connectors: skill.connectors || [],
+          };
+        } catch {
+          return { id: ref.id, name: ref.name, phase: 'NOT_FOUND', error: 'skill not loaded' };
+        }
+      })
+    );
+
+    // Query ADAS Core connector status (best-effort)
+    let adasConnectors = [];
+    let adasReachable = false;
+    try {
+      adasConnectors = await adasCore.getConnectors();
+      adasReachable = true;
+    } catch {
+      // ADAS Core unreachable — continue with empty
+    }
+
+    // Map connector statuses for connectors referenced by skills
+    const usedConnectorIds = [...new Set(skills.flatMap(s => s.connectors || []))];
+    const connectors = usedConnectorIds.map(cid => {
+      const ac = adasConnectors.find(c => c.id === cid);
+      return {
+        id: cid,
+        status: ac?.status || 'unknown',
+        tools: ac?.tools?.length || 0,
+      };
+    });
+
+    // Identity deployed?
+    const identity = solution.identity || {};
+    const identityDeployed = (identity.actor_types || []).length > 0;
+
+    res.json({
+      ok: true,
+      solution: {
+        id: solution.id,
+        name: solution.name,
+        phase: solution.phase || 'UNKNOWN',
+        updated_at: solution.updated_at || null,
+      },
+      identity_deployed: identityDeployed,
+      skills,
+      connectors,
+      adas_reachable: adasReachable,
+    });
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ ok: false, error: 'Solution not found' });
+    }
     next(err);
   }
 });

@@ -8,9 +8,12 @@
  *
  * External agents do NOT need to provide slugs or Python MCP code.
  *
- * POST /deploy/connector  — Register + connect a connector via Skill Builder
- * POST /deploy/skill      — Import a skill definition via Skill Builder
- * POST /deploy/solution   — Import + deploy a full solution via Skill Builder
+ * POST /deploy/connector              — Register + connect a connector via Skill Builder
+ * POST /deploy/skill                  — Import a skill definition via Skill Builder
+ * POST /deploy/solution               — Import + deploy a full solution via Skill Builder
+ * GET  /deploy/solutions              — List all solutions
+ * GET  /deploy/status/:solutionId     — Aggregated deploy status (skills, connectors, health)
+ * DELETE /deploy/solutions/:solutionId — Remove a solution
  */
 
 import { Router } from 'express';
@@ -258,6 +261,62 @@ router.post('/solution', async (req, res) => {
   } catch (err) {
     console.error('[Deploy] Solution error:', err.message);
     res.status(502).json({ ok: false, error: err.message, skill_builder_url: SKILL_BUILDER_URL });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SOLUTION LIFECYCLE — proxy to Skill Builder
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /deploy/solutions — List all solutions
+ */
+router.get('/solutions', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] List solutions error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/status/:solutionId — Aggregated deploy status
+ */
+router.get('/status/:solutionId', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/deploy-status`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Status error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * DELETE /deploy/solutions/:solutionId — Remove a solution
+ */
+router.delete('/solutions/:solutionId', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}`, {
+      method: 'DELETE',
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Delete solution error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
   }
 });
 
