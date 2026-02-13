@@ -390,7 +390,7 @@ async function importFromYaml(solutionData, linkedSkillIds = []) {
       id: existing.id, // Keep original ID
       phase: existing.phase === 'SOLUTION_DISCOVERY' ? 'VALIDATION' : existing.phase,
       conversation: existing.conversation || [], // Preserve conversation history
-      linked_skills: [...new Set([...(existing.linked_skills || []), ...linkedSkillIds])],
+      linked_skills: linkedSkillIds, // Override — one solution per tenant, no merge
       updated_at: new Date().toISOString(),
       // Preserve created_at from original
       created_at: existing.created_at,

@@ -787,14 +787,34 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
 
     console.log(`[Import] Importing solution pack: ${manifest.name} v${manifest.version}`);
 
-    // Step 1: Register connectors in catalog (existing logic)
-    const mcps = manifest.mcps || [];
-    const existingPackage = importedPackages.get(manifest.name);
-    if (existingPackage) {
-      for (const mcp of existingPackage.mcps) {
+    // ── One solution per tenant: clear everything before importing ──
+    // Remove all existing packages and their connectors
+    for (const [key, oldPkg] of importedPackages.entries()) {
+      for (const mcp of (oldPkg.mcps || [])) {
         unregisterImportedConnector(mcp.id);
       }
+      importedPackages.delete(key);
+      console.log(`[Import] Cleared old package: ${key}`);
     }
+
+    // Remove all existing skills (dom_* directories)
+    const allSkills = await skillsStore.list();
+    for (const skill of allSkills) {
+      await skillsStore.remove(null, skill.id);
+      console.log(`[Import] Removed old skill: ${skill.id}`);
+    }
+
+    // Remove all existing solutions
+    const allSolutions = await solutionsStore.list();
+    for (const sol of allSolutions) {
+      await solutionsStore.remove(sol.id);
+      console.log(`[Import] Removed old solution: ${sol.id}`);
+    }
+
+    savePackages(); // persist the now-empty packages list
+
+    // Step 1: Register connectors in catalog
+    const mcps = manifest.mcps || [];
 
     const connectorConfigs = [];
     for (const mcp of mcps) {
@@ -908,28 +928,8 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
       solution: solutionResult || (targetSolutionId ? { id: targetSolutionId, status: 'referenced' } : null)
     };
 
-    // Check if a package already exists for this solution (prevent duplicates)
-    let existingKey = null;
-    if (solutionResult?.id) {
-      for (const [key, pkg] of importedPackages.entries()) {
-        if (pkg.solution?.id === solutionResult.id) {
-          existingKey = key;
-          console.log(`[Import] Found existing package "${key}" for solution ${solutionResult.id}, will update`);
-          break;
-        }
-      }
-    }
-
-    // Use existing key if found (to update), otherwise use manifest.name (new package)
-    const packageKey = existingKey || manifest.name;
-
-    // If replacing existing package with different name, remove old entry first
-    if (existingKey && existingKey !== manifest.name) {
-      importedPackages.delete(existingKey);
-      console.log(`[Import] Removed old package entry "${existingKey}", replacing with "${manifest.name}"`);
-    }
-
-    importedPackages.set(packageKey, packageInfo);
+    // One solution per tenant — just set the single package
+    importedPackages.set(manifest.name, packageInfo);
     savePackages();
 
     console.log(`[Import] Solution pack imported: ${connectorConfigs.length} connectors, ${skillResults.length} skills${solutionResult ? ', 1 solution' : ''}`);
