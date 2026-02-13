@@ -370,6 +370,7 @@ export async function importSolutionPack(file) {
 
   const response = await fetch(`${API_BASE}/import/solution-pack`, {
     method: 'POST',
+    headers: { 'X-ADAS-TENANT': getTenant() },
     body: formData
     // Don't set Content-Type - browser sets it with boundary
   });
@@ -417,7 +418,7 @@ export async function removeImportedPackage(packageName) {
 export async function deployAllPackage(packageName, onEvent) {
   const response = await fetch(
     `${API_BASE}/import/packages/${encodeURIComponent(packageName)}/deploy-all`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' } }
+    { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-ADAS-TENANT': getTenant() } }
   );
 
   if (!response.ok) {
