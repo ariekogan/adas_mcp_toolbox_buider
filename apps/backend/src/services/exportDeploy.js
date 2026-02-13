@@ -214,6 +214,39 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     throw new Error(result.error || `Deploy failed: ${response.status}`);
   }
 
+  // Register skill definition in ADAS Core so it appears in GET /api/skills
+  try {
+    const importUrl = `${adasUrl}/api/skills/import`;
+    const skillDef = {
+      id: skillSlug,
+      name: skill.name || skillSlug,
+      version: skill.version || "1.0.0",
+      description: skill.description || "",
+      mcp_server: result.mcpUri,
+      connectors: (skill.connectors || []),
+      tools: (skill.tools || []).map(t => ({
+        name: t.name,
+        description: t.description || "",
+      })),
+    };
+
+    const importResp = await fetch(importUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-ADAS-TENANT": tenant },
+      body: JSON.stringify({ skillSlug, skill: skillDef }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (importResp.ok) {
+      log.info(`[MCP Deploy] Registered skill definition for "${skillSlug}" in ADAS Core`);
+    } else {
+      const importErr = await importResp.json().catch(() => ({}));
+      log.warn(`[MCP Deploy] Skill import warning: ${importErr.error || importResp.status}`);
+    }
+  } catch (err) {
+    log.warn(`[MCP Deploy] Skill import warning (non-fatal): ${err.message}`);
+  }
+
   // Update skill status
   skill.phase = "DEPLOYED";
   skill.deployedAt = new Date().toISOString();
