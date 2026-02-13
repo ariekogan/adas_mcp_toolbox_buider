@@ -60,7 +60,8 @@ function buildIndex() {
       '6. POST /validate/solution — validate the full solution',
       '7. POST /deploy/solution — deploy everything to ADAS Core (the Skill Builder auto-generates MCP servers from your tool definitions — no slug or Python code needed)',
       '8. GET /deploy/solutions/:id/definition — read back the deployed solution to verify',
-      '9. GET /deploy/solutions/:id/skills/:skillId — read back individual skills, iterate and re-deploy as needed',
+      '9. GET /deploy/solutions/:id/skills/:skillId — read back individual skills to verify',
+      '10. PATCH /deploy/solutions/:id/skills/:skillId — update skills incrementally (tools_push, tools_delete, etc.) without re-deploying everything',
     ],
     endpoints: {
       '/spec/enums': {
@@ -108,6 +109,8 @@ function buildIndex() {
       'GET /deploy/solutions/:solutionId/definition': 'Read back the full solution definition (identity, grants, handoffs, routing)',
       'GET /deploy/solutions/:solutionId/skills': 'List skills in a solution (summaries with original and internal IDs)',
       'GET /deploy/solutions/:solutionId/skills/:skillId': 'Read back a full skill definition (accepts original or internal skill ID)',
+      'PATCH /deploy/solutions/:solutionId': 'Update solution definition incrementally (grants, handoffs, routing, identity)',
+      'PATCH /deploy/solutions/:solutionId/skills/:skillId': 'Update a skill incrementally (tools, intents, policy, engine — accepts original or internal ID)',
       'GET /health': 'Health check',
     },
     deploy_guide: {
@@ -159,6 +162,37 @@ function buildIndex() {
       'POST /deploy/skill': {
         description: 'Deploy a single skill into an existing solution. Requires solution_id.',
         body: { skill: { id: 'order-support', name: 'Order Support Agent', tools: ['...'] }, solution_id: '<existing-solution-id>' },
+      },
+      'PATCH /deploy/solutions/:solutionId/skills/:skillId': {
+        description: 'Update a deployed skill incrementally. Accepts original skill ID or internal ID. Supports dot notation for scalar fields, and _push/_delete/_update/_rename for array fields.',
+        body: {
+          updates: {
+            _note: 'All operations are optional. Combine as many as needed.',
+            'problem.statement': 'New problem statement (dot notation for scalar fields)',
+            'tools_push': { name: 'new-tool', description: 'A new tool', inputs: ['...'], output: {}, source: {}, policy: {}, security: {} },
+            'tools_update': { name: 'existing-tool', description: 'Updated description' },
+            'tools_delete': 'tool-to-remove',
+            'tools_rename': { from: 'old-name', to: 'new-name' },
+            'intents.supported_push': { id: 'new-intent', description: '...', examples: ['...'] },
+            'policy.guardrails.always_push': 'New guardrail rule',
+            'engine.temperature': 0.5,
+          },
+        },
+        protected_arrays: ['tools', 'meta_tools', 'intents.supported', 'policy.guardrails.always', 'policy.guardrails.never'],
+        protected_note: 'These arrays cannot be replaced directly — use _push/_delete/_update instead to prevent accidental data loss.',
+      },
+      'PATCH /deploy/solutions/:solutionId': {
+        description: 'Update a deployed solution incrementally. Supports dot notation and _push/_delete/_update for arrays.',
+        body: {
+          state_update: {
+            _note: 'All operations are optional.',
+            'phase': 'DEPLOYED',
+            'identity.actor_types_push': { key: 'new-role', label: 'New Role', description: '...' },
+            'grants_push': { key: 'ns.grant', description: '...', issued_by: ['skill-a'], consumed_by: ['skill-b'], issued_via: 'grant_mapping' },
+            'handoffs_push': { id: 'a-to-b', from: 'skill-a', to: 'skill-b', trigger: '...', grants_passed: ['ns.grant'], mechanism: 'handoff-controller-mcp' },
+            'routing.api': { default_skill: 'skill-a', description: 'API routing' },
+          },
+        },
       },
     },
   };

@@ -18,6 +18,26 @@ import { getAllPrebuiltConnectors } from './connectors.js';
 const router = Router({ mergeParams: true });
 
 /**
+ * Resolve a skill ID — tries direct load, then falls back to original_skill_id lookup.
+ * External agents use original IDs (e.g., "e2e-greeter") but skills are stored
+ * with internal IDs (e.g., "dom_xxx").
+ * @returns {string} The internal skill ID
+ */
+async function resolveSkillId(skillId) {
+  // Check if the skillId exists directly as a directory
+  try {
+    await skillsStore.load(skillId);
+    return skillId;
+  } catch {
+    // Not found — search by original_skill_id
+    const allSkills = await skillsStore.list();
+    const match = allSkills.find(s => s.original_skill_id === skillId);
+    if (match) return match.id;
+    throw new Error(`Skill ${skillId} not found`);
+  }
+}
+
+/**
  * List all skills for a solution
  * GET /api/solutions/:solutionId/skills
  */
@@ -87,21 +107,8 @@ router.post('/', async (req, res, next) => {
 router.get('/:skillId', async (req, res, next) => {
   try {
     const { solutionId, skillId } = req.params;
-
-    // Resolve skill ID: try direct load first, then search by original_skill_id
-    let skill;
-    try {
-      skill = await skillsStore.load(solutionId, skillId);
-    } catch (directErr) {
-      // Not found by internal ID — try resolving via original_skill_id
-      const allSkills = await skillsStore.list();
-      const match = allSkills.find(s => s.original_skill_id === skillId);
-      if (match) {
-        skill = await skillsStore.load(solutionId, match.id);
-      } else {
-        throw directErr; // re-throw original not-found error
-      }
-    }
+    const internalId = await resolveSkillId(skillId);
+    const skill = await skillsStore.load(solutionId, internalId);
 
     // Backfill source on ui.* tools missing it (created by DAL without MCP bridge info)
     if (skill.tools?.length && skill.connectors?.length) {
@@ -152,7 +159,8 @@ router.patch('/:skillId', async (req, res, next) => {
       return res.status(400).json({ error: 'Updates object is required' });
     }
 
-    const skill = await skillsStore.updateState(solutionId, skillId, updates);
+    const internalId = await resolveSkillId(skillId);
+    const skill = await skillsStore.updateState(solutionId, internalId, updates);
     res.json({ skill });
   } catch (err) {
     if (err.message?.includes('not found')) {

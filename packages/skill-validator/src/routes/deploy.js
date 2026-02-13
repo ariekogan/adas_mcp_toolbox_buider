@@ -378,6 +378,59 @@ router.get('/solutions/:solutionId/skills/:skillId', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// INCREMENTAL UPDATES — PATCH deployed definitions
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * PATCH /deploy/solutions/:solutionId — Update solution definition
+ * Body: { state_update: { "phase": "DEPLOYED", "grants_push": {...}, ... } }
+ *
+ * Supports dot notation, _push, _delete, _update operations.
+ * See GET /spec for full documentation.
+ */
+router.patch('/solutions/:solutionId', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}`, {
+      method: 'PATCH',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Patch solution error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * PATCH /deploy/solutions/:solutionId/skills/:skillId — Update a skill definition
+ * Body: { updates: { "tools_push": {...}, "problem.statement": "...", ... } }
+ *
+ * Accepts original skill ID (e.g., "e2e-greeter") or internal ID (e.g., "dom_xxx").
+ * Supports: dot notation, tools_push, tools_delete, tools_update, tools_rename,
+ * intents.supported_push, policy.guardrails.always_push, etc.
+ */
+router.patch('/solutions/:solutionId/skills/:skillId', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}`, {
+      method: 'PATCH',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Patch skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
 export default router;
 
 // ═══════════════════════════════════════════════════════════════════════════

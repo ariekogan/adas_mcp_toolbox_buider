@@ -231,8 +231,76 @@ async function run() {
     ok('Skill has intents', Boolean(skillDef.skill?.intents?.supported), 'intents=' + skillDef.skill?.intents?.supported?.length);
   }
 
-  // ── Phase 7: Error handling ──
-  console.log('\n── Phase 7: Error handling ──');
+  // ── Phase 7: Incremental updates (PATCH) ──
+  console.log('\n── Phase 7: Incremental updates (PATCH) ──');
+
+  // PATCH skill: add a new tool via tools_push
+  const patchSkillResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/e2e-greeter', {
+    method: 'PATCH', headers: H,
+    body: JSON.stringify({
+      updates: {
+        'tools_push': {
+          id: 'tool-farewell', id_status: 'permanent',
+          name: 'e2e-test.farewell',
+          description: 'Say goodbye to a user',
+          inputs: [{ name: 'user_name', type: 'string', required: true, description: 'Name to say bye to' }],
+          output: { type: 'string', description: 'Farewell message' },
+          source: { type: 'mcp_bridge', connection_id: 'e2e-test-mcp', mcp_tool: 'farewell' },
+          policy: { allowed: 'always' },
+          security: { classification: 'public' },
+        },
+        'problem.context': 'Updated via E2E PATCH test',
+      },
+    }),
+  }).then(r => r.json());
+  ok('PATCH skill (tools_push)', Boolean(patchSkillResp.skill), patchSkillResp.error || 'ok');
+
+  // Verify the tool was added
+  if (patchSkillResp.skill) {
+    const tools = patchSkillResp.skill.tools || [];
+    ok('Tool added via PATCH', tools.length === 2, 'tools=' + tools.length);
+    ok('New tool present', tools.some(t => t.name === 'e2e-test.farewell'), tools.map(t => t.name).join(', '));
+    ok('Problem context updated', patchSkillResp.skill.problem?.context === 'Updated via E2E PATCH test',
+      'context=' + patchSkillResp.skill.problem?.context);
+  }
+
+  // PATCH skill: delete the tool we just added
+  const patchDeleteResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/e2e-greeter', {
+    method: 'PATCH', headers: H,
+    body: JSON.stringify({
+      updates: { 'tools_delete': 'e2e-test.farewell' },
+    }),
+  }).then(r => r.json());
+  ok('PATCH skill (tools_delete)', Boolean(patchDeleteResp.skill), patchDeleteResp.error || 'ok');
+  if (patchDeleteResp.skill) {
+    ok('Tool removed via PATCH', (patchDeleteResp.skill.tools || []).length === 1,
+      'tools=' + (patchDeleteResp.skill.tools || []).length);
+  }
+
+  // PATCH solution: add a new grant
+  const patchSolResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test', {
+    method: 'PATCH', headers: H,
+    body: JSON.stringify({
+      state_update: {
+        'grants_push': {
+          key: 'e2e.patched_grant',
+          description: 'Grant added via PATCH',
+          issued_by: ['e2e-greeter'],
+          consumed_by: ['e2e-greeter'],
+          issued_via: 'grant_mapping',
+        },
+      },
+    }),
+  }).then(r => r.json());
+  ok('PATCH solution (grants_push)', Boolean(patchSolResp.solution), patchSolResp.error || 'ok');
+  if (patchSolResp.solution) {
+    const grants = patchSolResp.solution.grants || [];
+    ok('Grant added via PATCH', grants.some(g => g.key === 'e2e.patched_grant'),
+      'grants=' + grants.length);
+  }
+
+  // ── Phase 8: Error handling ──
+  console.log('\n── Phase 8: Error handling ──');
 
   const notFound = await fetch(API + '/deploy/status/does-not-exist-xyz', { headers: hdr });
   ok('Status 404 for missing solution', notFound.status === 404, 'status=' + notFound.status);
@@ -248,8 +316,8 @@ async function run() {
   ok('Validate empty skill → errors', (badValidate.errors?.length || 0) > 0,
     'errors=' + (badValidate.errors?.length || 0));
 
-  // ── Phase 8: Cleanup ──
-  console.log('\n── Phase 8: Cleanup ──');
+  // ── Phase 9: Cleanup ──
+  console.log('\n── Phase 9: Cleanup ──');
 
   const delResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test', {
     method: 'DELETE', headers: hdr,
