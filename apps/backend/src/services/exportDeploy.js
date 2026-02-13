@@ -4,6 +4,7 @@ import { getAllPrebuiltConnectors } from "../routes/connectors.js";
 import { generateMCPSimple } from "./mcpGenerationAgent.js";
 import { syncConnectorToADAS, startConnectorInADAS } from "./adasConnectorSync.js";
 import { buildConnectorPayload } from "../utils/connectorPayload.js";
+import { getCurrentTenant } from "../utils/tenantContext.js";
 
 /**
  * Helper to get skillSlug from skill
@@ -49,7 +50,7 @@ export async function deployIdentityToADAS(solutionId, log) {
 
     const adasUrl = process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
     const identityUrl = `${adasUrl}/api/identity`;
-    const tenant = (process.env.SB_TENANT || 'main').trim().toLowerCase();
+    const tenant = getCurrentTenant();
 
     log.info(`[Identity Deploy] Pushing identity config to ADAS Core: ${identityUrl} (${identity.actor_types.length} actor types)`);
 
@@ -198,7 +199,7 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
 
   log.info(`[MCP Deploy] Sending to ADAS Core: ${deployUrl}`);
 
-  const tenant = (process.env.SB_TENANT || 'main').trim().toLowerCase();
+  const tenant = getCurrentTenant();
   const response = await fetch(deployUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-ADAS-TENANT": tenant },

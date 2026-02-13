@@ -40,28 +40,39 @@ const upload = multer({ dest: '/tmp/solution-pack-uploads', limits: { fileSize: 
 
 const router = Router();
 
-import { getMemoryRoot } from '../utils/tenantContext.js';
+import { getMemoryRoot, getCurrentTenant, VALID_TENANTS } from '../utils/tenantContext.js';
 // Persistence: resolved per-tenant
-function getPersistenceDir() { return getMemoryRoot(); }
-function getPersistenceFile() { return path.join(getMemoryRoot(), 'imported-packages.json'); }
+function getPersistenceDir(tenant) { return getMemoryRoot(tenant); }
+function getPersistenceFile(tenant) { return path.join(getMemoryRoot(tenant), 'imported-packages.json'); }
 
-// Store imported packages (design time tracking)
-const importedPackages = new Map();
+// Per-tenant package maps: tenant -> Map(packageName -> packageInfo)
+const tenantPackages = new Map();
+
+/** Get the importedPackages Map for the current tenant (from ALS context) */
+function getImportedPackages() {
+  const tenant = getCurrentTenant();
+  if (!tenantPackages.has(tenant)) {
+    tenantPackages.set(tenant, new Map());
+  }
+  return tenantPackages.get(tenant);
+}
 
 /**
- * Load persisted packages on startup
+ * Load persisted packages for a specific tenant
  */
-function loadPersistedPackages() {
+function loadPersistedPackagesForTenant(tenant) {
   try {
-    if (fs.existsSync(getPersistenceFile())) {
-      const data = JSON.parse(fs.readFileSync(getPersistenceFile(), 'utf8'));
-      console.log(`[Import] Loading ${data.length} persisted packages...`);
+    const file = getPersistenceFile(tenant);
+    if (fs.existsSync(file)) {
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      console.log(`[Import] Loading ${data.length} persisted packages for tenant "${tenant}"...`);
 
+      const pkgMap = new Map();
       for (const pkg of data) {
-        importedPackages.set(pkg.name, pkg);
+        pkgMap.set(pkg.name, pkg);
 
         // Re-register connectors in catalog
-        for (const mcp of pkg.mcps) {
+        for (const mcp of (pkg.mcps || [])) {
           registerImportedConnector(mcp.id, {
             name: mcp.name,
             description: mcp.description,
@@ -78,43 +89,49 @@ function loadPersistedPackages() {
             mcp_store_included: !!pkg.mcp_store_included,
             importedFrom: pkg.name
           });
-          console.log(`[Import] Restored connector: ${mcp.id}`);
+          console.log(`[Import] Restored connector: ${mcp.id} (tenant: ${tenant})`);
         }
       }
-      console.log(`[Import] Loaded ${importedPackages.size} packages from persistence`);
+      tenantPackages.set(tenant, pkgMap);
+      console.log(`[Import] Loaded ${pkgMap.size} packages for tenant "${tenant}"`);
     }
   } catch (err) {
-    console.error('[Import] Failed to load persisted packages:', err.message);
+    console.error(`[Import] Failed to load persisted packages for tenant "${tenant}":`, err.message);
   }
 }
 
 /**
- * Save packages to persistence file
+ * Save packages to persistence file for the current tenant
  */
 function savePackages() {
+  const tenant = getCurrentTenant();
+  const pkgMap = getImportedPackages();
   try {
-    // Ensure directory exists
-    if (!fs.existsSync(getPersistenceDir())) {
-      fs.mkdirSync(getPersistenceDir(), { recursive: true });
+    const dir = getPersistenceDir();
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
     }
 
-    const data = Array.from(importedPackages.values());
-    fs.writeFileSync(getPersistenceFile(), JSON.stringify(data, null, 2));
-    console.log(`[Import] Saved ${data.length} packages to ${getPersistenceFile()}`);
+    const data = Array.from(pkgMap.values());
+    const file = getPersistenceFile();
+    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+    console.log(`[Import] Saved ${data.length} packages to ${file} (tenant: ${tenant})`);
   } catch (err) {
-    console.error('[Import] Failed to save packages:', err.message);
+    console.error(`[Import] Failed to save packages for tenant "${tenant}":`, err.message);
   }
 }
 
-// Load persisted packages on module load
-loadPersistedPackages();
+// Load persisted packages for all known tenants on startup
+for (const tenant of VALID_TENANTS) {
+  loadPersistedPackagesForTenant(tenant);
+}
 
 /**
  * GET /api/import/packages
  * List all imported packages
  */
 router.get('/packages', (_req, res) => {
-  const packages = Array.from(importedPackages.values());
+  const packages = Array.from(getImportedPackages().values());
   res.json({
     ok: true,
     packages: packages.sort((a, b) => new Date(b.importedAt) - new Date(a.importedAt))
@@ -126,7 +143,7 @@ router.get('/packages', (_req, res) => {
  * Get a specific imported package
  */
 router.get('/packages/:id', (req, res) => {
-  const pkg = importedPackages.get(req.params.id);
+  const pkg = getImportedPackages().get(req.params.id);
   if (!pkg) {
     return res.status(404).json({ ok: false, error: 'Package not found' });
   }
@@ -166,7 +183,7 @@ router.post('/', async (req, res) => {
     }
 
     // Handle existing package (update)
-    const existingPackage = importedPackages.get(manifest.name);
+    const existingPackage = getImportedPackages().get(manifest.name);
     if (existingPackage) {
       console.log(`[Import] Updating existing package: ${manifest.name}`);
       for (const mcp of existingPackage.mcps) {
@@ -199,7 +216,7 @@ router.post('/', async (req, res) => {
       skills: skills
     };
 
-    importedPackages.set(manifest.name, packageInfo);
+    getImportedPackages().set(manifest.name, packageInfo);
 
     // Persist to file
     savePackages();
@@ -226,7 +243,7 @@ router.delete('/packages/:packageName', async (req, res) => {
   try {
     const { packageName } = req.params;
 
-    const pkg = importedPackages.get(packageName);
+    const pkg = getImportedPackages().get(packageName);
     if (!pkg) {
       return res.status(404).json({ ok: false, error: 'Package not found' });
     }
@@ -236,7 +253,7 @@ router.delete('/packages/:packageName', async (req, res) => {
       unregisterImportedConnector(mcp.id);
     }
 
-    importedPackages.delete(packageName);
+    getImportedPackages().delete(packageName);
 
     // Persist to file
     savePackages();
@@ -258,7 +275,7 @@ router.delete('/packages/:packageName', async (req, res) => {
 router.get('/connectors', (_req, res) => {
   const connectors = [];
 
-  for (const pkg of importedPackages.values()) {
+  for (const pkg of getImportedPackages().values()) {
     for (const mcp of pkg.mcps) {
       connectors.push({
         ...mcp,
@@ -280,7 +297,7 @@ router.patch('/packages/:packageName/connectors/:connectorId', async (req, res) 
     const { packageName, connectorId } = req.params;
     const updates = req.body;
 
-    const pkg = importedPackages.get(packageName);
+    const pkg = getImportedPackages().get(packageName);
     if (!pkg) {
       return res.status(404).json({ ok: false, error: 'Package not found' });
     }
@@ -789,11 +806,11 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
 
     // ── One solution per tenant: clear everything before importing ──
     // Remove all existing packages and their connectors
-    for (const [key, oldPkg] of importedPackages.entries()) {
+    for (const [key, oldPkg] of getImportedPackages().entries()) {
       for (const mcp of (oldPkg.mcps || [])) {
         unregisterImportedConnector(mcp.id);
       }
-      importedPackages.delete(key);
+      getImportedPackages().delete(key);
       console.log(`[Import] Cleared old package: ${key}`);
     }
 
@@ -929,7 +946,7 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
     };
 
     // One solution per tenant — just set the single package
-    importedPackages.set(manifest.name, packageInfo);
+    getImportedPackages().set(manifest.name, packageInfo);
     savePackages();
 
     console.log(`[Import] Solution pack imported: ${connectorConfigs.length} connectors, ${skillResults.length} skills${solutionResult ? ', 1 solution' : ''}`);
@@ -956,7 +973,7 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
  */
 router.post('/packages/:packageName/deploy-all', async (req, res) => {
   const { packageName } = req.params;
-  const pkg = importedPackages.get(packageName);
+  const pkg = getImportedPackages().get(packageName);
 
   if (!pkg) {
     return res.status(404).json({ ok: false, error: 'Package not found' });

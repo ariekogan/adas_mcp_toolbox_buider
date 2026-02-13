@@ -12,15 +12,14 @@
  * 5. Skills reference connector IDs, tools are loaded at runtime
  */
 
+import { getCurrentTenant } from '../utils/tenantContext.js';
+
 // ADAS Core API base URL (same env var as export.js)
 const ADAS_API_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
 
-// Tenant header — injected into all outbound ADAS Core requests
-const TENANT = (process.env.SB_TENANT || 'main').trim().toLowerCase();
-
-/** Build headers with tenant context for ADAS Core calls */
+/** Build headers with tenant context for ADAS Core calls (per-request) */
 function adasHeaders(extra = {}) {
-  return { 'X-ADAS-TENANT': TENANT, ...extra };
+  return { 'X-ADAS-TENANT': getCurrentTenant(), ...extra };
 }
 
 /** Build JSON headers with tenant context */
