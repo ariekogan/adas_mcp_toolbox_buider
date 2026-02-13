@@ -11,7 +11,7 @@ import solutionsStore from '../store/solutions.js';
 import skillsStore from '../store/skills.js';
 import { processSolutionMessage } from '../services/solutionConversation.js';
 import { validateSolution, validateSecurity, validateSolutionQuality } from '@adas/skill-validator';
-import { getSkillSlug } from '../services/exportDeploy.js';
+import { getSkillSlug, deploySkillToADAS } from '../services/exportDeploy.js';
 import adasCore from '../services/adasCoreClient.js';
 import skillsRouter from './skills.js';
 import validationRouter from "./solutionsValidation.js";
@@ -199,6 +199,66 @@ router.get('/:id/deploy-status', async (req, res, next) => {
   } catch (err) {
     if (err.message?.includes('not found')) {
       return res.status(404).json({ ok: false, error: 'Solution not found' });
+    }
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// REDEPLOY SINGLE SKILL
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Re-deploy a single skill after PATCH updates.
+ * POST /api/solutions/:id/skills/:skillId/redeploy
+ *
+ * Reads the stored skill definition, regenerates the MCP server,
+ * and pushes to ADAS Core — without re-deploying the whole solution.
+ *
+ * Accepts original skill ID (e.g., "e2e-greeter") or internal ID (e.g., "dom_xxx").
+ */
+router.post('/:id/skills/:skillId/redeploy', async (req, res, next) => {
+  try {
+    const solutionId = req.params.id;
+    const requestedSkillId = req.params.skillId;
+    const log = req.app.locals.log;
+
+    // Resolve skill ID: original_skill_id → internal dom_xxx
+    const allSkills = await skillsStore.list();
+    let internalId = requestedSkillId;
+    const match = allSkills.find(s => s.original_skill_id === requestedSkillId);
+    if (match) {
+      internalId = match.id;
+    } else {
+      // Verify the direct ID exists
+      const direct = allSkills.find(s => s.id === requestedSkillId);
+      if (!direct) {
+        return res.status(404).json({ ok: false, error: `Skill ${requestedSkillId} not found` });
+      }
+    }
+
+    log.info(`[Redeploy] Redeploying skill ${requestedSkillId} (internal: ${internalId}) in solution ${solutionId}`);
+
+    const result = await deploySkillToADAS(solutionId, internalId, log);
+
+    res.json({
+      ok: true,
+      skill_id: requestedSkillId,
+      internal_id: internalId !== requestedSkillId ? internalId : undefined,
+      ...result,
+    });
+  } catch (err) {
+    if (err.code === 'NO_EXPORT') {
+      return res.status(400).json({ ok: false, error: err.message, hint: 'Skill has no export version. Deploy the full solution first.' });
+    }
+    if (err.code === 'NO_SERVER') {
+      return res.status(400).json({ ok: false, error: err.message, hint: 'No server.py found — MCP auto-generation will be attempted.' });
+    }
+    if (err.message?.includes('not found') || err.code === 'ENOENT') {
+      return res.status(404).json({ ok: false, error: 'Skill not found' });
+    }
+    if (err.message?.includes('Failed to fetch') || err.message?.includes('fetch failed')) {
+      return res.status(502).json({ ok: false, error: 'Failed to connect to ADAS Core', details: err.message });
     }
     next(err);
   }

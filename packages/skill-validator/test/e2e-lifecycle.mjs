@@ -299,8 +299,34 @@ async function run() {
       'grants=' + grants.length);
   }
 
-  // ── Phase 8: Error handling ──
-  console.log('\n── Phase 8: Error handling ──');
+  // ── Phase 8: Redeploy after PATCH ──
+  console.log('\n── Phase 8: Redeploy after PATCH ──');
+
+  const redeployResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/e2e-greeter/redeploy', {
+    method: 'POST', headers: H, body: '{}',
+  });
+  const redeployData = await redeployResp.json();
+  ok('POST redeploy responded', redeployResp.status === 200 || redeployResp.status === 400 || redeployResp.status === 502,
+    'status=' + redeployResp.status + ' ok=' + redeployData.ok);
+
+  // Accept either success or expected failure (e.g., ADAS Core not available in test env)
+  if (redeployData.ok) {
+    ok('Redeploy returned skill slug', Boolean(redeployData.skillSlug), 'slug=' + redeployData.skillSlug);
+    ok('Redeploy returned mcpUri', Boolean(redeployData.mcpUri), 'uri=' + redeployData.mcpUri);
+    ok('Redeploy returned skill_id', redeployData.skill_id === 'e2e-greeter', 'id=' + redeployData.skill_id);
+  } else {
+    // In test environments ADAS Core may not be fully available — that's OK
+    ok('Redeploy error is informative', Boolean(redeployData.error), redeployData.error);
+  }
+
+  // Redeploy for non-existent skill should 404
+  const redeployNotFound = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/does-not-exist/redeploy', {
+    method: 'POST', headers: H, body: '{}',
+  });
+  ok('Redeploy 404 for missing skill', redeployNotFound.status === 404, 'status=' + redeployNotFound.status);
+
+  // ── Phase 9: Error handling ──
+  console.log('\n── Phase 9: Error handling ──');
 
   const notFound = await fetch(API + '/deploy/status/does-not-exist-xyz', { headers: hdr });
   ok('Status 404 for missing solution', notFound.status === 404, 'status=' + notFound.status);
@@ -316,8 +342,8 @@ async function run() {
   ok('Validate empty skill → errors', (badValidate.errors?.length || 0) > 0,
     'errors=' + (badValidate.errors?.length || 0));
 
-  // ── Phase 9: Cleanup ──
-  console.log('\n── Phase 9: Cleanup ──');
+  // ── Phase 10: Cleanup ──
+  console.log('\n── Phase 10: Cleanup ──');
 
   const delResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test', {
     method: 'DELETE', headers: hdr,

@@ -91,5 +91,6 @@ app.listen(PORT, () => {
   console.log(`  GET  /deploy/solutions/:id/skills/:sk — Read back a skill definition`);
   console.log(`  PATCH /deploy/solutions/:id           — Update solution incrementally`);
   console.log(`  PATCH /deploy/solutions/:id/skills/:sk — Update skill incrementally`);
+  console.log(`  POST /deploy/solutions/:id/skills/:sk/redeploy — Re-deploy after PATCH`);
   console.log(`  GET  /health                     — Health check`);
 });

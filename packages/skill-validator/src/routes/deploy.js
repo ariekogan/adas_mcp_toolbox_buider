@@ -431,6 +431,36 @@ router.patch('/solutions/:solutionId/skills/:skillId', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// REDEPLOY — regenerate MCP and push to ADAS Core
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/solutions/:solutionId/skills/:skillId/redeploy
+ *
+ * Re-deploy a single skill after PATCH updates.
+ * Reads the stored skill, regenerates the MCP server, pushes to ADAS Core.
+ * Accepts original skill ID or internal ID.
+ * Longer timeout (60s) because MCP generation + ADAS Core deploy can be slow.
+ */
+router.post('/solutions/:solutionId/skills/:skillId/redeploy', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}/redeploy`, {
+      method: 'POST',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body || {}),
+      signal: AbortSignal.timeout(60000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Redeploy skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
 export default router;
 
 // ═══════════════════════════════════════════════════════════════════════════

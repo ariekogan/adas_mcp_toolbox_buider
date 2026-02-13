@@ -62,6 +62,7 @@ function buildIndex() {
       '8. GET /deploy/solutions/:id/definition — read back the deployed solution to verify',
       '9. GET /deploy/solutions/:id/skills/:skillId — read back individual skills to verify',
       '10. PATCH /deploy/solutions/:id/skills/:skillId — update skills incrementally (tools_push, tools_delete, etc.) without re-deploying everything',
+      '11. POST /deploy/solutions/:id/skills/:skillId/redeploy — after PATCH, redeploy just that skill (regenerates MCP server, pushes to ADAS Core)',
     ],
     endpoints: {
       '/spec/enums': {
@@ -111,6 +112,7 @@ function buildIndex() {
       'GET /deploy/solutions/:solutionId/skills/:skillId': 'Read back a full skill definition (accepts original or internal skill ID)',
       'PATCH /deploy/solutions/:solutionId': 'Update solution definition incrementally (grants, handoffs, routing, identity)',
       'PATCH /deploy/solutions/:solutionId/skills/:skillId': 'Update a skill incrementally (tools, intents, policy, engine — accepts original or internal ID)',
+      'POST /deploy/solutions/:solutionId/skills/:skillId/redeploy': 'Re-deploy a single skill after PATCH — regenerates MCP server and pushes to ADAS Core',
       'GET /health': 'Health check',
     },
     deploy_guide: {
@@ -193,6 +195,24 @@ function buildIndex() {
             'routing.api': { default_skill: 'skill-a', description: 'API routing' },
           },
         },
+      },
+      'POST /deploy/solutions/:solutionId/skills/:skillId/redeploy': {
+        description: 'Re-deploy a single skill after PATCH updates. Reads stored definition, regenerates MCP server, pushes to ADAS Core. Accepts original or internal skill ID.',
+        body: { _note: 'No body required — reads from stored state. Just POST with empty body.' },
+        returns: {
+          ok: true,
+          skill_id: 'original-skill-id',
+          internal_id: 'dom_xxx (if different from skill_id)',
+          status: 'deployed',
+          skillSlug: 'the-slug-used',
+          mcpUri: 'tcp://localhost:PORT',
+          message: 'Skill deployed successfully',
+        },
+        typical_workflow: [
+          '1. PATCH /deploy/solutions/:id/skills/:skillId — update tools, policy, etc.',
+          '2. POST /deploy/solutions/:id/skills/:skillId/redeploy — push changes to ADAS Core',
+          '3. GET /deploy/status/:id — verify new status',
+        ],
       },
     },
   };
