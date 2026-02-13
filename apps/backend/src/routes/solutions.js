@@ -98,13 +98,32 @@ router.patch('/:id', async (req, res, next) => {
 });
 
 /**
- * Delete solution
+ * Delete solution (cascade: skill directories + ADAS Core runtime)
  * DELETE /api/solutions/:id
  */
 router.delete('/:id', async (req, res, next) => {
   try {
-    await solutionsStore.remove(req.params.id);
-    res.json({ ok: true });
+    // Cascade-delete linked skill directories (returns list of deleted slugs)
+    const deletedSlugs = await solutionsStore.remove(req.params.id);
+
+    // Also clean up each skill from ADAS Core (runtime files + MCP registrations)
+    const adasCleanup = [];
+    for (const slug of deletedSlugs) {
+      try {
+        await adasCore.deleteSkill(slug);
+        adasCleanup.push({ slug, ok: true });
+        console.log(`[Solutions] Cleaned up ADAS Core skill: ${slug}`);
+      } catch (err) {
+        adasCleanup.push({ slug, ok: false, error: err.message });
+        console.log(`[Solutions] Warning: ADAS Core cleanup failed for ${slug}: ${err.message}`);
+      }
+    }
+
+    res.json({
+      ok: true,
+      deleted_skills: deletedSlugs.length,
+      adas_cleanup: adasCleanup,
+    });
   } catch (err) {
     next(err);
   }

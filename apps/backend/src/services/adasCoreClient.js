@@ -189,6 +189,20 @@ async function uploadMcpCode(connectorId, files) {
   });
 }
 
+/**
+ * Delete a skill from ADAS Core (runtime files + MCP registration).
+ * Silently succeeds if already gone.
+ */
+async function deleteSkill(skillSlug) {
+  try {
+    await request(`/api/skills/${encodeURIComponent(skillSlug)}`, { method: 'DELETE' });
+  } catch (err) {
+    if (err.status === 404) return { ok: true };
+    throw err;
+  }
+  return { ok: true };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // HEALTH
 // ═══════════════════════════════════════════════════════════════
@@ -224,6 +238,7 @@ export default {
   callConnectorTool,
   uploadMcpCode,
   isAvailable,
+  deleteSkill,
 };
 
 export {
@@ -241,4 +256,5 @@ export {
   callConnectorTool,
   uploadMcpCode,
   isAvailable,
+  deleteSkill,
 };

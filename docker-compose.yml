@@ -29,6 +29,7 @@ services:
       - "${BACKEND_PORT:-4311}:4000"
       # Expose port range for dynamically spawned MCP servers
       - "8100-8110:8100-8110"
+      - "3201:3200"
     restart: "no"
     deploy:
       resources:

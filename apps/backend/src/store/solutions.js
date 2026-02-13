@@ -186,15 +186,43 @@ async function save(solution) {
 }
 
 /**
- * Delete a solution (cascade deletes all skills)
+ * Delete a solution and cascade-delete all linked skill directories.
+ * Skills live at memory/<tenant>/<slug>/ (separate from the solution dir),
+ * so we must explicitly remove each one.
  * @param {string} id
+ * @returns {Promise<string[]>} List of deleted skill slugs (for ADAS Core cleanup)
  */
 async function remove(id) {
   const solDir = path.join(getSolutionsDir(), id);
-  // This deletes the entire solution folder including:
-  // - solution.json
-  // - skills/ folder with all skills
+  const deletedSlugs = [];
+
+  // Load solution to get linked_skills before deleting
+  try {
+    const solutionPath = path.join(solDir, 'solution.json');
+    const data = await fs.readFile(solutionPath, 'utf-8');
+    const solution = JSON.parse(data);
+    const linkedSkills = solution.linked_skills || [];
+
+    // Delete each linked skill directory
+    for (const slug of linkedSkills) {
+      const skillDir = path.join(getMemoryRoot(), slug);
+      try {
+        await fs.rm(skillDir, { recursive: true, force: true });
+        deletedSlugs.push(slug);
+        console.log(`[SolutionStore] Cascade-deleted skill directory: ${slug}`);
+      } catch (err) {
+        console.log(`[SolutionStore] Warning: Could not delete skill ${slug}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    console.log(`[SolutionStore] Warning: Could not load solution for cascade delete: ${err.message}`);
+  }
+
+  // Delete the solution directory itself
   await fs.rm(solDir, { recursive: true, force: true }).catch(() => {});
+  console.log(`[SolutionStore] Deleted solution: ${id} (cascade-deleted ${deletedSlugs.length} skills)`);
+
+  return deletedSlugs;
 }
 
 /**
