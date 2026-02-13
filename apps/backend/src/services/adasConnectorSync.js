@@ -10,22 +10,11 @@
  * 3. ADAS stores config in ConnectorRegistry
  * 4. On ADAS startup or connect, MCPGateway spawns the MCP process
  * 5. Skills reference connector IDs, tools are loaded at runtime
+ *
+ * All ADAS Core HTTP calls are delegated to adasCoreClient.js.
  */
 
-import { getCurrentTenant } from '../utils/tenantContext.js';
-
-// ADAS Core API base URL (same env var as export.js)
-const ADAS_API_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
-
-/** Build headers with tenant context for ADAS Core calls (per-request) */
-function adasHeaders(extra = {}) {
-  return { 'X-ADAS-TENANT': getCurrentTenant(), ...extra };
-}
-
-/** Build JSON headers with tenant context */
-function adasJsonHeaders() {
-  return adasHeaders({ 'Content-Type': 'application/json' });
-}
+import adasCore from './adasCoreClient.js';
 
 /**
  * Sync a connector configuration to ADAS.
@@ -36,20 +25,11 @@ function adasJsonHeaders() {
  * - http: Uses endpoint URL
  *
  * @param {object} connector - Connector config from DAL
- * @param {string} connector.id - Unique connector ID
- * @param {string} connector.name - Display name
- * @param {string} connector.type - Connector type (e.g., 'gmail', 'github', 'mcp')
- * @param {string} connector.transport - 'stdio' or 'http' (default: 'stdio')
- * @param {string} connector.endpoint - HTTP endpoint URL (for http transport)
- * @param {object} connector.config - { command, args, env } (for stdio transport)
- * @param {object} connector.credentials - Decrypted credentials (env vars)
- * @param {string} connector.layer - 'system' or 'tenant' (default: 'tenant')
  * @returns {Promise<object>} ADAS response
  */
 export async function syncConnectorToADAS(connector) {
   const { id, name, type, transport, endpoint, config, credentials, layer } = connector;
 
-  // Guard: refuse to sync without a concrete ID (would create ghost duplicates)
   if (!id) {
     throw new Error('[ADASSync] Cannot sync connector without an id');
   }
@@ -64,7 +44,6 @@ export async function syncConnectorToADAS(connector) {
     credentials: credentials || {}
   };
 
-  // Add layer if specified
   if (layer) {
     payload.layer = layer;
   }
@@ -73,7 +52,6 @@ export async function syncConnectorToADAS(connector) {
   if (transport === 'http' || endpoint) {
     payload.transport = 'http';
     payload.endpoint = endpoint;
-    // HTTP connectors may also have config for process spawning (e.g., http-wrapper.js)
     if (config?.command) {
       payload.config = {
         command: config.command,
@@ -85,7 +63,6 @@ export async function syncConnectorToADAS(connector) {
   // stdio transport: uses command/args/env
   else {
     payload.transport = 'stdio';
-    // Normalize args: stdio connectors should use server.js, not http-wrapper.js
     let args = config?.args || [];
     args = args.map(arg =>
       typeof arg === 'string' ? arg.replace(/\/http-wrapper\.js$/, '/server.js') : arg
@@ -98,45 +75,9 @@ export async function syncConnectorToADAS(connector) {
   }
 
   try {
-    // Check if connector exists
-    const checkRes = await fetch(`${ADAS_API_URL}/api/connectors/${id}`, {
-      headers: adasHeaders(),
-      signal: AbortSignal.timeout(15000)
-    });
-
-    if (checkRes.ok) {
-      // Update existing connector
-      const updateRes = await fetch(`${ADAS_API_URL}/api/connectors/${id}`, {
-        method: 'PATCH',
-        headers: adasJsonHeaders(),
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15000)
-      });
-
-      if (!updateRes.ok) {
-        const error = await updateRes.json().catch(() => ({}));
-        throw new Error(error.error || `Failed to update connector: ${updateRes.status}`);
-      }
-
-      console.log(`[ADASSync] Updated connector ${id} in ADAS`);
-      return updateRes.json();
-    } else {
-      // Create new connector
-      const createRes = await fetch(`${ADAS_API_URL}/api/connectors`, {
-        method: 'POST',
-        headers: adasJsonHeaders(),
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15000)
-      });
-
-      if (!createRes.ok) {
-        const error = await createRes.json().catch(() => ({}));
-        throw new Error(error.error || `Failed to create connector: ${createRes.status}`);
-      }
-
-      console.log(`[ADASSync] Created connector ${id} in ADAS`);
-      return createRes.json();
-    }
+    const result = await adasCore.syncConnector(payload);
+    console.log(`[ADASSync] Synced connector ${id} in ADAS`);
+    return result;
   } catch (err) {
     console.error(`[ADASSync] Failed to sync connector ${id}:`, err.message);
     throw err;
@@ -145,24 +86,10 @@ export async function syncConnectorToADAS(connector) {
 
 /**
  * Start a connector in ADAS (trigger MCPGateway to spawn it).
- *
- * @param {string} connectorId - Connector ID
- * @returns {Promise<object>} ADAS response with tools list
  */
 export async function startConnectorInADAS(connectorId) {
   try {
-    const res = await fetch(`${ADAS_API_URL}/api/connectors/${connectorId}/connect`, {
-      method: 'POST',
-      headers: adasJsonHeaders(),
-      signal: AbortSignal.timeout(30000) // 30s — connector start can be slow
-    });
-
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || `Failed to start connector: ${res.status}`);
-    }
-
-    const data = await res.json();
+    const data = await adasCore.startConnector(connectorId);
     console.log(`[ADASSync] Started connector ${connectorId} in ADAS: ${data.tools?.length || 0} tools`);
     return data;
   } catch (err) {
@@ -173,25 +100,12 @@ export async function startConnectorInADAS(connectorId) {
 
 /**
  * Stop a connector in ADAS.
- *
- * @param {string} connectorId - Connector ID
- * @returns {Promise<object>} ADAS response
  */
 export async function stopConnectorInADAS(connectorId) {
   try {
-    const res = await fetch(`${ADAS_API_URL}/api/connectors/${connectorId}/disconnect`, {
-      method: 'POST',
-      headers: adasJsonHeaders(),
-      signal: AbortSignal.timeout(15000)
-    });
-
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || `Failed to stop connector: ${res.status}`);
-    }
-
+    const result = await adasCore.stopConnector(connectorId);
     console.log(`[ADASSync] Stopped connector ${connectorId} in ADAS`);
-    return res.json();
+    return result;
   } catch (err) {
     console.error(`[ADASSync] Failed to stop connector ${connectorId}:`, err.message);
     throw err;
@@ -200,24 +114,12 @@ export async function stopConnectorInADAS(connectorId) {
 
 /**
  * Delete a connector from ADAS.
- *
- * @param {string} connectorId - Connector ID
- * @returns {Promise<object>} ADAS response
  */
 export async function deleteConnectorFromADAS(connectorId) {
   try {
-    const res = await fetch(`${ADAS_API_URL}/api/connectors/${connectorId}`, {
-      method: 'DELETE',
-      headers: adasHeaders()
-    });
-
-    if (!res.ok && res.status !== 404) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || `Failed to delete connector: ${res.status}`);
-    }
-
+    const result = await adasCore.deleteConnector(connectorId);
     console.log(`[ADASSync] Deleted connector ${connectorId} from ADAS`);
-    return { ok: true };
+    return result;
   } catch (err) {
     console.error(`[ADASSync] Failed to delete connector ${connectorId}:`, err.message);
     throw err;
@@ -226,21 +128,10 @@ export async function deleteConnectorFromADAS(connectorId) {
 
 /**
  * Get all connectors from ADAS.
- *
- * @returns {Promise<object[]>} Array of connectors
  */
 export async function getConnectorsFromADAS() {
   try {
-    const res = await fetch(`${ADAS_API_URL}/api/connectors`, {
-      headers: adasHeaders()
-    });
-
-    if (!res.ok) {
-      throw new Error(`Failed to get connectors: ${res.status}`);
-    }
-
-    const data = await res.json();
-    return data.connectors || [];
+    return await adasCore.getConnectors();
   } catch (err) {
     console.error(`[ADASSync] Failed to get connectors from ADAS:`, err.message);
     return [];
@@ -249,27 +140,10 @@ export async function getConnectorsFromADAS() {
 
 /**
  * Call a tool on a connector in ADAS.
- *
- * @param {string} connectorId - Connector ID
- * @param {string} toolName - Tool name
- * @param {object} args - Tool arguments
- * @returns {Promise<object>} Tool result
  */
 export async function callConnectorTool(connectorId, toolName, args = {}) {
   try {
-    const res = await fetch(`${ADAS_API_URL}/api/connectors/${connectorId}/call`, {
-      method: 'POST',
-      headers: adasJsonHeaders(),
-      body: JSON.stringify({ tool: toolName, args })
-    });
-
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || `Tool call failed: ${res.status}`);
-    }
-
-    const data = await res.json();
-    return data.result;
+    return await adasCore.callConnectorTool(connectorId, toolName, args);
   } catch (err) {
     console.error(`[ADASSync] Failed to call tool ${toolName} on ${connectorId}:`, err.message);
     throw err;
@@ -278,12 +152,10 @@ export async function callConnectorTool(connectorId, toolName, args = {}) {
 
 /**
  * Upload connector MCP code files to ADAS Core's /mcp-store.
- * This places Node.js (or other) MCP source files on the ADAS runtime
- * so stdio connectors can be spawned.
  *
- * @param {string} connectorId - Connector ID (e.g., "orders-mcp")
+ * @param {string} connectorId - Connector ID
  * @param {string} sourceDir - Path to directory containing connector source files
- * @returns {Promise<object>} ADAS response { ok, connectorId, filesWritten, depsInstalled }
+ * @returns {Promise<object>} ADAS response
  */
 export async function uploadMcpCodeToADAS(connectorId, sourceDir) {
   const fs = await import('fs');
@@ -313,23 +185,7 @@ export async function uploadMcpCodeToADAS(connectorId, sourceDir) {
   console.log(`[ADASSync] Uploading ${files.length} files for connector ${connectorId} to ADAS mcp-store`);
 
   try {
-    const res = await fetch(`${ADAS_API_URL}/api/mcp-store/upload`, {
-      method: 'POST',
-      headers: adasJsonHeaders(),
-      body: JSON.stringify({
-        connectorId,
-        files,
-        installDeps: true
-      }),
-      signal: AbortSignal.timeout(60000) // 60s — npm install can be slow
-    });
-
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({}));
-      throw new Error(error.error || `Upload failed: ${res.status}`);
-    }
-
-    const data = await res.json();
+    const data = await adasCore.uploadMcpCode(connectorId, files);
     console.log(`[ADASSync] Uploaded connector ${connectorId}: ${data.filesWritten?.length || 0} files, deps=${data.depsInstalled}`);
     return data;
   } catch (err) {
@@ -340,18 +196,7 @@ export async function uploadMcpCodeToADAS(connectorId, sourceDir) {
 
 /**
  * Check if ADAS is reachable.
- *
- * @returns {Promise<boolean>}
  */
 export async function isADASAvailable() {
-  try {
-    const res = await fetch(`${ADAS_API_URL}/api/connectors`, {
-      method: 'GET',
-      headers: adasHeaders(),
-      signal: AbortSignal.timeout(5000)
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  return adasCore.isAvailable();
 }

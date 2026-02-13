@@ -3,6 +3,7 @@ import skillsStore from "../store/skills.js";
 import { generateAdasExportPayload, generateAdasExportFiles } from "../services/exportAdasCore.js";
 import { provisionSkillActor, listTriggers, toggleTrigger, getTriggerHistory } from "../services/cpAdminBridge.js";
 import { deployIdentityToADAS, deploySkillToADAS, getSkillSlug } from "../services/exportDeploy.js";
+import adasCore from "../services/adasCoreClient.js";
 
 // Store running MCP processes
 const runningMCPs = new Map();
@@ -25,7 +26,7 @@ const router = Router();
 router.post("/:skillId/adas", async (req, res, next) => {
   try {
     const { skillId } = req.params;
-    const { deploy, adasUrl, solution_id } = req.query;
+    const { deploy, solution_id } = req.query;
     const log = req.app.locals.log;
 
     if (!solution_id) {
@@ -108,32 +109,15 @@ router.post("/:skillId/adas", async (req, res, next) => {
 
     // If deploy=true, send to ADAS Core
     if (deploy === "true") {
-      const targetUrl = adasUrl || process.env.ADAS_CORE_URL || "http://ai-dev-assistant-backend-1:4000";
-      const importUrl = `${targetUrl}/api/skills/import`;
-
-      log.info(`Deploying to ADAS Core: ${importUrl}`);
+      log.info(`Deploying to ADAS Core: ${adasCore.getBaseUrl()}/api/skills/import`);
 
       try {
-        const tenantHeader = (process.env.SB_TENANT || 'main').trim().toLowerCase();
-        const response = await fetch(importUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-ADAS-TENANT": tenantHeader },
-          body: JSON.stringify(payload)
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          return res.status(response.status).json({
-            error: "ADAS Core import failed",
-            details: result
-          });
-        }
+        const result = await adasCore.importSkillPayload(payload);
 
         // Update skill status
         skill.phase = "DEPLOYED";
         skill.deployedAt = new Date().toISOString();
-        skill.deployedTo = targetUrl;
+        skill.deployedTo = adasCore.getBaseUrl();
         await skillsStore.save(skill);
 
         return res.json({
@@ -147,10 +131,9 @@ router.post("/:skillId/adas", async (req, res, next) => {
 
       } catch (fetchErr) {
         log.error(`ADAS Core deploy failed: ${fetchErr.message}`);
-        return res.status(502).json({
+        return res.status(fetchErr.status || 502).json({
           error: "Failed to connect to ADAS Core",
           details: fetchErr.message,
-          targetUrl: importUrl
         });
       }
     }

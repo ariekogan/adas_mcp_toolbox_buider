@@ -992,7 +992,6 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
 
   const connectorResults = [];
   const skillResults = [];
-  const adasUrl = process.env.ADAS_CORE_URL || 'http://ai-dev-assistant-backend-1:4000';
 
   try {
     const totalConnectors = pkg.mcps?.length || 0;
