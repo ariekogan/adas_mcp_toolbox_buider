@@ -58,7 +58,7 @@ function buildIndex() {
       '4. POST /validate/skill — validate and fix errors',
       '5. GET /spec/solution — read the solution specification when ready to compose skills',
       '6. POST /validate/solution — validate the full solution',
-      '7. POST /deploy/solution — deploy to ADAS Core',
+      '7. POST /deploy/solution — deploy everything to ADAS Core (the Skill Builder auto-generates MCP servers from your tool definitions — no slug or Python code needed)',
     ],
     endpoints: {
       '/spec/enums': {
@@ -97,10 +97,61 @@ function buildIndex() {
     also_available: {
       'POST /validate/skill': 'Validate a single skill definition (5-stage pipeline)',
       'POST /validate/solution': 'Validate a solution (cross-skill contracts + LLM quality scoring)',
-      'POST /deploy/connector': 'Deploy a connector to ADAS Core (create/update + start)',
-      'POST /deploy/skill': 'Deploy a skill MCP server to ADAS Core',
-      'POST /deploy/solution': 'Deploy a full solution (identity + connectors + skills)',
+      'POST /deploy/connector': 'Deploy a connector via Skill Builder → ADAS Core',
+      'POST /deploy/skill': 'Deploy a single skill via Skill Builder (requires solution_id)',
+      'POST /deploy/solution': 'Deploy a full solution via Skill Builder → ADAS Core (identity + connectors + skills). No slug or Python MCP code needed.',
       'GET /health': 'Health check',
+    },
+    deploy_guide: {
+      _note: 'All deploy routes proxy through the Skill Builder backend, which stores everything (visible in Skill Builder UI), auto-generates Python MCP servers from skill tool definitions, and pushes to ADAS Core.',
+      'POST /deploy/solution': {
+        description: 'Deploy a complete solution — the recommended way to deploy. The Skill Builder handles slug generation, MCP server creation, and ADAS Core registration.',
+        body: {
+          solution: {
+            _note: 'Solution architecture — identity, grants, handoffs, routing',
+            id: 'ecom-customer-service',
+            name: 'E-Commerce Customer Service',
+            description: '...',
+            identity: { actor_types: ['...'], default_actor_type: '...' },
+            skills: [{ id: 'skill-id', name: '...', role: 'gateway|worker' }],
+            grants: ['...'],
+            handoffs: ['...'],
+            routing: {},
+          },
+          skills: [
+            {
+              _note: 'Full skill definitions — same format as POST /validate/skill',
+              id: 'order-support',
+              name: 'Order Support Agent',
+              tools: ['... tool definitions with inputs, outputs, source ...'],
+              role: '...',
+              connectors: ['orders-mcp'],
+            },
+          ],
+          connectors: [
+            {
+              _note: 'Connector metadata — how to connect to MCP servers',
+              id: 'orders-mcp',
+              name: 'Orders MCP',
+              transport: 'stdio',
+              command: 'node',
+              args: ['/mcp-store/orders-mcp/server.js'],
+            },
+          ],
+          mcp_store: {
+            _note: 'Optional: connector source code files. Key = connector id, value = { path: content } map',
+            'orders-mcp': [{ path: 'server.js', content: '...' }, { path: 'package.json', content: '...' }],
+          },
+        },
+      },
+      'POST /deploy/connector': {
+        description: 'Deploy a single connector. Registers it in the Skill Builder catalog and connects it in ADAS Core.',
+        body: { connector: { id: 'orders-mcp', name: 'Orders MCP', transport: 'stdio', command: 'node', args: [] } },
+      },
+      'POST /deploy/skill': {
+        description: 'Deploy a single skill into an existing solution. Requires solution_id.',
+        body: { skill: { id: 'order-support', name: 'Order Support Agent', tools: ['...'] }, solution_id: '<existing-solution-id>' },
+      },
     },
   };
 }
@@ -810,9 +861,43 @@ function buildSkillSpec() {
           escalation: { enabled: false, conditions: [], target: '' },
         },
         engine: {
-          max_iterations: 10,
-          max_replans: 2,
+          model: 'claude-sonnet-4-20250514',
+          temperature: 0.3,
+          rv2: {
+            max_iterations: 8,
+            iteration_timeout_ms: 30000,
+            allow_parallel_tools: false,
+            on_max_iterations: 'fail',
+          },
+          hlr: {
+            enabled: true,
+            critic: { enabled: false, strictness: 'medium' },
+            reflection: { enabled: false, depth: 'shallow' },
+          },
+          autonomy: { level: 'autonomous' },
         },
+        grant_mappings: [
+          {
+            _note: 'Optional: auto-issue grants from tool responses. Include only if this skill issues grants for other skills.',
+            grant_key: '<namespace.grant_name>',
+            source_tool: '<tool-name>',
+            source_field: '$.result_field',
+            condition: '<optional JS expression, e.g. output.verified === true>',
+          },
+        ],
+        access_policy: {
+          _note: 'Declarative access control. Use requires_grants for tools that need verified claims.',
+          rules: [
+            { tools: ['*'], effect: 'allow' },
+          ],
+        },
+        response_filters: [
+          {
+            _note: 'Optional: strip sensitive fields from tool responses before showing to users.',
+            id: 'strip-pii',
+            strip_fields: ['<field.path.to.strip>'],
+          },
+        ],
       },
     },
 
@@ -823,11 +908,10 @@ function buildSkillSpec() {
         '1. GET /spec/enums — learn all valid enum values',
         '2. GET /spec/skill — study the schema, validation rules, and system tools',
         '3. GET /spec/examples/skill — see a complete working example that passes validation',
-        '4. Define your connectors — what external systems (MCP servers) does your agent need?',
-        '5. Build the skill definition following this order: problem → scenarios → role → intents → tools → policy → engine',
+        '4. Define your connectors — what external systems (MCP servers) does your agent need? Write the connector source code (Node.js/Python MCP server) that implements real business logic (database access, API calls, UI dashboards)',
+        '5. Build the skill definition following this order: problem → scenarios → role → intents → tools → policy → engine → grant_mappings (if issuing grants) → access_policy → response_filters',
         '6. POST /validate/skill with { "skill": <your definition> } — fix all errors before proceeding',
-        '7. POST /deploy/connector — deploy each connector to ADAS Core',
-        '8. POST /deploy/skill — deploy the skill MCP server code to ADAS Core',
+        '7. POST /deploy/solution — deploy everything at once (connectors + skills). The Skill Builder auto-generates Python MCP servers from your skill tool definitions. You do NOT need to write slugs or Python MCP code for skills — only connector implementations.',
       ],
       naming_conventions: {
         skill_id: 'lowercase-kebab-case (e.g., "order-support", "identity-assurance")',
@@ -847,6 +931,10 @@ function buildSkillSpec() {
         'Missing mock examples for tools — needed for testing without real MCP connections',
         'Guardrails that contradict tool capabilities without access_policy to resolve the conflict',
         'Using invalid enum values — always check GET /spec/enums first',
+        'Putting only { max_iterations, max_replans } in engine — use the full engine structure with model, temperature, rv2, hlr, and autonomy (see template)',
+        'Omitting grant_mappings when a skill issues grants — if your skill verifies identity or produces claims consumed by other skills, add grant_mappings',
+        'Trying to write Python MCP server code for skills — the Skill Builder auto-generates it from your tool definitions. Only connector source code (real business logic) needs to be written by you.',
+        'Providing slug or mcpServer in deploy requests — these are computed automatically. Just provide skill definitions with tools.',
       ],
       key_concepts: {
         tool_vs_system_tool: 'Your tools come from MCP connectors. System tools (sys.*, ui.*, cp.*) are provided by the ADAS runtime — do NOT define them in your tools array.',
@@ -1108,8 +1196,24 @@ function buildSolutionSpec() {
           telegram: { default_skill: '<gateway-skill-id>', description: 'All messages go to gateway first' },
           email: { default_skill: '<gateway-skill-id>', description: 'All emails go to gateway first' },
         },
-        platform_connectors: [],
-        security_contracts: [],
+        platform_connectors: [
+          {
+            id: '<connector-id>',
+            name: '<Connector Name>',
+            description: '<What this connector does>',
+          },
+        ],
+        security_contracts: [
+          {
+            name: '<Contract name — human-readable>',
+            consumer: '<worker-skill-id>',
+            provider: '<gateway-skill-id>',
+            requires_grants: ['<namespace.grant_name>'],
+            required_values: { '<namespace.assurance_level>': ['L1'] },
+            for_tools: ['<tool-name-1>', '<tool-name-2>'],
+            validation: '<Human-readable explanation of what this contract enforces>',
+          },
+        ],
       },
     },
 
@@ -1118,13 +1222,14 @@ function buildSolutionSpec() {
       description: 'Step-by-step instructions for an AI agent building a multi-skill ADAS solution.',
       build_order: [
         '1. Build each skill individually first — each must pass POST /validate/skill',
-        '2. Define identity: who uses this solution? Create actor_types (customer, agent, admin, etc.)',
-        '3. Map the grant economy: what verified claims flow between skills? (e.g., customer_id, assurance_level)',
-        '4. Define handoffs: how do conversations transfer between skills? What grants propagate?',
-        '5. Set up routing: which skill answers which channel? (telegram, email, api)',
-        '6. Add security contracts: which grants protect which tools across skill boundaries?',
-        '7. POST /validate/solution with { "solution": <def>, "skills": [<skill1>, <skill2>] }',
-        '8. POST /deploy/solution to deploy everything at once (identity → connectors → skills)',
+        '2. Write connector source code — real MCP server implementations (Node.js/Python) with business logic, database access, UI dashboards',
+        '3. Define identity: who uses this solution? Create actor_types (customer, agent, admin, etc.)',
+        '4. Map the grant economy: what verified claims flow between skills? (e.g., customer_id, assurance_level)',
+        '5. Define handoffs: how do conversations transfer between skills? What grants propagate?',
+        '6. Set up routing: which skill answers which channel? (telegram, email, api)',
+        '7. Add security contracts: which grants protect which tools across skill boundaries?',
+        '8. POST /validate/solution with { "solution": <def>, "skills": [<skill1>, <skill2>] }',
+        '9. POST /deploy/solution with { solution, skills, connectors, mcp_store } — the Skill Builder imports everything, auto-generates Python MCP servers from skill tool definitions, and deploys to ADAS Core. No slug or Python MCP code needed for skills.',
       ],
       naming_conventions: {
         solution_id: 'lowercase-kebab-case (e.g., "ecom-customer-service")',
@@ -1139,6 +1244,11 @@ function buildSolutionSpec() {
         'Routing target skills that do not exist in the solution → validation error',
         'Forgetting to declare handoff-controller-mcp as a platform connector',
         'Security contract provider/consumer referencing non-existent skills',
+        'Using "grants_propagated" instead of "grants_passed" in handoffs — the correct field name is grants_passed',
+        'Using { tool, skill } in security_contracts instead of { name, consumer, provider, for_tools } — see the template and example for the correct schema',
+        'Missing "id" field on handoffs — every handoff needs a unique id',
+        'Deploying directly to ADAS Core instead of through the Skill Builder — always use POST /deploy/solution which routes through the Skill Builder for proper storage and MCP generation',
+        'Writing Python MCP server code for skills — only connector implementations need real code. Skill MCP servers are auto-generated from tool definitions.',
       ],
       key_concepts: {
         skill_roles: 'gateway = entry point (identity/routing), worker = does the work, orchestrator = coordinates multiple workers, approval = authorizes actions',

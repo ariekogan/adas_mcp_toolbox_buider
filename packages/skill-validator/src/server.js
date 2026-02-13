@@ -4,8 +4,18 @@
  * A single service that lets any external AI agent learn, build, validate,
  * and deploy ADAS multi-agent solutions.
  *
+ * Golden Path: External Agent → Skill Builder → ADAS Core
+ *
+ * All deploy routes proxy through the Skill Builder backend, which:
+ *   - Stores solutions/skills/connectors (visible in Skill Builder UI)
+ *   - Auto-generates Python MCP servers from skill tool definitions
+ *   - Pushes everything to ADAS Core
+ *
+ * External agents do NOT need to provide slugs or Python MCP code for skills.
+ * Only connector implementations (real business logic) need to be written.
+ *
  * Spec (learn):
- *   GET  /spec                      — API index
+ *   GET  /spec                      — API index + deploy body documentation
  *   GET  /spec/enums                — All ADAS enum values
  *   GET  /spec/skill                — Complete skill specification
  *   GET  /spec/solution             — Complete solution specification
@@ -13,16 +23,16 @@
  *   GET  /spec/examples/skill       — Complete validated skill example
  *   GET  /spec/examples/connector   — Standard MCP connector example
  *   GET  /spec/examples/connector-ui — UI-capable connector example
- *   GET  /spec/examples/solution    — Full multi-skill solution example
+ *   GET  /spec/examples/solution    — Full multi-skill solution example + deploy body
  *
  * Validate (check):
  *   POST /validate/skill            — 5-stage skill validation
  *   POST /validate/solution         — Cross-skill contracts + LLM quality scoring
  *
- * Deploy (ship):
- *   POST /deploy/connector          — Deploy connector to ADAS Core
- *   POST /deploy/skill              — Deploy skill MCP to ADAS Core
- *   POST /deploy/solution           — Deploy full solution to ADAS Core
+ * Deploy (ship) — all routes proxy through Skill Builder:
+ *   POST /deploy/connector          — Register + connect connector via Skill Builder
+ *   POST /deploy/skill              — Import skill definition via Skill Builder
+ *   POST /deploy/solution           — Import + deploy full solution via Skill Builder
  *
  *   GET  /health                    — Health check
  */
@@ -70,8 +80,8 @@ app.listen(PORT, () => {
   console.log(`  GET  /spec/examples/solution     — Solution example`);
   console.log(`  POST /validate/skill             — Validate skill`);
   console.log(`  POST /validate/solution          — Validate solution`);
-  console.log(`  POST /deploy/connector           — Deploy connector`);
-  console.log(`  POST /deploy/skill               — Deploy skill`);
-  console.log(`  POST /deploy/solution            — Deploy solution`);
+  console.log(`  POST /deploy/connector           — Deploy connector via Skill Builder`);
+  console.log(`  POST /deploy/skill               — Deploy skill via Skill Builder`);
+  console.log(`  POST /deploy/solution            — Deploy solution via Skill Builder`);
   console.log(`  GET  /health                     — Health check`);
 });

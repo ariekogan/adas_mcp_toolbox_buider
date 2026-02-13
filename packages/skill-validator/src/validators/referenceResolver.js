@@ -56,8 +56,8 @@ export function resolveReferences(skill, unresolved) {
 
   // Build lookup sets (filter out tools without names)
   // Include both regular tools AND meta_tools in the lookup
-  const toolIds = new Set(skill.tools.map(t => t.id).filter(Boolean));
-  const toolNames = new Set(skill.tools.filter(t => t.name).map(t => t.name.toLowerCase()));
+  const toolIds = new Set((skill.tools || []).map(t => t.id).filter(Boolean));
+  const toolNames = new Set((skill.tools || []).filter(t => t.name).map(t => t.name.toLowerCase()));
 
   // Also include meta_tools in the lookup (they are valid tool references)
   if (Array.isArray(skill.meta_tools)) {

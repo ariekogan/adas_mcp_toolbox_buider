@@ -905,7 +905,7 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
         const result = skillResults.find(r => r.originalId === s.id);
         return { ...s, skillId: result?.id, status: result?.status };
       }),
-      solution: solutionResult
+      solution: solutionResult || (targetSolutionId ? { id: targetSolutionId, status: 'referenced' } : null)
     };
 
     // Check if a package already exists for this solution (prevent duplicates)

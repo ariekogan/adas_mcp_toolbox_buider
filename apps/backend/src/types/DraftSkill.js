@@ -6,7 +6,7 @@
  */
 
 /**
- * @typedef {'PROBLEM_DISCOVERY' | 'SCENARIO_EXPLORATION' | 'INTENT_DEFINITION' | 'TOOLS_PROPOSAL' | 'TOOL_DEFINITION' | 'POLICY_DEFINITION' | 'MOCK_TESTING' | 'READY_TO_EXPORT' | 'EXPORTED'} Phase
+ * @typedef {'PROBLEM_DISCOVERY' | 'SCENARIO_EXPLORATION' | 'INTENT_DEFINITION' | 'TOOLS_PROPOSAL' | 'TOOL_DEFINITION' | 'POLICY_DEFINITION' | 'MOCK_TESTING' | 'READY_TO_EXPORT' | 'EXPORTED' | 'DEPLOYED'} Phase
  */
 
 /**
@@ -665,15 +665,38 @@
 
 /**
  * The main DraftSkill interface - canonical object for DAL Builder
+ *
+ * DEPLOY-CRITICAL FIELDS:
+ *   - name (string): Primary source for skillSlug generation. The slug is derived as:
+ *     name.toLowerCase().replace(/[^a-z0-9]+/g, "-") → must match /^[a-z0-9]+(-[a-z0-9]+)*$/
+ *   - tools (Tool[]): Each tool becomes a @mcp.tool() in the generated Python MCP server.
+ *     At minimum needs: name, description. Inputs recommended for proper MCP generation.
+ *   - version (number): Set after export. Deploy checks this to find exported MCP files.
+ *   - phase (Phase): Must reach EXPORTED or DEPLOYED for deploy to work.
+ *   - connectors (string[]): Connector IDs that are auto-synced during deploy.
+ *
+ * DEPLOY FLOW:
+ *   1. Skill reaches READY_TO_EXPORT phase
+ *   2. Export generates MCP server (server.py) from tools → phase becomes EXPORTED, version is set
+ *   3. Deploy reads server.py, derives skillSlug from name, sends to ADAS Core → phase becomes DEPLOYED
+ *   4. If server.py is missing at deploy time, auto-generation is attempted via generateMCPSimple()
+ *
  * @typedef {Object} DraftSkill
- * @property {string} id
- * @property {string} name
- * @property {string} description
- * @property {string} version
- * @property {Phase} phase
- * @property {string} [mcp_server] - MCP server URI for skill-specific tools (Multi-Slag Architecture)
+ * @property {string} id - Internal ID (e.g., "dom_abc123"). NOT used as skillSlug.
+ * @property {string} name - Human-readable name. DEPLOY: Used to derive skillSlug for ADAS Core.
+ * @property {string} description - Skill description
+ * @property {number} version - Export version number. DEPLOY: Must be set (indicates MCP was generated).
+ * @property {Phase} phase - Current lifecycle phase. DEPLOY: Must be EXPORTED or DEPLOYED.
+ * @property {string} [mcp_server] - MCP server URI for skill-specific tools
+ * @property {string} [original_skill_id] - Original ID from imported solution packs. Used for re-import dedup.
+ * @property {string} [solution_id] - Parent solution ID. DEPLOY: Required for all deploy operations.
+ * @property {string[]} [connectors] - Connector IDs this skill uses. DEPLOY: Auto-synced during deploy.
  * @property {string} created_at
  * @property {string} updated_at
+ * @property {string} [deployedAt] - ISO timestamp of last deployment
+ * @property {string} [deployedTo] - ADAS Core URL where skill was deployed
+ * @property {string} [mcpUri] - MCP URI assigned by ADAS Core after deploy
+ * @property {string} [connectorId] - Connector ID assigned by ADAS Core after deploy
  * @property {Problem} problem
  * @property {Scenario[]} scenarios
  * @property {Role} role
@@ -681,14 +704,18 @@
  * @property {IntentsConfig} intents
  * @property {EngineConfig} engine
  * @property {ToolBoxImport[]} toolbox_imports
- * @property {Tool[]} tools
+ * @property {Tool[]} tools - DEPLOY: Each becomes @mcp.tool() in generated Python MCP server.
  * @property {MetaTool[]} meta_tools - DAL-generated tool compositions
- * @property {Trigger[]} triggers - Automation triggers (schedule, event)
+ * @property {Trigger[]} triggers - Automation triggers (schedule, event). DEPLOY: Enabled triggers are included.
  * @property {PolicyConfig} policy
  * @property {Channel[]} channels
  * @property {ConnectorConfig[]} [connector_configs] - Per-skill connector identity/config overrides (DEPRECATED: use skill_identity + skill_channels)
- * @property {SkillIdentity} [skill_identity] - Skill's identity (who the skill is)
+ * @property {SkillIdentity} [skill_identity] - Skill's identity (who the skill is). DEPLOY: actor_id/actor_ref set during deploy.
  * @property {SkillChannelsConfig} [skill_channels] - Skill's channel configuration (how it's reached)
+ * @property {Object[]} [grant_mappings] - Identity grants issued by tool responses. DEPLOY: Included in skill.yaml.
+ * @property {Object} [access_policy] - Grant-based tool access control. DEPLOY: Included in skill.yaml.
+ * @property {Object} [context_propagation] - Grant propagation rules for handoffs. DEPLOY: Included in skill.yaml.
+ * @property {Object[]} [response_filters] - Response field filtering rules. DEPLOY: Included in skill.yaml.
  * @property {ValidationResult} validation
  * @property {Message[]} conversation
  */
@@ -710,7 +737,8 @@ export const PHASES = [
   'POLICY_DEFINITION',
   'MOCK_TESTING',
   'READY_TO_EXPORT',
-  'EXPORTED'
+  'EXPORTED',
+  'DEPLOYED'
 ];
 
 /**
@@ -726,7 +754,8 @@ export const PHASE_LABELS = {
   POLICY_DEFINITION: 'Policy Definition',
   MOCK_TESTING: 'Mock Testing',
   READY_TO_EXPORT: 'Ready to Export',
-  EXPORTED: 'Exported'
+  EXPORTED: 'Exported',
+  DEPLOYED: 'Deployed'
 };
 
 /**

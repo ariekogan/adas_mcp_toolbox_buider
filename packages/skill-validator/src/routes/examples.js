@@ -518,7 +518,7 @@ function buildExampleConnectorUI() {
 
 function buildExampleSolution() {
   return {
-    _note: 'This example passes validateSolution(). It shows a 3-skill e-commerce customer service system with grant economy, handoffs, and routing.',
+    _note: 'This example passes validateSolution(). It shows a 3-skill e-commerce customer service system with grant economy, handoffs, and routing. To deploy, use POST /deploy/solution with the deploy_body shown at the bottom.',
 
     id: 'ecom-customer-service',
     name: 'E-Commerce Customer Service',
@@ -643,5 +643,51 @@ function buildExampleSolution() {
         validation: 'Customer identity must be verified before processing returns',
       },
     ],
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DEPLOY BODY EXAMPLE
+    // ═══════════════════════════════════════════════════════════════════════
+    // POST /deploy/solution with this body. No slug or Python MCP code needed.
+    // The Skill Builder auto-generates MCP servers from skill tool definitions.
+    _deploy_body_example: {
+      _note: 'POST /deploy/solution — the Skill Builder handles slug generation, MCP server creation, and ADAS Core deployment. You only provide definitions.',
+      solution: {
+        id: 'ecom-customer-service',
+        name: 'E-Commerce Customer Service',
+        description: 'Multi-agent customer service for an e-commerce platform',
+        identity: {
+          actor_types: [
+            { key: 'customer', label: 'Customer', description: 'End customer contacting support', default_channel: 'telegram' },
+            { key: 'support_agent', label: 'Support Agent', description: 'Human support agent' },
+          ],
+          default_actor_type: 'customer',
+          admin_roles: ['support_agent'],
+        },
+        skills: [
+          { id: 'identity-assurance', name: 'Identity Assurance', role: 'gateway' },
+          { id: 'order-support', name: 'Order Support', role: 'worker' },
+          { id: 'returns-support', name: 'Returns & Refunds', role: 'worker' },
+        ],
+        grants: [
+          { key: 'ecom.customer_id', issued_by: ['identity-assurance'], consumed_by: ['order-support', 'returns-support'] },
+        ],
+        handoffs: [
+          { id: 'identity-to-orders', from: 'identity-assurance', to: 'order-support', grants_passed: ['ecom.customer_id'] },
+        ],
+        routing: {
+          telegram: { default_skill: 'identity-assurance' },
+        },
+      },
+      skills: [
+        '... full skill definitions (same format as POST /validate/skill) — see GET /spec/examples/skill ...',
+      ],
+      connectors: [
+        { id: 'orders-mcp', name: 'Orders MCP', transport: 'stdio', command: 'node', args: ['/mcp-store/orders-mcp/server.js'] },
+        { id: 'identity-mcp', name: 'Identity MCP', transport: 'stdio', command: 'node', args: ['/mcp-store/identity-mcp/server.js'] },
+      ],
+      mcp_store: {
+        _note: 'Optional: connector source code. Key = connector id, value = array of { path, content }',
+      },
+    },
   };
 }

@@ -14,6 +14,9 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const VALID_TENANTS = ['main', 'testing', 'dev'];
 const DEFAULT_TENANT = process.env.SB_TENANT || 'main';
@@ -21,13 +24,26 @@ const DEFAULT_TENANT = process.env.SB_TENANT || 'main';
 /**
  * Resolve the memory root for a given tenant.
  * Same logic as backend's tenantContext.js.
+ *
+ * Resolution order:
+ *   1. MEMORY_PATH env var (Docker / explicit config)
+ *   2. TENANTS_ROOT env var (Docker compose: /tenants)
+ *   3. <project-root>/apps/backend/data/tenants/<tenant>  (local dev)
+ *
+ * The local-dev fallback uses __dirname to resolve the project root,
+ * so it works regardless of cwd (standalone or forked).
  */
 function getMemoryRoot(tenant) {
   if (process.env.MEMORY_PATH) {
     return process.env.MEMORY_PATH;
   }
-  const tenantsRoot = process.env.TENANTS_ROOT || path.join(process.cwd(), 'data', 'tenants');
-  return path.join(tenantsRoot, tenant);
+  if (process.env.TENANTS_ROOT) {
+    return path.join(process.env.TENANTS_ROOT, tenant);
+  }
+  // Local dev: resolve from this file → project root → backend data dir
+  // __dirname = packages/skill-validator/src/middleware
+  const projectRoot = path.resolve(__dirname, '..', '..', '..', '..');
+  return path.join(projectRoot, 'apps', 'backend', 'data', 'tenants', tenant);
 }
 
 /**

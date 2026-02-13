@@ -194,6 +194,35 @@ The `solution.yaml` provides a **birds-eye view** of cross-skill architecture. E
 
 The solution validator cross-references both levels to ensure consistency.
 
+## Deployment Notes
+
+When deploying a solution, the deploy process works in phases:
+
+1. **Identity Config** — `actor_types`, `admin_roles`, etc. are pushed to ADAS Core first
+2. **Connectors** — Each connector is registered, code uploaded, and started
+3. **Skills** — Each skill gets a `skillSlug` derived from its name, an MCP server is generated (if missing), and deployed
+
+### Critical: skillSlug
+
+ADAS Core requires skill slugs matching `/^[a-z0-9]+(-[a-z0-9]+)*$/`.
+
+The slug is derived from `skill.name`:
+- `"Identity Assurance Manager"` → `"identity-assurance-manager"`
+- `"Customer Support Tier 1"` → `"customer-support-tier-1"`
+
+**No underscores, no uppercase, no special characters.**
+
+### Critical: mcpServer
+
+Each skill deployment requires Python MCP server source code. This is auto-generated from the skill definition during deploy if `server.py` doesn't exist in the export directory. The generated server:
+- Uses `mcp.server.fastmcp.FastMCP`
+- Exposes each tool via `@mcp.tool()` decorators
+- Includes discovery endpoints (`get_skill_info`, `list_capabilities`)
+
+### Critical: solution_id
+
+Almost all API endpoints require `solution_id`. Skills belong to solutions, and deploy operations need the solution context for identity config and connector linking.
+
 ## Example
 
 See `/solution.yaml` in the e-commerce solution pack for a complete example with:
@@ -202,3 +231,71 @@ See `/solution.yaml` in the e-commerce solution pack for a complete example with
 - 3 handoff flows with grant propagation
 - 3 channel routes (telegram, email, api)
 - 5 security contracts protecting sensitive operations
+
+## Deploy-Ready Example
+
+A minimal `solution.yaml` ready for deployment:
+
+```yaml
+id: ecommerce-support
+name: "E-Commerce Customer Support"
+version: "1.0.0"
+description: "Multi-skill customer support with identity verification"
+
+# Identity config (deployed in Phase 0)
+identity:
+  actor_types:
+    - name: customer
+      label: Customer
+      fields: [email, name, customer_id]
+    - name: agent
+      label: Support Agent
+      fields: [email, name, employee_id]
+  admin_roles: [admin, support_lead]
+  default_actor_type: customer
+  default_roles: [user]
+
+# Skills (deployed in Phase 2)
+skills:
+  - id: identity-assurance
+    role: gateway
+    description: "Verifies customer identity before granting access"
+    entry_channels: [telegram, email, api]
+    connectors: [identity-mcp]
+
+  - id: support-tier-1
+    role: worker
+    description: "Handles common support requests"
+    connectors: [orders-mcp, returns-mcp]
+
+# Grant economy
+grants:
+  - key: ecom.customer_id
+    description: "Verified customer ID"
+    issued_by: [identity-assurance]
+    consumed_by: [support-tier-1]
+    issued_via: grant_mapping
+    source_tool: verify_customer
+    source_field: result.customer_id
+    ttl_seconds: 3600
+
+# Handoffs
+handoffs:
+  - id: identity-to-support
+    from: identity-assurance
+    to: support-tier-1
+    trigger: "Customer identity verified"
+    grants_passed: [ecom.customer_id]
+    mechanism: handoff-controller-mcp
+
+# Routing
+routing:
+  telegram:
+    default_skill: identity-assurance
+    description: "All Telegram users start with identity verification"
+  api:
+    default_skill: identity-assurance
+    description: "API callers start with identity verification"
+```
+
+See also: [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) for the complete deployment workflow and API reference.

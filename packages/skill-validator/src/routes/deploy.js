@@ -1,28 +1,27 @@
 /**
- * ADAS Deploy API routes
+ * ADAS Deploy API routes — Golden Path
  *
- * Proxy endpoints that deploy skills, connectors, and full solutions
- * to ADAS Core. External agents use these to push their work to the runtime.
+ * All deployments flow through the Skill Builder backend, which:
+ *   1. Stores solutions/skills/connectors (visible in Skill Builder UI)
+ *   2. Auto-generates Python MCP servers from skill tool definitions
+ *   3. Pushes everything to ADAS Core
  *
- * POST /deploy/connector  — Deploy a connector to ADAS Core
- * POST /deploy/skill      — Deploy a skill MCP server to ADAS Core
- * POST /deploy/solution   — Deploy a full solution (identity + connectors + skills)
+ * External agents do NOT need to provide slugs or Python MCP code.
+ *
+ * POST /deploy/connector  — Register + connect a connector via Skill Builder
+ * POST /deploy/skill      — Import a skill definition via Skill Builder
+ * POST /deploy/solution   — Import + deploy a full solution via Skill Builder
  */
 
 import { Router } from 'express';
 
 const router = Router();
 
-const ADAS_CORE_URL = (process.env.ADAS_CORE_URL || 'http://ai-dev-assistant-backend-1:4000').replace(/\/$/, '');
-const TENANT = (process.env.SB_TENANT || 'main').trim().toLowerCase();
-const SLUG_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-
-function adasHeaders() {
-  return { 'Content-Type': 'application/json', 'X-ADAS-TENANT': TENANT };
-}
+const SKILL_BUILDER_URL = (process.env.SKILL_BUILDER_URL || 'http://localhost:4000').replace(/\/$/, '');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /deploy/connector
+// Register a connector in the Skill Builder and connect it in ADAS Core.
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.post('/connector', async (req, res) => {
@@ -36,115 +35,221 @@ router.post('/connector', async (req, res) => {
   }
 
   try {
-    const result = await deployConnector(connector);
-    res.json(result);
+    // Build a minimal solution-pack with just this connector
+    const manifest = {
+      name: `connector-${connector.id}`,
+      version: '1.0.0',
+      description: `Single connector deploy: ${connector.name}`,
+      mcp_store_included: false,
+      mcps: [connector],
+      skills: [],
+    };
+
+    // Import into Skill Builder
+    const importResp = await fetch(`${SKILL_BUILDER_URL}/api/import/solution-pack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manifest }),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!importResp.ok) {
+      const errText = await importResp.text().catch(() => importResp.statusText);
+      throw new Error(`Skill Builder import failed (${importResp.status}): ${errText}`);
+    }
+
+    // Deploy to ADAS Core via Skill Builder
+    const packageName = manifest.name;
+    const deployResult = await consumeDeploySSE(packageName);
+
+    // Find this connector's result
+    const connResult = deployResult.connectorResults?.find(r => r.id === connector.id);
+
+    res.json({
+      ok: connResult?.ok ?? false,
+      connector_id: connector.id,
+      action: 'deployed_via_skill_builder',
+      started: connResult?.ok ?? false,
+      tools_discovered: connResult?.tools || 0,
+      deploy_summary: deployResult,
+    });
   } catch (err) {
     console.error('[Deploy] Connector error:', err.message);
-    res.status(502).json({ ok: false, error: err.message, adas_url: ADAS_CORE_URL });
+    res.status(502).json({ ok: false, error: err.message, skill_builder_url: SKILL_BUILDER_URL });
   }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /deploy/skill
+// Import a skill definition into the Skill Builder.
+// The Skill Builder auto-generates the Python MCP server from tool defs.
+// Requires a solution_id — the skill must belong to a solution.
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.post('/skill', async (req, res) => {
-  const { skill } = req.body;
+  const { skill, solution_id } = req.body;
 
-  if (!skill?.slug) {
-    return res.status(400).json({ ok: false, error: 'Missing skill.slug' });
+  if (!skill?.id) {
+    return res.status(400).json({ ok: false, error: 'Missing skill.id' });
   }
-  if (!SLUG_REGEX.test(skill.slug)) {
-    return res.status(400).json({
-      ok: false,
-      error: `Invalid skill.slug "${skill.slug}". Must match /^[a-z0-9]+(-[a-z0-9]+)*$/ (lowercase, hyphens only, no leading/trailing hyphens)`,
-    });
+  if (!skill?.name) {
+    return res.status(400).json({ ok: false, error: 'Missing skill.name' });
   }
-  if (!skill?.mcpServer) {
-    return res.status(400).json({ ok: false, error: 'Missing skill.mcpServer (the MCP server source code)' });
+  if (!solution_id) {
+    return res.status(400).json({ ok: false, error: 'Missing solution_id. Deploy via POST /deploy/solution to create both the solution and skills at once.' });
   }
 
   try {
-    const result = await deploySkill(skill);
-    res.json(result);
+    // Build a solution-pack with just this skill
+    const manifest = {
+      name: `skill-${skill.id}`,
+      version: '1.0.0',
+      description: `Single skill deploy: ${skill.name}`,
+      mcp_store_included: false,
+      mcps: [],
+      skills: [{ id: skill.id, name: skill.name, description: skill.description || '' }],
+      solution_id,
+    };
+
+    // The skills map: skill id → YAML/JSON string
+    const skills = { [skill.id]: JSON.stringify(skill) };
+
+    // Import into Skill Builder
+    const importResp = await fetch(`${SKILL_BUILDER_URL}/api/import/solution-pack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manifest, skills }),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!importResp.ok) {
+      const errText = await importResp.text().catch(() => importResp.statusText);
+      throw new Error(`Skill Builder import failed (${importResp.status}): ${errText}`);
+    }
+
+    const importData = await importResp.json();
+
+    // Deploy to ADAS Core via Skill Builder
+    const packageName = manifest.name;
+    const deployResult = await consumeDeploySSE(packageName);
+
+    const skillResult = deployResult.skillResults?.find(r => r.id === skill.id);
+
+    res.json({
+      ok: skillResult?.ok ?? false,
+      skill_id: skill.id,
+      skill_name: skill.name,
+      mcp_uri: skillResult?.mcpUri || null,
+      import_result: importData.skills || [],
+      deploy_summary: deployResult,
+    });
   } catch (err) {
     console.error('[Deploy] Skill error:', err.message);
-    res.status(502).json({ ok: false, error: err.message, adas_url: ADAS_CORE_URL });
+    res.status(502).json({ ok: false, error: err.message, skill_builder_url: SKILL_BUILDER_URL });
   }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /deploy/solution
+// Import + deploy an entire solution: identity + connectors + skills.
+// The Skill Builder stores everything, generates MCP servers, and pushes
+// to ADAS Core. No slug or Python MCP code needed.
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.post('/solution', async (req, res) => {
-  const { solution } = req.body;
+  const { solution, skills, connectors, mcp_store } = req.body;
 
   if (!solution?.id) {
     return res.status(400).json({ ok: false, error: 'Missing solution.id' });
   }
-
-  const results = { ok: true, solution_id: solution.id, steps: {} };
+  if (!solution?.name) {
+    return res.status(400).json({ ok: false, error: 'Missing solution.name' });
+  }
 
   try {
-    // Step 1: Deploy identity (if present)
-    if (solution.identity) {
-      try {
-        const identityResult = await deployIdentity(solution.identity);
-        results.steps.identity = identityResult;
-      } catch (err) {
-        results.steps.identity = { ok: false, error: err.message };
-        // Identity failures are non-fatal — continue
-      }
+    // ── Build the manifest ──
+    const manifest = {
+      name: solution.id,
+      version: solution.version || '1.0.0',
+      description: solution.description || solution.name,
+      mcp_store_included: !!mcp_store && Object.keys(mcp_store).length > 0,
+      mcps: (connectors || []).map(c => ({
+        id: c.id,
+        name: c.name,
+        description: c.description || '',
+        transport: c.transport || 'stdio',
+        command: c.command,
+        args: c.args || [],
+        env: c.env || {},
+        category: c.category || 'domain',
+        layer: c.layer || 'domain',
+        requiresAuth: c.requiresAuth || false,
+        ui_capable: c.ui_capable || false,
+        ...(c.endpoint ? { endpoint: c.endpoint } : {}),
+        ...(c.credentials ? { credentials: c.credentials } : {}),
+        ...(c.envRequired ? { envRequired: c.envRequired } : {}),
+        ...(c.envHelp ? { envHelp: c.envHelp } : {}),
+        ...(c.authInstructions ? { authInstructions: c.authInstructions } : {}),
+      })),
+      skills: (skills || []).map(s => ({
+        id: s.id,
+        name: s.name,
+        description: s.description || '',
+      })),
+    };
+
+    // If the solution has architecture (identity, grants, handoffs, routing),
+    // embed it as _solutionYaml so the Skill Builder creates a solution object
+    if (solution.identity || solution.grants || solution.handoffs || solution.routing || solution.skills) {
+      manifest._solutionYaml = JSON.stringify(solution);
     }
 
-    // Step 2: Deploy connectors (if present)
-    if (solution.connectors?.length > 0) {
-      results.steps.connectors = [];
-      for (const connector of solution.connectors) {
-        try {
-          const connResult = await deployConnector(connector);
-          results.steps.connectors.push(connResult);
-        } catch (err) {
-          results.steps.connectors.push({ ok: false, connector_id: connector.id, error: err.message });
-        }
-      }
+    // Build skills map: skill id → JSON string (YAML-compatible)
+    const skillFiles = {};
+    for (const s of (skills || [])) {
+      skillFiles[s.id] = JSON.stringify(s);
     }
 
-    // Step 3: Deploy skills (if present)
-    if (solution.skills?.length > 0) {
-      results.steps.skills = [];
-      for (const skill of solution.skills) {
-        if (!skill.slug || !SLUG_REGEX.test(skill.slug)) {
-          results.steps.skills.push({
-            ok: false,
-            slug: skill.slug || '(missing)',
-            error: `Invalid slug. Must match /^[a-z0-9]+(-[a-z0-9]+)*$/`,
-          });
-          continue;
-        }
-        if (!skill.mcpServer) {
-          results.steps.skills.push({ ok: false, slug: skill.slug, error: 'Missing mcpServer' });
-          continue;
-        }
-        try {
-          const skillResult = await deploySkill(skill);
-          results.steps.skills.push(skillResult);
-        } catch (err) {
-          results.steps.skills.push({ ok: false, slug: skill.slug, error: err.message });
-        }
-      }
+    // Build mcp_store files map (connector source code)
+    const mcpStoreFiles = mcp_store || {};
+
+    // ── Import into Skill Builder ──
+    const importResp = await fetch(`${SKILL_BUILDER_URL}/api/import/solution-pack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        manifest,
+        skills: skillFiles,
+        mcpStore: mcpStoreFiles,
+      }),
+      signal: AbortSignal.timeout(60000),
+    });
+
+    if (!importResp.ok) {
+      const errText = await importResp.text().catch(() => importResp.statusText);
+      throw new Error(`Skill Builder import failed (${importResp.status}): ${errText}`);
     }
 
-    // Determine overall success
-    const connFails = (results.steps.connectors || []).filter(c => !c.ok).length;
-    const skillFails = (results.steps.skills || []).filter(s => !s.ok).length;
-    results.ok = connFails === 0 && skillFails === 0;
+    const importData = await importResp.json();
+    const packageName = importData.package?.name || manifest.name;
 
-    res.json(results);
+    // ── Deploy to ADAS Core via Skill Builder ──
+    const deployResult = await consumeDeploySSE(packageName);
+
+    res.json({
+      ok: deployResult.ok,
+      solution_id: solution.id,
+      package_name: packageName,
+      import: {
+        skills: importData.skills || [],
+        solution: importData.solution || null,
+        connectors: (importData.package?.mcps || []).length,
+      },
+      deploy: deployResult,
+    });
   } catch (err) {
     console.error('[Deploy] Solution error:', err.message);
-    res.status(502).json({ ok: false, error: err.message, adas_url: ADAS_CORE_URL });
+    res.status(502).json({ ok: false, error: err.message, skill_builder_url: SKILL_BUILDER_URL });
   }
 });
 
@@ -154,132 +259,77 @@ export default router;
 // INTERNAL HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function deployConnector(connector) {
-  const payload = {
-    id: connector.id,
-    name: connector.name,
-    type: 'mcp',
-    enabled: true,
-    autoStart: true,
-  };
+/**
+ * Call the Skill Builder's deploy-all endpoint and consume the SSE stream,
+ * collecting all events into a single result object.
+ */
+async function consumeDeploySSE(packageName) {
+  const resp = await fetch(`${SKILL_BUILDER_URL}/api/import/packages/${encodeURIComponent(packageName)}/deploy-all`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(300000), // 5 min for large deploys
+  });
 
-  if (connector.layer) payload.layer = connector.layer;
-  if (connector.credentials) payload.credentials = connector.credentials;
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => resp.statusText);
+    throw new Error(`Skill Builder deploy-all failed (${resp.status}): ${errText}`);
+  }
 
-  // Transport-specific config
-  if (connector.transport === 'stdio' || connector.command) {
-    payload.transport = 'stdio';
-    payload.config = {
-      command: connector.command || 'node',
-      args: connector.args || [],
-      env: connector.env || {},
+  // Parse SSE stream
+  const text = await resp.text();
+  const events = parseSSEEvents(text);
+
+  // Extract final summary from 'complete' event, or build from individual events
+  const completeEvent = events.find(e => e.type === 'complete');
+  const errorEvent = events.find(e => e.type === 'error');
+
+  if (errorEvent) {
+    throw new Error(`Deploy failed: ${errorEvent.error}`);
+  }
+
+  if (completeEvent) {
+    return {
+      ok: (completeEvent.connectors?.failed || 0) === 0 && (completeEvent.skills?.failed || 0) === 0,
+      connectors: completeEvent.connectors,
+      skills: completeEvent.skills,
+      connectorResults: completeEvent.connectorResults || [],
+      skillResults: completeEvent.skillResults || [],
     };
-  } else if (connector.transport === 'http' || connector.endpoint) {
-    payload.transport = 'http';
-    payload.endpoint = connector.endpoint || `http://${connector.id}:${connector.port || 3000}/mcp`;
-    if (connector.command) {
-      payload.config = {
-        command: connector.command,
-        args: connector.args || [],
-        env: connector.env || {},
-      };
-    }
   }
 
-  // Check if connector exists
-  let action = 'created';
-  try {
-    const check = await fetch(`${ADAS_CORE_URL}/api/connectors/${connector.id}`, {
-      headers: adasHeaders(),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (check.ok) action = 'updated';
-  } catch {
-    // Connector doesn't exist or ADAS unreachable — try to create
-  }
+  // No complete event — build summary from individual events
+  const connectorResults = events
+    .filter(e => e.type === 'connector_progress' && (e.status === 'done' || e.status === 'error'))
+    .map(e => ({ id: e.connectorId, ok: e.status === 'done', tools: e.tools || 0, error: e.error }));
 
-  // Create or update
-  const method = action === 'updated' ? 'PATCH' : 'POST';
-  const url = action === 'updated'
-    ? `${ADAS_CORE_URL}/api/connectors/${connector.id}`
-    : `${ADAS_CORE_URL}/api/connectors`;
+  const skillResults = events
+    .filter(e => e.type === 'skill_progress' && (e.status === 'done' || e.status === 'error'))
+    .map(e => ({ id: e.skillId, ok: e.status === 'done', mcpUri: e.mcpUri, error: e.error }));
 
-  const syncResp = await fetch(url, {
-    method,
-    headers: adasHeaders(),
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (!syncResp.ok) {
-    const errText = await syncResp.text().catch(() => syncResp.statusText);
-    throw new Error(`Connector sync failed (${syncResp.status}): ${errText}`);
-  }
-
-  // Start the connector
-  let started = false;
-  let tools = [];
-  try {
-    const startResp = await fetch(`${ADAS_CORE_URL}/api/connectors/${connector.id}/connect`, {
-      method: 'POST',
-      headers: adasHeaders(),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (startResp.ok) {
-      const startData = await startResp.json();
-      started = true;
-      tools = startData.tools || [];
-    }
-  } catch {
-    // Start failed — connector synced but not running
-  }
-
-  return { ok: true, connector_id: connector.id, action, started, tools_discovered: tools.length };
-}
-
-async function deploySkill(skill) {
-  const resp = await fetch(`${ADAS_CORE_URL}/api/skills/deploy-mcp`, {
-    method: 'POST',
-    headers: adasHeaders(),
-    body: JSON.stringify({
-      skillSlug: skill.slug,
-      mcpServer: skill.mcpServer,
-      requirements: skill.requirements || null,
-    }),
-    signal: AbortSignal.timeout(120000),
-  });
-
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => resp.statusText);
-    throw new Error(`Skill deploy failed (${resp.status}): ${errText}`);
-  }
-
-  const data = await resp.json();
   return {
-    ok: true,
-    skill_slug: skill.slug,
-    mcp_uri: data.mcpUri,
-    port: data.port,
-    connector_id: data.connectorId,
+    ok: connectorResults.every(r => r.ok) && skillResults.every(r => r.ok),
+    connectors: { total: connectorResults.length, deployed: connectorResults.filter(r => r.ok).length, failed: connectorResults.filter(r => !r.ok).length },
+    skills: { total: skillResults.length, deployed: skillResults.filter(r => r.ok).length, failed: skillResults.filter(r => !r.ok).length },
+    connectorResults,
+    skillResults,
   };
 }
 
-async function deployIdentity(identity) {
-  const resp = await fetch(`${ADAS_CORE_URL}/api/identity`, {
-    method: 'POST',
-    headers: adasHeaders(),
-    body: JSON.stringify({
-      actor_types: identity.actor_types || [],
-      admin_roles: identity.admin_roles || [],
-      default_actor_type: identity.default_actor_type || null,
-    }),
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => resp.statusText);
-    throw new Error(`Identity deploy failed (${resp.status}): ${errText}`);
+/**
+ * Parse SSE text into an array of event data objects.
+ * Each SSE line looks like: data: {"type":"connector_progress",...}
+ */
+function parseSSEEvents(text) {
+  const events = [];
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('data: ')) {
+      try {
+        events.push(JSON.parse(trimmed.slice(6)));
+      } catch {
+        // Skip malformed lines
+      }
+    }
   }
-
-  return { ok: true };
+  return events;
 }

@@ -190,7 +190,7 @@ function validateSkills(skills, solution) {
     }
 
     // Run security validation on each skill
-    const securityIssues = validateSecurity(skill);
+    const securityIssues = validateSecurity(skill) || [];
     securityIssues.forEach(issue => {
       issues.push({
         category: 'security',

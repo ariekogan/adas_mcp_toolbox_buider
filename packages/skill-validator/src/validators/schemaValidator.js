@@ -126,7 +126,7 @@ export function validateSchema(skill) {
   issues.push(...validateProblem(skill.problem));
 
   // Validate scenarios
-  skill.scenarios.forEach((scenario, i) => {
+  (skill.scenarios || []).forEach((scenario, i) => {
     issues.push(...validateScenario(scenario, `scenarios[${i}]`));
   });
 
@@ -140,7 +140,7 @@ export function validateSchema(skill) {
   issues.push(...validateEngine(skill.engine));
 
   // Validate tools
-  skill.tools.forEach((tool, i) => {
+  (skill.tools || []).forEach((tool, i) => {
     issues.push(...validateTool(tool, `tools[${i}]`));
   });
 
