@@ -98,5 +98,9 @@ app.listen(PORT, () => {
   console.log(`  GET  /deploy/solutions/:id/connectors/health — Connector health`);
   console.log(`  GET  /deploy/solutions/:id/skills/:sk/conversation — Skill chat history`);
   console.log(`  GET  /deploy/solutions/:id/health — Live health check`);
+  console.log(`  POST /deploy/solutions/:id/chat   — Solution Bot chat`);
+  console.log(`  POST /deploy/solutions/:id/redeploy — Bulk re-deploy all skills`);
+  console.log(`  POST /deploy/solutions/:id/skills — Add skill to existing solution`);
+  console.log(`  GET  /deploy/solutions/:id/export — Export solution bundle`);
   console.log(`  GET  /health                     — Health check`);
 });

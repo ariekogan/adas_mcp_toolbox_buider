@@ -119,6 +119,10 @@ function buildIndex() {
       'GET /deploy/solutions/:solutionId/connectors/health': 'Connector health — status, discovered tools, errors from ADAS Core',
       'GET /deploy/solutions/:solutionId/skills/:skillId/conversation': 'Skill conversation history — returns chat messages, optional ?limit=N',
       'GET /deploy/solutions/:solutionId/health': 'Live health check — cross-checks definition vs ADAS Core (skills deployed, connectors connected, issues)',
+      'POST /deploy/solutions/:solutionId/chat': 'Send a message to the Solution Bot — returns AI response with state updates and suggested focus',
+      'POST /deploy/solutions/:solutionId/redeploy': 'Re-deploy ALL skills at once — regenerates MCP servers and pushes to ADAS Core',
+      'POST /deploy/solutions/:solutionId/skills': 'Add a new skill to an existing solution — creates, links, and updates solution topology',
+      'GET /deploy/solutions/:solutionId/export': 'Export solution as a JSON bundle — compatible with POST /deploy/solution for re-import',
       'GET /health': 'Health check',
     },
     deploy_guide: {
@@ -200,6 +204,44 @@ function buildIndex() {
             'handoffs_push': { id: 'a-to-b', from: 'skill-a', to: 'skill-b', trigger: '...', grants_passed: ['ns.grant'], mechanism: 'handoff-controller-mcp' },
             'routing.api': { default_skill: 'skill-a', description: 'API routing' },
           },
+        },
+      },
+      'POST /deploy/solutions/:solutionId/redeploy': {
+        description: 'Re-deploy ALL skills in a solution at once. Iterates every linked skill, regenerates MCP servers, pushes to ADAS Core.',
+        body: { _note: 'No body required. Just POST with empty body.' },
+        returns: {
+          ok: true,
+          solution_id: 'solution-id',
+          deployed: 2,
+          failed: 0,
+          total: 2,
+          skills: [{ skill_id: 'skill-1', ok: true, skillSlug: '...', mcpUri: '...' }],
+        },
+      },
+      'POST /deploy/solutions/:solutionId/skills': {
+        description: 'Add a new skill to an existing deployed solution. Creates the skill, populates it with the provided definition, and links it to the solution.',
+        body: {
+          skill: {
+            id: 'new-skill-id',
+            name: 'New Skill',
+            description: 'What this skill does',
+            role: 'worker',
+            _note: 'Full skill definition — same format as in POST /deploy/solution skills array',
+          },
+        },
+        returns: {
+          ok: true,
+          skill_id: 'new-skill-id',
+          internal_id: 'dom_xxx',
+        },
+      },
+      'GET /deploy/solutions/:solutionId/export': {
+        description: 'Export solution as a JSON bundle. Returns solution + all skill definitions + connector metadata in a format compatible with POST /deploy/solution for re-import.',
+        returns: {
+          solution: { id: '...', name: '...', identity: {}, skills: [], grants: [], handoffs: [], routing: {} },
+          skills: ['full skill definitions'],
+          connectors: ['connector metadata'],
+          exported_at: 'ISO timestamp',
         },
       },
       'POST /deploy/solutions/:solutionId/skills/:skillId/redeploy': {

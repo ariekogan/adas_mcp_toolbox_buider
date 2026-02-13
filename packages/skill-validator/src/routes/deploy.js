@@ -26,6 +26,12 @@
  * POST  /deploy/solutions/:id/skills/:sk/redeploy — Re-deploy after PATCH
  * DELETE /deploy/solutions/:id/skills/:sk     — Remove a single skill
  *
+ * Operate:
+ * POST /deploy/solutions/:id/chat             — Send message to Solution Bot
+ * POST /deploy/solutions/:id/redeploy         — Re-deploy ALL skills at once
+ * POST /deploy/solutions/:id/skills           — Add a new skill to an existing solution
+ * GET  /deploy/solutions/:id/export           — Export as re-importable JSON bundle
+ *
  * Inspect:
  * GET  /deploy/solutions/:id/validate         — Validate solution from stored state
  * GET  /deploy/solutions/:id/skills/:sk/validate — Validate skill from stored state
@@ -536,6 +542,211 @@ router.get('/solutions/:solutionId/health', async (req, res) => {
     res.status(resp.status).json(data);
   } catch (err) {
     console.error('[Deploy] Health check error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SOLUTION CHAT
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/solutions/:solutionId/chat — Send a message to the Solution Bot
+ * Body: { message: string }
+ * Returns: { message, solution, suggested_focus, input_hint, validation, usage }
+ */
+router.post('/solutions/:solutionId/chat', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/chat`, {
+      method: 'POST',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(60000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Solution chat error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BULK REDEPLOY
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/solutions/:solutionId/redeploy — Re-deploy ALL skills in a solution
+ * Regenerates MCP servers for every skill and pushes to ADAS Core.
+ * Returns per-skill results with deployed/failed counts.
+ */
+router.post('/solutions/:solutionId/redeploy', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/redeploy`, {
+      method: 'POST',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body || {}),
+      signal: AbortSignal.timeout(300000), // 5 min for large solutions
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Bulk redeploy error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADD SKILL TO EXISTING SOLUTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/solutions/:solutionId/skills — Add a new skill to an existing solution
+ * Body: { skill: { id, name, ... full skill definition } }
+ *
+ * Creates the skill in the Skill Builder and links it to the solution.
+ * Also updates the solution's skills array if the skill has a role.
+ */
+router.post('/solutions/:solutionId/skills', async (req, res) => {
+  const { skill } = req.body;
+
+  if (!skill?.id) {
+    return res.status(400).json({ ok: false, error: 'Missing skill.id in body' });
+  }
+  if (!skill?.name) {
+    return res.status(400).json({ ok: false, error: 'Missing skill.name in body' });
+  }
+
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+
+    // Step 1: Create the skill via the existing create endpoint
+    const createResp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills`, {
+      method: 'POST',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: skill.name }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!createResp.ok) {
+      const errData = await createResp.json().catch(() => ({ error: createResp.statusText }));
+      return res.status(createResp.status).json({ ok: false, ...errData });
+    }
+
+    const createData = await createResp.json();
+    const internalId = createData.skill?.id;
+
+    if (!internalId) {
+      return res.status(500).json({ ok: false, error: 'Skill created but no ID returned' });
+    }
+
+    // Step 2: PATCH the skill with the full definition
+    // Set original_skill_id and apply all the fields from the provided skill
+    const updates = { original_skill_id: skill.id };
+
+    // Copy scalar fields via dot notation
+    const scalarFields = ['description', 'version', 'phase', 'ui_capable', 'prompt'];
+    for (const f of scalarFields) {
+      if (skill[f] !== undefined) updates[f] = skill[f];
+    }
+
+    // Copy object fields
+    const objectFields = ['problem', 'role', 'glossary', 'engine', 'access_policy'];
+    for (const f of objectFields) {
+      if (skill[f] !== undefined) updates[f] = skill[f];
+    }
+
+    // Copy intents (but not intents.supported — that's a protected array)
+    if (skill.intents) {
+      if (skill.intents.thresholds) updates['intents.thresholds'] = skill.intents.thresholds;
+      if (skill.intents.out_of_domain) updates['intents.out_of_domain'] = skill.intents.out_of_domain;
+      // Push supported intents one by one
+      if (Array.isArray(skill.intents.supported)) {
+        for (const intent of skill.intents.supported) {
+          updates['intents.supported_push'] = intent;
+        }
+      }
+    }
+
+    // Copy scenarios, connectors, grant_mappings, response_filters, channels, triggers
+    const arrayFields = ['scenarios', 'connectors', 'grant_mappings', 'response_filters', 'channels', 'triggers', 'example_conversations'];
+    for (const f of arrayFields) {
+      if (skill[f] !== undefined) updates[f] = skill[f];
+    }
+
+    // Push tools (protected array)
+    if (Array.isArray(skill.tools)) {
+      for (const tool of skill.tools) {
+        updates['tools_push'] = tool;
+      }
+    }
+
+    // Push policy guardrails
+    if (skill.policy) {
+      if (skill.policy.workflows) updates['policy.workflows'] = skill.policy.workflows;
+      if (skill.policy.approvals) updates['policy.approvals'] = skill.policy.approvals;
+      if (skill.policy.escalation) updates['policy.escalation'] = skill.policy.escalation;
+      if (Array.isArray(skill.policy.guardrails?.always)) {
+        for (const rule of skill.policy.guardrails.always) {
+          updates['policy.guardrails.always_push'] = rule;
+        }
+      }
+      if (Array.isArray(skill.policy.guardrails?.never)) {
+        for (const rule of skill.policy.guardrails.never) {
+          updates['policy.guardrails.never_push'] = rule;
+        }
+      }
+    }
+
+    const patchResp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${encodeURIComponent(internalId)}`, {
+      method: 'PATCH',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    const patchData = await patchResp.json();
+
+    // Step 3: Update the solution's skills array to include this new skill
+    const skillRef = { id: skill.id, name: skill.name, role: skill.role || 'worker', description: skill.description || '' };
+    await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}`, {
+      method: 'PATCH',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state_update: { 'skills_push': skillRef } }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    res.status(201).json({
+      ok: true,
+      skill_id: skill.id,
+      internal_id: internalId,
+      skill: patchData.skill || createData.skill,
+    });
+  } catch (err) {
+    console.error('[Deploy] Add skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /deploy/solutions/:solutionId/export — Export solution as a JSON bundle
+ * Returns the full solution + skill definitions + connector metadata
+ * in a format compatible with POST /deploy/solution for re-import.
+ */
+router.get('/solutions/:solutionId/export', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/export`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Export error:', err.message);
     res.status(502).json({ ok: false, error: err.message });
   }
 });

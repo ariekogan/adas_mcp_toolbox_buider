@@ -495,6 +495,163 @@ router.post('/:id/skills/:skillId/redeploy', async (req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// BULK REDEPLOY
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Re-deploy ALL skills in a solution.
+ * POST /api/solutions/:id/redeploy
+ *
+ * Iterates all linked skills, regenerates MCP servers, pushes to ADAS Core.
+ * Returns per-skill results.
+ */
+router.post('/:id/redeploy', async (req, res, next) => {
+  try {
+    const solutionId = req.params.id;
+    const log = req.app.locals.log;
+
+    const solution = await solutionsStore.load(solutionId);
+    const linkedSkills = solution.skills || [];
+
+    if (linkedSkills.length === 0) {
+      return res.json({ ok: true, solution_id: solutionId, skills: [], message: 'No skills to redeploy' });
+    }
+
+    // Build skill ID lookup
+    const allSkills = await skillsStore.list();
+    const skillIndex = new Map();
+    for (const s of allSkills) {
+      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
+    }
+
+    // Deploy each skill
+    const results = [];
+    let deployed = 0;
+    let failed = 0;
+    for (const ref of linkedSkills) {
+      const internalId = skillIndex.get(ref.id) || ref.id;
+      try {
+        log.info(`[BulkRedeploy] Deploying ${ref.id} (internal: ${internalId})`);
+        const result = await deploySkillToADAS(solutionId, internalId, log);
+        deployed++;
+        results.push({ skill_id: ref.id, internal_id: internalId !== ref.id ? internalId : undefined, ok: true, ...result });
+      } catch (err) {
+        failed++;
+        results.push({ skill_id: ref.id, internal_id: internalId !== ref.id ? internalId : undefined, ok: false, error: err.message });
+      }
+    }
+
+    res.json({
+      ok: failed === 0,
+      solution_id: solutionId,
+      deployed,
+      failed,
+      total: linkedSkills.length,
+      skills: results,
+    });
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ ok: false, error: 'Solution not found' });
+    }
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Export a full solution as a JSON bundle.
+ * GET /api/solutions/:id/export
+ *
+ * Returns the complete solution + all skill definitions + connector metadata
+ * in a format compatible with POST /deploy/solution for re-import.
+ */
+router.get('/:id/export', async (req, res, next) => {
+  try {
+    const solution = await solutionsStore.load(req.params.id);
+    const linkedSkills = solution.skills || [];
+
+    // Build skill ID lookup
+    const allSkills = await skillsStore.list();
+    const skillIndex = new Map();
+    for (const s of allSkills) {
+      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
+    }
+
+    // Load full skill definitions
+    const skills = [];
+    const connectorIds = new Set();
+    for (const ref of linkedSkills) {
+      const internalId = skillIndex.get(ref.id) || ref.id;
+      try {
+        const skill = await skillsStore.load(req.params.id, internalId);
+        // Use original_skill_id as the skill id in the export
+        const exportSkill = { ...skill };
+        if (skill.original_skill_id) {
+          exportSkill.id = skill.original_skill_id;
+        }
+        // Remove internal fields
+        delete exportSkill._settings;
+        delete exportSkill._fromTemplate;
+        delete exportSkill.validation;
+        delete exportSkill.conversation;
+        delete exportSkill.solution_id;
+        skills.push(exportSkill);
+
+        // Collect connector IDs
+        for (const cid of (skill.connectors || [])) {
+          connectorIds.add(cid);
+        }
+      } catch {
+        // Skip skills that can't be loaded
+      }
+    }
+
+    // Build connector stubs from solution metadata
+    const connectors = [];
+    for (const pc of (solution.platform_connectors || [])) {
+      if (pc.id) connectors.push(pc);
+    }
+    // Add any connector IDs referenced by skills but not in platform_connectors
+    for (const cid of connectorIds) {
+      if (!connectors.find(c => c.id === cid)) {
+        connectors.push({ id: cid, name: cid });
+      }
+    }
+
+    // Build the export bundle (same format as POST /deploy/solution body)
+    const bundle = {
+      solution: {
+        id: solution.id,
+        name: solution.name,
+        version: solution.version || '1.0.0',
+        description: solution.description,
+        identity: solution.identity,
+        skills: solution.skills,
+        grants: solution.grants,
+        handoffs: solution.handoffs,
+        routing: solution.routing,
+        platform_connectors: solution.platform_connectors,
+        security_contracts: solution.security_contracts,
+      },
+      skills,
+      connectors,
+      exported_at: new Date().toISOString(),
+      export_version: '1.0.0',
+    };
+
+    res.json(bundle);
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ ok: false, error: 'Solution not found' });
+    }
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // CHAT
 // ═══════════════════════════════════════════════════════════════
 

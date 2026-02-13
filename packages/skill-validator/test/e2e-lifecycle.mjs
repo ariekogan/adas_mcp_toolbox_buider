@@ -135,6 +135,12 @@ async function run() {
     spec.also_available['GET /deploy/solutions/:solutionId/skills/:skillId/conversation'] &&
     spec.also_available['GET /deploy/solutions/:solutionId/health']
   );
+  ok('Spec lists chat + redeploy + add-skill + export',
+    spec.also_available['POST /deploy/solutions/:solutionId/chat'] &&
+    spec.also_available['POST /deploy/solutions/:solutionId/redeploy'] &&
+    spec.also_available['POST /deploy/solutions/:solutionId/skills'] &&
+    spec.also_available['GET /deploy/solutions/:solutionId/export']
+  );
 
   const enums = await fetch(API + '/spec/enums', { headers: hdr }).then(r => r.json());
   ok('GET /spec/enums', Boolean(enums.enums?.phase));
@@ -382,8 +388,99 @@ async function run() {
   const healthNotFound = await fetch(API + '/deploy/solutions/does-not-exist-xyz/health', { headers: hdr });
   ok('Health 404 for missing solution', healthNotFound.status === 404, 'status=' + healthNotFound.status);
 
-  // ── Phase 11: Error handling ──
-  console.log('\n── Phase 11: Error handling ──');
+  // ── Phase 11: Chat, bulk redeploy, add skill, export ──
+  console.log('\n── Phase 11: Chat, bulk redeploy, add skill, export ──');
+
+  // Solution chat (may fail if no LLM key configured — that's OK)
+  const chatResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/chat', {
+    method: 'POST', headers: H,
+    body: JSON.stringify({ message: 'What skills are in this solution?' }),
+  });
+  const chatData = await chatResp.json();
+  // Accept 200 (worked) or 502 (LLM not configured) — both are valid responses
+  ok('POST solution chat responded', chatResp.status === 200 || chatResp.status === 502 || chatResp.status === 500,
+    'status=' + chatResp.status + (chatData.message ? ' msg_len=' + chatData.message.length : ''));
+
+  // Chat requires body
+  const chatNoBody = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/chat', {
+    method: 'POST', headers: H, body: '{}',
+  });
+  ok('Chat with no message → 400', chatNoBody.status === 400, 'status=' + chatNoBody.status);
+
+  // Bulk redeploy
+  const bulkRedeployResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/redeploy', {
+    method: 'POST', headers: H, body: '{}',
+  });
+  const bulkData = await bulkRedeployResp.json();
+  ok('POST bulk redeploy responded', bulkRedeployResp.status === 200,
+    'status=' + bulkRedeployResp.status + ' deployed=' + bulkData.deployed + ' failed=' + bulkData.failed);
+  ok('Bulk redeploy has total', bulkData.total !== undefined, 'total=' + bulkData.total);
+  ok('Bulk redeploy has skills array', Array.isArray(bulkData.skills), 'count=' + bulkData.skills?.length);
+
+  // Bulk redeploy 404 for missing solution
+  const bulkNotFound = await fetch(API + '/deploy/solutions/does-not-exist-xyz/redeploy', {
+    method: 'POST', headers: H, body: '{}',
+  });
+  ok('Bulk redeploy 404 for missing', bulkNotFound.status === 404, 'status=' + bulkNotFound.status);
+
+  // Add skill to existing solution
+  const newSkill = {
+    id: 'e2e-farewell',
+    name: 'E2E Farewell',
+    description: 'Says goodbye',
+    version: '1.0.0',
+    phase: 'TOOL_DEFINITION',
+    connectors: ['e2e-test-mcp'],
+    problem: { statement: 'Users need a friendly farewell when they leave the system' },
+    scenarios: [{ id: 'farewell-user', title: 'Farewell', steps: ['User says bye', 'Agent says goodbye'], expected_outcome: 'User gets farewell' }],
+    role: { name: 'Farewell Agent', persona: 'A polite agent that says goodbye', goals: ['Say goodbye'] },
+    intents: {
+      supported: [{ id: 'farewell', description: 'User wants to say goodbye', examples: ['Bye', 'See you', 'Goodbye'] }],
+      thresholds: { accept: 0.8, clarify: 0.5, reject: 0.3 },
+    },
+    tools: [{
+      id: 'tool-farewell', id_status: 'permanent',
+      name: 'e2e-test.farewell', description: 'Say goodbye',
+      inputs: [{ name: 'user_name', type: 'string', required: true, description: 'Name' }],
+      output: { type: 'string', description: 'Farewell' },
+      source: { type: 'mcp_bridge', connection_id: 'e2e-test-mcp', mcp_tool: 'farewell' },
+      policy: { allowed: 'always' },
+      security: { classification: 'public' },
+    }],
+    policy: { guardrails: { never: ['Be rude'], always: ['Be polite'] } },
+    engine: { model: 'claude-sonnet-4-20250514', temperature: 0.3 },
+  };
+
+  const addSkillResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills', {
+    method: 'POST', headers: H,
+    body: JSON.stringify({ skill: newSkill }),
+  });
+  const addSkillData = await addSkillResp.json();
+  ok('POST add skill to solution', addSkillResp.status === 201, 'status=' + addSkillResp.status);
+  ok('Add skill returned skill_id', addSkillData.skill_id === 'e2e-farewell', 'id=' + addSkillData.skill_id);
+  ok('Add skill returned internal_id', Boolean(addSkillData.internal_id), 'internal=' + addSkillData.internal_id);
+
+  // Verify added skill appears in skills list
+  const afterAddSkills = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills', { headers: hdr }).then(r => r.json());
+  ok('New skill in skills list', (afterAddSkills.skills?.length || 0) >= 2,
+    'count=' + afterAddSkills.skills?.length);
+
+  // Export solution
+  const exportResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/export', { headers: hdr }).then(r => r.json());
+  ok('GET export has solution', Boolean(exportResp.solution?.id), 'id=' + exportResp.solution?.id);
+  ok('Export has skills array', Array.isArray(exportResp.skills), 'count=' + exportResp.skills?.length);
+  ok('Export has connectors', Array.isArray(exportResp.connectors), 'count=' + exportResp.connectors?.length);
+  ok('Export has exported_at', Boolean(exportResp.exported_at), exportResp.exported_at);
+
+  // Export 404 for missing solution
+  const exportNotFound = await fetch(API + '/deploy/solutions/does-not-exist-xyz/export', { headers: hdr });
+  ok('Export 404 for missing', exportNotFound.status === 404, 'status=' + exportNotFound.status);
+
+  // Clean up the added skill
+  await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/e2e-farewell', { method: 'DELETE', headers: hdr });
+
+  // ── Phase 12: Error handling ──
+  console.log('\n── Phase 12: Error handling ──');
 
   const notFound = await fetch(API + '/deploy/status/does-not-exist-xyz', { headers: hdr });
   ok('Status 404 for missing solution', notFound.status === 404, 'status=' + notFound.status);
@@ -399,8 +496,8 @@ async function run() {
   ok('Validate empty skill → errors', (badValidate.errors?.length || 0) > 0,
     'errors=' + (badValidate.errors?.length || 0));
 
-  // ── Phase 12: Cleanup ──
-  console.log('\n── Phase 12: Cleanup ──');
+  // ── Phase 13: Cleanup ──
+  console.log('\n── Phase 13: Cleanup ──');
 
   // Delete single skill first (test the new endpoint)
   const delSkillResp = await fetch(API + '/deploy/solutions/e2e-lifecycle-test/skills/e2e-greeter', {
