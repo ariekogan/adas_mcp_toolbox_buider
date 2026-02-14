@@ -648,7 +648,7 @@ router.get('/:id/export', async (req, res, next) => {
     // Build connector stubs from solution metadata
     const connectors = [];
     for (const pc of (solution.platform_connectors || [])) {
-      if (pc.id) connectors.push(pc);
+      if (pc.id) connectors.push({ ...pc, _platform: true });
     }
     // Add any connector IDs referenced by skills but not in platform_connectors
     for (const cid of connectorIds) {

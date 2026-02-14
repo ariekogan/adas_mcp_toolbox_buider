@@ -41,7 +41,7 @@ const PII_CLASSIFICATIONS = ['pii_read', 'pii_write'];
 /**
  * Valid security classification values.
  */
-export const VALID_CLASSIFICATIONS = ['public', 'pii_read', 'pii_write', 'financial', 'destructive'];
+export const VALID_CLASSIFICATIONS = ['public', 'internal', 'pii_read', 'pii_write', 'financial', 'destructive'];
 
 /**
  * Valid risk levels.
@@ -239,7 +239,7 @@ export function validateSecurity(skill) {
         severity: 'warning',
         path: `${basePath}.security.classification`,
         message: `Tool "${tool.name}" has no security classification`,
-        suggestion: 'Assign a classification (public, pii_read, pii_write, financial, destructive)',
+        suggestion: 'Assign a classification (public, internal, pii_read, pii_write, financial, destructive)',
       });
       return; // skip further security checks for this tool
     }

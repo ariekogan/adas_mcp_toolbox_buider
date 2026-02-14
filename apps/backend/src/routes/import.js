@@ -1143,6 +1143,19 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
       }
     }
 
+    // ── Phase 4: Update solution phase to DEPLOYED ─────────────────
+    if (solutionId && skillResults.filter(r => r.ok).length === totalSkills && totalSkills > 0) {
+      try {
+        const solution = await solutionsStore.load(solutionId);
+        solution.phase = 'DEPLOYED';
+        solution.deployed_at = new Date().toISOString();
+        await solutionsStore.save(solution);
+        sendEvent('phase_update', { phase: 'DEPLOYED' });
+      } catch (err) {
+        console.warn(`[Deploy] Phase update failed for ${solutionId}:`, err.message);
+      }
+    }
+
     // ── Final summary ───────────────────────────────────────────────
     const summary = {
       connectors: { total: totalConnectors, deployed: connectorResults.filter(r => r.ok).length, failed: connectorResults.filter(r => !r.ok).length },

@@ -291,6 +291,11 @@ router.post('/solution', async (req, res) => {
       },
       deploy: deployResult,
       ...(preValidation.warnings?.length > 0 && { validation_warnings: preValidation.warnings }),
+      _next_steps: [
+        `GET /deploy/solutions/${solution.id}/health — verify skills deployed and connectors healthy`,
+        `GET /deploy/solutions/${solution.id}/definition — read back the solution definition`,
+        `GET /deploy/solutions/${solution.id}/skills — list deployed skills with internal IDs`,
+      ],
     });
   } catch (err) {
     console.error('[Deploy] Solution error:', err.message);
