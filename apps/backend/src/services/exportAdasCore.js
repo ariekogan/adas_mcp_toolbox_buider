@@ -622,6 +622,20 @@ export function generateSkillYamlForAdasCore(toolbox) {
     lines.push(``);
   }
 
+  // UI Plugins - Tier-0 Semantic UI Plugin Control
+  // Declares which UI plugins the agent can control via virtual tools
+  if (Array.isArray(toolbox.ui_plugins) && toolbox.ui_plugins.length > 0) {
+    lines.push(`# UI Plugins - agent-controllable UI plugins (Tier-0 Semantic UI Plugin Control)`);
+    lines.push(`ui_plugins:`);
+    for (const plugin of toolbox.ui_plugins) {
+      lines.push(`  - id: ${yamlString(plugin.id)}`);
+      if (plugin.short_id) {
+        lines.push(`    short_id: ${yamlString(plugin.short_id)}`);
+      }
+    }
+    lines.push(``);
+  }
+
   // Connector configurations - per-skill identity/config overrides (DEPRECATED)
   // Kept for backward compatibility with existing CORE versions
   if (toolbox.connector_configs?.length > 0) {

@@ -495,6 +495,18 @@ export function generateSkillYaml(skill) {
     lines.push(``);
   }
 
+  // UI Plugins - Tier-0 Semantic UI Plugin Control
+  if (Array.isArray(skill.ui_plugins) && skill.ui_plugins.length > 0) {
+    lines.push(`# UI Plugins - agent-controllable UI plugins (Tier-0 Semantic UI Plugin Control)`);
+    lines.push(`ui_plugins:`);
+    for (const plugin of skill.ui_plugins) {
+      lines.push(`  - id: ${yamlString(plugin.id)}`);
+      if (plugin.short_id) {
+        lines.push(`    short_id: ${yamlString(plugin.short_id)}`);
+      }
+    }
+    lines.push(``);
+  }
 
   // Problem
   lines.push(`# Problem Definition`);
