@@ -260,7 +260,7 @@ export function validateSolution(solution, context) {
       for (const tool of (skill.tools || [])) {
         if (tool.source?.type === 'mcp_bridge' && tool.source.connection_id) {
           if (!connectorIds.has(tool.source.connection_id)) {
-            warnings.push({
+            errors.push({
               check: 'mcp_bridge_connector_exists',
               message: `Tool "${tool.name}" in skill "${skill.name || skill.id}" references connector "${tool.source.connection_id}" which is not in the connectors array`,
               skill: skill.id,
@@ -276,9 +276,9 @@ export function validateSolution(solution, context) {
     for (const connector of connectors) {
       const transport = connector.transport || 'stdio';
       if (transport === 'stdio' && !mcpStore[connector.id]) {
-        warnings.push({
+        errors.push({
           check: 'connector_code_available',
-          message: `Connector "${connector.id}" uses stdio transport but no server code was provided in mcp_store. The connector may fail to start on ADAS Core.`,
+          message: `Connector "${connector.id}" uses stdio transport but no server code was provided in mcp_store. The connector will fail to start on ADAS Core.`,
           connector: connector.id,
           suggestion: `Include the connector's server code in mcp_store.${connector.id} or ensure it is pre-installed on ADAS Core at the configured path.`,
         });

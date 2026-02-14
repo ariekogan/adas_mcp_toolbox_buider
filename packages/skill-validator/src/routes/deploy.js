@@ -203,9 +203,12 @@ router.post('/solution', async (req, res) => {
   }
 
   try {
-    // ── Pre-deploy validation (non-blocking, returns warnings) ──
+    // ── Pre-deploy validation ──
     const validationContext = { skills: skills || [], connectors: connectors || [], mcp_store: mcp_store || {} };
     const preValidation = validateSolution(solution, validationContext);
+    if (preValidation.errors?.length > 0) {
+      console.log(`[Deploy] Pre-deploy errors for ${solution.id}: ${preValidation.errors.map(e => e.message).join('; ')}`);
+    }
     if (preValidation.warnings?.length > 0) {
       console.log(`[Deploy] Pre-deploy warnings for ${solution.id}: ${preValidation.warnings.map(w => w.message).join('; ')}`);
     }
@@ -290,6 +293,7 @@ router.post('/solution', async (req, res) => {
         connectors: (importData.package?.mcps || []).length,
       },
       deploy: deployResult,
+      ...(preValidation.errors?.length > 0 && { validation_errors: preValidation.errors }),
       ...(preValidation.warnings?.length > 0 && { validation_warnings: preValidation.warnings }),
       _next_steps: [
         `GET /deploy/solutions/${solution.id}/health — verify skills deployed and connectors healthy`,
