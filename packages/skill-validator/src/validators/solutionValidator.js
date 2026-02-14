@@ -278,9 +278,9 @@ export function validateSolution(solution, context) {
       if (transport === 'stdio' && !mcpStore[connector.id]) {
         errors.push({
           check: 'connector_code_available',
-          message: `Connector "${connector.id}" uses stdio transport but no server code was provided in mcp_store. The connector will fail to start on ADAS Core.`,
+          message: `Connector "${connector.id}" has no server code. Provide the business logic (API calls, DB queries, etc.) in mcp_store.${connector.id} — the deploy pipeline will auto-wrap it into a working MCP server. Without this, the connector will fail to start on ADAS Core.`,
           connector: connector.id,
-          suggestion: `Include the connector's server code in mcp_store.${connector.id} or ensure it is pre-installed on ADAS Core at the configured path.`,
+          fix: `Add mcp_store: { "${connector.id}": [{ path: "server.js", content: "..." }] } to your deploy payload. Write only the tool implementations — the MCP server scaffolding is generated automatically.`,
         });
       }
     }
