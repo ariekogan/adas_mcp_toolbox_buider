@@ -275,7 +275,7 @@ export function validateSolution(solution, context) {
           check: 'connector_code_available',
           message: `Connector "${connector.id}" has no server code. Provide the business logic (API calls, DB queries, etc.) in mcp_store.${connector.id} — the deploy pipeline will auto-wrap it into a working MCP server. Without this, the connector will fail to start on ADAS Core.`,
           connector: connector.id,
-          fix: `Add mcp_store: { "${connector.id}": [{ path: "server.js", content: "..." }] } to your deploy payload. Write only the tool implementations — the MCP server scaffolding is generated automatically.`,
+          fix: `Add mcp_store: { "${connector.id}": [{ path: "server.js", content: "..." }] } to your deploy payload. Write only the tool implementations — the MCP server scaffolding is generated automatically. See GET /spec/examples/connector for a working template.`,
         });
       }
     }
