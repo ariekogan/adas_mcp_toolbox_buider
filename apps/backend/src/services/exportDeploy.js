@@ -4,6 +4,7 @@ import { getAllPrebuiltConnectors } from "../routes/connectors.js";
 import { generateMCPSimple } from "./mcpGenerationAgent.js";
 import { syncConnectorToADAS, startConnectorInADAS } from "./adasConnectorSync.js";
 import { buildConnectorPayload } from "../utils/connectorPayload.js";
+import { compileUiPlugins } from "../utils/skillFieldHelpers.js";
 import adasCore from "./adasCoreClient.js";
 
 /**
@@ -205,6 +206,12 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
       ...(skill.scenarios ? { scenarios: skill.scenarios } : {}),
       ...(skill.engine ? { engine: skill.engine } : {}),
     };
+
+    // Add ui_plugins for agent-to-plugin commands (UI-capable skills)
+    const compiledPlugins = compileUiPlugins(skill.ui_plugins);
+    if (compiledPlugins) {
+      skillDef.ui_plugins = compiledPlugins;
+    }
 
     await adasCore.importSkill(skillSlug, skillDef);
     log.info(`[MCP Deploy] Registered skill definition for "${skillSlug}" in ADAS Core`);

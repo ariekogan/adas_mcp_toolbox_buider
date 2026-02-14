@@ -1,28 +1,12 @@
 import { generateAllConnectorFiles } from './exportConnectorTemplate.js';
 import { getAllPrebuiltConnectors } from '../routes/connectors.js';
-
-// ── Shared helpers (duplicated from export.js — small, stable) ──
-
-function escapeString(str) {
-  return (str || "").replace(/"/g, '\\"').replace(/\n/g, "\\n");
-}
-
-function toSlug(str) {
-  return (str || "toolbox")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 30);
-}
-
-function yamlString(str) {
-  if (str === null || str === undefined) return '""';
-  const s = String(str);
-  if (s.includes(':') || s.includes('#') || s.includes('\n') || s.includes('"') || s.includes("'") || s.startsWith(' ') || s.endsWith(' ')) {
-    return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`;
-  }
-  return s || '""';
-}
+import {
+  escapeString, toSlug, yamlString,
+  yamlConnectorsBlock, yamlUiPluginsBlock,
+  yamlGrantMappingsBlock, yamlAccessPolicyBlock,
+  yamlResponseFiltersBlock, yamlContextPropagationBlock,
+  compileUiPlugins,
+} from '../utils/skillFieldHelpers.js';
 
 function jsType(type) {
   switch (type?.toLowerCase()) {
@@ -606,35 +590,9 @@ export function generateSkillYamlForAdasCore(toolbox) {
     lines.push(``);
   }
 
-  // Connectors - extract unique connector IDs from tools with mcp_bridge source
-  const connectorIds = new Set();
-  for (const tool of (toolbox.tools || [])) {
-    if (tool.source?.type === 'mcp_bridge' && tool.source.connection_id) {
-      connectorIds.add(tool.source.connection_id);
-    }
-  }
-  if (connectorIds.size > 0) {
-    lines.push(`# Connectors - MCP servers managed by ADAS MCPGateway`);
-    lines.push(`connectors:`);
-    for (const connectorId of connectorIds) {
-      lines.push(`  - ${yamlString(connectorId)}`);
-    }
-    lines.push(``);
-  }
-
-  // UI Plugins - Tier-0 Semantic UI Plugin Control
-  // Declares which UI plugins the agent can control via virtual tools
-  if (Array.isArray(toolbox.ui_plugins) && toolbox.ui_plugins.length > 0) {
-    lines.push(`# UI Plugins - agent-controllable UI plugins (Tier-0 Semantic UI Plugin Control)`);
-    lines.push(`ui_plugins:`);
-    for (const plugin of toolbox.ui_plugins) {
-      lines.push(`  - id: ${yamlString(plugin.id)}`);
-      if (plugin.short_id) {
-        lines.push(`    short_id: ${yamlString(plugin.short_id)}`);
-      }
-    }
-    lines.push(``);
-  }
+  // Connectors & UI Plugins
+  lines.push(...yamlConnectorsBlock(toolbox.tools));
+  lines.push(...yamlUiPluginsBlock(toolbox.ui_plugins));
 
   // Connector configurations - per-skill identity/config overrides (DEPRECATED)
   // Kept for backward compatibility with existing CORE versions
@@ -814,121 +772,11 @@ export function generateSkillYamlForAdasCore(toolbox) {
   lines.push(`    allowed: ["*"]`);
   lines.push(``);
 
-  // Identity & Access Control - Grant Mappings
-  if (toolbox.grant_mappings?.length > 0) {
-    lines.push(`# Identity & Access Control`);
-    lines.push(`grant_mappings:`);
-    for (const mapping of toolbox.grant_mappings) {
-      lines.push(`  - tool: ${yamlString(mapping.tool || '')}`);
-      if (mapping.on_success !== undefined) {
-        lines.push(`    on_success: ${mapping.on_success}`);
-      }
-      if (mapping.grants?.length > 0) {
-        lines.push(`    grants:`);
-        for (const grant of mapping.grants) {
-          lines.push(`      - key: ${yamlString(grant.key || '')}`);
-          if (grant.value_from) {
-            lines.push(`        value_from: ${yamlString(grant.value_from)}`);
-          }
-          if (grant.ttl_seconds !== undefined) {
-            lines.push(`        ttl_seconds: ${grant.ttl_seconds}`);
-          }
-        }
-      }
-    }
-    lines.push(``);
-  }
-
-  // Access Policy
-  if (toolbox.access_policy?.rules?.length > 0) {
-    lines.push(`access_policy:`);
-    lines.push(`  rules:`);
-    for (const rule of toolbox.access_policy.rules) {
-      if (rule.tools?.length > 0) {
-        lines.push(`    - tools: [${rule.tools.map(t => yamlString(t)).join(', ')}]`);
-      } else {
-        lines.push(`    - tools: []`);
-      }
-      if (rule.when) {
-        lines.push(`      when:`);
-        for (const [key, value] of Object.entries(rule.when)) {
-          lines.push(`        ${key}: ${yamlString(value)}`);
-        }
-      }
-      if (rule.require) {
-        lines.push(`      require:`);
-        for (const [key, value] of Object.entries(rule.require)) {
-          lines.push(`        ${key}: ${yamlString(value)}`);
-        }
-      }
-      if (rule.effect) {
-        lines.push(`      effect: ${yamlString(rule.effect)}`);
-      }
-      if (rule.constrain) {
-        lines.push(`      constrain:`);
-        if (rule.constrain.inject_args) {
-          lines.push(`        inject_args:`);
-          for (const [key, value] of Object.entries(rule.constrain.inject_args)) {
-            lines.push(`          ${key}: ${yamlString(value)}`);
-          }
-        }
-        if (rule.constrain.response_filter) {
-          lines.push(`        response_filter: ${yamlString(rule.constrain.response_filter)}`);
-        }
-      }
-    }
-    lines.push(``);
-  }
-
-  // Response Filters
-  if (toolbox.response_filters?.length > 0) {
-    lines.push(`response_filters:`);
-    for (const filter of toolbox.response_filters) {
-      lines.push(`  - id: ${yamlString(filter.id || '')}`);
-      if (filter.description) {
-        lines.push(`    description: ${yamlString(filter.description)}`);
-      }
-      if (filter.unless_grant) {
-        lines.push(`    unless_grant: ${yamlString(filter.unless_grant)}`);
-      }
-      if (filter.strip_fields?.length > 0) {
-        lines.push(`    strip_fields:`);
-        for (const field of filter.strip_fields) {
-          lines.push(`      - ${yamlString(field)}`);
-        }
-      }
-      if (filter.mask_fields?.length > 0) {
-        lines.push(`    mask_fields:`);
-        for (const mf of filter.mask_fields) {
-          lines.push(`      - field: ${yamlString(mf.field || '')}`);
-          if (mf.mask) {
-            lines.push(`        mask: ${yamlString(mf.mask)}`);
-          }
-        }
-      }
-    }
-    lines.push(``);
-  }
-
-  // Context Propagation
-  if (toolbox.context_propagation?.on_handoff) {
-    lines.push(`context_propagation:`);
-    lines.push(`  on_handoff:`);
-    const handoff = toolbox.context_propagation.on_handoff;
-    if (handoff.propagate_grants?.length > 0) {
-      lines.push(`    propagate_grants:`);
-      for (const grant of handoff.propagate_grants) {
-        lines.push(`      - ${yamlString(grant)}`);
-      }
-    }
-    if (handoff.drop_grants?.length > 0) {
-      lines.push(`    drop_grants:`);
-      for (const grant of handoff.drop_grants) {
-        lines.push(`      - ${yamlString(grant)}`);
-      }
-    }
-    lines.push(``);
-  }
+  // Identity & Access Control
+  lines.push(...yamlGrantMappingsBlock(toolbox.grant_mappings));
+  lines.push(...yamlAccessPolicyBlock(toolbox.access_policy));
+  lines.push(...yamlResponseFiltersBlock(toolbox.response_filters));
+  lines.push(...yamlContextPropagationBlock(toolbox.context_propagation));
 
   return lines.join("\n");
 }
@@ -1107,12 +955,10 @@ export function generateAdasExportPayload(toolbox) {
     skill.connectors = [...toolbox.connectors];
   }
 
-  // Add ui_plugins for Tier-0 Semantic UI Plugin Control
-  if (Array.isArray(toolbox.ui_plugins) && toolbox.ui_plugins.length > 0) {
-    skill.ui_plugins = toolbox.ui_plugins.map(p => ({
-      id: p.id,
-      ...(p.short_id && { short_id: p.short_id })
-    }));
+  // Add ui_plugins for agent-to-plugin commands (UI-capable skills)
+  const compiledPlugins = compileUiPlugins(toolbox.ui_plugins);
+  if (compiledPlugins) {
+    skill.ui_plugins = compiledPlugins;
   }
 
   // Add connector_configs if present (per-skill identity)

@@ -49,7 +49,7 @@ router.post('/validate/skill', (req, res) => {
  * Returns: { valid, errors, warnings, summary, quality }
  */
 router.post('/validate/solution', async (req, res) => {
-  const { solution, skills } = req.body;
+  const { solution, skills, connectors, mcp_store } = req.body;
 
   if (!solution) {
     return res.status(400).json({ ok: false, error: 'Missing "solution" in request body' });
@@ -60,7 +60,9 @@ router.post('/validate/solution', async (req, res) => {
 
   try {
     // Phase 1: Structural validation (cross-skill contracts)
-    const structural = validateSolution(solution);
+    // Pass deployment context for connector binding validation
+    const context = (connectors || mcp_store) ? { skills, connectors: connectors || [], mcp_store: mcp_store || {} } : undefined;
+    const structural = validateSolution(solution, context);
 
     // Phase 2: LLM quality scoring
     let quality = null;

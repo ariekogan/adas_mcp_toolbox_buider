@@ -42,6 +42,9 @@ skills:
     entry_channels: [string]  # Optional. Channels this skill receives (telegram, email, api)
     connectors: [string]      # MCP connectors this skill uses
     ui_capable: boolean       # Optional. If true, this skill includes a UI dashboard connector
+    ui_plugins:               # Optional. Agent-to-plugin command declarations
+      - id: string            # Full plugin ID: "mcp:<connectorId>:<pluginId>"
+        short_id: string      # Optional. Short alias for tool naming (e.g., "ecom_dash")
 
 # Skill Roles:
 #   gateway       — Entry point that gates access (e.g., identity verification)
@@ -131,7 +134,7 @@ platform_connectors:
 # Solution connectors are declared in the manifest.json of the solution pack.
 # They run as stdio child processes in ADAS Core (never HTTP, never Docker).
 #
-# UI-capable connectors provide visual dashboard plugins:
+# UI-capable connectors back UI-capable skills with visual dashboard plugins:
 #   - Marked with ui_capable: true in manifest.json
 #   - MUST use transport: stdio
 #   - MUST implement ui.listPlugins and ui.getPlugin MCP tools
@@ -217,7 +220,25 @@ The slug is derived from `skill.name`:
 Each skill deployment requires Python MCP server source code. This is auto-generated from the skill definition during deploy if `server.py` doesn't exist in the export directory. The generated server:
 - Uses `mcp.server.fastmcp.FastMCP`
 - Exposes each tool via `@mcp.tool()` decorators
-- Includes discovery endpoints (`get_skill_info`, `list_capabilities`)
+- Embeds the full skill YAML as `SKILL_DEFINITION_YAML`
+- Includes `get_skill_definition()` discovery tool (returns embedded YAML for ADAS Core)
+- Includes `health_check()` monitoring tool
+
+### Critical: ui_plugins (UI-Capable Skills)
+
+UI-capable skills declare `ui_plugins` to enable agent-to-plugin commands. This allows ADAS Core to generate virtual tools from plugin capabilities at runtime:
+
+```yaml
+ui_plugins:
+  - id: "mcp:ecommerce-ui-mcp:ecom-dashboard"   # Format: mcp:<connectorId>:<pluginId>
+    short_id: ecom_dash                           # Optional short alias for tool naming
+```
+
+At runtime, ADAS Core:
+1. Reads `ui_plugins` from `job.__skill` (loaded via MCP `get_skill_definition` or file fallback)
+2. For each plugin, fetches the manifest via `getContextPlugin()` → calls `ui.getPlugin` on the connector MCP
+3. If the manifest has `capabilities.commands`, generates **Tier-4 virtual tools** (e.g., `ui.ecom_dash.highlight_order`)
+4. Agent can call these virtual tools to send semantic commands to the UI plugin via SSE + postMessage
 
 ### Critical: solution_id
 
@@ -297,5 +318,33 @@ routing:
     default_skill: identity-assurance
     description: "API callers start with identity verification"
 ```
+
+### Deploy-Ready Example: UI-Capable Skill
+
+A solution with a UI-capable dashboard skill:
+
+```yaml
+id: ecommerce-operations
+name: "E-Commerce Operations"
+version: "1.0.0"
+description: "Operations dashboard with agent-controllable UI"
+
+skills:
+  - id: ecom-dashboard
+    role: worker
+    description: "Unified visual dashboard for browsing orders, customers, tickets"
+    ui_capable: true
+    ui_plugins:
+      - id: "mcp:ecommerce-ui-mcp:ecom-dashboard"
+        short_id: ecom_dash
+    connectors: [ecommerce-ui-mcp, orders-mcp, fulfillment-mcp]
+
+routing:
+  api:
+    default_skill: ecom-dashboard
+    description: "API requests go to the dashboard skill"
+```
+
+This enables virtual tools like `ui.ecom_dash.highlight_order` that the agent can call to control the dashboard.
 
 See also: [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) for the complete deployment workflow and API reference.

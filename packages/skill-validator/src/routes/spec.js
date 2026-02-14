@@ -162,7 +162,7 @@ function buildIndex() {
             },
           ],
           mcp_store: {
-            _note: 'Optional: connector source code files. Key = connector id, value = { path: content } map',
+            _note: 'Optional but RECOMMENDED for stdio connectors: connector source code files. Key = connector id, value = { path: content } map. Without mcp_store, stdio connectors will fail to start if the server code is not pre-installed on ADAS Core. The deploy response includes validation_warnings if connectors are missing code.',
             'orders-mcp': [{ path: 'server.js', content: '...' }, { path: 'package.json', content: '...' }],
           },
         },
@@ -264,20 +264,15 @@ function buildIndex() {
       },
     },
     id_remapping_guide: {
-      _note: 'IMPORTANT: After POST /deploy/solution, skill IDs are remapped to internal dom_xxx IDs. You MUST update all references in the solution definition.',
-      why: 'The Skill Builder assigns internal IDs (e.g., dom_abc123) to each skill. Your solution definition (grants, handoffs, routing, security_contracts) still references the original human-readable IDs. You must PATCH the solution with the internal IDs so that health checks, grant chains, and handoff paths resolve correctly.',
-      step_by_step: [
-        '1. POST /deploy/solution — deploy your full solution. The response includes import.skills[] with both originalId and id (the internal ID).',
-        '2. Build an ID map from the response: { "identity-assurance": "dom_abc123", "support-tier-1": "dom_def456" } using import.skills[].originalId → import.skills[].id',
-        '3. Deep-replace all original IDs with internal IDs in your solution definition: grants[].issued_by, grants[].consumed_by, handoffs[].from, handoffs[].to, routing.<channel>.default_skill, security_contracts[].consumer, security_contracts[].provider',
-        '4. PATCH /deploy/solutions/:id — send { state_update: { grants: [...remapped], handoffs: [...remapped], routing: {...remapped}, security_contracts: [...remapped] } }',
-        '5. GET /deploy/solutions/:id/health — verify 0 errors. Grant chains and handoff paths should now resolve correctly.',
-      ],
+      _note: 'ID remapping is now AUTOMATIC. After deploying skills, the pipeline auto-remaps original IDs to internal dom_xxx IDs in grants, handoffs, routing, and security_contracts. You do NOT need to PATCH manually.',
+      how_it_works: 'When POST /deploy/solution deploys skills, internal IDs (e.g., dom_abc123) are assigned. The deploy pipeline then automatically deep-replaces all original IDs in the solution definition (grants, handoffs, routing, security_contracts) with internal IDs.',
+      what_you_get: 'The deploy response includes import.skills[] with both originalId and id (internal). The health check (GET /deploy/solutions/:id/health) accepts both original and internal IDs.',
+      manual_override: 'If you need to manually update IDs (e.g., after adding a new skill), use PATCH /deploy/solutions/:id with the remapped references.',
       example_response_fragment: {
         'import.skills[0]': { id: 'dom_04f014ac', originalId: 'identity-assurance', name: 'Identity Assurance Manager', status: 'imported' },
         'import.skills[1]': { id: 'dom_492a7855', originalId: 'support-tier-1', name: 'Customer Support Tier 1', status: 'imported' },
       },
-      tip: 'Use human-readable IDs (e.g., identity-assurance) in your source files and remap programmatically after deploy. See the deploy_guide for POST /deploy/solution response format.',
+      tip: 'Use human-readable IDs (e.g., identity-assurance) in your source files. The deploy pipeline handles remapping automatically.',
     },
   };
 }
@@ -1375,6 +1370,8 @@ function buildSolutionSpec() {
         'Missing "id" field on handoffs — every handoff needs a unique id',
         'Deploying directly to ADAS Core instead of through the Skill Builder — always use POST /deploy/solution which routes through the Skill Builder for proper storage and MCP generation',
         'Writing Python MCP server code for skills — only connector implementations need real code. Skill MCP servers are auto-generated from tool definitions.',
+        'Defining stdio connectors without providing mcp_store code — if the connector server code is not pre-installed on ADAS Core, include it in the mcp_store field of the deploy payload. Without it, the connector will fail to start.',
+        'Manually remapping skill IDs after deploy — ID remapping is now automatic. The deploy pipeline deep-replaces original IDs with internal dom_xxx IDs in grants, handoffs, routing, and security_contracts.',
       ],
       key_concepts: {
         skill_roles: 'gateway = entry point (identity/routing), worker = does the work, orchestrator = coordinates multiple workers, approval = authorizes actions',

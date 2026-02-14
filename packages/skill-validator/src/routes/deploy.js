@@ -41,6 +41,7 @@
  */
 
 import { Router } from 'express';
+import { validateSolution } from '../validators/solutionValidator.js';
 
 const router = Router();
 
@@ -202,6 +203,13 @@ router.post('/solution', async (req, res) => {
   }
 
   try {
+    // ── Pre-deploy validation (non-blocking, returns warnings) ──
+    const validationContext = { skills: skills || [], connectors: connectors || [], mcp_store: mcp_store || {} };
+    const preValidation = validateSolution(solution, validationContext);
+    if (preValidation.warnings?.length > 0) {
+      console.log(`[Deploy] Pre-deploy warnings for ${solution.id}: ${preValidation.warnings.map(w => w.message).join('; ')}`);
+    }
+
     // ── Build the manifest ──
     const manifest = {
       name: solution.id,
@@ -282,6 +290,7 @@ router.post('/solution', async (req, res) => {
         connectors: (importData.package?.mcps || []).length,
       },
       deploy: deployResult,
+      ...(preValidation.warnings?.length > 0 && { validation_warnings: preValidation.warnings }),
     });
   } catch (err) {
     console.error('[Deploy] Solution error:', err.message);

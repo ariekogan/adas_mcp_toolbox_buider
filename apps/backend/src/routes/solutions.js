@@ -401,11 +401,14 @@ router.get('/:id/health', async (req, res, next) => {
       adasReachable = true;
     }
 
+    // Helper: match a skill ref by original ID or internal (remapped) ID
+    const findSkill = (sid) => skillHealth.find(s => s.id === sid || s.internal_id === sid);
+
     // Check grant chains: every consumed grant has at least one issuer skill that's DEPLOYED
     for (const grant of grants) {
       const issuers = grant.issued_by || [];
       const consumers = grant.consumed_by || [];
-      const deployedIssuers = issuers.filter(sid => skillHealth.find(s => s.id === sid && s.deployed));
+      const deployedIssuers = issuers.filter(sid => { const s = findSkill(sid); return s && s.deployed; });
       if (consumers.length > 0 && deployedIssuers.length === 0) {
         issues.push({ severity: 'error', grant: grant.key, message: `No deployed issuer for grant "${grant.key}" — consumers: ${consumers.join(', ')}` });
       }
@@ -413,10 +416,10 @@ router.get('/:id/health', async (req, res, next) => {
 
     // Check handoff paths: both source and target should be deployed
     for (const h of handoffs) {
-      const fromDeployed = skillHealth.find(s => s.id === h.from && s.deployed);
-      const toDeployed = skillHealth.find(s => s.id === h.to && s.deployed);
-      if (!fromDeployed) issues.push({ severity: 'warning', handoff: h.id, message: `Handoff source "${h.from}" not deployed` });
-      if (!toDeployed) issues.push({ severity: 'warning', handoff: h.id, message: `Handoff target "${h.to}" not deployed` });
+      const fromSkill = findSkill(h.from);
+      const toSkill = findSkill(h.to);
+      if (!fromSkill || !fromSkill.deployed) issues.push({ severity: 'warning', handoff: h.id, message: `Handoff source "${h.from}" not deployed` });
+      if (!toSkill || !toSkill.deployed) issues.push({ severity: 'warning', handoff: h.id, message: `Handoff target "${h.to}" not deployed` });
     }
 
     // Identity check
