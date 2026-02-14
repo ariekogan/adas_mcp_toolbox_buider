@@ -1107,6 +1107,14 @@ export function generateAdasExportPayload(toolbox) {
     skill.connectors = [...toolbox.connectors];
   }
 
+  // Add ui_plugins for Tier-0 Semantic UI Plugin Control
+  if (Array.isArray(toolbox.ui_plugins) && toolbox.ui_plugins.length > 0) {
+    skill.ui_plugins = toolbox.ui_plugins.map(p => ({
+      id: p.id,
+      ...(p.short_id && { short_id: p.short_id })
+    }));
+  }
+
   // Add connector_configs if present (per-skill identity)
   if (toolbox.connector_configs && toolbox.connector_configs.length > 0) {
     skill.connector_configs = toolbox.connector_configs.map(cfg => ({
