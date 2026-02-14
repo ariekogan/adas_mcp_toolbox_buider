@@ -230,6 +230,7 @@ router.post('/solution', async (req, res) => {
         id: s.id,
         name: s.name,
         description: s.description || '',
+        connectors: s.connectors || [],
       })),
     };
 
