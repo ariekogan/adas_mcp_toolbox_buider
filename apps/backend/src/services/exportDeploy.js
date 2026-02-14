@@ -193,6 +193,17 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
         name: t.name,
         description: t.description || "",
       })),
+      // Preserve ui_plugins and ui_capable for Tier-4 virtual tool generation
+      ...(skill.ui_plugins ? { ui_plugins: skill.ui_plugins } : {}),
+      ...(skill.ui_capable ? { ui_capable: skill.ui_capable } : {}),
+      // Preserve full skill config for runtime (prompt, role, policy, etc.)
+      ...(skill.problem ? { problem: skill.problem } : {}),
+      ...(skill.role ? { role: skill.role } : {}),
+      ...(skill.prompt ? { prompt: skill.prompt } : {}),
+      ...(skill.policy ? { policy: skill.policy } : {}),
+      ...(skill.intents ? { intents: skill.intents } : {}),
+      ...(skill.scenarios ? { scenarios: skill.scenarios } : {}),
+      ...(skill.engine ? { engine: skill.engine } : {}),
     };
 
     await adasCore.importSkill(skillSlug, skillDef);
