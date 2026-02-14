@@ -65,7 +65,12 @@ function generateToolFunction(tool) {
   // Sanitize tool name to be a valid Python identifier
   const pythonName = sanitizePythonName(tool.name);
 
-  return `@mcp.tool()
+  // Use name= parameter to preserve the original dotted tool name for MCP
+  const decorator = pythonName !== tool.name
+    ? `@mcp.tool(name="${tool.name}")`
+    : `@mcp.tool()`;
+
+  return `${decorator}
 def ${pythonName}(${params}) -> dict:
 ${docstring}
 ${mockImpl}`;
@@ -182,8 +187,8 @@ function escapeString(str) {
  */
 function sanitizePythonName(name) {
   if (!name) return "unnamed_tool";
-  // Replace spaces and hyphens with underscores, remove invalid chars
-  let sanitized = name.replace(/[\s-]+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+  // Replace dots, spaces and hyphens with underscores, remove other invalid chars
+  let sanitized = name.replace(/[.\s-]+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
   // Ensure it starts with a letter or underscore
   if (/^[0-9]/.test(sanitized)) {
     sanitized = '_' + sanitized;
