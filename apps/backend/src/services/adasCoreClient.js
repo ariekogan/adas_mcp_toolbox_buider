@@ -106,7 +106,9 @@ async function importSkillPayload(payload) {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Get a single connector by ID. Returns null if not found.
+ * Get a single connector by ID. Returns the connector object or null if not found.
+ * ADAS Core returns { ok: true, connector: { id, status, tools, ... } } —
+ * this method unwraps to return just the connector object.
  */
 async function getConnector(connectorId) {
   try {
@@ -190,20 +192,6 @@ async function uploadMcpCode(connectorId, files) {
   });
 }
 
-/**
- * Delete a skill from ADAS Core (runtime files + MCP registration).
- * Silently succeeds if already gone.
- */
-async function deleteSkill(skillSlug) {
-  try {
-    await request(`/api/skills/${encodeURIComponent(skillSlug)}`, { method: 'DELETE' });
-  } catch (err) {
-    if (err.status === 404) return { ok: true };
-    throw err;
-  }
-  return { ok: true };
-}
-
 // ═══════════════════════════════════════════════════════════════
 // HEALTH
 // ═══════════════════════════════════════════════════════════════
@@ -221,6 +209,45 @@ async function isAvailable() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// SKILLS — LIST / DELETE (admin)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * List all registered skills on ADAS Core.
+ */
+async function getSkills() {
+  const data = await request('/api/skills');
+  return data.skills || data || [];
+}
+
+/**
+ * Delete a skill from ADAS Core. Silently succeeds if already gone.
+ */
+async function deleteSkill(skillSlug) {
+  try {
+    await request(`/api/skills/${skillSlug}`, { method: 'DELETE' });
+  } catch (err) {
+    if (err.status === 404) return { ok: true };
+    throw err;
+  }
+  return { ok: true };
+}
+
+/**
+ * Delete ALL skills from ADAS Core. Used when removing a solution.
+ */
+async function deleteAllSkills() {
+  return request('/api/skills', { method: 'DELETE', timeout: 30000 });
+}
+
+/**
+ * Delete ALL connectors from ADAS Core. Used when removing a solution.
+ */
+async function deleteAllConnectors() {
+  return request('/api/connectors', { method: 'DELETE', timeout: 30000 });
+}
+
+// ═══════════════════════════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════════════════════════
 
@@ -235,11 +262,14 @@ export default {
   startConnector,
   stopConnector,
   deleteConnector,
+  deleteAllConnectors,
   getConnectors,
+  getSkills,
+  deleteSkill,
+  deleteAllSkills,
   callConnectorTool,
   uploadMcpCode,
   isAvailable,
-  deleteSkill,
 };
 
 export {
@@ -253,9 +283,12 @@ export {
   startConnector,
   stopConnector,
   deleteConnector,
+  deleteAllConnectors,
   getConnectors,
+  getSkills,
+  deleteSkill,
+  deleteAllSkills,
   callConnectorTool,
   uploadMcpCode,
   isAvailable,
-  deleteSkill,
 };

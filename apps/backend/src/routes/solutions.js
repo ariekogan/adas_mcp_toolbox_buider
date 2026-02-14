@@ -98,32 +98,36 @@ router.patch('/:id', async (req, res, next) => {
 });
 
 /**
- * Delete solution (cascade: skill directories + ADAS Core runtime)
+ * Delete solution
  * DELETE /api/solutions/:id
+ *
+ * Since only one solution per tenant is supported, this deletes ALL
+ * skills and connectors from ADAS Core (best-effort) before removing
+ * local files.
  */
 router.delete('/:id', async (req, res, next) => {
   try {
-    // Cascade-delete linked skill directories (returns list of deleted slugs)
-    const deletedSlugs = await solutionsStore.remove(req.params.id);
+    const cleanupResults = { skills: null, connectors: null };
 
-    // Also clean up each skill from ADAS Core (runtime files + MCP registrations)
-    const adasCleanup = [];
-    for (const slug of deletedSlugs) {
-      try {
-        await adasCore.deleteSkill(slug);
-        adasCleanup.push({ slug, ok: true });
-        console.log(`[Solutions] Cleaned up ADAS Core skill: ${slug}`);
-      } catch (err) {
-        adasCleanup.push({ slug, ok: false, error: err.message, deploy_log: err.data || undefined });
-        console.log(`[Solutions] Warning: ADAS Core cleanup failed for ${slug}: ${err.message}`);
-      }
+    // Best-effort: wipe ADAS Core skills and connectors
+    try {
+      cleanupResults.connectors = await adasCore.deleteAllConnectors();
+      console.log('[solutions/delete] Deleted all ADAS Core connectors:', cleanupResults.connectors);
+    } catch (err) {
+      console.warn('[solutions/delete] Failed to delete ADAS Core connectors:', err.message);
     }
 
-    res.json({
-      ok: true,
-      deleted_skills: deletedSlugs.length,
-      adas_cleanup: adasCleanup,
-    });
+    try {
+      cleanupResults.skills = await adasCore.deleteAllSkills();
+      console.log('[solutions/delete] Deleted all ADAS Core skills:', cleanupResults.skills);
+    } catch (err) {
+      console.warn('[solutions/delete] Failed to delete ADAS Core skills:', err.message);
+    }
+
+    // Delete local files
+    await solutionsStore.remove(req.params.id);
+
+    res.json({ ok: true, adas_cleanup: cleanupResults });
   } catch (err) {
     next(err);
   }
@@ -503,11 +507,11 @@ router.post('/:id/skills/:skillId/redeploy', async (req, res, next) => {
     if (err.code === 'NO_SERVER') {
       return res.status(400).json({ ok: false, error: err.message, hint: 'No server.py found — MCP auto-generation will be attempted.' });
     }
+    if (err.code === 'DEPLOY_FAILED') {
+      return res.status(502).json({ ok: false, error: err.message, deploy_log: err.deploy_log || {} });
+    }
     if (err.message?.includes('not found') || err.code === 'ENOENT') {
       return res.status(404).json({ ok: false, error: 'Skill not found' });
-    }
-    if (err.code === 'DEPLOY_FAILED') {
-      return res.status(500).json({ ok: false, error: err.message, deploy_log: err.data || {} });
     }
     if (err.message?.includes('Failed to fetch') || err.message?.includes('fetch failed')) {
       return res.status(502).json({ ok: false, error: 'Failed to connect to ADAS Core', details: err.message });
@@ -559,7 +563,7 @@ router.post('/:id/redeploy', async (req, res, next) => {
         results.push({ skill_id: ref.id, internal_id: internalId !== ref.id ? internalId : undefined, ok: true, ...result });
       } catch (err) {
         failed++;
-        results.push({ skill_id: ref.id, internal_id: internalId !== ref.id ? internalId : undefined, ok: false, error: err.message, deploy_log: err.data || undefined });
+        results.push({ skill_id: ref.id, internal_id: internalId !== ref.id ? internalId : undefined, ok: false, error: err.message, deploy_log: err.deploy_log || undefined });
       }
     }
 
