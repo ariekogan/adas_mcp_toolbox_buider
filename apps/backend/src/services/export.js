@@ -54,7 +54,7 @@ def get_skill_definition() -> dict:
         "format": "yaml",
         "content": SKILL_DEFINITION_YAML.strip(),
         "skill_name": "${escapedName}",
-        "version": "${ver}"
+        "version": "${version}"
     }
 
 @mcp.tool()

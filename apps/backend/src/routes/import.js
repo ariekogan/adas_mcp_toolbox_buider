@@ -794,6 +794,21 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
       manifest = req.body.manifest || req.body;
       skillFiles = req.body.skills || {};
       mcpStoreFiles = req.body.mcpStore || {};
+
+      // Persist mcp_store files to disk so deploy-all can find them
+      if (manifest.name && Object.keys(mcpStoreFiles).length > 0) {
+        const mcpStoreBase = path.join(getSolutionPacksDir(), manifest.name, 'mcp-store');
+        for (const [connectorId, files] of Object.entries(mcpStoreFiles)) {
+          const connectorDir = path.join(mcpStoreBase, connectorId);
+          fs.mkdirSync(connectorDir, { recursive: true });
+          for (const file of files) {
+            const filePath = path.join(connectorDir, file.path);
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
+            fs.writeFileSync(filePath, file.content, 'utf-8');
+          }
+          console.log(`[Import] Wrote ${files.length} mcp_store files for ${connectorId}`);
+        }
+      }
     } else {
       return res.status(400).json({ ok: false, error: 'No file uploaded and no JSON body provided' });
     }
