@@ -1089,6 +1089,60 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
       }
     }
 
+    // ── Phase 3: Auto-remap original skill IDs → internal IDs ─────
+    // After all skills are deployed, update the solution definition
+    // so grants, handoffs, routing, and security_contracts use internal IDs.
+    if (solutionId && skillResults.some(r => r.ok && r.skillId)) {
+      try {
+        const idMap = {};
+        for (const sr of pkg.skills) {
+          if (sr.skillId && sr.id !== sr.skillId) {
+            idMap[sr.id] = sr.skillId;
+          }
+        }
+
+        if (Object.keys(idMap).length > 0) {
+          sendEvent('remap_progress', { status: 'remapping', message: `Remapping ${Object.keys(idMap).length} skill IDs...` });
+
+          const solution = await solutionsStore.load(solutionId);
+          let changed = false;
+
+          // Deep-replace all original IDs with internal IDs
+          const remap = (val) => {
+            if (typeof val === 'string') return idMap[val] || val;
+            if (Array.isArray(val)) return val.map(remap);
+            if (val && typeof val === 'object') {
+              const out = {};
+              for (const [k, v] of Object.entries(val)) out[k] = remap(v);
+              return out;
+            }
+            return val;
+          };
+
+          for (const field of ['grants', 'handoffs', 'routing', 'security_contracts']) {
+            if (solution[field]) {
+              const remapped = remap(solution[field]);
+              if (JSON.stringify(remapped) !== JSON.stringify(solution[field])) {
+                solution[field] = remapped;
+                changed = true;
+              }
+            }
+          }
+
+          if (changed) {
+            await solutionsStore.save(solution);
+            sendEvent('remap_progress', { status: 'done', message: 'IDs remapped', idMap });
+            console.log(`[Deploy] Auto-remapped skill IDs in solution ${solutionId}:`, idMap);
+          } else {
+            sendEvent('remap_progress', { status: 'skipped', message: 'No IDs needed remapping' });
+          }
+        }
+      } catch (err) {
+        sendEvent('remap_progress', { status: 'warning', message: `ID remap failed (non-fatal): ${err.message}` });
+        console.warn(`[Deploy] Auto-remap failed for ${solutionId}:`, err.message);
+      }
+    }
+
     // ── Final summary ───────────────────────────────────────────────
     const summary = {
       connectors: { total: totalConnectors, deployed: connectorResults.filter(r => r.ok).length, failed: connectorResults.filter(r => !r.ok).length },

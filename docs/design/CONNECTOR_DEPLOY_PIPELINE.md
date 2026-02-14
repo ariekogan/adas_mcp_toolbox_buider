@@ -98,9 +98,46 @@ No caching of UI plugin data at startup — discovery is done live (see Section 
 
 ---
 
-## 5. UI Plugin Architecture
+## 5. UI-Capable Skills
 
-### How It Works
+A **UI-capable skill** owns a visual dashboard that renders inside the ADAS platform as an iframe. It is backed by a **UI-capable connector** — an MCP that serves both the plugin manifest and the static UI assets.
+
+There are two layers to a UI-capable skill:
+
+1. **Passive rendering** — the dashboard iframe loads and fetches data from sibling MCPs via `postMessage` / `mcpProxy`
+2. **Agent-to-plugin commands** — the agent sends semantic commands to the iframe (e.g., "highlight this order") and the iframe executes them
+
+### 5.1 What Makes a Connector UI-Capable
+
+A UI-capable connector:
+- Implements `ui.listPlugins` and `ui.getPlugin` MCP tools
+- Includes a `ui-dist/` directory with static HTML/JS/CSS assets
+- Uses `transport: stdio` (like all solution connectors)
+
+```
+/mcp-store/ecommerce-ui-mcp/
+├── server.js              ← stdio MCP server (ui.listPlugins, ui.getPlugin)
+├── package.json
+├── node_modules/
+└── ui-dist/               ← static UI assets served by backend
+    └── ecom-dashboard/
+        └── 0.1.0/
+            └── index.html ← the actual dashboard (self-contained HTML+JS)
+```
+
+The MCP tools return:
+
+```javascript
+// ui.listPlugins — returns available plugins
+{ plugins: [{ id, name, version, description }] }
+
+// ui.getPlugin — returns manifest for one plugin
+{ id, name, version, render: { mode: "iframe", iframeUrl }, channels: { events, actions } }
+```
+
+Plugin IDs use the format `mcp:{connectorId}:{pluginId}` (e.g., `mcp:ecommerce-ui-mcp:ecom-dashboard`).
+
+### 5.2 How the Dashboard Renders (Passive UI)
 
 ```
 Browser (React)              ADAS Backend                  MCP (stdio)
@@ -134,41 +171,118 @@ Browser (React)              ADAS Backend                  MCP (stdio)
   |<-- postMessage result -----|<-- tool result -------------|
 ```
 
-### Key Points
-
-- **All connectors are stdio** — no HTTP connectors, no Docker containers for MCPs
+Key points:
 - **`cp.listContextPlugins`** calls `ui.listPlugins` **live** on each connected connector that has the tool (no caching)
 - **`cp.getContextPlugin`** calls `ui.getPlugin(id)` on the MCP to get the iframe manifest
 - **iframeUrl resolution**: MCP returns relative URL (e.g., `/ui/ecom-dashboard/0.1.0/index.html`), backend resolves to `/mcp-ui/{connectorId}/ecom-dashboard/0.1.0/index.html`
 - **Static file serving**: Backend route `GET /mcp-ui/:connectorId/*` serves files from `/mcp-store/:connectorId/ui-dist/*`
 - **Iframe ↔ host communication**: via `postMessage` — the iframe sends `mcp-call` actions, PluginHost proxies them to backend `cp.fe_api` → `mcpProxy`, which calls tools on any connector
 
-### MCP Tools for UI
+### 5.3 Agent-to-Plugin Commands
+
+Beyond passive rendering, plugins can declare **capabilities** (commands) that the agent can invoke semantically. This is the "agent talks to the UI" feature.
+
+#### Skill YAML Declaration
+
+The skill declares which plugins it controls:
+
+```yaml
+ui_capable: true
+ui_plugins:
+  - id: "mcp:ecommerce-ui-mcp:ecom-dashboard"
+    short_id: ecom_dash
+```
+
+#### Plugin Manifest Capabilities
+
+The connector's `ui.getPlugin` tool returns a manifest with `capabilities.commands`:
 
 ```javascript
-// ui.listPlugins — returns available plugins
-{ plugins: [{ id, name, version, description }] }
-
-// ui.getPlugin — returns manifest for one plugin
-{ id, name, version, render: { mode: "iframe", iframeUrl }, channels: { events, actions } }
+{
+  id: "ecom-dashboard",
+  capabilities: {
+    commands: [
+      { name: "highlight_order", description: "Highlight an order row",
+        input_schema: { type: "object", properties: { orderId: { type: "string" } } } }
+    ]
+  }
+}
 ```
 
-### Plugin ID Format
+#### Virtual Tool Generation
 
-MCP plugins use the format `mcp:{connectorId}:{pluginId}` (e.g., `mcp:ecommerce-ui-mcp:ecom-dashboard`).
+ADAS Core generates Tier-4 virtual tools at runtime:
+- `runtimeMap.getToolsForJob()` reads `job.__skill.ui_plugins`
+- For each plugin, fetches manifest via `getContextPlugin()`
+- For each command, creates a virtual tool: `ui.<short_id>.<command_name>`
+- Example: `ui.ecom_dash.highlight_order`
 
-### File Structure for UI-Capable Connectors
+#### Command Flow
 
 ```
-/mcp-store/ecommerce-ui-mcp/
-├── server.js              ← stdio MCP server (ui.listPlugins, ui.getPlugin)
-├── package.json
-├── node_modules/
-└── ui-dist/               ← static UI assets served by backend
-    └── ecom-dashboard/
-        └── 0.1.0/
-            └── index.html ← the actual dashboard (self-contained HTML+JS)
+Agent (runtime)             ADAS Backend              Browser (iframe)
+  |                            |                          |
+  |-- call virtual tool ------>|                          |
+  |   ui.ecom_dash.highlight   |                          |
+  |                            |-- SSE: plugin_command -->|
+  |                            |   { correlationId,       |
+  |                            |     pluginId, command,   |
+  |                            |     args }               |
+  |                            |                          |-- postMessage
+  |                            |                          |   to iframe
+  |                            |                          |<- iframe result
+  |                            |<- POST /api/plugin-      |
+  |                            |   command-result         |
+  |<-- tool result ------------|   { correlationId,       |
+  |                            |     result }             |
 ```
+
+#### Plugin SDK (iframe side)
+
+Plugins use `adas-plugin-sdk.js` to register command handlers:
+
+```javascript
+import { registerCommand } from './adas-plugin-sdk.js';
+
+registerCommand('highlight_order', async ({ orderId }) => {
+  // Highlight the order row in the UI
+  document.querySelector(`[data-order="${orderId}"]`)?.classList.add('highlighted');
+  return { success: true, orderId };
+});
+```
+
+### 5.4 Deploy → Runtime Flow
+
+```
+skill.yaml                              ADAS Core Runtime
+┌──────────────┐                       ┌───────────────────────────────┐
+│ ui_capable:  │                       │ loadSkillYaml()               │
+│ ui_plugins:  │                       │   ↓                          │
+│   - id: ...  │  ──(deploy)──>        │ job.__skill.ui_plugins = [..] │
+│     short_id │                       │   ↓                          │
+└──────────────┘                       │ getToolsForJob(job)           │
+                                        │   ↓ Tier 4                   │
+                                        │ getPluginToolsForJob()        │
+                                        │   ↓                          │
+                                        │ getContextPlugin(pluginId)    │
+                                        │   ↓ fetches manifest          │
+                                        │ manifest.capabilities.commands│
+                                        │   ↓                          │
+                                        │ virtual tools generated       │
+                                        │   ui.ecom_dash.highlight_order│
+                                        └───────────────────────────────┘
+```
+
+### 5.5 Key Files
+
+| File | Repo | Purpose |
+|------|------|---------|
+| `pluginTools.js` | ADAS Core | Generates virtual tools from manifest capabilities |
+| `pluginCommandPending.js` | ADAS Core | Manages pending command promises with timeout |
+| `runtimeMap.js` (Tier 4) | ADAS Core | Injects plugin tools into `getToolsForJob()` |
+| `store.js` | ADAS Core | `emitPluginCommand()` SSE channel |
+| `PluginHost.jsx` | ADAS Core | Command dispatch + result callback |
+| `adas-plugin-sdk.js` | Plugin | iframe SDK for registering command handlers |
 
 ---
 

@@ -11,9 +11,13 @@
 /**
  * Validate a solution definition
  * @param {Object} solution - Solution object
+ * @param {Object} [context] - Optional deployment context for deeper validation
+ * @param {Array}  [context.skills] - Full skill definitions (with tools)
+ * @param {Array}  [context.connectors] - Connector definitions from the deploy payload
+ * @param {Object} [context.mcp_store] - MCP store code map (connector_id → code)
  * @returns {Object} Validation result with errors and warnings
  */
-export function validateSolution(solution) {
+export function validateSolution(solution, context) {
   const errors = [];
   const warnings = [];
 
@@ -239,6 +243,47 @@ export function validateSolution(solution) {
       message: `Circular handoff chain detected: ${cycle.join(' → ')}`,
       cycle,
     });
+  }
+
+  // ─── 8. Connector binding validation ──────────────────────
+  // When full skill definitions and connector list are provided,
+  // check that mcp_bridge tools reference declared connectors
+  // and that stdio connectors have server code in mcp_store.
+  if (context) {
+    const fullSkills = context.skills || [];
+    const connectors = context.connectors || [];
+    const mcpStore = context.mcp_store || {};
+    const connectorIds = new Set(connectors.map(c => c.id));
+
+    // Check mcp_bridge tools reference declared connectors
+    for (const skill of fullSkills) {
+      for (const tool of (skill.tools || [])) {
+        if (tool.source?.type === 'mcp_bridge' && tool.source.connection_id) {
+          if (!connectorIds.has(tool.source.connection_id)) {
+            warnings.push({
+              check: 'mcp_bridge_connector_exists',
+              message: `Tool "${tool.name}" in skill "${skill.name || skill.id}" references connector "${tool.source.connection_id}" which is not in the connectors array`,
+              skill: skill.id,
+              tool: tool.name,
+              connector: tool.source.connection_id,
+            });
+          }
+        }
+      }
+    }
+
+    // Check stdio connectors have server code when mcp_store is expected
+    for (const connector of connectors) {
+      const transport = connector.transport || 'stdio';
+      if (transport === 'stdio' && !mcpStore[connector.id]) {
+        warnings.push({
+          check: 'connector_code_available',
+          message: `Connector "${connector.id}" uses stdio transport but no server code was provided in mcp_store. The connector may fail to start on ADAS Core.`,
+          connector: connector.id,
+          suggestion: `Include the connector's server code in mcp_store.${connector.id} or ensure it is pre-installed on ADAS Core at the configured path.`,
+        });
+      }
+    }
   }
 
   // ─── Summary ───────────────────────────────────────────────

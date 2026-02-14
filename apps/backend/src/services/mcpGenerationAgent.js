@@ -565,11 +565,16 @@ function summarizeInput(input) {
  * Simple non-agent MCP generation (fallback)
  */
 export async function generateMCPSimple(skill, options = {}) {
-  const { generateMCPServer, generateRequirements, generateDockerfile, generateReadme } =
+  const { generateMCPServer, generateSkillYaml, generateRequirements, generateDockerfile, generateReadme } =
     await import("./export.js");
 
+  // Pre-generate the skill YAML so it gets embedded in the MCP server
+  // for ADAS Core's get_skill_definition discovery
+  const skillYaml = generateSkillYaml(skill);
+
   return {
-    "mcp_server.py": generateMCPServer(skill),
+    "mcp_server.py": generateMCPServer(skill, { skillYaml }),
+    "skill.yaml": skillYaml,
     "requirements.txt": generateRequirements(),
     "Dockerfile": generateDockerfile(),
     "README.md": generateReadme(skill)
