@@ -30,7 +30,9 @@ import { execSync } from 'child_process';
 import {
   syncConnectorToADAS,
   startConnectorInADAS,
-  uploadMcpCodeToADAS
+  uploadMcpCodeToADAS,
+  deleteAllConnectorsFromADAS,
+  deleteAllSkillsFromADAS
 } from '../services/adasConnectorSync.js';
 import { deploySkillToADAS, deployIdentityToADAS } from '../services/exportDeploy.js';
 import { deriveEndpoint, buildConnectorPayload, buildCatalogEntry } from '../utils/connectorPayload.js';
@@ -1030,6 +1032,20 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
       } catch (err) {
         sendEvent('identity_progress', { status: 'warning', message: `Identity deploy error: ${err.message}` });
       }
+    }
+
+    // ── Phase 0.5: Clean ADAS Core (one solution per tenant) ────────
+    // Wipe all existing connectors and skills from ADAS Core before
+    // deploying the current package so ADAS matches Skill Builder exactly.
+    sendEvent('cleanup_progress', { status: 'starting', message: 'Cleaning ADAS Core...' });
+    try {
+      await deleteAllConnectorsFromADAS();
+      await deleteAllSkillsFromADAS();
+      sendEvent('cleanup_progress', { status: 'done', message: 'ADAS Core cleaned' });
+      console.log('[Deploy] Cleaned all connectors and skills from ADAS Core before deploy-all');
+    } catch (err) {
+      sendEvent('cleanup_progress', { status: 'warning', message: `Cleanup warning (non-fatal): ${err.message}` });
+      console.warn('[Deploy] ADAS cleanup failed (continuing):', err.message);
     }
 
     // ── Phase 1: Deploy connectors ──────────────────────────────────

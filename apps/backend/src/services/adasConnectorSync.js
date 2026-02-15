@@ -195,6 +195,36 @@ export async function uploadMcpCodeToADAS(connectorId, sourceDir) {
 }
 
 /**
+ * Wipe all connectors from ADAS Core.
+ * Used before deploy-all since we support one solution per tenant.
+ */
+export async function deleteAllConnectorsFromADAS() {
+  try {
+    const result = await adasCore.deleteAllConnectors();
+    console.log('[ADASSync] Deleted all connectors from ADAS');
+    return result;
+  } catch (err) {
+    console.error('[ADASSync] Failed to delete all connectors:', err.message);
+    throw err;
+  }
+}
+
+/**
+ * Wipe all skills from ADAS Core.
+ * Used before deploy-all since we support one solution per tenant.
+ */
+export async function deleteAllSkillsFromADAS() {
+  try {
+    const result = await adasCore.deleteAllSkills();
+    console.log('[ADASSync] Deleted all skills from ADAS');
+    return result;
+  } catch (err) {
+    console.error('[ADASSync] Failed to delete all skills:', err.message);
+    throw err;
+  }
+}
+
+/**
  * Check if ADAS is reachable.
  */
 export async function isADASAvailable() {
