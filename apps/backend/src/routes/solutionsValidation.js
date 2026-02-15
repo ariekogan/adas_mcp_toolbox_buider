@@ -149,7 +149,7 @@ function validateSkills(skills, solution) {
   const issues = [];
 
   // Use solution.skills for topology validation (semantic IDs like 'identity-assurance')
-  // Use skills (from skillsStore) for implementation validation (database IDs like 'dom_xxx')
+  // Use skills (from skillsStore) for implementation validation (database IDs like 'skill_xxx')
   const solutionSkillIds = new Set((solution.skills || []).map(s => s.id));
 
   // Validate skill implementations (from skillsStore)

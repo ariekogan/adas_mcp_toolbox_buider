@@ -829,7 +829,7 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
       console.log(`[Import] Cleared old package: ${key}`);
     }
 
-    // Remove all existing skills (dom_* directories)
+    // Remove all existing skills (skill_* directories)
     const allSkills = await skillsStore.list();
     for (const skill of allSkills) {
       await skillsStore.remove(null, skill.id);

@@ -148,8 +148,8 @@ router.get('/:id/deploy-status', async (req, res, next) => {
     const solution = await solutionsStore.load(req.params.id);
     const linkedSkills = solution.skills || [];
 
-    // Build a lookup: original_skill_id → internal dom ID
-    // Skills are stored as dom_xxx with original_skill_id pointing back to the ref.
+    // Build a lookup: original_skill_id → internal skill ID
+    // Skills are stored as skill_<name> with original_skill_id pointing back to the ref.
     const allSkills = await skillsStore.list();
     const skillIndex = new Map(); // original_skill_id → internal id
     for (const s of allSkills) {
@@ -159,7 +159,7 @@ router.get('/:id/deploy-status', async (req, res, next) => {
     // Load full skill objects in parallel
     const skills = await Promise.all(
       linkedSkills.map(async (ref) => {
-        // Resolve: try internal ID first (ref.id might be dom_xxx already),
+        // Resolve: try internal ID first (ref.id might be skill_xxx already),
         // then look up by original_skill_id
         const internalId = skillIndex.get(ref.id) || ref.id;
         try {
@@ -471,7 +471,7 @@ router.get('/:id/health', async (req, res, next) => {
  * Reads the stored skill definition, regenerates the MCP server,
  * and pushes to ADAS Core — without re-deploying the whole solution.
  *
- * Accepts original skill ID (e.g., "e2e-greeter") or internal ID (e.g., "dom_xxx").
+ * Accepts original skill ID (e.g., "e2e-greeter") or internal ID (e.g., "skill_fleet-ui-mcp").
  */
 router.post('/:id/skills/:skillId/redeploy', async (req, res, next) => {
   try {
@@ -479,7 +479,7 @@ router.post('/:id/skills/:skillId/redeploy', async (req, res, next) => {
     const requestedSkillId = req.params.skillId;
     const log = req.app.locals.log;
 
-    // Resolve skill ID: original_skill_id → internal dom_xxx
+    // Resolve skill ID: original_skill_id → internal skill_xxx
     const allSkills = await skillsStore.list();
     let internalId = requestedSkillId;
     const match = allSkills.find(s => s.original_skill_id === requestedSkillId);

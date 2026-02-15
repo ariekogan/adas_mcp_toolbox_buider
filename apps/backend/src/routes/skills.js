@@ -20,7 +20,7 @@ const router = Router({ mergeParams: true });
 /**
  * Resolve a skill ID — tries direct load, then falls back to original_skill_id lookup.
  * External agents use original IDs (e.g., "e2e-greeter") but skills are stored
- * with internal IDs (e.g., "dom_xxx").
+ * with internal IDs (e.g., "skill_fleet-ui-mcp").
  * @returns {string} The internal skill ID
  */
 async function resolveSkillId(skillId) {

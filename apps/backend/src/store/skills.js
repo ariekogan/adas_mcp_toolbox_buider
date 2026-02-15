@@ -259,7 +259,13 @@ async function list() {
 async function create(solutionId, name, settings = {}, template = null) {
   await init();
 
-  const slug = `dom_${uuidv4().slice(0, 8)}`;
+  // Deterministic slug from skill name — stable across delete/recreate cycles
+  const base = `skill_${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')}`;
+  let slug = base;
+  let suffix = 2;
+  while (await fileExists(path.join(getMemoryRoot(), slug, 'skill.json'))) {
+    slug = `${base}-${suffix++}`;
+  }
   const slugDir = path.join(getMemoryRoot(), slug);
 
   await ensureDir(slugDir);

@@ -682,7 +682,7 @@
  *   4. If server.py is missing at deploy time, auto-generation is attempted via generateMCPSimple()
  *
  * @typedef {Object} DraftSkill
- * @property {string} id - Internal ID (e.g., "dom_abc123"). NOT used as skillSlug.
+ * @property {string} id - Internal ID (e.g., "skill_fleet-ui-mcp"). Derived from skill name.
  * @property {string} name - Human-readable name. DEPLOY: Used to derive skillSlug for ADAS Core.
  * @property {string} description - Skill description
  * @property {number} version - Export version number. DEPLOY: Must be set (indicates MCP was generated).
