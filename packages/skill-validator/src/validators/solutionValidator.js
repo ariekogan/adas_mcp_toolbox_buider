@@ -284,6 +284,88 @@ export function validateSolution(solution, context) {
         });
       }
     }
+
+    // ─── 9. UI-capable connector validation ──────────────────
+    // Connectors with ui_capable: true MUST have ui.listPlugins and ui.getPlugin tools,
+    // and their mcp_store server code must return the correct response format.
+    const UI_DOC_REF = 'API docs: GET /spec/examples/connector-ui → _ui_tool_response_formats';
+
+    for (const connector of connectors) {
+      if (!connector.ui_capable) continue;
+
+      // Check transport is stdio (required for UI-capable connectors)
+      const transport = connector.transport || 'stdio';
+      if (transport !== 'stdio') {
+        errors.push({
+          check: 'ui_connector_transport',
+          message: `UI-capable connector "${connector.id}" must use transport: "stdio". Got "${transport}".`,
+          connector: connector.id,
+          docs: UI_DOC_REF,
+        });
+      }
+
+      // Check mcp_store has server code — scan for ui.listPlugins/ui.getPlugin
+      const storeFiles = mcpStore[connector.id];
+      if (storeFiles && Array.isArray(storeFiles)) {
+        const serverFile = storeFiles.find(f => f.path === 'server.js');
+        if (serverFile && serverFile.content) {
+          const code = serverFile.content;
+
+          // Must implement ui.listPlugins
+          if (!code.includes('ui.listPlugins')) {
+            errors.push({
+              check: 'ui_connector_listplugins_tool',
+              message: `UI-capable connector "${connector.id}" server.js does not implement the "ui.listPlugins" tool. This tool is required for ADAS Core to discover UI plugins.`,
+              connector: connector.id,
+              fix: 'Implement a "ui.listPlugins" tool that returns { plugins: [{ id, name, version, description }] }.',
+              docs: UI_DOC_REF,
+            });
+          }
+
+          // Must implement ui.getPlugin
+          if (!code.includes('ui.getPlugin')) {
+            errors.push({
+              check: 'ui_connector_getplugin_tool',
+              message: `UI-capable connector "${connector.id}" server.js does not implement the "ui.getPlugin" tool. This tool is required for ADAS Core to load plugin manifests.`,
+              connector: connector.id,
+              fix: 'Implement a "ui.getPlugin" tool that returns { id, name, version, render: { mode: "iframe", iframeUrl }, channels, capabilities }.',
+              docs: UI_DOC_REF,
+            });
+          }
+
+          // Check ui.listPlugins response format — warn if returning bare array instead of { plugins: [...] }
+          // Look for patterns like JSON.stringify([{ or JSON.stringify( [ that indicate a bare array response
+          const listPluginsMatch = code.match(/['"]ui\.listPlugins['"][\s\S]{0,500}?JSON\.stringify\s*\(\s*\[/);
+          if (listPluginsMatch) {
+            // Also check it's not wrapped in { plugins: ... }
+            const surroundingCode = code.substring(
+              Math.max(0, code.indexOf(listPluginsMatch[0]) - 50),
+              code.indexOf(listPluginsMatch[0]) + listPluginsMatch[0].length + 200
+            );
+            if (!surroundingCode.includes('plugins:') && !surroundingCode.includes('"plugins"')) {
+              warnings.push({
+                check: 'ui_connector_listplugins_format',
+                message: `UI-capable connector "${connector.id}": ui.listPlugins appears to return a bare array instead of { plugins: [...] }. ADAS Core expects the response format: { plugins: [{ id, name, version, description }] }.`,
+                connector: connector.id,
+                fix: 'Change the ui.listPlugins response from JSON.stringify([...]) to JSON.stringify({ plugins: [...] }). See the correct_example and wrong_example in the docs.',
+                docs: UI_DOC_REF,
+              });
+            }
+          }
+
+          // Check ui-dist directory exists in mcp_store
+          const hasUiDist = storeFiles.some(f => f.path.startsWith('ui-dist/'));
+          if (!hasUiDist) {
+            warnings.push({
+              check: 'ui_connector_dist_files',
+              message: `UI-capable connector "${connector.id}" has no ui-dist/ files in mcp_store. The UI plugin HTML/JS/CSS should be in ui-dist/<plugin-id>/<version>/.`,
+              connector: connector.id,
+              docs: UI_DOC_REF,
+            });
+          }
+        }
+      }
+    }
   }
 
   // ─── Summary ───────────────────────────────────────────────

@@ -504,6 +504,37 @@ function buildExampleConnectorUI() {
       },
     ],
 
+    // ── REQUIRED RESPONSE FORMATS for ui.listPlugins and ui.getPlugin ──
+    // These are the exact response formats your MCP server must return.
+    // The response MUST be wrapped in MCP content format: { content: [{ type: "text", text: JSON.stringify(data) }] }
+    _ui_tool_response_formats: {
+      'ui.listPlugins': {
+        _note: 'MUST return { plugins: [...] } wrapped in an object. Do NOT return a bare array.',
+        correct_example: {
+          plugins: [
+            { id: 'ecom-overview', name: 'E-Commerce Overview', version: '1.0.0', description: 'Dashboard for order analytics' },
+          ],
+        },
+        wrong_example: [
+          { id: 'ecom-overview', name: 'E-Commerce Overview', version: '1.0.0' },
+        ],
+        _wrong_note: 'WRONG: bare array without { plugins: } wrapper. ADAS Core will NOT discover these plugins.',
+        code_example: 'case "ui.listPlugins":\n  return { content: [{ type: "text", text: JSON.stringify({ plugins: [{ id: "ecom-overview", name: "E-Commerce Overview", version: "1.0.0" }] }) }] };',
+      },
+      'ui.getPlugin': {
+        _note: 'Returns the full manifest for one plugin. iframeUrl uses /ui/ prefix — ADAS Core resolves it to /mcp-ui/<connector-id>/.',
+        correct_example: {
+          id: 'ecom-overview',
+          name: 'E-Commerce Overview',
+          version: '1.0.0',
+          render: { mode: 'iframe', iframeUrl: '/ui/ecom-overview/1.0.0/index.html' },
+          channels: ['command'],
+          capabilities: { commands: [] },
+        },
+        code_example: 'case "ui.getPlugin":\n  return { content: [{ type: "text", text: JSON.stringify({ id: "ecom-overview", name: "E-Commerce Overview", version: "1.0.0", render: { mode: "iframe", iframeUrl: "/ui/ecom-overview/1.0.0/index.html" }, channels: ["command"], capabilities: { commands: [] } }) }] };',
+      },
+    },
+
     // File structure for a UI-capable connector:
     _file_structure_reference: {
       '/opt/mcp-connectors/ecommerce-dashboard-mcp/': [
