@@ -71,7 +71,7 @@ function loadPersistedPackagesForTenant(tenant) {
       for (const pkg of data) {
         pkgMap.set(pkg.name, pkg);
 
-        // Re-register connectors in catalog
+        // Re-register connectors in catalog (pass tenant explicitly since we're outside ALS)
         for (const mcp of (pkg.mcps || [])) {
           registerImportedConnector(mcp.id, {
             name: mcp.name,
@@ -88,7 +88,7 @@ function loadPersistedPackagesForTenant(tenant) {
             ui_capable: mcp.ui_capable || false,
             mcp_store_included: !!pkg.mcp_store_included,
             importedFrom: pkg.name
-          });
+          }, tenant);
           console.log(`[Import] Restored connector: ${mcp.id} (tenant: ${tenant})`);
         }
       }

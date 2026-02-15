@@ -20,6 +20,7 @@ import {
 } from '../services/adasConnectorSync.js';
 import connectorState from '../store/connectorState.js';
 import skills from '../store/skills.js';
+import { getCurrentTenant } from '../utils/tenantContext.js';
 
 const router = Router();
 
@@ -649,32 +650,47 @@ const PREBUILT_CONNECTORS = {
 // Export for use by export.js (connector sync to ADAS Core)
 export { PREBUILT_CONNECTORS };
 
-// Store for imported connectors (populated via /api/import)
-// This allows dynamic addition of connectors without restarting
-const importedConnectors = new Map();
+// Per-tenant store for imported connectors (populated via /api/import)
+// Each tenant gets its own Map so connectors don't leak across tenants
+const importedConnectorsByTenant = new Map();
 
-/**
- * Register imported connectors (called by import.js)
- */
-export function registerImportedConnector(id, config) {
-  importedConnectors.set(id, config);
-  console.log(`[Connectors] Registered imported connector: ${id}`);
+function getImportedConnectorsForTenant(tenant) {
+  if (!importedConnectorsByTenant.has(tenant)) {
+    importedConnectorsByTenant.set(tenant, new Map());
+  }
+  return importedConnectorsByTenant.get(tenant);
 }
 
 /**
- * Unregister imported connector (called by import.js)
+ * Register imported connector for a specific tenant (called by import.js)
+ * @param {string} id - Connector ID
+ * @param {object} config - Connector config
+ * @param {string} [tenant] - Tenant override; defaults to current ALS tenant
  */
-export function unregisterImportedConnector(id) {
-  importedConnectors.delete(id);
-  console.log(`[Connectors] Unregistered imported connector: ${id}`);
+export function registerImportedConnector(id, config, tenant) {
+  const t = tenant || getCurrentTenant();
+  getImportedConnectorsForTenant(t).set(id, config);
+  console.log(`[Connectors] Registered imported connector: ${id} (tenant: ${t})`);
 }
 
 /**
- * Get all connectors (prebuilt + imported)
+ * Unregister imported connector for a specific tenant (called by import.js)
+ * @param {string} id - Connector ID
+ * @param {string} [tenant] - Tenant override; defaults to current ALS tenant
+ */
+export function unregisterImportedConnector(id, tenant) {
+  const t = tenant || getCurrentTenant();
+  getImportedConnectorsForTenant(t).delete(id);
+  console.log(`[Connectors] Unregistered imported connector: ${id} (tenant: ${t})`);
+}
+
+/**
+ * Get all connectors (prebuilt + imported for current tenant)
  */
 export function getAllPrebuiltConnectors() {
+  const tenant = getCurrentTenant();
   const all = { ...PREBUILT_CONNECTORS };
-  for (const [id, config] of importedConnectors) {
+  for (const [id, config] of getImportedConnectorsForTenant(tenant)) {
     all[id] = config;
   }
   return all;
