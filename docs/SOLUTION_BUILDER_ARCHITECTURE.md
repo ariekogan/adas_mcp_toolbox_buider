@@ -789,7 +789,7 @@ The `SkillList.jsx` component renders a unified sidebar with solutions and skill
 └─────────────────────┘
 ```
 
-**Skill grouping logic**: The sidebar builds a `solutionSkillIds` set from all `solution.skills[].id` values. Skills whose `original_skill_id` or name (kebab-case) matches are shown indented under their solution. All other skills appear below the separator as standalone.
+**Skill grouping logic**: The sidebar builds a `solutionSkillIds` set from all `solution.skills[].id` values. Skills whose `id` or name (kebab-case) matches are shown indented under their solution. All other skills appear below the separator as standalone.
 
 **Selection behavior**:
 - Clicking a solution sets `selectedType = 'solution'` and loads it

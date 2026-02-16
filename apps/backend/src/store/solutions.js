@@ -66,7 +66,8 @@ function createEmptySolution(id, name) {
       default_actor_type: '',
       default_roles: [],
     },
-    // Note: skills are stored in /solutions/{id}/skills/ folder, not in this array
+    // Skills topology — references to skill definitions stored separately
+    skills: [],
     grants: [],
     handoffs: [],
     routing: {},

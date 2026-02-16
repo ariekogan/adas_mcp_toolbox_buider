@@ -8,25 +8,19 @@ import { compileUiPlugins } from "../utils/skillFieldHelpers.js";
 import adasCore from "./adasCoreClient.js";
 
 /**
- * Helper to get skillSlug from skill
+ * Helper to get skillSlug from skill.
+ * Since skill.id IS the canonical slug (no prefix, no remapping), just return it.
  * ADAS Core requires: /^[a-z0-9]+(-[a-z0-9]+)*$/
  */
 export function getSkillSlug(skill, skillId) {
-  let slug;
-
-  if (skill.name) {
-    slug = skill.name.toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
-  } else if (skill.original_skill_id) {
-    slug = skill.original_skill_id.replace(/_/g, "-").replace(/[^a-z0-9-]/g, "");
-  } else {
-    slug = skillId.replace(/_/g, "-").replace(/[^a-z0-9-]/g, "");
-  }
-
-  // Final cleanup
-  return slug.replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  const raw = skill.id || skillId;
+  // Safety: lowercase + sanitize to match ADAS Core format
+  const slug = raw.toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  // Fallback if skill.id sanitized to empty (degenerate case)
+  return slug || (skillId !== raw ? getSkillSlug({}, skillId) : "untitled");
 }
 
 /**
@@ -146,25 +140,8 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
 
   log.info(`[MCP Deploy] Read MCP files (${mcpServer.length} bytes)`);
 
-  // Generate a valid skillSlug
-  let skillSlug;
-
-  if (skill.name) {
-    skillSlug = skill.name.toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
-  } else if (skill.original_skill_id) {
-    skillSlug = skill.original_skill_id.replace(/_/g, "-").replace(/[^a-z0-9-]/g, "");
-  } else {
-    skillSlug = skillId.replace(/_/g, "-").replace(/[^a-z0-9-]/g, "");
-  }
-
-  // Final validation
-  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(skillSlug)) {
-    log.warn(`[MCP Deploy] Generated skillSlug "${skillSlug}" may be invalid, sanitizing...`);
-    skillSlug = skillSlug.replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
-  }
+  // skill.id IS the slug — no derivation needed
+  const skillSlug = getSkillSlug(skill, skillId);
 
   log.info(`[MCP Deploy] Using skillSlug: "${skillSlug}" (from skill.name: "${skill.name}")`);
   log.info(`[MCP Deploy] Sending to ADAS Core: ${adasCore.getBaseUrl()}/api/skills/deploy-mcp`);

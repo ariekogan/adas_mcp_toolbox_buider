@@ -18,22 +18,23 @@ import { getAllPrebuiltConnectors } from './connectors.js';
 const router = Router({ mergeParams: true });
 
 /**
- * Resolve a skill ID — tries direct load, then falls back to original_skill_id lookup.
- * External agents use original IDs (e.g., "e2e-greeter") but skills are stored
- * with internal IDs (e.g., "skill_fleet-ui-mcp").
- * @returns {string} The internal skill ID
+ * Resolve a skill ID — tries direct load, then legacy skill_ prefix fallback.
+ * Since skill.id IS the developer's original ID (no prefix), direct load is the normal path.
+ * @returns {string} The skill ID
  */
 async function resolveSkillId(skillId) {
-  // Check if the skillId exists directly as a directory
   try {
     await skillsStore.load(skillId);
     return skillId;
   } catch {
-    // Not found — search by original_skill_id
-    const allSkills = await skillsStore.list();
-    const match = allSkills.find(s => s.original_skill_id === skillId);
-    if (match) return match.id;
-    throw new Error(`Skill ${skillId} not found`);
+    // Backward compat: try legacy skill_ prefix
+    const legacyId = `skill_${skillId}`;
+    try {
+      await skillsStore.load(legacyId);
+      return legacyId;
+    } catch {
+      throw new Error(`Skill ${skillId} not found`);
+    }
   }
 }
 
@@ -252,20 +253,13 @@ router.delete('/:skillId', async (req, res, next) => {
     const { solutionId, skillId } = req.params;
     const internalId = await resolveSkillId(skillId);
 
-    // Load skill to get original_skill_id before deleting
-    let originalId = skillId;
-    try {
-      const skill = await skillsStore.load(solutionId, internalId);
-      if (skill.original_skill_id) originalId = skill.original_skill_id;
-    } catch { /* proceed with deletion anyway */ }
-
     await skillsStore.remove(solutionId, internalId);
 
     // Also remove from solution's architecture skills array
     try {
       const solution = await solutionsStore.load(solutionId);
       if (Array.isArray(solution.skills)) {
-        const idx = solution.skills.findIndex(s => s.id === originalId || s.id === internalId || s.id === skillId);
+        const idx = solution.skills.findIndex(s => s.id === internalId || s.id === skillId);
         if (idx !== -1) {
           solution.skills.splice(idx, 1);
           await solutionsStore.save(solution);

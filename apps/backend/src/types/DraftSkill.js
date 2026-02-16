@@ -688,7 +688,7 @@
  * @property {number} version - Export version number. DEPLOY: Must be set (indicates MCP was generated).
  * @property {Phase} phase - Current lifecycle phase. DEPLOY: Must be EXPORTED or DEPLOYED.
  * @property {string} [mcp_server] - MCP server URI for skill-specific tools
- * @property {string} [original_skill_id] - Original ID from imported solution packs. Used for re-import dedup.
+ * @property {string} [original_skill_id] - DEPRECATED: No longer used. skill.id IS the developer's original ID.
  * @property {string} [solution_id] - Parent solution ID. DEPLOY: Required for all deploy operations.
  * @property {string[]} [connectors] - Connector IDs this skill uses. DEPLOY: Auto-synced during deploy.
  * @property {string} created_at

@@ -129,7 +129,7 @@ console.log('──────────────');
   const result = validateSolution(makeEmptySolution());
   assertEqual(result.valid, true, 'Empty solution is valid');
   assertEqual(result.errors.length, 0, 'No errors');
-  assertEqual(result.warnings.length, 0, 'No warnings');
+  assertEqual(result.warnings.length, 1, 'One warning (identity_actor_types)');
   assertEqual(result.summary.skills, 0, 'Summary shows 0 skills');
   assertEqual(result.summary.grants, 0, 'Summary shows 0 grants');
 }

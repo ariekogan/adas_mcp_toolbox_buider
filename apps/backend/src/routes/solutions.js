@@ -148,27 +148,15 @@ router.get('/:id/deploy-status', async (req, res, next) => {
     const solution = await solutionsStore.load(req.params.id);
     const linkedSkills = solution.skills || [];
 
-    // Build a lookup: original_skill_id → internal skill ID
-    // Skills are stored as skill_<name> with original_skill_id pointing back to the ref.
-    const allSkills = await skillsStore.list();
-    const skillIndex = new Map(); // original_skill_id → internal id
-    for (const s of allSkills) {
-      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
-    }
-
-    // Load full skill objects in parallel
+    // Load full skill objects in parallel — ref.id IS the skill ID (no remapping)
     const skills = await Promise.all(
       linkedSkills.map(async (ref) => {
-        // Resolve: try internal ID first (ref.id might be skill_xxx already),
-        // then look up by original_skill_id
-        const internalId = skillIndex.get(ref.id) || ref.id;
         try {
-          const skill = await skillsStore.load(req.params.id, internalId);
+          const skill = await skillsStore.load(req.params.id, ref.id);
           return {
             id: ref.id,
-            internal_id: internalId !== ref.id ? internalId : undefined,
             name: skill.name || ref.name,
-            slug: getSkillSlug(skill, internalId),
+            slug: getSkillSlug(skill, ref.id),
             phase: skill.phase || 'UNKNOWN',
             deployedAt: skill.deployedAt || null,
             mcpUri: skill.mcpUri || null,
@@ -244,22 +232,16 @@ router.get('/:id/connectors/health', async (req, res, next) => {
 
     // Collect all connector IDs from the solution's skills
     const linkedSkills = solution.skills || [];
-    const allSkills = await skillsStore.list();
-    const skillIndex = new Map();
-    for (const s of allSkills) {
-      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
-    }
 
     const connectorIds = new Set();
     // From solution-level platform_connectors
     for (const pc of (solution.platform_connectors || [])) {
       if (pc.id) connectorIds.add(pc.id);
     }
-    // From skill-level connectors
+    // From skill-level connectors — ref.id IS the skill ID
     for (const ref of linkedSkills) {
-      const internalId = skillIndex.get(ref.id) || ref.id;
       try {
-        const skill = await skillsStore.load(req.params.id, internalId);
+        const skill = await skillsStore.load(req.params.id, ref.id);
         for (const cid of (skill.connectors || [])) {
           connectorIds.add(cid);
         }
@@ -328,19 +310,11 @@ router.get('/:id/health', async (req, res, next) => {
     const handoffs = solution.handoffs || [];
     const issues = [];
 
-    // Build skill ID lookup
-    const allSkills = await skillsStore.list();
-    const skillIndex = new Map();
-    for (const s of allSkills) {
-      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
-    }
-
-    // Check each skill
+    // Check each skill — ref.id IS the skill ID (no remapping)
     const skillHealth = [];
     for (const ref of linkedSkills) {
-      const internalId = skillIndex.get(ref.id) || ref.id;
       try {
-        const skill = await skillsStore.load(req.params.id, internalId);
+        const skill = await skillsStore.load(req.params.id, ref.id);
         const deployed = skill.phase === 'DEPLOYED';
         const hasMcpUri = Boolean(skill.mcpUri);
         const hasTools = (skill.tools || []).length > 0;
@@ -351,7 +325,6 @@ router.get('/:id/health', async (req, res, next) => {
 
         skillHealth.push({
           id: ref.id,
-          internal_id: internalId !== ref.id ? internalId : undefined,
           phase: skill.phase || 'UNKNOWN',
           deployed,
           mcpUri: skill.mcpUri || null,
@@ -479,28 +452,14 @@ router.post('/:id/skills/:skillId/redeploy', async (req, res, next) => {
     const requestedSkillId = req.params.skillId;
     const log = req.app.locals.log;
 
-    // Resolve skill ID: original_skill_id → internal skill_xxx
-    const allSkills = await skillsStore.list();
-    let internalId = requestedSkillId;
-    const match = allSkills.find(s => s.original_skill_id === requestedSkillId);
-    if (match) {
-      internalId = match.id;
-    } else {
-      // Verify the direct ID exists
-      const direct = allSkills.find(s => s.id === requestedSkillId);
-      if (!direct) {
-        return res.status(404).json({ ok: false, error: `Skill ${requestedSkillId} not found` });
-      }
-    }
+    // Skill ID is used directly — no remapping needed
+    log.info(`[Redeploy] Redeploying skill ${requestedSkillId} in solution ${solutionId}`);
 
-    log.info(`[Redeploy] Redeploying skill ${requestedSkillId} (internal: ${internalId}) in solution ${solutionId}`);
-
-    const result = await deploySkillToADAS(solutionId, internalId, log);
+    const result = await deploySkillToADAS(solutionId, requestedSkillId, log);
 
     res.json({
       ok: true,
       skill_id: requestedSkillId,
-      internal_id: internalId !== requestedSkillId ? internalId : undefined,
       ...result,
     });
   } catch (err) {
@@ -546,27 +505,19 @@ router.post('/:id/redeploy', async (req, res, next) => {
       return res.json({ ok: true, solution_id: solutionId, skills: [], message: 'No skills to redeploy' });
     }
 
-    // Build skill ID lookup
-    const allSkills = await skillsStore.list();
-    const skillIndex = new Map();
-    for (const s of allSkills) {
-      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
-    }
-
-    // Deploy each skill
+    // Deploy each skill — ref.id IS the skill ID
     const results = [];
     let deployed = 0;
     let failed = 0;
     for (const ref of linkedSkills) {
-      const internalId = skillIndex.get(ref.id) || ref.id;
       try {
-        log.info(`[BulkRedeploy] Deploying ${ref.id} (internal: ${internalId})`);
-        const result = await deploySkillToADAS(solutionId, internalId, log);
+        log.info(`[BulkRedeploy] Deploying ${ref.id}`);
+        const result = await deploySkillToADAS(solutionId, ref.id, log);
         deployed++;
-        results.push({ skill_id: ref.id, internal_id: internalId !== ref.id ? internalId : undefined, ok: true, ...result });
+        results.push({ skill_id: ref.id, ok: true, ...result });
       } catch (err) {
         failed++;
-        results.push({ skill_id: ref.id, internal_id: internalId !== ref.id ? internalId : undefined, ok: false, error: err.message, deploy_log: err.deploy_log || undefined });
+        results.push({ skill_id: ref.id, ok: false, error: err.message, deploy_log: err.deploy_log || undefined });
       }
     }
 
@@ -602,25 +553,14 @@ router.get('/:id/export', async (req, res, next) => {
     const solution = await solutionsStore.load(req.params.id);
     const linkedSkills = solution.skills || [];
 
-    // Build skill ID lookup
-    const allSkills = await skillsStore.list();
-    const skillIndex = new Map();
-    for (const s of allSkills) {
-      if (s.original_skill_id) skillIndex.set(s.original_skill_id, s.id);
-    }
-
-    // Load full skill definitions
+    // Load full skill definitions — ref.id IS the skill ID
     const skills = [];
     const connectorIds = new Set();
     for (const ref of linkedSkills) {
-      const internalId = skillIndex.get(ref.id) || ref.id;
       try {
-        const skill = await skillsStore.load(req.params.id, internalId);
-        // Use original_skill_id as the skill id in the export
+        const skill = await skillsStore.load(req.params.id, ref.id);
+        // skill.id is already the canonical developer ID — no remapping needed
         const exportSkill = { ...skill };
-        if (skill.original_skill_id) {
-          exportSkill.id = skill.original_skill_id;
-        }
         // Remove internal/deployment fields
         delete exportSkill._settings;
         delete exportSkill._fromTemplate;

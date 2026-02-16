@@ -889,7 +889,7 @@ function findMatchingSkill(topologyId, skills) {
   return skills.find(s =>
     normalizeSkillName(s.name) === normalizedId ||
     normalizeSkillName(s.id) === normalizedId ||
-    s.original_skill_id === topologyId
+    s.id === topologyId
   );
 }
 

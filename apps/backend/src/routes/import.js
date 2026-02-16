@@ -346,9 +346,9 @@ router.patch('/packages/:packageName/connectors/:connectorId', async (req, res) 
  * Import a skill YAML into Skill Builder as a skill
  *
  * Duplicate Prevention Strategy:
- * 1. First, try to find existing skill by skill's original ID (e.g., "support-tier-1")
- * 2. If not found, search all skills for one with matching original_skill_id field
- * 3. If not found, search by name (for backwards compatibility)
+ * 1. First, try to find existing skill by skill ID directly (skill.id IS the developer's ID)
+ * 2. If not found, try legacy skill_ prefix lookup (backward compat)
+ * 3. If not found, search by name (backward compat)
  * 4. Only create new skill if no match found
  *
  * Body: { solution_id: string, yaml: string } - solution ID and skill YAML content
@@ -392,59 +392,27 @@ router.post('/skill', async (req, res) => {
       });
     }
 
-    const originalSkillId = skillData.id;
+    // Validate / slugify the skill ID — must be a valid ADAS Core slug
+    const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+    let originalSkillId = skillData.id;
+    if (!SLUG_RE.test(originalSkillId)) {
+      // Auto-slugify: lowercase, replace invalid chars with hyphens, trim
+      originalSkillId = originalSkillId.toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+      if (!SLUG_RE.test(originalSkillId)) {
+        return res.status(400).json({
+          ok: false,
+          error: `Skill ID "${skillData.id}" cannot be converted to a valid slug (lowercase alphanumeric with hyphens)`
+        });
+      }
+      console.log(`[Import] Slugified skill ID: "${skillData.id}" → "${originalSkillId}"`);
+      skillData.id = originalSkillId;
+    }
     console.log(`[Import] Importing skill: ${skillData.name} (${originalSkillId}) into solution ${solution_id}`);
 
-    // Strategy: Find existing skill to update (prevent duplicates)
-    let existingSkill = null;
-
-    // 1. Try to load by original skill ID directly (if it was used as skill ID)
-    try {
-      existingSkill = await skillsStore.load(solution_id, originalSkillId);
-      if (existingSkill) {
-        console.log(`[Import] Found existing skill by skill ID: ${originalSkillId}`);
-      }
-    } catch (err) {
-      // Skill doesn't exist with that ID
-    }
-
-    // 2. If not found, search all skills for matching original_skill_id or name
-    if (!existingSkill) {
-      try {
-        const allSkills = await skillsStore.list(solution_id);
-
-        // First try to match by original_skill_id
-        for (const skillSummary of allSkills) {
-          try {
-            const skill = await skillsStore.load(solution_id, skillSummary.id);
-            if (skill.original_skill_id === originalSkillId) {
-              existingSkill = skill;
-              console.log(`[Import] Found existing skill by original_skill_id: ${skillSummary.id}`);
-              break;
-            }
-          } catch (err) {
-            // Skip skills that can't be loaded
-          }
-        }
-
-        // If still not found, try to match by name (for backwards compatibility)
-        if (!existingSkill) {
-          for (const skillSummary of allSkills) {
-            if (skillSummary.name === skillData.name) {
-              try {
-                existingSkill = await skillsStore.load(solution_id, skillSummary.id);
-                console.log(`[Import] Found existing skill by name: ${skillSummary.id}`);
-                break;
-              } catch (err) {
-                // Skip skills that can't be loaded
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.log(`[Import] Could not search existing skills: ${err.message}`);
-      }
-    }
+    // Find existing skill to update (prevent duplicates)
+    // Since skill.id IS the developer's original ID, just load by ID directly
+    const existingSkill = await findExistingSkillForSkill(solution_id, originalSkillId, skillData.name);
 
     let skillId;
 
@@ -457,22 +425,20 @@ router.post('/skill', async (req, res) => {
         ...skillData,
         id: existingSkill.id, // Keep the existing skill ID
         solution_id, // Ensure solution_id is set
-        original_skill_id: originalSkillId, // Track the original skill ID
         updated_at: new Date().toISOString()
       };
       await skillsStore.save(updatedSkill);
     } else {
-      // Create new skill
+      // Create new skill — use the developer's original ID as the skill ID
       console.log(`[Import] Creating new skill for skill: ${originalSkillId}`);
       const skill = await skillsStore.create(solution_id, skillData.name, skillData.settings || {});
       skillId = skill.id;
 
-      // Save with full skill data and track original skill ID
+      // Save with full skill data
       const fullSkill = {
         ...skillData,
         id: skill.id,
         solution_id, // Ensure solution_id is set
-        original_skill_id: originalSkillId, // Track the original skill ID for future imports
         created_at: skill.created_at,
         updated_at: new Date().toISOString()
       };
@@ -502,7 +468,6 @@ router.post('/skill', async (req, res) => {
       ok: true,
       skill: {
         id: skillId,
-        original_skill_id: originalSkillId,
         name: skillData.name,
         description: skillData.description
       },
@@ -518,63 +483,46 @@ router.post('/skill', async (req, res) => {
 });
 
 /**
- * Helper: Find existing skill by skill ID, original_skill_id, or name
- * Searches ALL skills (not filtered by solution) to find matches
- * Returns the existing skill or null if not found
+ * Helper: Find existing skill by skill ID or name.
+ * Since skill.id IS the developer's original ID (no prefix), just load by ID.
+ * Falls back to name match for backward compat with legacy skill_ directories.
  */
 async function findExistingSkillForSkill(solutionId, originalSkillId, skillName) {
-  // 1. Try to load by original skill ID directly (skill.id matches originalSkillId)
+  // 1. Try to load by ID directly (skill.id == originalSkillId)
   try {
     const skill = await skillsStore.load(null, originalSkillId);
     if (skill) {
-      console.log(`[Import] Found existing skill by direct ID: ${originalSkillId}`);
+      console.log(`[Import] Found existing skill by ID: ${originalSkillId}`);
       return skill;
     }
-  } catch (err) {
+  } catch {
     // Skill doesn't exist with that ID
   }
 
-  // 2. Search ALL skills for matching original_skill_id, id, or name
+  // 2. Backward compat: search for legacy skill_ prefix directories or original_skill_id field
   try {
-    // list() returns ALL skills (doesn't filter by solution)
     const allSkills = await skillsStore.list();
 
-    // First try to match by exact ID
-    for (const skillSummary of allSkills) {
-      if (skillSummary.id === originalSkillId) {
+    // Try legacy skill_ prefix
+    const legacyId = `skill_${originalSkillId}`;
+    for (const s of allSkills) {
+      if (s.id === legacyId || s.original_skill_id === originalSkillId) {
         try {
-          const skill = await skillsStore.load(null, skillSummary.id);
-          console.log(`[Import] Found existing skill by ID match: ${skillSummary.id}`);
+          const skill = await skillsStore.load(null, s.id);
+          console.log(`[Import] Found existing skill by legacy lookup: ${s.id}`);
           return skill;
-        } catch (err) {
-          // Skip skills that can't be loaded
-        }
+        } catch { /* skip */ }
       }
     }
 
-    // Try to match by original_skill_id field
-    for (const skillSummary of allSkills) {
-      try {
-        const skill = await skillsStore.load(null, skillSummary.id);
-        if (skill.original_skill_id === originalSkillId) {
-          console.log(`[Import] Found existing skill by original_skill_id: ${skillSummary.id}`);
-          return skill;
-        }
-      } catch (err) {
-        // Skip skills that can't be loaded
-      }
-    }
-
-    // Try to match by name (for backwards compatibility)
-    for (const skillSummary of allSkills) {
-      if (skillSummary.name === skillName) {
+    // Fall back to name match
+    for (const s of allSkills) {
+      if (s.name === skillName) {
         try {
-          const skill = await skillsStore.load(null, skillSummary.id);
-          console.log(`[Import] Found existing skill by name: ${skillSummary.id} (${skillName})`);
+          const skill = await skillsStore.load(null, s.id);
+          console.log(`[Import] Found existing skill by name: ${s.id} (${skillName})`);
           return skill;
-        } catch (err) {
-          // Skip skills that can't be loaded
-        }
+        } catch { /* skip */ }
       }
     }
   } catch (err) {
@@ -645,7 +593,6 @@ router.post('/skills', async (req, res) => {
             ...skillData,
             id: existingSkill.id,
             solution_id,
-            original_skill_id: originalSkillId,
             updated_at: new Date().toISOString()
           };
           await skillsStore.save(updatedSkill);
@@ -656,7 +603,6 @@ router.post('/skills', async (req, res) => {
             ...skillData,
             id: skill.id,
             solution_id,
-            original_skill_id: originalSkillId,
             created_at: skill.created_at,
             updated_at: new Date().toISOString()
           };
@@ -665,7 +611,6 @@ router.post('/skills', async (req, res) => {
 
         results.push({
           id: skillId,
-          original_skill_id: originalSkillId,
           name: skillData.name,
           status: isUpdate ? 'updated' : 'imported'
         });
@@ -916,11 +861,10 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
               ...skillData,
               id: existingSkill.id,
               solution_id: targetSolutionId,
-              original_skill_id: skillData.id,
               updated_at: new Date().toISOString()
             };
             await skillsStore.save(updated);
-            skillResults.push({ id: skillId, originalId: skillData.id, name: skillData.name, status: 'updated' });
+            skillResults.push({ id: skillId, name: skillData.name, status: 'updated' });
           } else {
             const skill = await skillsStore.create(targetSolutionId, skillData.name, skillData.settings || {});
             skillId = skill.id;
@@ -928,11 +872,10 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
               ...skillData,
               id: skill.id,
               solution_id: targetSolutionId,
-              original_skill_id: skillData.id,
               created_at: skill.created_at,
               updated_at: new Date().toISOString()
             });
-            skillResults.push({ id: skillId, originalId: skillData.id, name: skillData.name, status: 'imported' });
+            skillResults.push({ id: skillId, name: skillData.name, status: 'imported' });
           }
 
           console.log(`[Import] Skill ${skillData.name} -> ${skillId}`);
@@ -1120,61 +1063,10 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
       }
     }
 
-    // ── Phase 3: Auto-remap original skill IDs → internal IDs ─────
-    // After all skills are deployed, update the solution definition
-    // so grants, handoffs, routing, and security_contracts use internal IDs.
-    if (solutionId && skillResults.some(r => r.ok && r.skillId)) {
-      try {
-        const idMap = {};
-        for (const sr of pkg.skills) {
-          if (sr.skillId && sr.id !== sr.skillId) {
-            idMap[sr.id] = sr.skillId;
-          }
-        }
+    // Phase 3 (ID remap) removed — skill.id IS the developer's original ID now.
+    // No remapping needed: grants, handoffs, routing all use the same IDs as skill.id.
 
-        if (Object.keys(idMap).length > 0) {
-          sendEvent('remap_progress', { status: 'remapping', message: `Remapping ${Object.keys(idMap).length} skill IDs...` });
-
-          const solution = await solutionsStore.load(solutionId);
-          let changed = false;
-
-          // Deep-replace all original IDs with internal IDs
-          const remap = (val) => {
-            if (typeof val === 'string') return idMap[val] || val;
-            if (Array.isArray(val)) return val.map(remap);
-            if (val && typeof val === 'object') {
-              const out = {};
-              for (const [k, v] of Object.entries(val)) out[k] = remap(v);
-              return out;
-            }
-            return val;
-          };
-
-          for (const field of ['grants', 'handoffs', 'routing', 'security_contracts']) {
-            if (solution[field]) {
-              const remapped = remap(solution[field]);
-              if (JSON.stringify(remapped) !== JSON.stringify(solution[field])) {
-                solution[field] = remapped;
-                changed = true;
-              }
-            }
-          }
-
-          if (changed) {
-            await solutionsStore.save(solution);
-            sendEvent('remap_progress', { status: 'done', message: 'IDs remapped', idMap });
-            console.log(`[Deploy] Auto-remapped skill IDs in solution ${solutionId}:`, idMap);
-          } else {
-            sendEvent('remap_progress', { status: 'skipped', message: 'No IDs needed remapping' });
-          }
-        }
-      } catch (err) {
-        sendEvent('remap_progress', { status: 'warning', message: `ID remap failed (non-fatal): ${err.message}` });
-        console.warn(`[Deploy] Auto-remap failed for ${solutionId}:`, err.message);
-      }
-    }
-
-    // ── Phase 4: Update solution phase to DEPLOYED ─────────────────
+    // ── Phase 3: Update solution phase to DEPLOYED ─────────────────
     if (solutionId && skillResults.filter(r => r.ok).length === totalSkills && totalSkills > 0) {
       try {
         const solution = await solutionsStore.load(solutionId);

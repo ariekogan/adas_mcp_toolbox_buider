@@ -206,7 +206,6 @@ async function list() {
             updated_at: skill.updated_at,
             tools_count: skill.tools?.length || 0,
             connectors: skill.connectors || [],
-            original_skill_id: skill.original_skill_id || null,
             solution_id: skill.solution_id || null,
             progress: skill.validation?.completeness
               ? calculateOverallProgress(skill.validation.completeness)
@@ -259,8 +258,9 @@ async function list() {
 async function create(solutionId, name, settings = {}, template = null) {
   await init();
 
-  // Deterministic slug from skill name — stable across delete/recreate cycles
-  const base = `skill_${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')}`;
+  // Deterministic slug from skill name — the developer's ID, no prefix
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  if (!base) throw new Error(`Cannot create slug from skill name: "${name}"`);
   let slug = base;
   let suffix = 2;
   while (await fileExists(path.join(getMemoryRoot(), slug, 'skill.json'))) {
