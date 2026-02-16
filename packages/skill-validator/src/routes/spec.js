@@ -580,6 +580,13 @@ function buildSkillSpec() {
         },
       },
 
+      // ── Bootstrap Tools ──
+      bootstrap_tools: {
+        type: 'string[]', required: false, max_items: 3,
+        description: 'Up to 3 tool names that are always available to the planner (pinned in tool selection). These are NOT auto-executed — they simply guarantee the planner can always see and choose these tools, even when LLM-based tool ranking would otherwise exclude them. Useful for core domain tools like identity lookup or order retrieval that the planner needs on almost every request. Values must be valid tool names from the tools array.',
+        example: ['identity.customer.lookup', 'orders.list', 'account.status'],
+      },
+
       // ── Triggers ──
       triggers: {
         type: 'array', required: false,

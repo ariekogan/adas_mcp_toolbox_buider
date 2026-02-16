@@ -85,6 +85,10 @@ export const COVERAGE = [
   { section: 'metadata', field: 'name', check: 'Has name (string)', type: 'schema' },
   { section: 'metadata', field: 'phase', check: 'Valid phase enum', type: 'schema' },
 
+  // Bootstrap Tools
+  { section: 'bootstrap_tools', field: 'bootstrap_tools', check: 'Is string[] (max 3)', type: 'schema' },
+  { section: 'bootstrap_tools', field: 'bootstrap_tools[]', check: 'References valid tool name', type: 'schema' },
+
   // Triggers
   { section: 'triggers', field: 'triggers[].id', check: 'Has ID', type: 'schema' },
   { section: 'triggers', field: 'triggers[].type', check: 'Valid enum (schedule|event)', type: 'schema' },
@@ -146,6 +150,9 @@ export function validateSchema(skill) {
 
   // Validate policy
   issues.push(...validatePolicy(skill.policy));
+
+  // Validate bootstrap_tools
+  issues.push(...validateBootstrapTools(skill));
 
   // Validate triggers
   if (skill.triggers && Array.isArray(skill.triggers)) {
@@ -821,6 +828,72 @@ function validatePolicy(policy) {
         severity: 'error',
         path: `policy.approvals[${i}].tool_id`,
         message: 'Approval rule must specify a tool_id',
+      });
+    }
+  });
+
+  return issues;
+}
+
+/**
+ * Validate bootstrap_tools field
+ * @param {DraftSkill} skill
+ * @returns {ValidationIssue[]}
+ */
+function validateBootstrapTools(skill) {
+  const issues = [];
+
+  if (skill.bootstrap_tools === undefined || skill.bootstrap_tools === null) {
+    // Optional field — recommend if skill has 3+ tools and no bootstrap_tools set
+    if (skill.tools?.length >= 3) {
+      issues.push({
+        code: 'MISSING_BOOTSTRAP_TOOLS',
+        severity: 'info',
+        path: 'bootstrap_tools',
+        message: 'Consider defining bootstrap_tools (up to 3 core tool names) to guarantee they are always available to the planner',
+        suggestion: 'Add bootstrap_tools with your most important domain tools (e.g., identity lookup, order retrieval)',
+      });
+    }
+    return issues;
+  }
+
+  if (!Array.isArray(skill.bootstrap_tools)) {
+    issues.push({
+      code: 'INVALID_BOOTSTRAP_TOOLS',
+      severity: 'error',
+      path: 'bootstrap_tools',
+      message: 'bootstrap_tools must be an array of tool name strings',
+    });
+    return issues;
+  }
+
+  if (skill.bootstrap_tools.length > 3) {
+    issues.push({
+      code: 'TOO_MANY_BOOTSTRAP_TOOLS',
+      severity: 'error',
+      path: 'bootstrap_tools',
+      message: `bootstrap_tools allows at most 3 entries, got ${skill.bootstrap_tools.length}`,
+      suggestion: 'Choose the 3 most critical tools that the planner needs on almost every request',
+    });
+  }
+
+  // Validate each entry references a valid tool name
+  const toolNames = new Set((skill.tools || []).map(t => t.name).filter(Boolean));
+  skill.bootstrap_tools.forEach((bt, i) => {
+    if (typeof bt !== 'string' || !bt.trim()) {
+      issues.push({
+        code: 'INVALID_BOOTSTRAP_TOOL_ENTRY',
+        severity: 'error',
+        path: `bootstrap_tools[${i}]`,
+        message: 'Each bootstrap_tools entry must be a non-empty string',
+      });
+    } else if (toolNames.size > 0 && !toolNames.has(bt)) {
+      issues.push({
+        code: 'UNKNOWN_BOOTSTRAP_TOOL',
+        severity: 'error',
+        path: `bootstrap_tools[${i}]`,
+        message: `bootstrap_tools entry "${bt}" does not match any defined tool name — bootstrap tools MUST reference existing tools`,
+        suggestion: `Available tool names: ${[...toolNames].slice(0, 5).join(', ')}${toolNames.size > 5 ? '...' : ''}`,
       });
     }
   });

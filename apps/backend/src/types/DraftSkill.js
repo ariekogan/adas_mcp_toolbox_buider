@@ -706,6 +706,7 @@
  * @property {ToolBoxImport[]} toolbox_imports
  * @property {Tool[]} tools - DEPLOY: Each becomes @mcp.tool() in generated Python MCP server.
  * @property {MetaTool[]} meta_tools - DAL-generated tool compositions
+ * @property {string[]} [bootstrap_tools] - Up to 3 tool names always available to planner (pinned, not auto-executed). DEPLOY: Included in skill.yaml.
  * @property {Trigger[]} triggers - Automation triggers (schedule, event). DEPLOY: Enabled triggers are included.
  * @property {PolicyConfig} policy
  * @property {Channel[]} channels

@@ -1240,6 +1240,59 @@ export default function SkillPanel({
                   <div style={styles.empty}>No tools defined yet</div>
                 )}
 
+                {/* Bootstrap Tools Section - pinned tools for planner */}
+                {skill.bootstrap_tools?.length > 0 && (
+                  <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                    <div style={styles.sectionHeader}>
+                      <div style={styles.sectionTitle}>
+                        Bootstrap Tools ({skill.bootstrap_tools.length}/3)
+                        <span style={{
+                          fontSize: '10px',
+                          color: 'var(--text-muted)',
+                          fontWeight: 'normal',
+                          marginLeft: '8px'
+                        }}>
+                          Always available to planner
+                        </span>
+                      </div>
+                      <InfoButton topic="bootstrap_tools" onAskAbout={onAskAbout} />
+                    </div>
+                    <div style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '6px',
+                      marginTop: '8px'
+                    }}>
+                      {skill.bootstrap_tools.map((toolName, i) => {
+                        const matchedTool = skill.tools?.find(t => t.name === toolName);
+                        return (
+                          <span
+                            key={i}
+                            style={{
+                              background: '#3b82f620',
+                              color: '#60a5fa',
+                              border: '1px solid #3b82f640',
+                              borderRadius: '6px',
+                              padding: '4px 10px',
+                              fontSize: '11px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                            title={matchedTool?.description || 'Pinned tool'}
+                          >
+                            <span style={{ fontSize: '12px' }}>&#x1F4CC;</span>
+                            {toolName}
+                            {!matchedTool && (
+                              <span style={{ color: '#f59e0b', fontSize: '10px' }} title="Tool name not found in tools list">&#x26A0;</span>
+                            )}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Meta Tools Section - DAL-generated compositions */}
                 {skill.meta_tools?.length > 0 && (
                   <>

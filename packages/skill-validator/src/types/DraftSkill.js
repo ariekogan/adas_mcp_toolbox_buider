@@ -683,6 +683,7 @@
  * @property {ToolBoxImport[]} toolbox_imports
  * @property {Tool[]} tools
  * @property {MetaTool[]} meta_tools - DAL-generated tool compositions
+ * @property {string[]} [bootstrap_tools] - Up to 3 tool names always available to planner (pinned, not auto-executed)
  * @property {Trigger[]} triggers - Automation triggers (schedule, event)
  * @property {PolicyConfig} policy
  * @property {Channel[]} channels

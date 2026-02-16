@@ -193,6 +193,14 @@ For each tool:
 - Set tool-level policy (allowed, requires_approval)
 - Create mock examples (at least 2)
 
+**Bootstrap Tools (auto-suggest when all tools are defined):**
+Once all tools have output descriptions, automatically suggest up to 3 \`bootstrap_tools\` — the most critical domain tools that the planner should always have available. These are NOT auto-executed; they are pinned in the planner's tool selection so the LLM always sees them. Good candidates are:
+- Identity/lookup tools (e.g., customer lookup, account status)
+- Primary data retrieval tools (e.g., order get, ticket lookup)
+- Tools needed on nearly every user request
+
+Set \`bootstrap_tools\` as an array of tool name strings. Present your suggestions to the user for approval.
+
 Exit when: All tools have output descriptions
 
 ### Phase 6: POLICY_DEFINITION (NEW)
@@ -602,6 +610,13 @@ For each tool, explain:
     case 'TOOL_DEFINITION':
       const currentTool = skill.tools?.find(t => !t.output?.description);
       const completeTools = skill.tools?.filter(t => t.output?.description).length || 0;
+      const hasBootstrapTools = Array.isArray(skill.bootstrap_tools) && skill.bootstrap_tools.length > 0;
+      const allToolsDefined = skill.tools?.length > 0 && skill.tools.every(t => t.output?.description);
+      const bootstrapHint = allToolsDefined && !hasBootstrapTools && skill.tools.length >= 3
+        ? `\n\n**Action needed:** All tools are defined. Suggest up to 3 \`bootstrap_tools\` — the most critical tools the planner should always have available. Pick tools needed on nearly every request (e.g., identity lookup, primary data retrieval). Present your suggestion to the user.`
+        : hasBootstrapTools
+          ? `\n\nBootstrap tools configured: ${skill.bootstrap_tools.join(', ')}`
+          : '';
       return `
 ## CURRENT PHASE: TOOL_DEFINITION
 
@@ -614,7 +629,7 @@ Progress:
 - [${currentTool.inputs?.length >= 0 ? 'x' : ' '}] Inputs defined
 - [${currentTool.output?.description ? 'x' : ' '}] Output described
 - [${currentTool.mock?.examples?.length >= 2 ? 'x' : ' '}] Mock examples (need 2)
-` : 'All tools have basic definition. Ready for policy.'}`;
+` : `All tools have basic definition. Ready for policy.`}${bootstrapHint}`;
 
     case 'POLICY_DEFINITION':
       const neverCount = skill.policy?.guardrails?.never?.length || 0;

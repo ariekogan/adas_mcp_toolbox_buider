@@ -514,10 +514,20 @@ export function shouldSuggestPhaseAdvance(skill) {
       'READY_TO_EXPORT': 'All mocks are tested',
       'EXPORTED': 'Skill is ready to export',
     };
+
+    // Add bootstrap_tools recommendation when transitioning from TOOL_DEFINITION → POLICY_DEFINITION
+    let hint = '';
+    if (nextPhase === 'POLICY_DEFINITION' && skill.tools?.length >= 3) {
+      const hasBootstrapTools = Array.isArray(skill.bootstrap_tools) && skill.bootstrap_tools.length > 0;
+      if (!hasBootstrapTools) {
+        hint = '. Consider setting bootstrap_tools (up to 3 core tool names) before proceeding — they ensure the planner always has your most critical tools available';
+      }
+    }
+
     return {
       suggest: true,
       nextPhase,
-      reason: reasons[nextPhase] || 'Ready to proceed'
+      reason: (reasons[nextPhase] || 'Ready to proceed') + hint
     };
   }
 
