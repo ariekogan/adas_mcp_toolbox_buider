@@ -54,14 +54,15 @@ console.log('══════════════════════�
 console.log('Phase Definitions');
 console.log('─────────────────');
 
-assertEqual(SOLUTION_PHASES.length, 7, 'There are 7 solution phases');
+assertEqual(SOLUTION_PHASES.length, 8, 'There are 8 solution phases');
 assertEqual(SOLUTION_PHASES[0], 'SOLUTION_DISCOVERY', 'First phase is SOLUTION_DISCOVERY');
-assertEqual(SOLUTION_PHASES[1], 'SKILL_TOPOLOGY', 'Second phase is SKILL_TOPOLOGY');
-assertEqual(SOLUTION_PHASES[2], 'GRANT_ECONOMY', 'Third phase is GRANT_ECONOMY');
-assertEqual(SOLUTION_PHASES[3], 'HANDOFF_DESIGN', 'Fourth phase is HANDOFF_DESIGN');
-assertEqual(SOLUTION_PHASES[4], 'ROUTING_CONFIG', 'Fifth phase is ROUTING_CONFIG');
-assertEqual(SOLUTION_PHASES[5], 'SECURITY_CONTRACTS', 'Sixth phase is SECURITY_CONTRACTS');
-assertEqual(SOLUTION_PHASES[6], 'VALIDATION', 'Seventh phase is VALIDATION');
+assertEqual(SOLUTION_PHASES[1], 'IDENTITY_DESIGN', 'Second phase is IDENTITY_DESIGN');
+assertEqual(SOLUTION_PHASES[2], 'SKILL_TOPOLOGY', 'Third phase is SKILL_TOPOLOGY');
+assertEqual(SOLUTION_PHASES[3], 'GRANT_ECONOMY', 'Fourth phase is GRANT_ECONOMY');
+assertEqual(SOLUTION_PHASES[4], 'HANDOFF_DESIGN', 'Fifth phase is HANDOFF_DESIGN');
+assertEqual(SOLUTION_PHASES[5], 'ROUTING_CONFIG', 'Sixth phase is ROUTING_CONFIG');
+assertEqual(SOLUTION_PHASES[6], 'SECURITY_CONTRACTS', 'Seventh phase is SECURITY_CONTRACTS');
+assertEqual(SOLUTION_PHASES[7], 'VALIDATION', 'Eighth phase is VALIDATION');
 
 console.log('');
 
