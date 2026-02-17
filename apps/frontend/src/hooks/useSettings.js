@@ -7,8 +7,7 @@ const DEFAULT_SETTINGS = {
   llm_provider: 'openai', // Default to OpenAI
   anthropic_api_key: '',
   openai_api_key: '',
-  anthropic_model: 'claude-sonnet-4-20250514',
-  openai_model: 'gpt-5.2'
+  model_tier: 'normal' // "fast" | "normal" | "deep" — resolved by backend
 };
 
 export function useSettings() {

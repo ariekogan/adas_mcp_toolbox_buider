@@ -277,38 +277,26 @@ export default function SettingsModal({ settings, onSave, onClose, backendStatus
           </div>
 
           <div style={styles.section}>
-            <div style={styles.sectionTitle}>Model Selection</div>
+            <div style={styles.sectionTitle}>Model Tier</div>
 
-            {local.llm_provider === 'anthropic' && (
-              <div style={styles.field}>
-                <label style={styles.label}>Claude Model</label>
-                <select
-                  style={styles.select}
-                  value={local.anthropic_model || 'claude-sonnet-4-20250514'}
-                  onChange={e => update('anthropic_model', e.target.value)}
-                >
-                  <option value="claude-sonnet-4-20250514">Claude Sonnet 4 (Recommended)</option>
-                  <option value="claude-opus-4-20250514">Claude Opus 4</option>
-                  <option value="claude-haiku-3-5-20241022">Claude Haiku 3.5</option>
-                </select>
+            <div style={styles.field}>
+              <label style={styles.label}>Performance Level</label>
+              <select
+                style={styles.select}
+                value={local.model_tier || 'normal'}
+                onChange={e => update('model_tier', e.target.value)}
+              >
+                <option value="fast">Fast — quick responses, lower cost</option>
+                <option value="normal">Normal — balanced (Recommended)</option>
+                <option value="deep">Deep — highest quality, slower</option>
+              </select>
+              <div style={styles.hint}>
+                {local.llm_provider === 'openai'
+                  ? { fast: 'GPT-4o Mini', normal: 'GPT-5.2', deep: 'GPT-5.2 Pro' }[local.model_tier || 'normal']
+                  : { fast: 'Claude Haiku 3.5', normal: 'Claude Sonnet 4', deep: 'Claude Opus 4' }[local.model_tier || 'normal']
+                }
               </div>
-            )}
-
-            {local.llm_provider === 'openai' && (
-              <div style={styles.field}>
-                <label style={styles.label}>GPT Model</label>
-                <select
-                  style={styles.select}
-                  value={local.openai_model || 'gpt-5.2'}
-                  onChange={e => update('openai_model', e.target.value)}
-                >
-                  <option value="gpt-5.2">GPT-5.2 (Recommended)</option>
-                  <option value="gpt-5.2-pro">GPT-5.2 Pro</option>
-                  <option value="gpt-4o">GPT-4o</option>
-                  <option value="gpt-4o-mini">GPT-4o Mini</option>
-                </select>
-              </div>
-            )}
+            </div>
           </div>
         </div>
 

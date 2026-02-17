@@ -445,7 +445,7 @@ export default function App() {
       const llmSettings = {
         llm_provider: settings.llm_provider,
         api_key: getActiveApiKey(),
-        llm_model: settings.llm_provider === 'openai' ? settings.openai_model : settings.anthropic_model
+        llm_model: settings.model_tier || 'normal'
       };
       const response = await api.sendSkillMessage(currentSolution.id, currentSkill.id, message, uiFocus, llmSettings);
       addMessage({
@@ -508,7 +508,7 @@ export default function App() {
       const llmSettings = {
         llm_provider: settings.llm_provider,
         api_key: getActiveApiKey(),
-        llm_model: settings.llm_provider === 'openai' ? settings.openai_model : settings.anthropic_model
+        llm_model: settings.model_tier || 'normal'
       };
       const response = await api.sendSolutionMessage(currentSolution.id, message, llmSettings);
       addSolutionMessage({
