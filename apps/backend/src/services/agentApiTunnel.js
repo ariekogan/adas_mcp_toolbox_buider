@@ -1,25 +1,59 @@
 /**
  * Agent API Tunnel Manager
  *
- * Manages an ngrok tunnel to expose the skill-validator microservice
- * (port 3200) via a public URL with a custom domain.
+ * Exposes the skill-validator microservice (port 3200) via a public URL.
+ *
+ * Supports two tunnel providers:
+ *   1. Cloudflare Tunnel (preferred) — managed externally via `cloudflared`
+ *   2. ngrok (legacy fallback) — managed in-process
  *
  * Environment variables:
- *   NGROK_AUTHTOKEN     — ngrok auth token (required)
- *   VALIDATOR_URL        — skill-validator address (default: http://localhost:3200)
- *   AGENT_API_DOMAIN     — custom ngrok domain (default: agent-api.ateam-ai.com)
+ *   AGENT_API_URL        — Fixed public URL (Cloudflare Tunnel). When set,
+ *                          ngrok is disabled and start/stop are no-ops.
+ *                          Example: https://api.ateam-ai.com
+ *   NGROK_AUTHTOKEN      — ngrok auth token (only used when AGENT_API_URL is not set)
+ *   VALIDATOR_URL         — skill-validator address (default: http://localhost:3200)
+ *   AGENT_API_DOMAIN      — custom ngrok domain (legacy)
  */
 
 let ngrokModule = null;
 let activeTunnel = null; // { url, domain, listener }
 
 const VALIDATOR_URL = process.env.VALIDATOR_URL || 'http://localhost:3200';
-const DOMAIN = process.env.AGENT_API_DOMAIN || null; // null = ngrok assigns random URL
+const AGENT_API_URL = process.env.AGENT_API_URL || null;
+const DOMAIN = process.env.AGENT_API_DOMAIN || null;
 
 /**
- * Lazily load the @ngrok/ngrok module.
- * Returns null if not installed (graceful degradation).
+ * Determine the tunnel provider in use.
+ * @returns {'cloudflare' | 'ngrok' | null}
  */
+function getProvider() {
+  if (AGENT_API_URL) return 'cloudflare';
+  if (process.env.NGROK_AUTHTOKEN) return 'ngrok';
+  return null;
+}
+
+/* ── Cloudflare helpers ─────────────────────────────────────────── */
+
+/**
+ * Probe the Cloudflare Tunnel by hitting /health through the public URL.
+ * Returns true if the tunnel is forwarding traffic.
+ */
+async function probeCloudflare() {
+  if (!AGENT_API_URL) return false;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(`${AGENT_API_URL}/health`, { signal: controller.signal });
+    clearTimeout(timeout);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/* ── ngrok helpers ──────────────────────────────────────────────── */
+
 async function getNgrok() {
   if (ngrokModule) return ngrokModule;
   try {
@@ -30,16 +64,28 @@ async function getNgrok() {
   }
 }
 
+/* ── Public API ─────────────────────────────────────────────────── */
+
 /**
- * Start the ngrok tunnel.
- * No-op if already active. Returns tunnel info.
- *
- * @returns {Promise<{ url: string, domain: string }>}
+ * Start the tunnel.
+ * - Cloudflare mode: no-op (tunnel is managed externally). Returns the fixed URL.
+ * - ngrok mode: starts an in-process tunnel.
  */
 export async function startTunnel() {
-  // Already running — return existing
+  // Cloudflare — tunnel is external, just return the URL
+  if (AGENT_API_URL) {
+    const active = await probeCloudflare();
+    return {
+      url: AGENT_API_URL,
+      domain: new URL(AGENT_API_URL).hostname,
+      provider: 'cloudflare',
+      active,
+    };
+  }
+
+  // ngrok — existing behavior
   if (activeTunnel) {
-    return { url: activeTunnel.url, domain: activeTunnel.domain };
+    return { url: activeTunnel.url, domain: activeTunnel.domain, provider: 'ngrok' };
   }
 
   const authtoken = process.env.NGROK_AUTHTOKEN;
@@ -64,13 +110,17 @@ export async function startTunnel() {
   activeTunnel = { url, domain, listener };
 
   console.log(`[AgentAPI] Tunnel active: ${url}`);
-  return { url, domain };
+  return { url, domain, provider: 'ngrok' };
 }
 
 /**
- * Stop the ngrok tunnel.
+ * Stop the tunnel.
+ * - Cloudflare mode: no-op.
+ * - ngrok mode: closes the in-process tunnel.
  */
 export async function stopTunnel() {
+  if (AGENT_API_URL) return; // Cloudflare tunnel is external
+
   if (!activeTunnel) return;
 
   console.log('[AgentAPI] Stopping ngrok tunnel');
@@ -84,14 +134,25 @@ export async function stopTunnel() {
 
 /**
  * Get current tunnel status.
- *
- * @returns {{ active: boolean, url: string|null, domain: string }}
  */
 export function getTunnelStatus() {
+  const provider = getProvider();
+
+  if (provider === 'cloudflare') {
+    return {
+      active: true, // Assume active; UI can probe /health for live check
+      url: AGENT_API_URL,
+      domain: new URL(AGENT_API_URL).hostname,
+      provider: 'cloudflare',
+      hasAuthToken: true, // Not relevant for Cloudflare, but keeps UI happy
+    };
+  }
+
   return {
     active: !!activeTunnel,
     url: activeTunnel?.url || null,
     domain: DOMAIN,
+    provider: 'ngrok',
     hasAuthToken: !!process.env.NGROK_AUTHTOKEN,
   };
 }

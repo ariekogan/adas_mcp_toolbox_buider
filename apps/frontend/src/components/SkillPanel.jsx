@@ -1567,7 +1567,7 @@ export default function SkillPanel({
 
       {/* Test Tool Modal */}
       {testingTool && (
-        <TestToolModal tool={testingTool} projectId={skillId} onClose={() => setTestingTool(null)} />
+        <TestToolModal tool={testingTool} solutionId={solutionId} skillId={skillId} onClose={() => setTestingTool(null)} />
       )}
 
       {/* Validation Panel Modal */}

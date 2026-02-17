@@ -198,7 +198,7 @@ const styles = {
   }
 };
 
-export default function TestToolModal({ tool, projectId, onClose }) {
+export default function TestToolModal({ tool, solutionId, skillId, onClose }) {
   const [inputs, setInputs] = useState(() => {
     // Initialize with empty values based on tool inputs
     const initial = {};
@@ -243,7 +243,7 @@ export default function TestToolModal({ tool, projectId, onClose }) {
         inputObj[input.name] = value;
       });
 
-      const data = await runMock(projectId, tool.id || tool.name, inputObj, mode);
+      const data = await runMock(solutionId, skillId, tool.id || tool.name, inputObj, mode);
       setResult(data);
     } catch (err) {
       setError(err.message);

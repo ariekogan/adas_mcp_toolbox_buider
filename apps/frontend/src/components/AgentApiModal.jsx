@@ -220,6 +220,14 @@ const styles = {
     cursor: 'pointer',
     fontSize: '12px',
     whiteSpace: 'nowrap'
+  },
+  providerBadge: {
+    fontSize: '11px',
+    padding: '2px 8px',
+    borderRadius: '4px',
+    fontWeight: '500',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px'
   }
 };
 
@@ -243,6 +251,7 @@ export default function AgentApiModal({ onClose }) {
   const [rotateLoading, setRotateLoading] = useState(false);
 
   const tenant = getTenant();
+  const isCloudflare = status?.provider === 'cloudflare';
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -308,7 +317,7 @@ export default function AgentApiModal({ onClose }) {
     });
   };
 
-  const tunnelUrl = status?.url || `https://${status?.domain || 'agent-api.ateam-ai.com'}`;
+  const tunnelUrl = status?.url || `https://${status?.domain || 'api.ateam-ai.com'}`;
   const apiKey = status?.apiKey;
 
   const instructionSnippet = [
@@ -324,7 +333,7 @@ export default function AgentApiModal({ onClose }) {
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
         <div style={styles.header}>
           <span style={styles.title}>
-            <span>🤖</span> Agent API
+            <span>Agent API</span>
           </span>
           <button style={styles.closeBtn} onClick={onClose}>×</button>
         </div>
@@ -340,12 +349,12 @@ export default function AgentApiModal({ onClose }) {
             </div>
           ) : (
             <>
-              {/* No Auth Token Warning */}
-              {!status?.hasAuthToken && (
+              {/* No provider configured warning */}
+              {!isCloudflare && !status?.hasAuthToken && (
                 <div style={styles.noToken}>
-                  <div style={styles.noTokenTitle}>NGROK_AUTHTOKEN not set</div>
+                  <div style={styles.noTokenTitle}>No tunnel configured</div>
                   <div style={styles.noTokenText}>
-                    Set the <code>NGROK_AUTHTOKEN</code> environment variable on the backend server to enable the Agent API tunnel.
+                    Set <code>AGENT_API_URL</code> (Cloudflare Tunnel) or <code>NGROK_AUTHTOKEN</code> (ngrok) on the backend server to enable the Agent API tunnel.
                   </div>
                 </div>
               )}
@@ -361,8 +370,18 @@ export default function AgentApiModal({ onClose }) {
                   <span style={{ color: status?.active ? '#10b981' : 'var(--text-muted)' }}>
                     {status?.active ? 'Tunnel Active' : 'Tunnel Inactive'}
                   </span>
+                  {status?.provider && (
+                    <span style={{
+                      ...styles.providerBadge,
+                      background: isCloudflare ? 'rgba(249, 115, 22, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+                      color: isCloudflare ? '#f97316' : '#6366f1'
+                    }}>
+                      {isCloudflare ? 'Cloudflare' : 'ngrok'}
+                    </span>
+                  )}
                 </div>
-                {status?.hasAuthToken && (
+                {/* Only show start/stop for ngrok — Cloudflare is externally managed */}
+                {!isCloudflare && status?.hasAuthToken && (
                   <button
                     style={{
                       ...styles.actionBtn,
@@ -382,14 +401,14 @@ export default function AgentApiModal({ onClose }) {
               </div>
 
               {/* URL Display */}
-              {status?.active && status?.url && (
+              {status?.active && (
                 <div style={styles.urlBox}>
-                  <span style={styles.urlText}>{status.url}</span>
+                  <span style={styles.urlText}>{tunnelUrl}</span>
                   <button
                     style={styles.copyBtn}
-                    onClick={() => copyToClipboard(status.url, 'url')}
+                    onClick={() => copyToClipboard(tunnelUrl, 'url')}
                   >
-                    {copied === 'url' ? '✓ Copied!' : '📋 Copy'}
+                    {copied === 'url' ? 'Copied!' : 'Copy'}
                   </button>
                 </div>
               )}
@@ -407,13 +426,13 @@ export default function AgentApiModal({ onClose }) {
                       onClick={() => setShowKey(prev => !prev)}
                       title={showKey ? 'Hide key' : 'Show key'}
                     >
-                      {showKey ? '🙈' : '👁'}
+                      {showKey ? 'Hide' : 'Show'}
                     </button>
                     <button
                       style={styles.smallBtn}
                       onClick={() => copyToClipboard(apiKey, 'key')}
                     >
-                      {copied === 'key' ? '✓' : '📋'}
+                      {copied === 'key' ? 'Copied' : 'Copy'}
                     </button>
                     {!rotateConfirm ? (
                       <button
@@ -421,7 +440,7 @@ export default function AgentApiModal({ onClose }) {
                         onClick={() => setRotateConfirm(true)}
                         title="Rotate API key"
                       >
-                        🔄
+                        Rotate
                       </button>
                     ) : (
                       <div style={{ display: 'flex', gap: '4px' }}>
@@ -430,13 +449,13 @@ export default function AgentApiModal({ onClose }) {
                           onClick={handleRotateKey}
                           disabled={rotateLoading}
                         >
-                          {rotateLoading ? '...' : 'Rotate'}
+                          {rotateLoading ? '...' : 'Confirm'}
                         </button>
                         <button
                           style={styles.smallBtn}
                           onClick={() => setRotateConfirm(false)}
                         >
-                          ✕
+                          Cancel
                         </button>
                       </div>
                     )}
@@ -491,7 +510,7 @@ export default function AgentApiModal({ onClose }) {
                         style={styles.copyCodeBtn}
                         onClick={() => copyToClipboard(instructionSnippet, 'snippet')}
                       >
-                        {copied === 'snippet' ? '✓ Copied!' : 'Copy'}
+                        {copied === 'snippet' ? 'Copied!' : 'Copy'}
                       </button>
                       {instructionSnippet}
                     </div>

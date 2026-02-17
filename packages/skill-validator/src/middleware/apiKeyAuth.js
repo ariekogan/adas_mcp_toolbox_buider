@@ -7,6 +7,7 @@
  *
  * Exemptions:
  *   - GET /health (health check must remain open)
+ *   - GET /spec/* (spec/examples must be publicly readable for ChatGPT/Claude)
  *
  * If no key file exists (key never generated), all requests are allowed.
  */
@@ -80,8 +81,8 @@ function safeCompare(a, b) {
  * Express middleware for API key authentication.
  */
 export default async function apiKeyAuth(req, res, next) {
-  // Exempt health check
-  if (req.path === '/health' && req.method === 'GET') {
+  // Exempt health check and spec endpoints (must be publicly readable)
+  if (req.method === 'GET' && (req.path === '/health' || req.path.startsWith('/spec'))) {
     return next();
   }
 
