@@ -99,7 +99,7 @@ export async function processMessage({ skill, userMessage, uiFocus }) {
 
   // Get LLM adapter
   const settings = skill._settings;
-  const provider = settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
+  const provider = settings?.llm_provider || process.env.LLM_PROVIDER || "openai";
   const adapter = createAdapter(provider, {
     apiKey: settings?.api_key,
     model: settings?.llm_model

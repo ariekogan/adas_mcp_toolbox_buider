@@ -8,7 +8,7 @@ const DEFAULT_SETTINGS = {
   anthropic_api_key: '',
   openai_api_key: '',
   anthropic_model: 'claude-sonnet-4-20250514',
-  openai_model: 'gpt-4-turbo'
+  openai_model: 'gpt-4o'
 };
 
 export function useSettings() {

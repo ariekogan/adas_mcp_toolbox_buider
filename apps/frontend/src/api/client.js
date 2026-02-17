@@ -104,7 +104,7 @@ export async function getSkillValidation(solutionId, skillId) {
 }
 
 // Chat
-export async function sendSkillMessage(solutionId, skillId, message, uiFocus = null) {
+export async function sendSkillMessage(solutionId, skillId, message, uiFocus = null, llmSettings = null) {
   if (!solutionId) throw new Error('solutionId is required');
   const response = await request('/chat/skill', {
     method: 'POST',
@@ -112,7 +112,8 @@ export async function sendSkillMessage(solutionId, skillId, message, uiFocus = n
       solution_id: solutionId,
       skill_id: skillId,
       message,
-      ui_focus: uiFocus
+      ui_focus: uiFocus,
+      llm_settings: llmSettings
     })
   });
   return response;
@@ -127,12 +128,15 @@ export async function getSkillGreeting() {
 }
 
 // File digestion
-export async function digestFile(solutionId, skillId, file) {
+export async function digestFile(solutionId, skillId, file, llmSettings = null) {
   if (!solutionId) throw new Error('solutionId is required');
   const formData = new FormData();
   formData.append('file', file);
   formData.append('solution_id', solutionId);
   formData.append('skill_id', skillId);
+  if (llmSettings) {
+    formData.append('llm_settings', JSON.stringify(llmSettings));
+  }
 
   const response = await fetch(`${API_BASE}/chat/skill/digest`, {
     method: 'POST',
@@ -485,10 +489,10 @@ export async function deleteSolution(id) {
   return request(`/solutions/${id}`, { method: 'DELETE' });
 }
 
-export async function sendSolutionMessage(solutionId, message) {
+export async function sendSolutionMessage(solutionId, message, llmSettings = null) {
   return request(`/solutions/${solutionId}/chat`, {
     method: 'POST',
-    body: JSON.stringify({ message })
+    body: JSON.stringify({ message, llm_settings: llmSettings })
   });
 }
 

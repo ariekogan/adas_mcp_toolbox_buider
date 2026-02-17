@@ -638,7 +638,7 @@ router.get('/:id/export', async (req, res, next) => {
  */
 router.post('/:id/chat', async (req, res, next) => {
   try {
-    const { message } = req.body;
+    const { message, llm_settings } = req.body;
     const log = req.app.locals.log;
 
     if (!message) {
@@ -667,7 +667,7 @@ router.post('/:id/chat', async (req, res, next) => {
     });
 
     // Process with LLM
-    const response = await processSolutionMessage({ solution, userMessage: message });
+    const response = await processSolutionMessage({ solution, userMessage: message, llmSettings: llm_settings });
 
     log.debug('Solution LLM response received', { usage: response.usage });
 

@@ -57,7 +57,7 @@ Use the documentation above to explain this section in the context of the curren
  */
 router.post("/skill", async (req, res, next) => {
   try {
-    const { solution_id, skill_id, message, ui_focus } = req.body;
+    const { solution_id, skill_id, message, ui_focus, llm_settings } = req.body;
     const log = req.app.locals.log;
 
     if (!solution_id) {
@@ -83,6 +83,11 @@ router.post("/skill", async (req, res, next) => {
         return res.status(404).json({ error: "Skill not found" });
       }
       throw err;
+    }
+
+    // Attach LLM settings from frontend (browser-stored API keys)
+    if (llm_settings) {
+      skill._settings = llm_settings;
     }
 
     // Ensure conversation array exists (safety net)
@@ -269,6 +274,14 @@ router.post("/skill/digest", (req, res, next) => {
         return res.status(400).json({ error: "No file uploaded" });
       }
 
+      // Parse LLM settings from form data
+      let llm_settings_digest = null;
+      try {
+        if (req.body.llm_settings) {
+          llm_settings_digest = JSON.parse(req.body.llm_settings);
+        }
+      } catch {}
+
       log.debug(`File digest request for ${skill_id}: ${req.file.originalname}`);
 
       // Load skill (solution_id comes from form body)
@@ -285,6 +298,11 @@ router.post("/skill/digest", (req, res, next) => {
           return res.status(404).json({ error: "Skill not found" });
         }
         throw err;
+      }
+
+      // Attach LLM settings from frontend
+      if (llm_settings_digest) {
+        skill._settings = llm_settings_digest;
       }
 
       // Extract file content

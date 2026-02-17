@@ -63,7 +63,7 @@ app.locals.log = log;
 
 // Health check
 app.get("/api/health", (_req, res) => {
-  const provider = process.env.LLM_PROVIDER || "anthropic";
+  const provider = process.env.LLM_PROVIDER || "openai";
   const hasApiKey = provider === "anthropic"
     ? !!process.env.ANTHROPIC_API_KEY
     : !!process.env.OPENAI_API_KEY;
@@ -103,7 +103,7 @@ app.use((err, req, res, _next) => {
 
 app.listen(port, "0.0.0.0", () => {
   log.info(`Backend listening on http://0.0.0.0:${port}`);
-  log.info(`LLM Provider: ${process.env.LLM_PROVIDER || "anthropic"}`);
+  log.info(`LLM Provider: ${process.env.LLM_PROVIDER || "openai"}`);
   log.info(`Memory Path: ${process.env.MEMORY_PATH || "/memory"}`);
   log.info(`Tenant: ${process.env.SB_TENANT || "main"}`);
 

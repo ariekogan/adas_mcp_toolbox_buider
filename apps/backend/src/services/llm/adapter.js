@@ -17,7 +17,7 @@ export function createAdapter(provider, options = {}) {
     case "openai":
       return new OpenAIAdapter({
         apiKey: options.apiKey || process.env.OPENAI_API_KEY,
-        model: options.model || process.env.OPENAI_MODEL || "gpt-4-turbo"
+        model: options.model || process.env.OPENAI_MODEL || "gpt-4o"
       });
     default:
       throw new Error(`Unknown LLM provider: ${provider}`);
@@ -28,7 +28,7 @@ export function createAdapter(provider, options = {}) {
  * Get default adapter from environment
  */
 export function getDefaultAdapter() {
-  const provider = process.env.LLM_PROVIDER || "anthropic";
+  const provider = process.env.LLM_PROVIDER || "openai";
   return createAdapter(provider);
 }
 

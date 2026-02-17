@@ -66,7 +66,7 @@ function compressConversation(messages) {
  * @param {string} params.userMessage - User's message
  * @returns {Promise<Object>} - Parsed response with message, stateUpdate, etc.
  */
-export async function processSolutionMessage({ solution, userMessage }) {
+export async function processSolutionMessage({ solution, userMessage, llmSettings }) {
   const compressedHistory = compressConversation(solution.conversation);
 
   // Build messages array
@@ -83,9 +83,12 @@ export async function processSolutionMessage({ solution, userMessage }) {
   // Build system prompt
   const systemPrompt = buildSolutionSystemPrompt(solution);
 
-  // Get LLM adapter
-  const provider = process.env.LLM_PROVIDER || 'anthropic';
-  const adapter = createAdapter(provider, {});
+  // Get LLM adapter — use frontend settings if provided, fallback to env
+  const provider = llmSettings?.llm_provider || process.env.LLM_PROVIDER || 'openai';
+  const adapter = createAdapter(provider, {
+    apiKey: llmSettings?.api_key,
+    model: llmSettings?.llm_model
+  });
 
   // Send to LLM
   const response = await adapter.chat({

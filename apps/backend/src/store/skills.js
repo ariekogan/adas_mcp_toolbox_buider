@@ -288,7 +288,7 @@ async function create(solutionId, name, settings = {}, template = null) {
   // Store settings
   if (settings && (settings.llm_provider || settings.llm_model)) {
     skill._settings = {
-      llm_provider: settings.llm_provider || process.env.LLM_PROVIDER || 'anthropic',
+      llm_provider: settings.llm_provider || process.env.LLM_PROVIDER || 'openai',
       llm_model: settings.llm_model || null,
     };
   }

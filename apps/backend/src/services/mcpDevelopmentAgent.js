@@ -29,7 +29,7 @@ const MAX_GENERATION_ITERATIONS = 20;
 // ═══════════════════════════════════════════════════════════════════════════
 
 function getLLMConfig() {
-  const provider = process.env.LLM_PROVIDER || "anthropic";
+  const provider = process.env.LLM_PROVIDER || "openai";
 
   if (provider === "openai") {
     const apiKey = process.env.OPENAI_API_KEY;

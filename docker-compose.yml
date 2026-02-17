@@ -6,11 +6,11 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4000
-      - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo}
       - TENANTS_ROOT=/tenants
       # Agent API tunnel (Cloudflare or ngrok fallback)
       - AGENT_API_URL=${AGENT_API_URL:-}

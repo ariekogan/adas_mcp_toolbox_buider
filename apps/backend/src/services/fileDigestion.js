@@ -55,7 +55,7 @@ Response Format (JSON only, no markdown):
  * Digest file content using LLM to extract structured data
  */
 export async function digestFileContent({ skill, fileContent, fileName, fileType }) {
-  const provider = skill._settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
+  const provider = skill._settings?.llm_provider || process.env.LLM_PROVIDER || "openai";
   const adapter = createAdapter(provider, {
     apiKey: skill._settings?.api_key,
     model: skill._settings?.llm_model

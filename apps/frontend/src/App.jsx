@@ -173,7 +173,7 @@ export default function App() {
     addMessage: addSolutionMessage,
   } = useSolution();
 
-  const { settings, updateSettings, showModal, openSettings, closeSettings, hasApiKey, backendStatus } = useSettings();
+  const { settings, updateSettings, showModal, openSettings, closeSettings, hasApiKey, getActiveApiKey, backendStatus } = useSettings();
   const [uiFocus, setUiFocus] = useState(null);
   const [greetingData, setGreetingData] = useState(null);
   const [solutionGreetingData, setSolutionGreetingData] = useState(null);
@@ -442,7 +442,12 @@ export default function App() {
 
     setSending(true);
     try {
-      const response = await api.sendSkillMessage(currentSolution.id, currentSkill.id, message, uiFocus);
+      const llmSettings = {
+        llm_provider: settings.llm_provider,
+        api_key: getActiveApiKey(),
+        llm_model: settings.llm_provider === 'openai' ? settings.openai_model : settings.anthropic_model
+      };
+      const response = await api.sendSkillMessage(currentSolution.id, currentSkill.id, message, uiFocus, llmSettings);
       addMessage({
         id: `msg_${Date.now()}`,
         role: 'assistant',
@@ -480,7 +485,7 @@ export default function App() {
     } finally {
       setSending(false);
     }
-  }, [currentSkill, currentSolution?.id, uiFocus, addMessage, updateSkill, detectContextFromInput, CONTEXT_LABELS, LABEL_TO_FOCUS]);
+  }, [currentSkill, currentSolution?.id, uiFocus, addMessage, updateSkill, detectContextFromInput, CONTEXT_LABELS, LABEL_TO_FOCUS, settings, getActiveApiKey]);
 
   const handleSendSolutionMessage = useCallback(async (message) => {
     if (!currentSolution) return;
@@ -500,7 +505,12 @@ export default function App() {
 
     setSending(true);
     try {
-      const response = await api.sendSolutionMessage(currentSolution.id, message);
+      const llmSettings = {
+        llm_provider: settings.llm_provider,
+        api_key: getActiveApiKey(),
+        llm_model: settings.llm_provider === 'openai' ? settings.openai_model : settings.anthropic_model
+      };
+      const response = await api.sendSolutionMessage(currentSolution.id, message, llmSettings);
       addSolutionMessage({
         id: `msg_${Date.now()}`,
         role: 'assistant',
@@ -537,7 +547,7 @@ export default function App() {
     } finally {
       setSending(false);
     }
-  }, [currentSolution, addSolutionMessage, updateSolution, detectContextFromInput, CONTEXT_LABELS, LABEL_TO_FOCUS]);
+  }, [currentSolution, addSolutionMessage, updateSolution, detectContextFromInput, CONTEXT_LABELS, LABEL_TO_FOCUS, settings, getActiveApiKey]);
 
   const handleExport = useCallback(() => {
     if (!currentSkill) return;

@@ -139,7 +139,7 @@ function findMatchingExample(tool, input) {
  * Simulate tool output using LLM
  */
 async function simulateWithLLM(skill, tool, input) {
-  const provider = skill.settings?.llm_provider || process.env.LLM_PROVIDER || "anthropic";
+  const provider = skill.settings?.llm_provider || process.env.LLM_PROVIDER || "openai";
   const adapter = createAdapter(provider);
   
   const prompt = `You are simulating a tool for testing purposes.
