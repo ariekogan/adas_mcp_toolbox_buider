@@ -86,6 +86,11 @@ export default async function apiKeyAuth(req, res, next) {
     return next();
   }
 
+  // Exempt validation endpoints — they're read-like (no side effects)
+  if (req.method === 'POST' && req.path.startsWith('/validate')) {
+    return next();
+  }
+
   // Determine tenant from header
   const raw = req.headers['x-adas-tenant'];
   const tenant = (raw && VALID_TENANTS.includes(raw.trim().toLowerCase()))

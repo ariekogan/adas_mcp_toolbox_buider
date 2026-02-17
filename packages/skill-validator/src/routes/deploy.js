@@ -47,11 +47,13 @@ const router = Router();
 
 const SKILL_BUILDER_URL = (process.env.SKILL_BUILDER_URL || 'http://localhost:4000').replace(/\/$/, '');
 
-/** Build headers for Skill Builder requests, forwarding the tenant from the incoming request */
+/** Build headers for Skill Builder requests, forwarding tenant + API key from the incoming request */
 function sbHeaders(req) {
   const h = { 'Content-Type': 'application/json' };
   const tenant = req.headers['x-adas-tenant'];
   if (tenant) h['X-ADAS-TENANT'] = tenant;
+  const apiKey = req.headers['x-api-key'];
+  if (apiKey) h['X-API-KEY'] = apiKey;
   return h;
 }
 
