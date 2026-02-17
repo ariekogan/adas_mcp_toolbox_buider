@@ -29,6 +29,7 @@ const CACHE_HEADERS = { 'Cache-Control': 'public, max-age=86400' };
 const ENUMS = buildEnums();
 const SKILL_SPEC = buildSkillSpec();
 const SOLUTION_SPEC = buildSolutionSpec();
+const WORKFLOWS = buildWorkflows();
 const INDEX = buildIndex();
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -39,6 +40,7 @@ router.get('/', (_req, res) => res.set(CACHE_HEADERS).json(INDEX));
 router.get('/enums', (_req, res) => res.set(CACHE_HEADERS).json(ENUMS));
 router.get('/skill', (_req, res) => res.set(CACHE_HEADERS).json(SKILL_SPEC));
 router.get('/solution', (_req, res) => res.set(CACHE_HEADERS).json(SOLUTION_SPEC));
+router.get('/workflows', (_req, res) => res.set(CACHE_HEADERS).json(WORKFLOWS));
 
 export default router;
 
@@ -76,6 +78,10 @@ function buildIndex() {
       '/spec/solution': {
         method: 'GET',
         description: 'Complete ADAS solution specification: multi-skill architecture, grant economy, handoffs, routing, security contracts, agent guide, and template',
+      },
+      '/spec/workflows': {
+        method: 'GET',
+        description: 'Builder workflows — the step-by-step state machines for building skills and solutions. Use this to guide users through the build process.',
       },
       '/spec/examples': {
         method: 'GET',
@@ -1070,6 +1076,399 @@ function buildSkillSpec() {
         grant_economy: 'Grants are verified claims that flow between skills. A skill issues grants via grant_mappings (tool output → grant). Another skill requires grants via access_policy. Security contracts enforce this at the solution level.',
         workflow_steps: 'Workflow steps are tool NAMES (not IDs). Example: ["orders.order.get", "sys.emitUserMessage"]. System tools are valid step targets.',
         access_policy_effects: '"allow" = permit unconditionally, "deny" = block, "constrain" = inject values into tool inputs (e.g., force customer_id from grant). Use "*" in tools array to cover all tools.',
+      },
+    },
+  };
+}
+
+function buildWorkflows() {
+  return {
+    description: 'Builder workflows — the step-by-step state machines the Skill Builder uses internally. Use these to guide users through building skills and solutions conversationally, replicating the Skill Builder experience.',
+    usage: 'When a user wants to build a skill or solution, read this workflow and follow it step by step. At each phase, ask the user the right questions, collect their answers, build the definition incrementally, validate with adas_validate_skill / adas_validate_solution, and deploy with adas_deploy_solution.',
+
+    skill_workflow: {
+      description: 'State machine for building a single ADAS skill (autonomous AI agent)',
+      phases: [
+        {
+          id: 'PROBLEM_DISCOVERY',
+          order: 1,
+          label: 'Problem Discovery',
+          goal: 'Understand what problem this skill solves',
+          what_to_ask: [
+            'What problem should this AI agent solve?',
+            'Who are the users? What domain is this in?',
+            'What systems or data does it need access to?',
+          ],
+          what_to_build: {
+            'problem.statement': 'Clear problem description (min 10 chars)',
+            'problem.context': 'Domain context and background',
+            'problem.goals': 'What the skill aims to achieve',
+          },
+          exit_criteria: 'problem.statement is defined and >= 10 characters',
+          tips: [
+            'Always suggest a concrete problem statement — don\'t just ask',
+            'Include the domain context to help with later phases',
+          ],
+        },
+        {
+          id: 'SCENARIO_EXPLORATION',
+          order: 2,
+          label: 'Scenario Exploration',
+          goal: 'Define concrete use cases that demonstrate the skill in action',
+          what_to_ask: [
+            'What are the most common situations this agent will handle?',
+            'Walk me through a typical interaction step by step',
+            'What edge cases should the agent handle?',
+          ],
+          what_to_build: {
+            'scenarios[]': 'Array of scenarios, each with id, title, description, steps, expected_outcome',
+          },
+          exit_criteria: 'At least 1 scenario with title, description, and steps',
+          tips: [
+            'Suggest 2-3 scenarios based on the problem statement',
+            'Each scenario should map to a different user intent',
+            'Include both happy path and edge cases',
+          ],
+        },
+        {
+          id: 'INTENT_DEFINITION',
+          order: 3,
+          label: 'Intent Definition',
+          goal: 'Define the user intents this skill can handle',
+          what_to_ask: [
+            'What distinct requests can users make?',
+            'For each intent, what are example phrases a user might say?',
+            'What should happen when an unrecognized request comes in?',
+          ],
+          what_to_build: {
+            'intents.supported[]': 'Array of intents, each with id, description, and examples (diverse phrasings)',
+            'intents.thresholds': 'Confidence thresholds for accept/clarify/reject',
+            'intents.out_of_domain': 'What to do with unrecognized requests',
+          },
+          exit_criteria: 'At least 1 intent with at least 1 example',
+          tips: [
+            'Derive intents from the scenarios — each scenario usually maps to 1-2 intents',
+            'Example phrases should be diverse, not repetitive',
+            'Set out_of_domain to redirect for multi-skill solutions',
+          ],
+        },
+        {
+          id: 'TOOLS_PROPOSAL',
+          order: 4,
+          label: 'Tools Proposal',
+          goal: 'Propose the tools (actions) this agent needs',
+          what_to_ask: [
+            'What actions does the agent need to perform?',
+            'What data does it need to read or write?',
+            'Which external systems does it connect to?',
+          ],
+          what_to_build: {
+            'tools[]': 'Initial tool definitions with name, description — details come in next phase',
+            'connectors': 'Which MCP connectors provide these tools',
+          },
+          exit_criteria: 'At least 1 tool defined',
+          tips: [
+            'Map each scenario step to a tool',
+            'Use naming convention: connector-prefix.resource.action (e.g., orders.order.get)',
+            'Don\'t forget system tools (sys.askUser, sys.emitUserMessage) for user interaction',
+          ],
+        },
+        {
+          id: 'TOOL_DEFINITION',
+          order: 5,
+          label: 'Tool Definition',
+          goal: 'Fully define each tool with inputs, outputs, source, and security',
+          what_to_ask: [
+            'For each tool: what inputs does it need? What does it return?',
+            'What security classification? (public, internal, pii_read, pii_write, financial, destructive)',
+            'Are there any conditions for when the tool should be blocked or require approval?',
+          ],
+          what_to_build: {
+            'tools[].inputs': 'Input parameters with name, type, required, description',
+            'tools[].output': 'Output type and description',
+            'tools[].source': 'Source connector and MCP tool name',
+            'tools[].security': 'Classification (required) and risk level',
+            'tools[].policy': 'Access conditions, approval requirements',
+          },
+          exit_criteria: 'All tools have inputs defined and output.description',
+          tips: [
+            'Every tool needs security.classification — this is the most common validation error',
+            'High-risk tools (pii_write, financial, destructive) need access_policy rules',
+            'If the skill has >= 3 tools, suggest setting bootstrap_tools (up to 3 core tools always available to the planner)',
+            'Add mock examples for each tool — needed for testing',
+          ],
+        },
+        {
+          id: 'POLICY_DEFINITION',
+          order: 6,
+          label: 'Policy Definition',
+          goal: 'Define guardrails, workflows, and approval rules',
+          what_to_ask: [
+            'What should this agent NEVER do?',
+            'What should it ALWAYS do?',
+            'Are there specific sequences of steps that must be followed?',
+            'Which actions need human approval?',
+          ],
+          what_to_build: {
+            'policy.guardrails.never': 'Things the agent must never do',
+            'policy.guardrails.always': 'Things the agent must always do',
+            'policy.workflows': 'Named step sequences triggered by intents',
+            'policy.approvals': 'Tools that need human approval',
+            'policy.escalation': 'When and where to escalate',
+          },
+          exit_criteria: 'At least one guardrail (never or always) defined',
+          tips: [
+            'Guardrails should be specific and actionable',
+            'Workflow steps use tool NAMES not IDs',
+            'System tools (sys.askUser, sys.emitUserMessage) are valid workflow steps',
+          ],
+        },
+        {
+          id: 'MOCK_TESTING',
+          order: 7,
+          label: 'Mock Testing',
+          goal: 'Add mock data for tools and test scenarios without real backends',
+          what_to_ask: [
+            'What should each tool return in a typical case?',
+            'What error cases should we test?',
+          ],
+          what_to_build: {
+            'tools[].mock': 'Mock configuration with mode and example input/output pairs',
+            'tools[].mock_status': 'Set to "tested" or "skipped" for each tool',
+          },
+          exit_criteria: 'All tools have mock_status != "untested"',
+          tips: [
+            'Mock examples should cover both success and error cases',
+            'Set mock_status to "skipped" for tools that don\'t need mock testing',
+          ],
+        },
+        {
+          id: 'READY_TO_EXPORT',
+          order: 8,
+          label: 'Ready to Export',
+          goal: 'Final validation gate — all checks must pass',
+          what_to_do: [
+            'Run adas_validate_skill to check for errors',
+            'Fix any validation errors',
+            'Review the complete skill definition',
+          ],
+          what_to_build: {
+            'role': 'Ensure role.name and role.persona are set',
+            'engine': 'Set model, temperature, rv2, hlr, autonomy',
+            'grant_mappings': 'If this skill issues grants for other skills',
+            'access_policy': 'If this skill consumes grants from other skills',
+          },
+          exit_criteria: 'Validation returns ready_to_export = true with no errors',
+          tips: [
+            'Use adas_validate_skill to get the full validation report',
+            'The engine section needs the full structure (model, temperature, rv2, hlr, autonomy) — not just shortcuts',
+          ],
+        },
+        {
+          id: 'EXPORTED',
+          order: 9,
+          label: 'Exported / Deployed',
+          goal: 'Skill is deployed and running',
+          what_to_do: [
+            'Deploy via adas_deploy_solution (recommended) or adas_deploy_skill',
+            'Verify deployment with adas_get_solution (view: "health")',
+          ],
+        },
+      ],
+      completeness_fields: [
+        'problem — problem.statement >= 10 chars',
+        'scenarios — at least 1 scenario with title and description',
+        'role — role.name and role.persona defined',
+        'intents — at least 1 intent with description and examples',
+        'tools — at least 1 tool with name, description, and output',
+        'policy — guardrails section with at least 1 never or always rule',
+        'engine — model and temperature set',
+        'mocks_tested — all tools have mock_status != "untested"',
+      ],
+    },
+
+    solution_workflow: {
+      description: 'State machine for building a multi-skill ADAS solution (the architecture layer that connects skills)',
+      note: 'Build each skill individually first using the skill workflow. Then use this workflow to define how skills work together.',
+      phases: [
+        {
+          id: 'SOLUTION_DISCOVERY',
+          order: 1,
+          label: 'Solution Discovery',
+          goal: 'Understand the overall solution shape',
+          what_to_ask: [
+            'What problem does this multi-agent solution solve?',
+            'How many skills/agents will it need?',
+            'What types of users interact with it? (customers, admins, operators)',
+            'What channels does it serve? (chat, email, API, scheduled tasks)',
+            'Is there an identity/security gateway?',
+          ],
+          what_to_build: {
+            'id': 'Solution identifier',
+            'name': 'Solution display name',
+            'description': 'What this multi-agent solution does',
+          },
+          exit_criteria: 'Basic solution shape is understood — name, description, rough skill count',
+          tips: [
+            'Suggest a solution pattern based on the domain (e-commerce, helpdesk, HR)',
+            'Most solutions have: gateway (identity) → worker(s) → optional approval skill',
+          ],
+        },
+        {
+          id: 'IDENTITY_DESIGN',
+          order: 2,
+          label: 'Identity Design (Users & Roles)',
+          goal: 'Define who uses this solution — user types, admin roles, defaults',
+          what_to_ask: [
+            'What types of users will interact with this solution?',
+            'Which roles should have admin privileges?',
+            'What is the default user type for unknown/anonymous users?',
+          ],
+          what_to_build: {
+            'identity.actor_types[]': 'Each with key, label, description',
+            'identity.admin_roles': 'Keys that get admin access',
+            'identity.default_actor_type': 'Default for new users',
+          },
+          exit_criteria: 'At least 2 actor types, admin_roles set, default_actor_type set',
+          tips: [
+            'Always suggest concrete user types with examples — don\'t just ask',
+            'Common patterns: customer + admin, patient + doctor, employee + manager',
+          ],
+        },
+        {
+          id: 'SKILL_TOPOLOGY',
+          order: 3,
+          label: 'Skill Topology',
+          goal: 'Define each skill with its role in the solution',
+          what_to_ask: [
+            'Which skill handles the entry point (gateway)?',
+            'Which skills do the actual work (workers)?',
+            'Do you need an orchestrator or approval skill?',
+          ],
+          what_to_build: {
+            'skills[]': 'Each with id, name, role (gateway/worker/orchestrator/approval), description, entry_channels, connectors',
+          },
+          exit_criteria: 'At least 2 skills defined with roles',
+          tips: [
+            'Roles: gateway = entry point + identity, worker = does the work, orchestrator = coordinates, approval = human-in-the-loop',
+            'Each skill should have a clear, single responsibility',
+          ],
+        },
+        {
+          id: 'GRANT_ECONOMY',
+          order: 4,
+          label: 'Grant Economy',
+          goal: 'Define the verified claims that flow between skills',
+          what_to_ask: [
+            'What information does each worker skill need from the gateway?',
+            'What verified claims should flow between skills? (e.g., customer_id, assurance_level)',
+            'How are grants issued? (from tool responses via grant_mapping, or via handoff)',
+          ],
+          what_to_build: {
+            'grants[]': 'Each with key, description, issued_by, consumed_by, issued_via, source_tool, source_field',
+          },
+          exit_criteria: 'At least 1 grant defined',
+          tips: [
+            'Grants are the security backbone — they ensure skills only act on verified data',
+            'Common grants: customer_id, assurance_level, employee_id, session_token',
+            'Use namespace.name format (e.g., ecom.customer_id)',
+          ],
+        },
+        {
+          id: 'HANDOFF_DESIGN',
+          order: 5,
+          label: 'Handoff Design',
+          goal: 'Define how conversations transfer between skills and which grants propagate',
+          what_to_ask: [
+            'When should the gateway hand off to a worker? What triggers it?',
+            'Which grants should be passed to the target skill?',
+            'Should any grants be revoked after handoff?',
+          ],
+          what_to_build: {
+            'handoffs[]': 'Each with id, from, to, trigger, grants_passed, grants_dropped, mechanism',
+          },
+          exit_criteria: 'All inter-skill flows have handoff definitions',
+          tips: [
+            'handoff-controller-mcp = live conversation transfer (user keeps chatting, different skill answers)',
+            'internal-message = async skill-to-skill (background coordination)',
+            'Every handoff needs a unique id',
+          ],
+        },
+        {
+          id: 'ROUTING_CONFIG',
+          order: 6,
+          label: 'Routing Configuration',
+          goal: 'Map each channel to its default entry skill',
+          what_to_ask: [
+            'Which skill should answer Telegram messages?',
+            'Which skill should handle emails?',
+            'Which skill handles API/webhook calls?',
+          ],
+          what_to_build: {
+            'routing': 'Object mapping channel names to { default_skill, description }',
+          },
+          exit_criteria: 'All declared channels have routing configured',
+          tips: [
+            'Usually all channels route to the gateway skill first',
+            'API/webhook channels might go directly to an orchestrator',
+          ],
+        },
+        {
+          id: 'SECURITY_CONTRACTS',
+          order: 7,
+          label: 'Security Contracts',
+          goal: 'Define cross-skill grant requirements for tools',
+          what_to_ask: [
+            'Which tools in worker skills need verified grants before they can run?',
+            'Which gateway skill provides those grants?',
+            'What grant values are required? (e.g., assurance_level must be L1 or L2)',
+          ],
+          what_to_build: {
+            'security_contracts[]': 'Each with name, consumer, provider, requires_grants, required_values, for_tools, validation',
+          },
+          exit_criteria: 'At least 1 security contract for the main consumer skill',
+          tips: [
+            'Security contracts formalize the grant economy into enforceable rules',
+            'consumer = skill being constrained, provider = skill that issues the grants',
+          ],
+        },
+        {
+          id: 'VALIDATION',
+          order: 8,
+          label: 'Validation',
+          goal: 'Run validation and fix any issues',
+          what_to_do: [
+            'Run adas_validate_solution with the full solution + all skill definitions',
+            'Fix any errors (warnings are OK)',
+            'Review the complete solution architecture',
+          ],
+          exit_criteria: 'No validation errors',
+          tips: [
+            'Common errors: orphan skills, broken handoff chains, missing grant providers',
+            'After validation passes, deploy with adas_deploy_solution',
+          ],
+        },
+      ],
+    },
+
+    conversation_guide: {
+      description: 'How to drive the build conversation as a hosting AI',
+      principles: [
+        'Follow the phase order — don\'t skip ahead',
+        'At each phase, suggest concrete examples based on the domain — never ask bare questions',
+        'Build the definition incrementally — add to it after each user response',
+        'Validate frequently — run adas_validate_skill or adas_validate_solution after major changes',
+        'One topic at a time — complete one phase before moving to the next',
+        'Show progress — tell the user which phase they\'re in and what\'s next',
+      ],
+      opening_message: 'When the user wants to build something, start with: "I\'m an ADAS Solution Architect. I\'ll help you design and deploy a multi-agent AI system. Let\'s start — what problem do you want to solve?"',
+      tools_to_use: {
+        'adas_get_spec': 'Fetch the full schema when you need field details',
+        'adas_get_examples': 'Show the user a working example for reference',
+        'adas_validate_skill': 'Validate after completing tools, policy, and engine phases',
+        'adas_validate_solution': 'Validate the full solution before deploy',
+        'adas_deploy_solution': 'Deploy when validation passes',
+        'adas_get_solution': 'Verify deployment health after deploy',
       },
     },
   };
