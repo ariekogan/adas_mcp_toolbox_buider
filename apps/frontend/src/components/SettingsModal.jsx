@@ -290,11 +290,34 @@ export default function SettingsModal({ settings, onSave, onClose, backendStatus
                 <option value="normal">Normal — balanced (Recommended)</option>
                 <option value="deep">Deep — highest quality, slower</option>
               </select>
-              <div style={styles.hint}>
-                {local.llm_provider === 'openai'
-                  ? { fast: 'GPT-4o Mini', normal: 'GPT-5.2', deep: 'GPT-5.2 Pro' }[local.model_tier || 'normal']
-                  : { fast: 'Claude Haiku 3.5', normal: 'Claude Sonnet 4', deep: 'Claude Opus 4' }[local.model_tier || 'normal']
-                }
+
+              <div style={{ marginTop: '12px', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--border)', fontSize: '12px' }}>
+                {[
+                  { tier: 'fast', openai: 'gpt-4o-mini', anthropic: 'claude-haiku-3.5' },
+                  { tier: 'normal', openai: 'gpt-5.2', anthropic: 'claude-sonnet-4' },
+                  { tier: 'deep', openai: 'gpt-5.2-pro', anthropic: 'claude-opus-4' }
+                ].map(({ tier, openai, anthropic }) => {
+                  const isActive = (local.model_tier || 'normal') === tier;
+                  const model = local.llm_provider === 'openai' ? openai : anthropic;
+                  return (
+                    <div
+                      key={tier}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '6px 10px',
+                        background: isActive ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                        borderBottom: tier !== 'deep' ? '1px solid var(--border)' : 'none',
+                        color: isActive ? 'var(--accent)' : 'var(--text-muted)',
+                        fontWeight: isActive ? '600' : '400'
+                      }}
+                    >
+                      <span style={{ textTransform: 'capitalize' }}>{tier}</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '11px' }}>{model}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
