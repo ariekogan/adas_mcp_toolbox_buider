@@ -416,6 +416,13 @@ function buildExampleConnector() {
   return {
     _note: 'A standard stdio MCP connector. This is what ADAS Core manages as a child process.',
 
+    _storage: {
+      _note: 'ADAS Core automatically provides a DATA_DIR environment variable to every stdio connector. Use it to store persistent data (SQLite databases, files, etc.).',
+      how_to_use: 'const DATA_DIR = process.env.DATA_DIR || "./data"; // ADAS Core auto-sets DATA_DIR per tenant+connector',
+      resolves_to: '/tenants/<tenant>/connector-data/<connector-id>/',
+      isolation: 'Each connector gets its own directory. Data is tenant-scoped and persisted across restarts.',
+    },
+
     id: 'orders-mcp',
     name: 'Orders MCP',
     description: 'E-commerce order management — CRUD operations for orders, customers, shipments, and returns tracking.',

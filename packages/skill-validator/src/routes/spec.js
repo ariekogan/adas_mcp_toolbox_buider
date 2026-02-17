@@ -1065,6 +1065,7 @@ function buildSkillSpec() {
         'Providing slug or mcpServer in deploy requests — these are computed automatically. Just provide skill definitions with tools.',
       ],
       key_concepts: {
+        connector_storage: 'ADAS Core auto-injects a DATA_DIR environment variable into every stdio connector process, pointing to a tenant-scoped, connector-isolated directory. Use process.env.DATA_DIR to store SQLite databases, files, or any persistent data. No configuration needed — just read the env var in your connector code.',
         tool_vs_system_tool: 'Your tools come from MCP connectors. System tools (sys.*, ui.*, cp.*) are provided by the ADAS runtime — do NOT define them in your tools array.',
         grant_economy: 'Grants are verified claims that flow between skills. A skill issues grants via grant_mappings (tool output → grant). Another skill requires grants via access_policy. Security contracts enforce this at the solution level.',
         workflow_steps: 'Workflow steps are tool NAMES (not IDs). Example: ["orders.order.get", "sys.emitUserMessage"]. System tools are valid step targets.',
