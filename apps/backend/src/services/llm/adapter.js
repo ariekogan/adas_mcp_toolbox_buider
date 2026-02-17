@@ -51,15 +51,21 @@ export function createAdapter(provider, options = {}) {
   const rawModel = options.model || process.env[`${provider.toUpperCase()}_MODEL`] || defaultModel;
   const resolvedModel = resolveModel(provider, rawModel);
 
+  // Prefer server-side env key when available; fall back to frontend-provided key
+  const envKey = provider === "openai"
+    ? process.env.OPENAI_API_KEY
+    : process.env.ANTHROPIC_API_KEY;
+  const apiKey = envKey || options.apiKey;
+
   switch (provider) {
     case "anthropic":
       return new AnthropicAdapter({
-        apiKey: options.apiKey || process.env.ANTHROPIC_API_KEY,
+        apiKey,
         model: resolvedModel
       });
     case "openai":
       return new OpenAIAdapter({
-        apiKey: options.apiKey || process.env.OPENAI_API_KEY,
+        apiKey,
         model: resolvedModel
       });
     default:
