@@ -115,7 +115,7 @@ export default class OpenAIAdapter {
       const requestBody = {
         model: this.model,
         messages: allMessages,
-        max_tokens: maxTokens,
+        max_completion_tokens: maxTokens,
         temperature
       };
 
