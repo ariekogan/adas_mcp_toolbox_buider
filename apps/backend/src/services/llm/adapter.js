@@ -17,7 +17,7 @@ export function createAdapter(provider, options = {}) {
     case "openai":
       return new OpenAIAdapter({
         apiKey: options.apiKey || process.env.OPENAI_API_KEY,
-        model: options.model || process.env.OPENAI_MODEL || "gpt-4o"
+        model: options.model || process.env.OPENAI_MODEL || "gpt-5.2"
       });
     default:
       throw new Error(`Unknown LLM provider: ${provider}`);

@@ -299,12 +299,13 @@ export default function SettingsModal({ settings, onSave, onClose, backendStatus
                 <label style={styles.label}>GPT Model</label>
                 <select
                   style={styles.select}
-                  value={local.openai_model || 'gpt-4o'}
+                  value={local.openai_model || 'gpt-5.2'}
                   onChange={e => update('openai_model', e.target.value)}
                 >
-                  <option value="gpt-4o">GPT-4o (Recommended)</option>
+                  <option value="gpt-5.2">GPT-5.2 (Recommended)</option>
+                  <option value="gpt-5.2-pro">GPT-5.2 Pro</option>
+                  <option value="gpt-4o">GPT-4o</option>
                   <option value="gpt-4o-mini">GPT-4o Mini</option>
-                  <option value="o3-mini">o3-mini</option>
                 </select>
               </div>
             )}
