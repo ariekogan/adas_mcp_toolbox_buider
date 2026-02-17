@@ -950,6 +950,18 @@ export async function rotateAgentApiKey() {
   return request('/agent-api/key/rotate', { method: 'POST' });
 }
 
+// Settings (server-side persistence)
+export async function getSettings() {
+  return request('/settings');
+}
+
+export async function saveSettings(settings) {
+  return request('/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings)
+  });
+}
+
 export default {
   checkHealth,
   listTemplates,
@@ -1065,5 +1077,8 @@ export default {
   listImportedPackages,
   getImportedPackage,
   removeImportedPackage,
-  deployAllPackage
+  deployAllPackage,
+  // Settings
+  getSettings,
+  saveSettings
 };

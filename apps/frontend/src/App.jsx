@@ -173,7 +173,7 @@ export default function App() {
     addMessage: addSolutionMessage,
   } = useSolution();
 
-  const { settings, updateSettings, showModal, openSettings, closeSettings, hasApiKey, getActiveApiKey, backendStatus } = useSettings();
+  const { settings, updateSettings, showModal, openSettings, closeSettings, hasApiKey, backendStatus } = useSettings();
   const [uiFocus, setUiFocus] = useState(null);
   const [greetingData, setGreetingData] = useState(null);
   const [solutionGreetingData, setSolutionGreetingData] = useState(null);
@@ -444,7 +444,6 @@ export default function App() {
     try {
       const llmSettings = {
         llm_provider: settings.llm_provider,
-        api_key: getActiveApiKey(),
         llm_model: settings.model_tier || 'normal'
       };
       const response = await api.sendSkillMessage(currentSolution.id, currentSkill.id, message, uiFocus, llmSettings);
@@ -485,7 +484,7 @@ export default function App() {
     } finally {
       setSending(false);
     }
-  }, [currentSkill, currentSolution?.id, uiFocus, addMessage, updateSkill, detectContextFromInput, CONTEXT_LABELS, LABEL_TO_FOCUS, settings, getActiveApiKey]);
+  }, [currentSkill, currentSolution?.id, uiFocus, addMessage, updateSkill, detectContextFromInput, CONTEXT_LABELS, LABEL_TO_FOCUS, settings]);
 
   const handleSendSolutionMessage = useCallback(async (message) => {
     if (!currentSolution) return;
@@ -507,7 +506,6 @@ export default function App() {
     try {
       const llmSettings = {
         llm_provider: settings.llm_provider,
-        api_key: getActiveApiKey(),
         llm_model: settings.model_tier || 'normal'
       };
       const response = await api.sendSolutionMessage(currentSolution.id, message, llmSettings);
@@ -547,7 +545,7 @@ export default function App() {
     } finally {
       setSending(false);
     }
-  }, [currentSolution, addSolutionMessage, updateSolution, detectContextFromInput, CONTEXT_LABELS, LABEL_TO_FOCUS, settings, getActiveApiKey]);
+  }, [currentSolution, addSolutionMessage, updateSolution, detectContextFromInput, CONTEXT_LABELS, LABEL_TO_FOCUS, settings]);
 
   const handleExport = useCallback(() => {
     if (!currentSkill) return;

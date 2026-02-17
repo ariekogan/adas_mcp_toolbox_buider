@@ -15,6 +15,7 @@ import tenantRouter from "./routes/tenant.js";
 import importRouter from "./routes/import.js";
 import solutionsRouter from "./routes/solutions.js";
 import agentApiRouter from "./routes/agentApi.js";
+import settingsRouter from "./routes/settings.js";
 import { attachTenant } from "./middleware/attachTenant.js";
 import { isSearchAvailable } from "./services/webSearch.js";
 import mcpManager from "./services/mcpConnector.js";
@@ -94,6 +95,7 @@ app.use("/api/tenant", tenantRouter);
 app.use("/api/import", importRouter);
 app.use("/api/solutions", solutionsRouter);
 app.use("/api/agent-api", agentApiRouter);
+app.use("/api/settings", settingsRouter);
 
 // Error handler
 app.use((err, req, res, _next) => {

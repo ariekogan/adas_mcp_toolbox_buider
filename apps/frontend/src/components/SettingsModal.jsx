@@ -62,15 +62,6 @@ const styles = {
     marginBottom: '6px',
     color: 'var(--text-muted)'
   },
-  input: {
-    width: '100%',
-    padding: '10px 12px',
-    background: 'var(--bg-secondary)',
-    border: '1px solid var(--border)',
-    borderRadius: '6px',
-    color: 'var(--text-primary)',
-    fontSize: '14px'
-  },
   select: {
     width: '100%',
     padding: '10px 12px',
@@ -141,10 +132,6 @@ const styles = {
 
 export default function SettingsModal({ settings, onSave, onClose, backendStatus }) {
   const [local, setLocal] = useState({ ...settings });
-  const [showKeys, setShowKeys] = useState({
-    anthropic: false,
-    openai: false
-  });
 
   const update = (key, value) => {
     setLocal(prev => ({ ...prev, [key]: value }));
@@ -171,7 +158,13 @@ export default function SettingsModal({ settings, onSave, onClose, backendStatus
           {serverHasKey && (
             <div style={{ ...styles.serverBadge, marginBottom: '16px', width: 'fit-content' }}>
               <span>&#x2713;</span>
-              <span>Server configured with {serverProvider === 'openai' ? 'OpenAI' : 'Anthropic'} API key</span>
+              <span>API key configured on server ({serverProvider === 'openai' ? 'OpenAI' : 'Anthropic'})</span>
+            </div>
+          )}
+          {!serverHasKey && (
+            <div style={{ ...styles.serverBadge, marginBottom: '16px', width: 'fit-content', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#ef4444' }}>
+              <span>&#x2717;</span>
+              <span>No API key on server — set OPENAI_API_KEY in .env</span>
             </div>
           )}
 
@@ -184,94 +177,26 @@ export default function SettingsModal({ settings, onSave, onClose, backendStatus
                   <input
                     type="radio"
                     style={styles.radioInput}
-                    checked={local.llm_provider === 'anthropic'}
-                    onChange={() => update('llm_provider', 'anthropic')}
+                    checked={local.llm_provider === 'openai'}
+                    onChange={() => update('llm_provider', 'openai')}
                   />
-                  Anthropic (Claude)
-                  {serverProvider === 'anthropic' && serverHasKey && (
-                    <span style={{ fontSize: '11px', color: '#10b981', marginLeft: '4px' }}>(server)</span>
+                  OpenAI
+                  {serverProvider === 'openai' && serverHasKey && (
+                    <span style={{ fontSize: '11px', color: '#10b981', marginLeft: '4px' }}>(active)</span>
                   )}
                 </label>
                 <label style={styles.radio}>
                   <input
                     type="radio"
                     style={styles.radioInput}
-                    checked={local.llm_provider === 'openai'}
-                    onChange={() => update('llm_provider', 'openai')}
+                    checked={local.llm_provider === 'anthropic'}
+                    onChange={() => update('llm_provider', 'anthropic')}
                   />
-                  OpenAI (GPT-4)
-                  {serverProvider === 'openai' && serverHasKey && (
-                    <span style={{ fontSize: '11px', color: '#10b981', marginLeft: '4px' }}>(server)</span>
+                  Anthropic
+                  {serverProvider === 'anthropic' && serverHasKey && (
+                    <span style={{ fontSize: '11px', color: '#10b981', marginLeft: '4px' }}>(active)</span>
                   )}
                 </label>
-              </div>
-            </div>
-          </div>
-
-          <div style={styles.section}>
-            <div style={styles.sectionTitle}>API Keys</div>
-            <div style={styles.hint}>
-              {serverHasKey
-                ? 'Server has API key configured. Enter your own key below to override.'
-                : 'Enter your API key to enable chat functionality.'
-              }
-            </div>
-
-            <div style={{ ...styles.field, marginTop: '12px' }}>
-              <label style={styles.label}>
-                Anthropic API Key
-                {serverProvider === 'anthropic' && serverHasKey && !local.anthropic_api_key && (
-                  <span style={{ color: '#10b981', marginLeft: '8px', fontSize: '11px' }}>
-                    &#x2713; Using server key
-                  </span>
-                )}
-              </label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  type={showKeys.anthropic ? 'text' : 'password'}
-                  style={{ ...styles.input, flex: 1 }}
-                  value={local.anthropic_api_key || ''}
-                  onChange={e => update('anthropic_api_key', e.target.value)}
-                  placeholder={serverProvider === 'anthropic' && serverHasKey ? '(using server key)' : 'sk-ant-...'}
-                />
-                <button
-                  style={styles.cancelBtn}
-                  onClick={() => setShowKeys(p => ({ ...p, anthropic: !p.anthropic }))}
-                >
-                  {showKeys.anthropic ? '🙈' : '👁'}
-                </button>
-              </div>
-              <div style={styles.hint}>
-                Get your key at console.anthropic.com
-              </div>
-            </div>
-
-            <div style={styles.field}>
-              <label style={styles.label}>
-                OpenAI API Key
-                {serverProvider === 'openai' && serverHasKey && !local.openai_api_key && (
-                  <span style={{ color: '#10b981', marginLeft: '8px', fontSize: '11px' }}>
-                    &#x2713; Using server key
-                  </span>
-                )}
-              </label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  type={showKeys.openai ? 'text' : 'password'}
-                  style={{ ...styles.input, flex: 1 }}
-                  value={local.openai_api_key || ''}
-                  onChange={e => update('openai_api_key', e.target.value)}
-                  placeholder={serverProvider === 'openai' && serverHasKey ? '(using server key)' : 'sk-...'}
-                />
-                <button
-                  style={styles.cancelBtn}
-                  onClick={() => setShowKeys(p => ({ ...p, openai: !p.openai }))}
-                >
-                  {showKeys.openai ? '🙈' : '👁'}
-                </button>
-              </div>
-              <div style={styles.hint}>
-                Get your key at platform.openai.com
               </div>
             </div>
           </div>
@@ -320,6 +245,10 @@ export default function SettingsModal({ settings, onSave, onClose, backendStatus
                 })}
               </div>
             </div>
+          </div>
+
+          <div style={styles.hint}>
+            Settings are saved on the server and persist across browsers.
           </div>
         </div>
 
