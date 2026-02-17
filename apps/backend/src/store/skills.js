@@ -253,13 +253,20 @@ async function list() {
  * @param {string} name - Skill name
  * @param {Object} [settings] - LLM settings
  * @param {Object} [template] - Optional template to apply ({ id, content })
+ * @param {string} [skillId] - Optional explicit skill ID (slug). If valid, used as-is instead of deriving from name.
  * @returns {Promise<DraftSkill>}
  */
-async function create(solutionId, name, settings = {}, template = null) {
+async function create(solutionId, name, settings = {}, template = null, skillId = null) {
   await init();
 
-  // Deterministic slug from skill name — the developer's ID, no prefix
-  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  // Use explicit skillId if provided and valid, otherwise derive from name
+  const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+  let base;
+  if (skillId && SLUG_RE.test(skillId)) {
+    base = skillId;
+  } else {
+    base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  }
   if (!base) throw new Error(`Cannot create slug from skill name: "${name}"`);
   let slug = base;
   let suffix = 2;

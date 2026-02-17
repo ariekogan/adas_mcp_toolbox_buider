@@ -431,7 +431,7 @@ router.post('/skill', async (req, res) => {
     } else {
       // Create new skill — use the developer's original ID as the skill ID
       console.log(`[Import] Creating new skill for skill: ${originalSkillId}`);
-      const skill = await skillsStore.create(solution_id, skillData.name, skillData.settings || {});
+      const skill = await skillsStore.create(solution_id, skillData.name, skillData.settings || {}, null, originalSkillId);
       skillId = skill.id;
 
       // Save with full skill data
@@ -866,7 +866,7 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
             await skillsStore.save(updated);
             skillResults.push({ id: skillId, name: skillData.name, status: 'updated' });
           } else {
-            const skill = await skillsStore.create(targetSolutionId, skillData.name, skillData.settings || {});
+            const skill = await skillsStore.create(targetSolutionId, skillData.name, skillData.settings || {}, null, skillData.id);
             skillId = skill.id;
             await skillsStore.save({
               ...skillData,
@@ -899,7 +899,7 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
       importedAt: new Date().toISOString(),
       mcps: connectorConfigs,
       skills: skills.map(s => {
-        const result = skillResults.find(r => r.originalId === s.id);
+        const result = skillResults.find(r => r.id === s.id);
         return { ...s, skillId: result?.id, status: result?.status };
       }),
       solution: solutionResult || (targetSolutionId ? { id: targetSolutionId, status: 'referenced' } : null)
