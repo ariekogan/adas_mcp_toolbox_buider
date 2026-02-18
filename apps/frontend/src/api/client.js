@@ -1,21 +1,66 @@
-const API_BASE = '/api';
+// Detect if running embedded under /builder/ path (iframe inside A-Team)
+const _isEmbedded = window.location.pathname.startsWith('/builder');
+const API_BASE = _isEmbedded ? '/builder/api' : '/api';
 
-// Tenant management — fixed allow-list
-const VALID_TENANTS = ['main', 'testing', 'dev'];
+// Tenant management — dynamic (backend validates via ADAS Core)
 const TENANT_STORAGE_KEY = 'sb.tenant';
+const TENANT_RE = /^[a-z0-9][a-z0-9-]{0,28}[a-z0-9]$/;
 
 export function getTenant() {
   const stored = localStorage.getItem(TENANT_STORAGE_KEY);
-  return VALID_TENANTS.includes(stored) ? stored : 'main';
+  return (stored && TENANT_RE.test(stored)) ? stored : 'main';
 }
 
 export function setTenant(tenant) {
-  if (VALID_TENANTS.includes(tenant)) {
+  if (tenant && TENANT_RE.test(tenant)) {
     localStorage.setItem(TENANT_STORAGE_KEY, tenant);
   }
 }
 
-export { VALID_TENANTS };
+// Auto-sync tenant when embedded in A-Team iframe (via URL param or postMessage)
+if (window.location.search) {
+  const _params = new URLSearchParams(window.location.search);
+  const _t = _params.get('tenant');
+  if (_t && TENANT_RE.test(_t)) setTenant(_t);
+}
+
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'adas-tenant-change' && e.data.tenant) {
+    const t = e.data.tenant;
+    if (TENANT_RE.test(t)) {
+      setTenant(t);
+      window.location.reload();
+    }
+  }
+});
+
+// Dynamic tenant list fetch with 60s cache
+let _tenantsCache = null;
+let _tenantsCacheTime = 0;
+const TENANTS_CACHE_TTL = 60_000;
+const TENANTS_LS_KEY = 'sb.tenants.cache';
+
+export async function fetchTenants() {
+  if (_tenantsCache && (Date.now() - _tenantsCacheTime) < TENANTS_CACHE_TTL) {
+    return _tenantsCache;
+  }
+  try {
+    const res = await fetch(`${API_BASE}/tenants/list`);
+    const json = await res.json();
+    if (json.ok && Array.isArray(json.tenants)) {
+      _tenantsCache = json.tenants;
+      _tenantsCacheTime = Date.now();
+      try { localStorage.setItem(TENANTS_LS_KEY, JSON.stringify(_tenantsCache)); } catch {}
+      return _tenantsCache;
+    }
+  } catch {}
+  // Fallback: try localStorage cache
+  try {
+    const cached = JSON.parse(localStorage.getItem(TENANTS_LS_KEY));
+    if (Array.isArray(cached) && cached.length > 0) return cached;
+  } catch {}
+  return [{ id: 'main', name: 'main' }];
+}
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {

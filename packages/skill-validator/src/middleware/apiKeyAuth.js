@@ -19,7 +19,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const VALID_TENANTS = ['main', 'testing', 'dev'];
+// Tenant validation: accept any lowercase alphanumeric slug (backend validates via ADAS Core)
+const TENANT_RE = /^[a-z0-9][a-z0-9-]{0,28}[a-z0-9]$/;
 const DEFAULT_TENANT = process.env.SB_TENANT || 'main';
 
 /**
@@ -93,8 +94,9 @@ export default async function apiKeyAuth(req, res, next) {
 
   // Determine tenant from header
   const raw = req.headers['x-adas-tenant'];
-  const tenant = (raw && VALID_TENANTS.includes(raw.trim().toLowerCase()))
-    ? raw.trim().toLowerCase()
+  const sanitized = raw ? raw.trim().toLowerCase() : '';
+  const tenant = (sanitized && TENANT_RE.test(sanitized))
+    ? sanitized
     : DEFAULT_TENANT;
 
   // Load stored key

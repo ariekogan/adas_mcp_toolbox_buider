@@ -42,7 +42,7 @@ const upload = multer({ dest: '/tmp/solution-pack-uploads', limits: { fileSize: 
 
 const router = Router();
 
-import { getMemoryRoot, getCurrentTenant, VALID_TENANTS } from '../utils/tenantContext.js';
+import { getMemoryRoot, getCurrentTenant, getValidTenants, refreshTenantCache } from '../utils/tenantContext.js';
 // Persistence: resolved per-tenant
 function getPersistenceDir(tenant) { return getMemoryRoot(tenant); }
 function getPersistenceFile(tenant) { return path.join(getMemoryRoot(tenant), 'imported-packages.json'); }
@@ -124,9 +124,15 @@ function savePackages() {
 }
 
 // Load persisted packages for all known tenants on startup
-for (const tenant of VALID_TENANTS) {
-  loadPersistedPackagesForTenant(tenant);
-}
+// Uses async IIFE: wait for tenant cache refresh, then load packages
+(async () => {
+  try {
+    await refreshTenantCache();
+  } catch { /* cache may already be populated */ }
+  for (const tenant of getValidTenants()) {
+    loadPersistedPackagesForTenant(tenant);
+  }
+})();
 
 /**
  * GET /api/import/packages

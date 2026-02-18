@@ -82,6 +82,20 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+// Tenant list proxy — forwards to ADAS Core for the frontend tenant selector
+const ADAS_CORE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || "http://ai-dev-assistant-backend-1:4000";
+app.get("/api/tenants/list", async (_req, res) => {
+  try {
+    const upstream = await fetch(`${ADAS_CORE_URL}/api/tenants/list`);
+    const json = await upstream.json();
+    res.json(json);
+  } catch (err) {
+    // Fallback: return cached tenants from tenantContext
+    const { getValidTenants } = await import("./utils/tenantContext.js");
+    res.json({ ok: true, tenants: getValidTenants().map(id => ({ id, name: id })) });
+  }
+});
+
 // Routes
 // Note: skills routes are now mounted under /api/solutions/:solutionId/skills (via solutionsRouter)
 app.use("/api/templates", templatesRouter);

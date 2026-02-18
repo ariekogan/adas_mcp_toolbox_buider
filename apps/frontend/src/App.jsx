@@ -15,7 +15,7 @@ import { useSkill } from './hooks/useSkill';
 import { useSolution } from './hooks/useSolution';
 import { useSettings } from './hooks/useSettings';
 import * as api from './api/client';
-import { getTenant, setTenant, VALID_TENANTS } from './api/client';
+import { getTenant, setTenant, fetchTenants } from './api/client';
 // Force rebuild - triggers and channels update + solution builder
 
 const styles = {
@@ -205,6 +205,8 @@ export default function App() {
 
   // Tenant state
   const [tenant, setTenantState] = useState(getTenant());
+  const [tenants, setTenants] = useState([{ id: getTenant(), name: getTenant() }]);
+  useEffect(() => { fetchTenants().then(setTenants); }, []);
   const handleTenantChange = useCallback((e) => {
     const newTenant = e.target.value;
     setTenant(newTenant);
@@ -651,20 +653,26 @@ export default function App() {
           <select
             value={tenant}
             onChange={handleTenantChange}
-            style={{
-              marginLeft: '12px',
-              padding: '3px 8px',
-              fontSize: '11px',
-              fontWeight: '500',
-              background: tenant === 'main' ? 'rgba(16,185,129,0.15)' : tenant === 'testing' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)',
-              color: tenant === 'main' ? '#10b981' : tenant === 'testing' ? '#3b82f6' : '#f59e0b',
-              border: `1px solid ${tenant === 'main' ? 'rgba(16,185,129,0.3)' : tenant === 'testing' ? 'rgba(59,130,246,0.3)' : 'rgba(245,158,11,0.3)'}`,
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
+            style={(() => {
+              const KNOWN = { main: '#10b981', testing: '#3b82f6', dev: '#f59e0b' };
+              const PALETTE = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+              const idx = tenants.findIndex(t => t.id === tenant);
+              const c = KNOWN[tenant] || PALETTE[idx % PALETTE.length] || '#8b949e';
+              return {
+                marginLeft: '12px',
+                padding: '3px 8px',
+                fontSize: '11px',
+                fontWeight: '500',
+                background: `${c}20`,
+                color: c,
+                border: `1px solid ${c}50`,
+                borderRadius: '4px',
+                cursor: 'pointer'
+              };
+            })()}
           >
-            {VALID_TENANTS.map(t => (
-              <option key={t} value={t}>{t}</option>
+            {tenants.map(t => (
+              <option key={t.id} value={t.id}>{t.name || t.id}</option>
             ))}
           </select>
         </div>

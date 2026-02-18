@@ -23,9 +23,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ${MEMORY_PATH:-./memory}/main:/tenants/main
-      - ${MEMORY_PATH:-./memory}/testing:/tenants/testing
-      - ${MEMORY_PATH:-./memory}/dev:/tenants/dev
+      - ${MEMORY_PATH:-./memory}:/tenants
     ports:
       - "${BACKEND_PORT:-4311}:4000"
       # Expose port range for dynamically spawned MCP servers
