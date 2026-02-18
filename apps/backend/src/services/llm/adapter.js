@@ -1,5 +1,31 @@
 import AnthropicAdapter from "./anthropic.js";
 import OpenAIAdapter from "./openai.js";
+import fs from "fs";
+import path from "path";
+import { getMemoryRoot } from "../../utils/tenantContext.js";
+
+/**
+ * Read the current tenant's settings.json (sync, cached briefly).
+ * Returns { openai_api_key, anthropic_api_key, llm_provider, ... } or {}.
+ */
+const _settingsCache = new Map(); // key=memRoot, value={ data, ts }
+const SETTINGS_CACHE_TTL = 30_000; // 30s
+
+function getTenantSettings() {
+  try {
+    const memRoot = getMemoryRoot();
+    const cached = _settingsCache.get(memRoot);
+    if (cached && Date.now() - cached.ts < SETTINGS_CACHE_TTL) return cached.data;
+
+    const filePath = path.join(memRoot, "settings.json");
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const data = JSON.parse(raw);
+    _settingsCache.set(memRoot, { data, ts: Date.now() });
+    return data;
+  } catch {
+    return {};
+  }
+}
 
 /**
  * Semantic model tiers — single source of truth.
@@ -51,11 +77,15 @@ export function createAdapter(provider, options = {}) {
   const rawModel = options.model || process.env[`${provider.toUpperCase()}_MODEL`] || defaultModel;
   const resolvedModel = resolveModel(provider, rawModel);
 
-  // Prefer server-side env key when available; fall back to frontend-provided key
+  // Key resolution order: tenant settings → env var → frontend-provided
+  const tenantSettings = getTenantSettings();
+  const tenantKey = provider === "openai"
+    ? (tenantSettings.openai_api_key || tenantSettings.openaiApiKey)
+    : (tenantSettings.anthropic_api_key || tenantSettings.anthropicApiKey);
   const envKey = provider === "openai"
     ? process.env.OPENAI_API_KEY
     : process.env.ANTHROPIC_API_KEY;
-  const apiKey = envKey || options.apiKey;
+  const apiKey = tenantKey || envKey || options.apiKey;
 
   switch (provider) {
     case "anthropic":

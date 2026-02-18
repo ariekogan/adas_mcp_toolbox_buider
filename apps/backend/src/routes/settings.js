@@ -10,6 +10,8 @@ const SETTINGS_FILE = "settings.json";
 const DEFAULT_SETTINGS = {
   llm_provider: "openai",
   model_tier: "normal", // "fast" | "normal" | "deep"
+  openai_api_key: "",
+  anthropic_api_key: "",
 };
 
 /**
@@ -36,7 +38,18 @@ router.get("/", async (req, res, next) => {
       if (err.code !== "ENOENT") throw err;
     }
 
-    res.json(settings);
+    // Mask API keys for frontend display (show last 4 chars only)
+    const masked = { ...settings };
+    for (const k of ["openai_api_key", "anthropic_api_key"]) {
+      if (masked[k] && masked[k].length > 8) {
+        masked[k] = "***" + masked[k].slice(-4);
+      }
+    }
+    // Tell frontend if env-level keys are set (tenant key overrides)
+    masked._env_openai = !!process.env.OPENAI_API_KEY;
+    masked._env_anthropic = !!process.env.ANTHROPIC_API_KEY;
+
+    res.json(masked);
   } catch (err) {
     next(err);
   }
@@ -60,9 +73,13 @@ router.put("/", async (req, res, next) => {
     }
 
     // Merge updates (only allow safe keys)
-    const ALLOWED_KEYS = ["llm_provider", "model_tier"];
+    const ALLOWED_KEYS = ["llm_provider", "model_tier", "openai_api_key", "anthropic_api_key"];
     for (const key of ALLOWED_KEYS) {
       if (updates[key] !== undefined) {
+        // Don't overwrite stored key with masked value from GET response
+        if ((key === "openai_api_key" || key === "anthropic_api_key") && updates[key].startsWith("***")) {
+          continue;
+        }
         current[key] = updates[key];
       }
     }
