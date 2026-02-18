@@ -24,6 +24,13 @@ if (window.location.search) {
   if (_t && TENANT_RE.test(_t)) setTenant(_t);
 }
 
+// JWT auth token received from parent frame (ADAS Core)
+let _authToken = null;
+
+export function getAuthToken() {
+  return _authToken;
+}
+
 window.addEventListener('message', (e) => {
   if (e.data?.type === 'adas-tenant-change' && e.data.tenant) {
     const t = e.data.tenant;
@@ -31,6 +38,9 @@ window.addEventListener('message', (e) => {
       setTenant(t);
       window.location.reload();
     }
+  }
+  if (e.data?.type === 'adas-auth-token' && e.data.token) {
+    _authToken = e.data.token;
   }
 });
 
@@ -45,7 +55,9 @@ export async function fetchTenants() {
     return _tenantsCache;
   }
   try {
-    const res = await fetch(`${API_BASE}/tenants/list`);
+    const fetchHeaders = {};
+    if (_authToken) fetchHeaders['Authorization'] = `Bearer ${_authToken}`;
+    const res = await fetch(`${API_BASE}/tenants/list`, { headers: fetchHeaders });
     const json = await res.json();
     if (json.ok && Array.isArray(json.tenants)) {
       _tenantsCache = json.tenants;
@@ -63,13 +75,19 @@ export async function fetchTenants() {
 }
 
 async function request(path, options = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers
+  };
+  // JWT auth (from parent frame) takes precedence; fall back to X-ADAS-TENANT for dev/standalone
+  if (_authToken) {
+    headers['Authorization'] = `Bearer ${_authToken}`;
+  } else {
+    headers['X-ADAS-TENANT'] = getTenant();
+  }
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-ADAS-TENANT': getTenant(),
-      ...options.headers
-    }
+    headers
   });
 
   if (!response.ok) {
@@ -183,11 +201,15 @@ export async function digestFile(solutionId, skillId, file, llmSettings = null) 
     formData.append('llm_settings', JSON.stringify(llmSettings));
   }
 
+  const digestHeaders = {};
+  if (_authToken) {
+    digestHeaders['Authorization'] = `Bearer ${_authToken}`;
+  } else {
+    digestHeaders['X-ADAS-TENANT'] = getTenant();
+  }
   const response = await fetch(`${API_BASE}/chat/skill/digest`, {
     method: 'POST',
-    headers: {
-      'X-ADAS-TENANT': getTenant()
-    },
+    headers: digestHeaders,
     body: formData
     // Don't set Content-Type - browser sets it with boundary
   });
@@ -417,9 +439,15 @@ export async function importSolutionPack(file) {
   const formData = new FormData();
   formData.append('file', file);
 
+  const importHeaders = {};
+  if (_authToken) {
+    importHeaders['Authorization'] = `Bearer ${_authToken}`;
+  } else {
+    importHeaders['X-ADAS-TENANT'] = getTenant();
+  }
   const response = await fetch(`${API_BASE}/import/solution-pack`, {
     method: 'POST',
-    headers: { 'X-ADAS-TENANT': getTenant() },
+    headers: importHeaders,
     body: formData
     // Don't set Content-Type - browser sets it with boundary
   });
@@ -465,9 +493,15 @@ export async function removeImportedPackage(packageName) {
  * @returns {Promise<void>} Resolves when stream ends
  */
 export async function deployAllPackage(packageName, onEvent) {
+  const deployHeaders = { 'Content-Type': 'application/json' };
+  if (_authToken) {
+    deployHeaders['Authorization'] = `Bearer ${_authToken}`;
+  } else {
+    deployHeaders['X-ADAS-TENANT'] = getTenant();
+  }
   const response = await fetch(
     `${API_BASE}/import/packages/${encodeURIComponent(packageName)}/deploy-all`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-ADAS-TENANT': getTenant() } }
+    { method: 'POST', headers: deployHeaders }
   );
 
   if (!response.ok) {
@@ -852,12 +886,15 @@ export async function previewMCPGeneration(solutionId, skillId) {
 
 export async function* generateMCP(solutionId, skillId) {
   if (!solutionId) throw new Error('solutionId is required');
+  const genHeaders = { 'Content-Type': 'application/json' };
+  if (_authToken) {
+    genHeaders['Authorization'] = `Bearer ${_authToken}`;
+  } else {
+    genHeaders['X-ADAS-TENANT'] = getTenant();
+  }
   const response = await fetch(`${API_BASE}/export/${skillId}/mcp/develop?solution_id=${solutionId}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-ADAS-TENANT': getTenant()
-    }
+    headers: genHeaders
   });
 
   if (!response.ok) {
@@ -898,8 +935,14 @@ export async function downloadMCPExport(solutionId, skillId, version) {
 export async function downloadExportBundle(solutionId, skillId, version) {
   if (!solutionId) throw new Error('solutionId is required');
   const url = `${API_BASE}/export/${skillId}/download/${version}/bundle?solution_id=${solutionId}`;
+  const bundleHeaders = {};
+  if (_authToken) {
+    bundleHeaders['Authorization'] = `Bearer ${_authToken}`;
+  } else {
+    bundleHeaders['X-ADAS-TENANT'] = getTenant();
+  }
   const response = await fetch(url, {
-    headers: { 'X-ADAS-TENANT': getTenant() }
+    headers: bundleHeaders
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));

@@ -64,10 +64,11 @@ setInterval(refreshTenantCache, CACHE_TTL);
 /**
  * Run a function within a tenant context.
  * Called by attachTenant middleware to wrap each request.
+ * Optionally stores a JWT token for downstream use (e.g. adasCoreClient).
  */
-export function runWithTenant(tenant, fn) {
+export function runWithTenant(tenant, fn, { token } = {}) {
   const safe = isValidTenant(tenant) ? tenant : DEFAULT_TENANT;
-  return als.run({ tenant: safe }, fn);
+  return als.run({ tenant: safe, token: token || null }, fn);
 }
 
 /**
@@ -76,6 +77,14 @@ export function runWithTenant(tenant, fn) {
  */
 export function getCurrentTenant() {
   return als.getStore()?.tenant || DEFAULT_TENANT;
+}
+
+/**
+ * Get the JWT token from ALS context (if present).
+ * Used by adasCoreClient to forward auth to ADAS Core.
+ */
+export function getCurrentToken() {
+  return als.getStore()?.token || null;
 }
 
 // Subdirectory within each tenant's filesystem where Skill Builder stores its data.

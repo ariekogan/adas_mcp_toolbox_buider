@@ -25,7 +25,7 @@ const app = express();
 
 app.use(cors({
   exposedHeaders: ["X-ADAS-TENANT"],
-  allowedHeaders: ["Content-Type", "X-ADAS-TENANT"],
+  allowedHeaders: ["Content-Type", "X-ADAS-TENANT", "Authorization"],
 }));
 app.use(express.json({ limit: "10mb" }));
 
@@ -84,9 +84,14 @@ app.get("/api/health", (_req, res) => {
 
 // Tenant list proxy — forwards to ADAS Core for the frontend tenant selector
 const ADAS_CORE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || "http://ai-dev-assistant-backend-1:4000";
-app.get("/api/tenants/list", async (_req, res) => {
+app.get("/api/tenants/list", async (req, res) => {
   try {
-    const upstream = await fetch(`${ADAS_CORE_URL}/api/tenants/list`);
+    // Forward Authorization header so Core can scope to user's tenants
+    const proxyHeaders = {};
+    if (req.headers.authorization) {
+      proxyHeaders['Authorization'] = req.headers.authorization;
+    }
+    const upstream = await fetch(`${ADAS_CORE_URL}/api/tenants/list`, { headers: proxyHeaders });
     const json = await upstream.json();
     res.json(json);
   } catch (err) {

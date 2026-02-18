@@ -9,7 +9,7 @@
  * so it works correctly inside per-request Express middleware chains.
  */
 
-import { getCurrentTenant } from '../utils/tenantContext.js';
+import { getCurrentTenant, getCurrentToken } from '../utils/tenantContext.js';
 
 const BASE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
 
@@ -18,7 +18,14 @@ const BASE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http:
 // ═══════════════════════════════════════════════════════════════
 
 function headers(json = false) {
-  const h = { 'X-ADAS-TENANT': getCurrentTenant() };
+  const h = {};
+  // Prefer JWT auth (forwarded from client); fall back to X-ADAS-TENANT for dev mode
+  const token = getCurrentToken();
+  if (token) {
+    h['Authorization'] = `Bearer ${token}`;
+  } else {
+    h['X-ADAS-TENANT'] = getCurrentTenant();
+  }
   if (json) h['Content-Type'] = 'application/json';
   return h;
 }
