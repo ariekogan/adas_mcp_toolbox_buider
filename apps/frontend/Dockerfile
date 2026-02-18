@@ -4,7 +4,9 @@ RUN corepack enable
 WORKDIR /app
 
 ARG VITE_API_URL
+ARG VITE_BASE_PATH=/
 ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_BASE_PATH=$VITE_BASE_PATH
 
 COPY package.json ./
 RUN pnpm install --no-frozen-lockfile
