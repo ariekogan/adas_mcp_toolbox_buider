@@ -1,0 +1,319 @@
+{
+  "id": "skill_identity-gateway",
+  "name": "Identity Gateway",
+  "description": "Identifies users as team members or customers, verifies their identity, and routes them to the scheduling agent.",
+  "version": "1.0.0",
+  "phase": "EXPORTED",
+  "connectors": [
+    "identity-mcp"
+  ],
+  "problem": {
+    "statement": "Users need to be identified and verified before accessing the scheduling system, whether they are internal team members or external customers.",
+    "context": "A scheduling platform serving both internal employees and external customers booking appointments via Google Calendar.",
+    "goals": [
+      "Verify user identity via email lookup",
+      "Distinguish between team members and customers",
+      "Grant verified identity claims to downstream scheduling skill"
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "team-member-login",
+      "title": "Team member identifies themselves",
+      "description": "An internal team member provides their email to be verified before booking meetings.",
+      "steps": [
+        "User says 'Hi, I'm alice@company.com and I need to book a meeting'",
+        "Agent looks up the email in the identity system",
+        "Agent verifies the user is a team_member",
+        "Agent hands off to the Scheduling Agent with verified grants"
+      ],
+      "expected_outcome": "User is verified as a team member and routed to scheduling."
+    },
+    {
+      "id": "customer-login",
+      "title": "Customer identifies themselves",
+      "description": "An external customer provides their email to book an appointment.",
+      "steps": [
+        "User says 'I'd like to book a consultation, my email is bob@gmail.com'",
+        "Agent looks up the email in the identity system",
+        "Agent verifies the user is a customer",
+        "Agent hands off to the Scheduling Agent with verified grants"
+      ],
+      "expected_outcome": "User is verified as a customer and routed to scheduling."
+    },
+    {
+      "id": "unknown-user",
+      "title": "Unknown user tries to access",
+      "description": "A user provides an email that is not in the system.",
+      "steps": [
+        "User says 'I want to book a meeting, my email is unknown@random.com'",
+        "Agent looks up the email — no match found",
+        "Agent asks the user to register or provides instructions"
+      ],
+      "expected_outcome": "User is informed they need to register before using the scheduling system."
+    }
+  ],
+  "role": {
+    "name": "Identity Verification Specialist",
+    "persona": "You are a friendly and efficient identity verification agent for a scheduling platform. You greet users, ask for their email to verify their identity, and route them to the scheduling assistant once verified. You are clear and helpful when a user cannot be found.",
+    "goals": [
+      "Verify user identity quickly via email",
+      "Determine if user is a team member or customer",
+      "Route verified users to the scheduling agent"
+    ],
+    "limitations": [
+      "Cannot create new user accounts",
+      "Cannot access calendar or scheduling functions directly",
+      "Cannot bypass identity verification"
+    ],
+    "communication_style": {
+      "tone": "casual",
+      "verbosity": "concise"
+    }
+  },
+  "intents": {
+    "supported": [
+      {
+        "id": "identify_self",
+        "description": "User wants to identify themselves to access scheduling",
+        "examples": [
+          "Hi, I'm alice@company.com",
+          "I need to book a meeting, my email is bob@gmail.com",
+          "Let me sign in — alice@company.com",
+          "I want to schedule something, I'm john@example.com"
+        ],
+        "maps_to_workflow": "identity_verification_flow",
+        "entities": [
+          {
+            "name": "email",
+            "type": "string",
+            "required": true,
+            "extract_from": "message"
+          }
+        ],
+        "maps_to_workflow_resolved": true
+      },
+      {
+        "id": "ask_about_scheduling",
+        "description": "User asks about scheduling without identifying themselves first",
+        "examples": [
+          "I want to book a meeting",
+          "Can I schedule an appointment?",
+          "What times are available?",
+          "I need to reschedule"
+        ],
+        "maps_to_workflow_resolved": true
+      }
+    ],
+    "thresholds": {
+      "accept": 0.85,
+      "clarify": 0.6,
+      "reject": 0.4
+    },
+    "out_of_domain": {
+      "action": "reject",
+      "message": "I can only help with scheduling-related requests."
+    }
+  },
+  "tools": [
+    {
+      "id": "tool-identity-lookup",
+      "id_status": "permanent",
+      "name": "identity.user.lookup",
+      "description": "Look up a user by email address. Returns verified user ID, type (team_member or customer), and profile.",
+      "inputs": [
+        {
+          "name": "email",
+          "type": "string",
+          "required": true,
+          "description": "Email address to look up"
+        }
+      ],
+      "output": {
+        "type": "object",
+        "description": "User profile with user_id, user_type (team_member or customer), name, email, and status"
+      },
+      "source": {
+        "type": "mcp_bridge",
+        "connection_id": "identity-mcp",
+        "mcp_tool": "user.lookup"
+      },
+      "policy": {
+        "allowed": "always"
+      },
+      "mock": {
+        "enabled": true,
+        "mode": "examples",
+        "examples": [
+          {
+            "id": "team-member-found",
+            "input": {
+              "email": "alice@company.com"
+            },
+            "output": {
+              "user_id": "USR-001",
+              "user_type": "team_member",
+              "name": "Alice Johnson",
+              "email": "alice@company.com",
+              "status": "active"
+            },
+            "description": "Team member found"
+          },
+          {
+            "id": "customer-found",
+            "input": {
+              "email": "bob@gmail.com"
+            },
+            "output": {
+              "user_id": "USR-200",
+              "user_type": "customer",
+              "name": "Bob Smith",
+              "email": "bob@gmail.com",
+              "status": "active"
+            },
+            "description": "Customer found"
+          },
+          {
+            "id": "user-not-found",
+            "input": {
+              "email": "unknown@random.com"
+            },
+            "output": {
+              "error": "USER_NOT_FOUND",
+              "message": "No user found with that email address"
+            },
+            "description": "Not found"
+          }
+        ]
+      },
+      "mock_status": "tested",
+      "security": {
+        "classification": "pii_read"
+      }
+    }
+  ],
+  "policy": {
+    "guardrails": {
+      "never": [
+        "Skip identity verification and route users directly to scheduling",
+        "Share one user's information with another user",
+        "Create or modify user accounts",
+        "Reveal internal system IDs or database details"
+      ],
+      "always": [
+        "Ask for the user's email before doing anything else",
+        "Verify user identity before handing off to scheduling",
+        "Inform unregistered users how to get access"
+      ]
+    },
+    "workflows": [
+      {
+        "id": "identity_verification_flow",
+        "name": "Identity Verification",
+        "trigger": "identify_self",
+        "steps": [
+          "identity.user.lookup",
+          "sys.emitUserMessage"
+        ],
+        "required": true,
+        "on_deviation": "block",
+        "steps_resolved": [
+          true,
+          true
+        ]
+      }
+    ]
+  },
+  "engine": {
+    "model": "claude-sonnet-4-20250514",
+    "temperature": 0.3,
+    "rv2": {
+      "max_iterations": 6,
+      "iteration_timeout_ms": 30000,
+      "allow_parallel_tools": false,
+      "on_max_iterations": "fail"
+    },
+    "hlr": {
+      "enabled": true,
+      "critic": {
+        "enabled": false,
+        "strictness": "medium"
+      },
+      "reflection": {
+        "enabled": false,
+        "depth": "shallow"
+      }
+    },
+    "autonomy": {
+      "level": "autonomous"
+    }
+  },
+  "grant_mappings": [
+    {
+      "tool": "identity.user.lookup",
+      "on_success": true,
+      "grants": [
+        {
+          "key": "sched.user_id",
+          "value_from": "$.user_id",
+          "condition": "$.status == \"active\"",
+          "ttl_seconds": 3600
+        },
+        {
+          "key": "sched.user_type",
+          "value_from": "$.user_type",
+          "condition": "$.status == \"active\"",
+          "ttl_seconds": 3600
+        }
+      ]
+    }
+  ],
+  "access_policy": {
+    "rules": [
+      {
+        "tools": [
+          "*"
+        ],
+        "effect": "allow"
+      }
+    ]
+  },
+  "solution_id": "scheduling-assistant",
+  "original_skill_id": "identity-gateway",
+  "created_at": "2026-02-17T20:17:15.993Z",
+  "updated_at": "2026-02-17T20:17:16.043Z",
+  "conversation": [],
+  "validation": {
+    "valid": true,
+    "ready_to_export": true,
+    "errors": [],
+    "warnings": [
+      {
+        "code": "INTENT_NO_TOOLS",
+        "severity": "warning",
+        "path": "intents.supported[1]",
+        "message": "Intent \"ask_about_scheduling\" has no mapped workflow and no obviously related tools",
+        "suggestion": "Add maps_to_workflow, create a workflow with trigger \"ask_about_scheduling\", or ensure tool names relate to this intent"
+      }
+    ],
+    "unresolved": {
+      "tools": [],
+      "workflows": [],
+      "intents": []
+    },
+    "completeness": {
+      "problem": true,
+      "scenarios": true,
+      "role": true,
+      "intents": true,
+      "tools": true,
+      "policy": true,
+      "engine": true,
+      "mocks_tested": true,
+      "identity": false,
+      "security": true
+    }
+  },
+  "lastExportedAt": "2026-02-17T20:17:16.042Z",
+  "lastExportType": "mcp-simple"
+}

@@ -1,0 +1,28 @@
+[
+  {
+    "name": "fleet-command",
+    "version": "1.0.0",
+    "description": "Fleet Command",
+    "mcp_store_included": true,
+    "mcpStorePath": "/Users/arie/Projects/adas_mcp_toolbox_builder/apps/backend/data/tenants/dev/solution-packs/fleet-command/mcp-store",
+    "importedAt": "2026-02-15T10:35:11.847Z",
+    "mcps": [
+      {
+        "id": "fleet-ui-mcp",
+        "name": "Fleet Command MCP",
+        "transport": "stdio",
+        "category": "custom",
+        "requiresAuth": false,
+        "layer": "tenant",
+        "command": "node",
+        "args": [
+          "/mcp-store/fleet-ui-mcp/server.js"
+        ],
+        "env": {},
+        "ui_capable": true
+      }
+    ],
+    "skills": [],
+    "solution": null
+  }
+]

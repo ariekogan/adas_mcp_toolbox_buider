@@ -1,0 +1,137 @@
+{
+  "id": "scheduling-assistant",
+  "name": "Scheduling Assistant",
+  "version": "1.0.0",
+  "description": "Multi-agent scheduling system. Identity gateway verifies users, then hands off to a scheduling agent that manages Google Calendar appointments for both team members and customers.",
+  "phase": "VALIDATION",
+  "identity": {
+    "actor_types": [
+      {
+        "key": "team_member",
+        "label": "Team Member",
+        "description": "Internal employee who books meetings with colleagues"
+      },
+      {
+        "key": "customer",
+        "label": "Customer",
+        "description": "External customer booking appointments or consultations"
+      },
+      {
+        "key": "admin",
+        "label": "Admin",
+        "description": "System administrator with full access"
+      }
+    ],
+    "default_actor_type": "customer",
+    "admin_roles": [
+      "admin"
+    ]
+  },
+  "grants": [
+    {
+      "key": "sched.user_id",
+      "description": "Verified user identifier — proves the user is who they claim to be",
+      "issued_by": [
+        "identity-gateway"
+      ],
+      "consumed_by": [
+        "scheduling-agent"
+      ],
+      "issued_via": "grant_mapping",
+      "source_tool": "identity.user.lookup",
+      "source_field": "$.user_id",
+      "ttl_seconds": 3600
+    },
+    {
+      "key": "sched.user_type",
+      "description": "User type — team_member or customer — determines access level",
+      "values": [
+        "team_member",
+        "customer"
+      ],
+      "issued_by": [
+        "identity-gateway"
+      ],
+      "consumed_by": [
+        "scheduling-agent"
+      ],
+      "issued_via": "grant_mapping",
+      "source_tool": "identity.user.lookup",
+      "source_field": "$.user_type"
+    }
+  ],
+  "handoffs": [
+    {
+      "id": "gateway-to-scheduling",
+      "from": "identity-gateway",
+      "to": "scheduling-agent",
+      "trigger": "User verified and wants to interact with scheduling",
+      "grants_passed": [
+        "sched.user_id",
+        "sched.user_type"
+      ],
+      "grants_dropped": [],
+      "mechanism": "handoff-controller-mcp"
+    }
+  ],
+  "routing": {
+    "telegram": {
+      "default_skill": "identity-gateway",
+      "description": "All Telegram messages start at identity verification"
+    },
+    "api": {
+      "default_skill": "identity-gateway",
+      "description": "All API requests start at identity verification"
+    }
+  },
+  "platform_connectors": [],
+  "security_contracts": [
+    {
+      "name": "Scheduling requires verified user",
+      "consumer": "scheduling-agent",
+      "requires_grants": [
+        "sched.user_id"
+      ],
+      "provider": "identity-gateway",
+      "for_tools": [
+        "calendar.availability.check",
+        "calendar.event.list",
+        "calendar.event.create",
+        "calendar.event.update",
+        "calendar.event.delete"
+      ],
+      "validation": "User must be verified before accessing any calendar operations"
+    }
+  ],
+  "conversation": [],
+  "created_at": "2026-02-17T20:17:15.990Z",
+  "updated_at": "2026-02-17T20:17:16.004Z",
+  "skills": [
+    {
+      "id": "identity-gateway",
+      "name": "Identity Gateway",
+      "role": "gateway",
+      "description": "Verifies user identity and routes to scheduling agent",
+      "entry_channels": [
+        "telegram",
+        "api"
+      ],
+      "connectors": [
+        "identity-mcp"
+      ]
+    },
+    {
+      "id": "scheduling-agent",
+      "name": "Scheduling Agent",
+      "role": "worker",
+      "description": "Manages calendar operations — check availability, book, reschedule, cancel",
+      "connectors": [
+        "gcal-mcp"
+      ]
+    }
+  ],
+  "linked_skills": [
+    "skill_identity-gateway",
+    "skill_scheduling-agent"
+  ]
+}

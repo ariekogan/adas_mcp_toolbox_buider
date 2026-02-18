@@ -1,0 +1,7 @@
+{
+  "name": "fleet-ui-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Fleet Dashboard UI plugin — vehicle tracking, routes, geofences, alerts",
+  "main": "server.js",
+  "type": "module"
+}
