@@ -8,23 +8,37 @@ import { getMemoryRoot } from "../../utils/tenantContext.js";
  * Read the current tenant's settings.json (sync, cached briefly).
  * Returns { openai_api_key, anthropic_api_key, llm_provider, ... } or {}.
  */
-const _settingsCache = new Map(); // key=memRoot, value={ data, ts }
+const _settingsCache = new Map(); // key=path, value={ data, ts }
 const SETTINGS_CACHE_TTL = 30_000; // 30s
 
-function getTenantSettings() {
+function _readJsonCached(filePath) {
   try {
-    const memRoot = getMemoryRoot();
-    const cached = _settingsCache.get(memRoot);
+    const cached = _settingsCache.get(filePath);
     if (cached && Date.now() - cached.ts < SETTINGS_CACHE_TTL) return cached.data;
-
-    const filePath = path.join(memRoot, "settings.json");
     const raw = fs.readFileSync(filePath, "utf-8");
     const data = JSON.parse(raw);
-    _settingsCache.set(memRoot, { data, ts: Date.now() });
+    _settingsCache.set(filePath, { data, ts: Date.now() });
     return data;
   } catch {
     return {};
   }
+}
+
+function getTenantSettings() {
+  const memRoot = getMemoryRoot();
+  return _readJsonCached(path.join(memRoot, "settings.json"));
+}
+
+/**
+ * Read Core's per-tenant LLM config from /tenants/<tenant>/secrets/llm.json.
+ * Falls back to empty object if not found.
+ */
+function getCoreLlmConfig() {
+  const memRoot = getMemoryRoot();
+  // Builder memRoot is like /tenants/<tenant>/_builder
+  // Core secrets are at /tenants/<tenant>/secrets/llm.json
+  const coreRoot = memRoot.replace(/\/_builder\/?$/, "");
+  return _readJsonCached(path.join(coreRoot, "secrets", "llm.json"));
 }
 
 /**
@@ -77,15 +91,25 @@ export function createAdapter(provider, options = {}) {
   const rawModel = options.model || process.env[`${provider.toUpperCase()}_MODEL`] || defaultModel;
   const resolvedModel = resolveModel(provider, rawModel);
 
-  // Key resolution order: tenant settings → env var → frontend-provided
+  // Key resolution order:
+  // 1. Builder per-tenant settings.json
+  // 2. Core per-tenant secrets/llm.json (shared tenant LLM config)
+  // 3. Env var
+  // 4. Frontend-provided options.apiKey
   const tenantSettings = getTenantSettings();
+  const coreLlm = getCoreLlmConfig();
   const tenantKey = provider === "openai"
     ? (tenantSettings.openai_api_key || tenantSettings.openaiApiKey)
     : (tenantSettings.anthropic_api_key || tenantSettings.anthropicApiKey);
+  const coreKey = (coreLlm.useGlobalKeys)
+    ? null  // useGlobalKeys means skip tenant key, go to env
+    : provider === "openai"
+      ? coreLlm.openaiApiKey
+      : coreLlm.anthropicApiKey;
   const envKey = provider === "openai"
     ? process.env.OPENAI_API_KEY
     : process.env.ANTHROPIC_API_KEY;
-  const apiKey = tenantKey || envKey || options.apiKey;
+  const apiKey = tenantKey || coreKey || envKey || options.apiKey;
 
   switch (provider) {
     case "anthropic":
