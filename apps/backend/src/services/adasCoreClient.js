@@ -19,13 +19,12 @@ const BASE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http:
 
 function headers(json = false) {
   const h = {};
-  // Prefer JWT auth (forwarded from client); fall back to X-ADAS-TENANT for dev mode
+  // Auth token (JWT or PAT) — forwarded from client via ALS
   const token = getCurrentToken();
   if (token) {
     h['Authorization'] = `Bearer ${token}`;
-  } else {
-    h['X-ADAS-TENANT'] = getCurrentTenant();
   }
+  // No fallback — if no token, request will fail at Core's requireAuth
   if (json) h['Content-Type'] = 'application/json';
   return h;
 }
