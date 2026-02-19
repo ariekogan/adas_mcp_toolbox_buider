@@ -236,6 +236,15 @@ export async function applyExtraction(solutionId, skillId, extraction) {
   return response;
 }
 
+// Simplify message for business-owner audience
+export async function simplifyMessage(message, llmSettings = null) {
+  const response = await request('/chat/simplify', {
+    method: 'POST',
+    body: JSON.stringify({ message, llm_settings: llmSettings })
+  });
+  return response.simplified;
+}
+
 // Mock testing
 export async function runMock(solutionId, skillId, toolId, input, mode = 'example') {
   if (!solutionId) throw new Error('solutionId is required');

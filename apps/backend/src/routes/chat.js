@@ -6,6 +6,7 @@ import { digestFileContent, getFileType } from "../services/fileDigestion.js";
 import { getHelpDoc, formatHelpDoc } from "../data/helpDocs.js";
 import { enhanceWithStateContext } from "../services/stateSync.js";
 import { getAllPrebuiltConnectors } from "./connectors.js";
+import { createAdapter } from "../services/llm/adapter.js";
 
 const router = Router();
 
@@ -415,6 +416,58 @@ router.post("/skill/digest/apply", async (req, res, next) => {
 
   } catch (err) {
     req.app.locals.log.error("Apply extraction error:", err);
+    next(err);
+  }
+});
+
+/**
+ * Simplify an assistant message for a business-owner audience
+ * POST /api/chat/simplify
+ *
+ * Body: { message: string, llm_settings?: object }
+ * Returns: { simplified: string }
+ */
+router.post("/simplify", async (req, res, next) => {
+  try {
+    const { message, llm_settings } = req.body;
+    const log = req.app.locals.log;
+
+    if (!message) {
+      return res.status(400).json({ error: "message is required" });
+    }
+
+    log.debug("Simplify request received", { length: message.length });
+
+    const provider = llm_settings?.llm_provider || process.env.LLM_PROVIDER || "openai";
+    const adapter = createAdapter(provider, {
+      apiKey: llm_settings?.api_key,
+      model: "fast" // Use fast tier for cost/speed
+    });
+
+    const response = await adapter.chat({
+      systemPrompt: `You are a plain-language rewriter. Your job is to take a technical AI-builder message and rewrite it so a non-technical business owner can understand it.
+
+Rules:
+- Use simple, everyday language. No jargon, no code terms, no architecture terms.
+- Keep all actionable advice and decisions the user needs to make.
+- Preserve any lists of options or choices — but rephrase them in business terms.
+- If the original has numbered steps, keep numbered steps but simplify the language.
+- Do NOT add new information or opinions. Only rephrase what's there.
+- Do NOT drop any warnings, constraints, or "must/never" rules — rephrase them simply.
+- Keep it roughly the same length or shorter. Never make it longer.
+- Use the same markdown formatting style (**, ##, -, etc.) as the original.
+- Do NOT include a preamble like "Here's a simplified version". Just output the rewritten message directly.`,
+      messages: [
+        { role: "user", content: message }
+      ],
+      maxTokens: 2048,
+      temperature: 0.3
+    });
+
+    res.json({ simplified: response.content });
+
+  } catch (err) {
+    req.app.locals.log.error("Simplify error:", err);
     next(err);
   }
 });

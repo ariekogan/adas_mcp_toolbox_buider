@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from 'react';
+import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import SmartInput from './SmartInput';
 import SolutionSummaryCard from './SolutionSummaryCard';
 import SolutionVerificationPanel from './SolutionVerificationPanel';
@@ -304,6 +304,35 @@ const styles = {
     borderRadius: '50%',
     background: 'var(--accent)',
     animation: 'pulse 1.4s ease-in-out infinite'
+  },
+  simplifyBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginTop: '10px',
+    paddingTop: '8px',
+    borderTop: '1px solid var(--border)'
+  },
+  simplifyBtn: {
+    background: 'none',
+    border: '1px solid var(--border)',
+    color: 'var(--text-secondary)',
+    fontSize: '12px',
+    padding: '4px 10px',
+    borderRadius: '12px',
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+    whiteSpace: 'nowrap'
+  },
+  simplifyLabel: {
+    fontSize: '11px',
+    color: 'var(--accent)',
+    fontWeight: '500'
+  },
+  simplifyLoading: {
+    fontSize: '12px',
+    color: 'var(--text-muted)',
+    fontStyle: 'italic'
   },
   welcome: {
     textAlign: 'center',
@@ -817,13 +846,48 @@ export default function ChatPanel({
   // Context indicator props
   contextLabel,
   onContextClick,
-  onContextClear
+  onContextClear,
+  // Simplify feature
+  onSimplifyMessage
 }) {
   const messagesEndRef = useRef(null);
+  // Track simplified versions per message index: { [index]: { simplified: string, showSimplified: boolean, loading: boolean } }
+  const [simplifiedMap, setSimplifiedMap] = useState({});
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, sending]);
+
+  const handleSimplify = useCallback(async (msgIndex, content) => {
+    // If already loaded, just toggle
+    if (simplifiedMap[msgIndex]?.simplified) {
+      setSimplifiedMap(prev => ({
+        ...prev,
+        [msgIndex]: { ...prev[msgIndex], showSimplified: !prev[msgIndex].showSimplified }
+      }));
+      return;
+    }
+
+    // Mark loading
+    setSimplifiedMap(prev => ({
+      ...prev,
+      [msgIndex]: { loading: true, simplified: null, showSimplified: false }
+    }));
+
+    try {
+      const simplified = await onSimplifyMessage(content);
+      setSimplifiedMap(prev => ({
+        ...prev,
+        [msgIndex]: { loading: false, simplified, showSimplified: true }
+      }));
+    } catch (err) {
+      console.error('Simplify failed:', err);
+      setSimplifiedMap(prev => ({
+        ...prev,
+        [msgIndex]: { loading: false, simplified: null, showSimplified: false }
+      }));
+    }
+  }, [simplifiedMap, onSimplifyMessage]);
 
   return (
     <div style={styles.container}>
@@ -914,7 +978,35 @@ export default function ChatPanel({
                   skills={solutionSkills}
                 />
               )}
-              {formatMessage(msg.content)}
+              {formatMessage(
+                simplifiedMap[i]?.showSimplified && simplifiedMap[i]?.simplified
+                  ? simplifiedMap[i].simplified
+                  : msg.content
+              )}
+              {msg.role === 'assistant' && !msg.isError && onSimplifyMessage && msg.content?.length > 200 && (
+                <div style={styles.simplifyBar}>
+                  {simplifiedMap[i]?.loading ? (
+                    <span style={styles.simplifyLoading}>Simplifying...</span>
+                  ) : simplifiedMap[i]?.showSimplified ? (
+                    <>
+                      <span style={styles.simplifyLabel}>Simplified view</span>
+                      <button
+                        style={styles.simplifyBtn}
+                        onClick={() => handleSimplify(i, msg.content)}
+                      >
+                        Show original
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      style={styles.simplifyBtn}
+                      onClick={() => handleSimplify(i, msg.content)}
+                    >
+                      {simplifiedMap[i]?.simplified ? 'Show simplified' : 'Simplify for business owner'}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

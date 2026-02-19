@@ -549,6 +549,14 @@ export default function App() {
     }
   }, [currentSolution, addSolutionMessage, updateSolution, detectContextFromInput, CONTEXT_LABELS, LABEL_TO_FOCUS, settings]);
 
+  const handleSimplifyMessage = useCallback(async (content) => {
+    const llmSettings = {
+      llm_provider: settings.llm_provider,
+      llm_model: 'fast'
+    };
+    return api.simplifyMessage(content, llmSettings);
+  }, [settings.llm_provider]);
+
   const handleExport = useCallback(() => {
     if (!currentSkill) return;
     setExportModalOpen(true);
@@ -816,6 +824,7 @@ export default function App() {
                     contextLabel={contextLabel}
                     onContextClick={handleContextClick}
                     onContextClear={handleContextClear}
+                    onSimplifyMessage={handleSimplifyMessage}
                   />
                 }
                 right={
@@ -838,6 +847,7 @@ export default function App() {
                     contextLabel={contextLabel}
                     onContextClick={handleContextClick}
                     onContextClear={handleContextClear}
+                    onSimplifyMessage={handleSimplifyMessage}
                   />
                 }
                 right={
