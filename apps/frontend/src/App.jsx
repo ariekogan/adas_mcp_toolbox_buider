@@ -15,7 +15,7 @@ import { useSkill } from './hooks/useSkill';
 import { useSolution } from './hooks/useSolution';
 import { useSettings } from './hooks/useSettings';
 import * as api from './api/client';
-import { getTenant, setTenant, fetchTenants } from './api/client';
+import { getTenant, setTenant, fetchTenants, isAuthenticated, isEmbedded, redirectToLogin, logout } from './api/client';
 // Force rebuild - triggers and channels update + solution builder
 
 const styles = {

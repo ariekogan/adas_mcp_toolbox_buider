@@ -171,7 +171,11 @@ curl https://mcp.ateam-ai.com/health
 *Goal: new developer goes from zero to deployed solution in under 10 minutes*
 
 - [ ] **6.1** Quick-start guide for each platform (Claude, ChatGPT, Cursor)
-- [ ] **6.2** API key provisioning (self-service signup?)
+- [x] **6.2** API key provisioning — Tenant-embedded keys ✅
+  - Keys now use format `adas_<tenant>_<32hex>` (tenant encoded in key itself)
+  - Legacy `adas_<32hex>` still supported for backwards compat
+  - Clients only need one value (API key) — no separate tenant header required
+  - See "Tenant Provisioning" section below for full details
 - [ ] **6.3** Example prompts library (customer support, document processing, etc.)
 
 ### Phase 7 — Infrastructure (remaining)
@@ -180,10 +184,57 @@ curl https://mcp.ateam-ai.com/health
 - [x] **7.1** Run all services as launchd agents (auto-start, auto-restart)
 - [ ] **7.2** Uptime monitoring (health checks, alerts — UptimeRobot or similar)
 - [ ] **7.3** Plan migration to cloud deployment for production reliability
-- [ ] **7.4** OAuth / multi-tenant support (when user demand requires per-user isolation)
+- [x] **7.4** Multi-tenant support ✅ — Full per-tenant isolation implemented (see "Tenant Provisioning" below)
 
 ### Fleet — Local File Sync
 - [x] **Sync `skill-vehicle-tracker.yaml`** — Updated `on_max_iterations` from `finalize` to `escalate` in both YAML and JS files
+
+---
+
+## Tenant Provisioning — What's Done
+
+### Overview
+
+Multi-tenant isolation is fully implemented across the stack. Each tenant gets its own data directory, API keys, LLM config, and skill/solution storage. A single API key is all a developer needs — tenant identity is embedded in the key itself.
+
+### Key Format
+
+```
+New:    adas_<tenant>_<32hex>    → tenant extracted from key automatically
+Legacy: adas_<32hex>             → tenant from X-ADAS-TENANT header (backwards compat)
+```
+
+### What Was Built (commits: `98e40fd` → `7183a54`)
+
+| Layer | What | Files |
+|---|---|---|
+| **Key generation** | `generateKey()` embeds current tenant into new keys | `agentApiKeyStore.js` |
+| **Key parsing** | `parseApiKey()` extracts tenant from key format | `agentApiKeyStore.js`, `apiKeyAuth.js` |
+| **Auth middleware** | Resolves tenant: key-embedded → header → default. Sets `x-adas-tenant` for downstream routes | `apiKeyAuth.js` (skill-validator) |
+| **JWT forwarding** | When Skill Builder is embedded in ADAS Core, JWT from Core carries tenant identity | `apps/backend/` |
+| **PAT auth** | Skill Builder UI sends PAT (personal access token) for standalone access, backend resolves tenant | `apps/backend/`, `apps/frontend/` |
+| **Per-tenant LLM** | Each tenant can have its own `llm.json` with provider/model/key config | `apps/backend/` |
+| **Per-tenant API keys** | Settings UI generates/manages API keys scoped to the current tenant | `apps/frontend/` |
+| **ateam-mcp server** | MCP server updated to send tenant-embedded keys; clients only need `X-API-KEY` | `ateam-mcp/` |
+
+### Tenant resolution priority (auth middleware)
+
+1. Tenant embedded in API key (`adas_<tenant>_<hex>`)
+2. `X-ADAS-TENANT` header (legacy / fallback)
+3. `SB_TENANT` env var / default `"main"`
+
+### Auth exemptions (no key required)
+
+- `GET /health` — health check
+- `GET /spec/*` — spec/examples (must be public for ChatGPT/Claude discovery)
+- `POST /validate/*` — read-only validation (no side effects)
+
+### What's Left
+
+- [ ] Self-service signup page at `app.ateam-ai.com` (get-api-key flow with tenant creation)
+- [ ] Tenant admin dashboard (list tenants, usage stats)
+- [ ] Rate limiting per tenant
+- [ ] Tenant deletion / cleanup
 
 ---
 

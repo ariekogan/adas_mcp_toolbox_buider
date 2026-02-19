@@ -24,11 +24,57 @@ if (window.location.search) {
   if (_t && TENANT_RE.test(_t)) setTenant(_t);
 }
 
-// JWT auth token received from parent frame (ADAS Core)
+// JWT auth token — resolved from multiple sources (priority order):
+// 1. postMessage from parent frame (embedded mode)
+// 2. ?token= URL parameter (direct link)
+// 3. localStorage "adas.jwt" (same-origin: user logged in via Core)
 let _authToken = null;
+
+// Try URL param first (before postMessage, which is async)
+if (window.location.search) {
+  const _tokenParam = new URLSearchParams(window.location.search).get('token');
+  if (_tokenParam) _authToken = _tokenParam;
+}
+// Try localStorage (same-origin with Core — Core stores JWT here after OAuth)
+if (!_authToken) {
+  try {
+    const stored = localStorage.getItem('adas.jwt');
+    if (stored) _authToken = stored;
+  } catch {}
+}
 
 export function getAuthToken() {
   return _authToken;
+}
+
+export function isAuthenticated() {
+  return !!_authToken;
+}
+
+export function isEmbedded() {
+  return _isEmbedded;
+}
+
+/**
+ * Redirect to Core's OAuth login flow.
+ * Sets a localStorage redirect target so Core's AuthCallback sends the user back to Builder.
+ */
+export function redirectToLogin() {
+  localStorage.setItem('adas.login.redirect', window.location.pathname || '/builder/');
+  window.location.href = '/api/auth/login';
+}
+
+/**
+ * Clear auth state and redirect to login.
+ */
+export function logout() {
+  _authToken = null;
+  try {
+    localStorage.removeItem('adas.jwt');
+    sessionStorage.removeItem('adas.auth.token');
+    localStorage.removeItem('sb.tenants.cache');
+  } catch {}
+  redirectToLogin();
 }
 
 window.addEventListener('message', (e) => {
