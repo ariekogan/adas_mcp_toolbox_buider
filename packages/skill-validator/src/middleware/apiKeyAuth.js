@@ -5,9 +5,13 @@
  * The key is read from the same file-based store the backend writes to:
  *   /memory/<tenant>/_agent-api/keys.json
  *
+ * Key format: adas_<tenant>_<32hex>  (tenant embedded in key)
+ * Legacy:     adas_<32hex>           (tenant from X-ADAS-TENANT header)
+ *
  * Exemptions:
  *   - GET /health (health check must remain open)
  *   - GET /spec/* (spec/examples must be publicly readable for ChatGPT/Claude)
+ *   - POST /validate/* (read-only validation, no side effects)
  *
  * If no key file exists (key never generated), all requests are allowed.
  */
@@ -22,6 +26,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Tenant validation: accept any lowercase alphanumeric slug (backend validates via ADAS Core)
 const TENANT_RE = /^[a-z0-9][a-z0-9-]{0,28}[a-z0-9]$/;
 const DEFAULT_TENANT = process.env.SB_TENANT || 'main';
+
+/**
+ * Parse a tenant-embedded API key.
+ * Format: adas_<tenant>_<32hex>
+ * Legacy: adas_<32hex> (no tenant embedded)
+ * @returns {{ tenant: string|null, isValid: boolean }}
+ */
+function parseApiKey(key) {
+  if (!key || typeof key !== 'string') return { tenant: null, isValid: false };
+  // New format: adas_<tenant>_<32hex>
+  const match = key.match(/^adas_([a-z0-9][a-z0-9-]{0,28}[a-z0-9])_([0-9a-f]{32})$/);
+  if (match) return { tenant: match[1], isValid: true };
+  // Legacy format: adas_<32hex> (no tenant)
+  const legacy = key.match(/^adas_([0-9a-f]{32})$/);
+  if (legacy) return { tenant: null, isValid: true };
+  return { tenant: null, isValid: false };
+}
 
 /**
  * Resolve the memory root for a given tenant.
@@ -80,6 +101,13 @@ function safeCompare(a, b) {
 
 /**
  * Express middleware for API key authentication.
+ *
+ * Resolves tenant in this order:
+ *   1. Tenant embedded in the API key (adas_<tenant>_<hex>)
+ *   2. X-ADAS-TENANT header (legacy / fallback)
+ *   3. Default tenant
+ *
+ * Sets req.headers['x-adas-tenant'] so downstream routes can read it.
  */
 export default async function apiKeyAuth(req, res, next) {
   // Exempt health check and spec endpoints (must be publicly readable)
@@ -92,14 +120,25 @@ export default async function apiKeyAuth(req, res, next) {
     return next();
   }
 
-  // Determine tenant from header
-  const raw = req.headers['x-adas-tenant'];
-  const sanitized = raw ? raw.trim().toLowerCase() : '';
-  const tenant = (sanitized && TENANT_RE.test(sanitized))
-    ? sanitized
-    : DEFAULT_TENANT;
+  // Check X-API-KEY header
+  const candidateKey = req.headers['x-api-key'];
 
-  // Load stored key
+  // Try to extract tenant from the key itself
+  const parsed = parseApiKey(candidateKey);
+
+  // Resolve tenant: key-embedded > header > default
+  let tenant;
+  if (parsed.tenant) {
+    tenant = parsed.tenant;
+    // Ensure downstream routes see the correct tenant
+    req.headers['x-adas-tenant'] = tenant;
+  } else {
+    const raw = req.headers['x-adas-tenant'];
+    const sanitized = raw ? raw.trim().toLowerCase() : '';
+    tenant = (sanitized && TENANT_RE.test(sanitized)) ? sanitized : DEFAULT_TENANT;
+  }
+
+  // Load stored key for this tenant
   const storedKey = await readStoredKey(tenant);
 
   // If no key configured yet, allow all requests (auth not yet set up)
@@ -107,13 +146,10 @@ export default async function apiKeyAuth(req, res, next) {
     return next();
   }
 
-  // Check X-API-KEY header
-  const candidateKey = req.headers['x-api-key'];
-
   if (!candidateKey || !safeCompare(storedKey, candidateKey)) {
     return res.status(401).json({
       error: 'Invalid or missing API key',
-      hint: 'Include header: X-API-KEY: <your-key>'
+      hint: 'Include header: X-API-KEY: adas_<tenant>_<key>. Get your key at https://app.ateam-ai.com/get-api-key'
     });
   }
 

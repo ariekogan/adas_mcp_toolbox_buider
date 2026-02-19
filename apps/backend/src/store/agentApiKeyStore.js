@@ -13,10 +13,27 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
-import { getMemoryRoot } from '../utils/tenantContext.js';
+import { getMemoryRoot, getCurrentTenant } from '../utils/tenantContext.js';
 
 const AGENT_API_DIR = '_agent-api';
 const KEYS_FILE = 'keys.json';
+
+/**
+ * Parse a tenant-embedded API key.
+ * Format: adas_<tenant>_<32hex>
+ * Also supports legacy format: adas_<32hex> (no tenant embedded).
+ * @returns {{ tenant: string|null, isValid: boolean }}
+ */
+export function parseApiKey(key) {
+  if (!key || typeof key !== 'string') return { tenant: null, isValid: false };
+  // New format: adas_<tenant>_<32hex>
+  const match = key.match(/^adas_([a-z0-9][a-z0-9-]{0,28}[a-z0-9])_([0-9a-f]{32})$/);
+  if (match) return { tenant: match[1], isValid: true };
+  // Legacy format: adas_<32hex> (no tenant)
+  const legacy = key.match(/^adas_([0-9a-f]{32})$/);
+  if (legacy) return { tenant: null, isValid: true };
+  return { tenant: null, isValid: false };
+}
 
 // ═══════════════════════════════════════════════════════════════
 // HELPERS
@@ -48,10 +65,12 @@ function getKeysPath() {
 }
 
 /**
- * Generate a new API key: "adas_" + 32 random hex chars
+ * Generate a new API key with embedded tenant: "adas_<tenant>_<32hex>"
+ * The tenant is encoded into the key so external clients only need one value.
  */
 function generateKey() {
-  return 'adas_' + crypto.randomBytes(16).toString('hex');
+  const tenant = getCurrentTenant();
+  return `adas_${tenant}_${crypto.randomBytes(16).toString('hex')}`;
 }
 
 // ═══════════════════════════════════════════════════════════════
