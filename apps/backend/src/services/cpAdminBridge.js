@@ -20,7 +20,6 @@ const CORE_MCP_SECRET = process.env.CORE_MCP_SECRET || "";
  */
 async function callAdminApi(method, params = {}) {
   const tenant = getCurrentTenant();
-  console.log(`[cpAdminBridge] callAdminApi method=${method} tenant=${tenant} url=${CORE_MCP_URL}`);
   const headers = {
     "Content-Type": "application/json",
     "x-adas-tenant": tenant,

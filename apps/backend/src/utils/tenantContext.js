@@ -67,16 +67,24 @@ setInterval(refreshTenantCache, CACHE_TTL);
  * Optionally stores a JWT token for downstream use (e.g. adasCoreClient).
  */
 export function runWithTenant(tenant, fn, { token } = {}) {
-  const safe = isValidTenant(tenant) ? tenant : DEFAULT_TENANT;
-  return als.run({ tenant: safe, token: token || null }, fn);
+  if (!tenant) {
+    console.error("[CRITICAL TENANT ERROR] runWithTenant called without tenant! Stack:", new Error().stack);
+    throw new Error("runWithTenant requires a tenant identifier — silent fallback to 'main' is a security violation");
+  }
+  return als.run({ tenant, token: token || null }, fn);
 }
 
 /**
  * Get the current tenant from ALS context.
- * Falls back to DEFAULT_TENANT for background tasks / module-level init.
+ * CRITICAL: Logs error if no ALS context is set — silent fallback is a security violation.
  */
 export function getCurrentTenant() {
-  return als.getStore()?.tenant || DEFAULT_TENANT;
+  const store = als.getStore();
+  if (!store?.tenant) {
+    console.error("[CRITICAL TENANT ERROR] getCurrentTenant called outside ALS context! Falling back to DEFAULT_TENANT. Stack:", new Error().stack);
+    return DEFAULT_TENANT;
+  }
+  return store.tenant;
 }
 
 /**

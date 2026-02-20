@@ -188,7 +188,7 @@ export async function attachTenant(req, res, next) {
 
   // Wrap the rest of the request in tenant-scoped ALS context
   // Note: req.auth is NOT set — the auth guard in server.js will block protected routes
-  runWithTenant(req.tenant, () => next());
+  return runWithTenant(req.tenant, () => next());
 }
 
 export default attachTenant;
