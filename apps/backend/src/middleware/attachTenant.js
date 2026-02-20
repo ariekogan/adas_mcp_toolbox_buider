@@ -162,7 +162,8 @@ export async function attachTenant(req, res, next) {
               req.tenant = parsed.tenant;
               req.auth = { type: "api-key", tenant: parsed.tenant };
               req.headers["x-adas-tenant"] = parsed.tenant;
-              return runWithTenant(req.tenant, () => next());
+              // Store API key in ALS so adasCoreClient can forward it to Core
+              return runWithTenant(req.tenant, () => next(), { token: apiKey });
             }
           }
         } catch {

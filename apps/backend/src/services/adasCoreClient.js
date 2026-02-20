@@ -19,10 +19,15 @@ const BASE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http:
 
 function headers(json = false) {
   const h = {};
-  // Auth token (JWT or PAT) — forwarded from client via ALS
+  // Auth token (JWT, PAT, or API key) — forwarded from client via ALS
   const token = getCurrentToken();
   if (token) {
-    h['Authorization'] = `Bearer ${token}`;
+    if (token.startsWith('adas_')) {
+      // API key format → send as X-API-KEY (Core's attachActor handles this)
+      h['X-API-KEY'] = token;
+    } else {
+      h['Authorization'] = `Bearer ${token}`;
+    }
   }
   // No fallback — if no token, request will fail at Core's requireAuth
   if (json) h['Content-Type'] = 'application/json';
