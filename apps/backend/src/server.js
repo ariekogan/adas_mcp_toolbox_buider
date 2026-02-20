@@ -85,6 +85,10 @@ app.get("/api/health", (_req, res) => {
 // Tenant list proxy — forwards to ADAS Core for the frontend tenant selector
 const ADAS_CORE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || "http://ai-dev-assistant-backend-1:4000";
 app.get("/api/tenants/list", async (req, res) => {
+  // If no auth, return empty tenant list (frontend will show login screen)
+  if (!req.auth) {
+    return res.json({ ok: true, tenants: [] });
+  }
   try {
     // Forward Authorization header so Core can scope to user's tenants
     const proxyHeaders = {};
@@ -99,6 +103,14 @@ app.get("/api/tenants/list", async (req, res) => {
     const { getValidTenants } = await import("./utils/tenantContext.js");
     res.json({ ok: true, tenants: getValidTenants().map(id => ({ id, name: id })) });
   }
+});
+
+// Auth guard: require JWT or PAT for all API routes (except health + tenant list above)
+const IS_DEV = process.env.NODE_ENV === "development" || process.env.SB_AUTH_SKIP === "true";
+app.use("/api", (req, res, next) => {
+  if (IS_DEV) return next(); // Dev mode: allow unauthenticated access (X-ADAS-TENANT fallback)
+  if (req.auth) return next(); // Authenticated via JWT or PAT
+  res.status(401).json({ ok: false, error: "Authentication required" });
 });
 
 // Routes
