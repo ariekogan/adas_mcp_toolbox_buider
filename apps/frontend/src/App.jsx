@@ -656,29 +656,38 @@ export default function App() {
 
   const apiConfigured = hasApiKey();
 
-  // Auth gate: in standalone mode (not embedded in iframe), require authentication
-  if (!isEmbedded() && !isAuthenticated()) {
-    return (
-      <div style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        height: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)', gap: '24px'
-      }}>
-        <div style={{ fontSize: '28px', fontWeight: '700' }}>Skill Builder</div>
-        <div style={{ color: 'var(--text-secondary)', fontSize: '14px', textAlign: 'center', maxWidth: '360px' }}>
-          Sign in to access your AI agent skills and solutions.
+  // Auth gate: require authentication for protected flows and standalone mode
+  if (!isAuthenticated()) {
+    // If ?show=api-key — this is an agent sending a user to get their key.
+    // Auto-redirect to login immediately (redirectToLogin preserves the full URL).
+    if (showAgentApiModal) {
+      redirectToLogin();
+      return null;
+    }
+    // Standalone mode (not in iframe): show login screen
+    if (!isEmbedded()) {
+      return (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          height: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)', gap: '24px'
+        }}>
+          <div style={{ fontSize: '28px', fontWeight: '700' }}>Skill Builder</div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: '14px', textAlign: 'center', maxWidth: '360px' }}>
+            Sign in to access your AI agent skills and solutions.
+          </div>
+          <button
+            onClick={redirectToLogin}
+            style={{
+              padding: '10px 24px', fontSize: '14px', fontWeight: '600',
+              background: 'var(--accent)', color: '#fff', border: 'none',
+              borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px'
+            }}
+          >
+            Sign in with Google
+          </button>
         </div>
-        <button
-          onClick={redirectToLogin}
-          style={{
-            padding: '10px 24px', fontSize: '14px', fontWeight: '600',
-            background: 'var(--accent)', color: '#fff', border: 'none',
-            borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px'
-          }}
-        >
-          Sign in with Google
-        </button>
-      </div>
-    );
+      );
+    }
   }
 
   return (
