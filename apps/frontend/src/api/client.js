@@ -1,6 +1,9 @@
-// Detect if running embedded under /builder/ path (iframe inside A-Team)
-const _isEmbedded = window.location.pathname.startsWith('/builder');
-const API_BASE = _isEmbedded ? '/builder/api' : '/api';
+// Detect if running under /builder/ path (for API routing)
+const _isBuilderPath = window.location.pathname.startsWith('/builder');
+const API_BASE = _isBuilderPath ? '/builder/api' : '/api';
+
+// Detect if actually embedded in an iframe (parent frame provides auth via postMessage)
+const _isInIframe = window.self !== window.top;
 
 // Tenant management — dynamic (backend validates via ADAS Core)
 const TENANT_STORAGE_KEY = 'sb.tenant';
@@ -52,7 +55,7 @@ export function isAuthenticated() {
 }
 
 export function isEmbedded() {
-  return _isEmbedded;
+  return _isInIframe;
 }
 
 /**
@@ -60,7 +63,9 @@ export function isEmbedded() {
  * Sets a localStorage redirect target so Core's AuthCallback sends the user back to Builder.
  */
 export function redirectToLogin() {
-  localStorage.setItem('adas.login.redirect', window.location.pathname || '/builder/');
+  // Save full URL (path + search params like ?show=api-key) so we return here after login
+  const redirect = window.location.pathname + window.location.search;
+  localStorage.setItem('adas.login.redirect', redirect || '/builder/');
   window.location.href = '/api/auth/login';
 }
 
