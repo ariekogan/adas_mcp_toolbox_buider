@@ -5,7 +5,11 @@
 // In dev mode only: X-ADAS-TENANT header fallback (when SB_AUTH_SKIP=true or NODE_ENV=development)
 // Then wraps request in ALS context for tenant-scoped path resolution.
 
-import { runWithTenant, isValidTenant, DEFAULT_TENANT, refreshTenantCache } from "../utils/tenantContext.js";
+import fs from "fs/promises";
+import path from "path";
+import crypto from "crypto";
+import { runWithTenant, isValidTenant, DEFAULT_TENANT, TENANTS_ROOT, refreshTenantCache } from "../utils/tenantContext.js";
+import { parseApiKey } from "../store/agentApiKeyStore.js";
 
 const ADAS_CORE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || "http://ai-dev-assistant-backend-1:4000";
 const CORE_MCP_SECRET = process.env.CORE_MCP_SECRET || process.env.MCP_SHARED_SECRET || "";
@@ -140,7 +144,35 @@ export async function attachTenant(req, res, next) {
     }
   }
 
-  // No valid JWT/PAT — check if dev mode allows X-ADAS-TENANT fallback
+  // 3) Try X-API-KEY auth (tenant-embedded ADAS API key)
+  const apiKey = req.headers["x-api-key"];
+  if (apiKey) {
+    const parsed = parseApiKey(apiKey);
+    if (parsed.isValid && parsed.tenant) {
+      if (!isValidTenant(parsed.tenant)) await refreshTenantCache();
+      if (isValidTenant(parsed.tenant)) {
+        // Read stored key directly (can't use agentApiKeyStore — ALS not set yet)
+        const keysPath = path.join(TENANTS_ROOT, parsed.tenant, "_agent-api", "keys.json");
+        try {
+          const data = JSON.parse(await fs.readFile(keysPath, "utf-8"));
+          const stored = data.apiKey;
+          if (stored && stored.length === apiKey.length) {
+            const match = crypto.timingSafeEqual(Buffer.from(stored), Buffer.from(apiKey));
+            if (match) {
+              req.tenant = parsed.tenant;
+              req.auth = { type: "api-key", tenant: parsed.tenant };
+              req.headers["x-adas-tenant"] = parsed.tenant;
+              return runWithTenant(req.tenant, () => next());
+            }
+          }
+        } catch {
+          // keys.json not found or unreadable — skip API key auth
+        }
+      }
+    }
+  }
+
+  // No valid JWT/PAT/API-key — check if dev mode allows X-ADAS-TENANT fallback
   const IS_DEV = process.env.NODE_ENV === "development" || process.env.SB_AUTH_SKIP === "true";
 
   if (IS_DEV) {
