@@ -1,22 +1,22 @@
 /**
- * ADAS External Agent API
+ * A-Team External Agent API
  *
  * A single service that lets any external AI agent learn, build, validate,
- * and deploy ADAS multi-agent solutions.
+ * and deploy A-Team multi-agent solutions.
  *
- * Golden Path: External Agent → Skill Builder → ADAS Core
+ * Golden Path: External Agent → Skill Builder → A-Team Core
  *
  * All deploy routes proxy through the Skill Builder backend, which:
  *   - Stores solutions/skills/connectors (visible in Skill Builder UI)
  *   - Auto-generates Python MCP servers from skill tool definitions
- *   - Pushes everything to ADAS Core
+ *   - Pushes everything to A-Team Core
  *
  * External agents do NOT need to provide slugs or Python MCP code for skills.
  * Only connector implementations (real business logic) need to be written.
  *
  * Spec (learn):
  *   GET  /spec                      — API index + deploy body documentation
- *   GET  /spec/enums                — All ADAS enum values
+ *   GET  /spec/enums                — All A-Team enum values
  *   GET  /spec/skill                — Complete skill specification
  *   GET  /spec/solution             — Complete solution specification
  *   GET  /spec/examples             — Example index
@@ -67,8 +67,8 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`[ADAS Agent API] Running on port ${PORT}`);
-  console.log(`[ADAS Agent API] Endpoints:`);
+  console.log(`[A-Team Agent API] Running on port ${PORT}`);
+  console.log(`[A-Team Agent API] Endpoints:`);
   console.log(`  GET  /spec                       — API index`);
   console.log(`  GET  /spec/enums                 — Enum values`);
   console.log(`  GET  /spec/skill                 — Skill specification`);

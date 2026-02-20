@@ -1,8 +1,8 @@
 /**
- * ADAS Examples API routes
+ * A-Team Examples API routes
  *
  * Serves complete, validated examples that external agents can study
- * and use as templates for building their own ADAS skills and solutions.
+ * and use as templates for building their own A-Team skills and solutions.
  *
  * GET /spec/examples                — Index of available examples
  * GET /spec/examples/skill          — Complete order support skill
@@ -26,7 +26,7 @@ export const EXAMPLE_CONNECTOR_UI = buildExampleConnectorUI();
 export const EXAMPLE_SOLUTION = buildExampleSolution();
 
 const INDEX = {
-  description: 'Complete, runnable examples for building ADAS skills and solutions. Each example passes validation.',
+  description: 'Complete, runnable examples for building A-Team skills and solutions. Each example passes validation.',
   examples: {
     '/spec/examples/skill': {
       method: 'GET',
@@ -414,11 +414,11 @@ function buildExampleSkill() {
 
 function buildExampleConnector() {
   return {
-    _note: 'A standard stdio MCP connector. This is what ADAS Core manages as a child process.',
+    _note: 'A standard stdio MCP connector. This is what A-Team Core manages as a child process.',
 
     _storage: {
-      _note: 'ADAS Core automatically provides a DATA_DIR environment variable to every stdio connector. Use it to store persistent data (SQLite databases, files, etc.).',
-      how_to_use: 'const DATA_DIR = process.env.DATA_DIR || "./data"; // ADAS Core auto-sets DATA_DIR per tenant+connector',
+      _note: 'A-Team Core automatically provides a DATA_DIR environment variable to every stdio connector. Use it to store persistent data (SQLite databases, files, etc.).',
+      how_to_use: 'const DATA_DIR = process.env.DATA_DIR || "./data"; // A-Team Core auto-sets DATA_DIR per tenant+connector',
       resolves_to: '/tenants/<tenant>/connector-data/<connector-id>/',
       isolation: 'Each connector gets its own directory. Data is tenant-scoped and persisted across restarts.',
     },
@@ -525,11 +525,11 @@ function buildExampleConnectorUI() {
         wrong_example: [
           { id: 'ecom-overview', name: 'E-Commerce Overview', version: '1.0.0' },
         ],
-        _wrong_note: 'WRONG: bare array without { plugins: } wrapper. ADAS Core will NOT discover these plugins.',
+        _wrong_note: 'WRONG: bare array without { plugins: } wrapper. A-Team Core will NOT discover these plugins.',
         code_example: 'case "ui.listPlugins":\n  return { content: [{ type: "text", text: JSON.stringify({ plugins: [{ id: "ecom-overview", name: "E-Commerce Overview", version: "1.0.0" }] }) }] };',
       },
       'ui.getPlugin': {
-        _note: 'Returns the full manifest for one plugin. iframeUrl uses /ui/ prefix — ADAS Core resolves it to /mcp-ui/<connector-id>/.',
+        _note: 'Returns the full manifest for one plugin. iframeUrl uses /ui/ prefix — A-Team Core resolves it to /mcp-ui/<connector-id>/.',
         correct_example: {
           id: 'ecom-overview',
           name: 'E-Commerce Overview',
@@ -547,7 +547,7 @@ function buildExampleConnectorUI() {
       '/opt/mcp-connectors/ecommerce-dashboard-mcp/': [
         'server.js          — MCP server (exposes tools + ui.listPlugins/ui.getPlugin)',
         'package.json',
-        'ui-dist/            — Static UI assets served by ADAS Core',
+        'ui-dist/            — Static UI assets served by A-Team Core',
         'ui-dist/ecom-overview/1.0.0/index.html  — Self-contained dashboard',
       ],
     },
@@ -688,7 +688,7 @@ function buildExampleSolution() {
     // POST /deploy/solution with this body. No slug or Python MCP code needed.
     // The Skill Builder auto-generates MCP servers from skill tool definitions.
     _deploy_body_example: {
-      _note: 'POST /deploy/solution — the Skill Builder handles slug generation, MCP server creation, and ADAS Core deployment. You only provide definitions.',
+      _note: 'POST /deploy/solution — the Skill Builder handles slug generation, MCP server creation, and A-Team Core deployment. You only provide definitions.',
       solution: {
         id: 'ecom-customer-service',
         name: 'E-Commerce Customer Service',

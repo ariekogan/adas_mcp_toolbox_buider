@@ -1,9 +1,9 @@
 /**
- * ADAS Specification API routes
+ * A-Team Specification API routes
  *
- * Serves the complete ADAS multi-agent specification as structured JSON
+ * Serves the complete A-Team multi-agent specification as structured JSON
  * so that any external agent (LLM, CI tool, IDE plugin) can understand
- * how to build valid ADAS skills and solutions.
+ * how to build valid A-Team skills and solutions.
  *
  * GET /spec           — Index of spec endpoints
  * GET /spec/enums     — All enum values
@@ -52,7 +52,7 @@ function buildIndex() {
   return {
     service: '@adas/skill-validator',
     version: '1.0.0',
-    description: 'ADAS External Agent API — learn, build, validate, and deploy ADAS multi-agent solutions',
+    description: 'A-Team External Agent API — learn, build, validate, and deploy A-Team multi-agent solutions',
     getting_started: [
       '1. GET /spec/skill — read the skill specification and agent guide',
       '2. GET /spec/examples/skill — study a complete working example',
@@ -60,24 +60,24 @@ function buildIndex() {
       '4. POST /validate/skill — validate and fix errors',
       '5. GET /spec/solution — read the solution specification when ready to compose skills',
       '6. POST /validate/solution — validate the full solution',
-      '7. POST /deploy/solution — deploy everything to ADAS Core (the Skill Builder auto-generates MCP servers from your tool definitions — no slug or Python code needed)',
+      '7. POST /deploy/solution — deploy everything to A-Team Core (the Skill Builder auto-generates MCP servers from your tool definitions — no slug or Python code needed)',
       '8. GET /deploy/solutions/:id/definition — read back the deployed solution to verify',
       '9. GET /deploy/solutions/:id/skills/:skillId — read back individual skills to verify',
       '10. PATCH /deploy/solutions/:id/skills/:skillId — update skills incrementally (tools_push, tools_delete, etc.) without re-deploying everything',
-      '11. POST /deploy/solutions/:id/skills/:skillId/redeploy — after PATCH, redeploy just that skill (regenerates MCP server, pushes to ADAS Core)',
+      '11. POST /deploy/solutions/:id/skills/:skillId/redeploy — after PATCH, redeploy just that skill (regenerates MCP server, pushes to A-Team Core)',
     ],
     endpoints: {
       '/spec/enums': {
         method: 'GET',
-        description: 'All ADAS enum values in a flat lookup (phases, data types, classifications, tones, etc.)',
+        description: 'All A-Team enum values in a flat lookup (phases, data types, classifications, tones, etc.)',
       },
       '/spec/skill': {
         method: 'GET',
-        description: 'Complete ADAS skill specification: schema, validation rules, system tools, agent guide, and template',
+        description: 'Complete A-Team skill specification: schema, validation rules, system tools, agent guide, and template',
       },
       '/spec/solution': {
         method: 'GET',
-        description: 'Complete ADAS solution specification: multi-skill architecture, grant economy, handoffs, routing, security contracts, agent guide, and template',
+        description: 'Complete A-Team solution specification: multi-skill architecture, grant economy, handoffs, routing, security contracts, agent guide, and template',
       },
       '/spec/workflows': {
         method: 'GET',
@@ -107,34 +107,34 @@ function buildIndex() {
     also_available: {
       'POST /validate/skill': 'Validate a single skill definition (5-stage pipeline)',
       'POST /validate/solution': 'Validate a solution (cross-skill contracts + LLM quality scoring)',
-      'POST /deploy/connector': 'Deploy a connector via Skill Builder → ADAS Core',
+      'POST /deploy/connector': 'Deploy a connector via Skill Builder → A-Team Core',
       'POST /deploy/skill': 'Deploy a single skill via Skill Builder (requires solution_id)',
-      'POST /deploy/solution': 'Deploy a full solution via Skill Builder → ADAS Core (identity + connectors + skills). No slug or Python MCP code needed.',
+      'POST /deploy/solution': 'Deploy a full solution via Skill Builder → A-Team Core (identity + connectors + skills). No slug or Python MCP code needed.',
       'GET /deploy/solutions': 'List all solutions stored in the Skill Builder',
-      'GET /deploy/status/:solutionId': 'Get aggregated deploy status — skills, connectors, ADAS Core health',
+      'GET /deploy/status/:solutionId': 'Get aggregated deploy status — skills, connectors, A-Team Core health',
       'DELETE /deploy/solutions/:solutionId': 'Remove a solution from the Skill Builder',
       'GET /deploy/solutions/:solutionId/definition': 'Read back the full solution definition (identity, grants, handoffs, routing)',
       'GET /deploy/solutions/:solutionId/skills': 'List skills in a solution (summaries with original and internal IDs)',
       'GET /deploy/solutions/:solutionId/skills/:skillId': 'Read back a full skill definition (accepts original or internal skill ID)',
       'PATCH /deploy/solutions/:solutionId': 'Update solution definition incrementally (grants, handoffs, routing, identity)',
       'PATCH /deploy/solutions/:solutionId/skills/:skillId': 'Update a skill incrementally (tools, intents, policy, engine — accepts original or internal ID)',
-      'POST /deploy/solutions/:solutionId/skills/:skillId/redeploy': 'Re-deploy a single skill after PATCH — regenerates MCP server and pushes to ADAS Core',
+      'POST /deploy/solutions/:solutionId/skills/:skillId/redeploy': 'Re-deploy a single skill after PATCH — regenerates MCP server and pushes to A-Team Core',
       'DELETE /deploy/solutions/:solutionId/skills/:skillId': 'Remove a single skill from a solution (accepts original or internal ID)',
       'GET /deploy/solutions/:solutionId/validate': 'Re-validate solution from stored state (structural + cross-skill checks)',
       'GET /deploy/solutions/:solutionId/skills/:skillId/validate': 'Re-validate a single skill from stored state',
-      'GET /deploy/solutions/:solutionId/connectors/health': 'Connector health — status, discovered tools, errors from ADAS Core',
+      'GET /deploy/solutions/:solutionId/connectors/health': 'Connector health — status, discovered tools, errors from A-Team Core',
       'GET /deploy/solutions/:solutionId/skills/:skillId/conversation': 'Skill conversation history — returns chat messages, optional ?limit=N',
-      'GET /deploy/solutions/:solutionId/health': 'Live health check — cross-checks definition vs ADAS Core (skills deployed, connectors connected, issues)',
+      'GET /deploy/solutions/:solutionId/health': 'Live health check — cross-checks definition vs A-Team Core (skills deployed, connectors connected, issues)',
       'POST /deploy/solutions/:solutionId/chat': 'Send a message to the Solution Bot — returns AI response with state updates and suggested focus',
-      'POST /deploy/solutions/:solutionId/redeploy': 'Re-deploy ALL skills at once — regenerates MCP servers and pushes to ADAS Core',
+      'POST /deploy/solutions/:solutionId/redeploy': 'Re-deploy ALL skills at once — regenerates MCP servers and pushes to A-Team Core',
       'POST /deploy/solutions/:solutionId/skills': 'Add a new skill to an existing solution — creates, links, and updates solution topology',
       'GET /deploy/solutions/:solutionId/export': 'Export solution as a JSON bundle — compatible with POST /deploy/solution for re-import',
       'GET /health': 'Health check',
     },
     deploy_guide: {
-      _note: 'All deploy routes proxy through the Skill Builder backend, which stores everything (visible in Skill Builder UI), auto-generates Python MCP servers from skill tool definitions, and pushes to ADAS Core.',
+      _note: 'All deploy routes proxy through the Skill Builder backend, which stores everything (visible in Skill Builder UI), auto-generates Python MCP servers from skill tool definitions, and pushes to A-Team Core.',
       'POST /deploy/solution': {
-        description: 'Deploy a complete solution — the recommended way to deploy. The Skill Builder handles slug generation, MCP server creation, and ADAS Core registration.',
+        description: 'Deploy a complete solution — the recommended way to deploy. The Skill Builder handles slug generation, MCP server creation, and A-Team Core registration.',
         body: {
           solution: {
             _note: 'Solution architecture — identity, grants, handoffs, routing',
@@ -168,13 +168,13 @@ function buildIndex() {
             },
           ],
           mcp_store: {
-            _note: 'Optional but RECOMMENDED for stdio connectors: connector source code files. Key = connector id, value = { path: content } map. Without mcp_store, stdio connectors will fail to start if the server code is not pre-installed on ADAS Core. The deploy response includes validation_warnings if connectors are missing code.',
+            _note: 'Optional but RECOMMENDED for stdio connectors: connector source code files. Key = connector id, value = { path: content } map. Without mcp_store, stdio connectors will fail to start if the server code is not pre-installed on A-Team Core. The deploy response includes validation_warnings if connectors are missing code.',
             'orders-mcp': [{ path: 'server.js', content: '...' }, { path: 'package.json', content: '...' }],
           },
         },
       },
       'POST /deploy/connector': {
-        description: 'Deploy a single connector. Registers it in the Skill Builder catalog and connects it in ADAS Core.',
+        description: 'Deploy a single connector. Registers it in the Skill Builder catalog and connects it in A-Team Core.',
         body: { connector: { id: 'orders-mcp', name: 'Orders MCP', transport: 'stdio', command: 'node', args: [] } },
       },
       'POST /deploy/skill': {
@@ -213,7 +213,7 @@ function buildIndex() {
         },
       },
       'POST /deploy/solutions/:solutionId/redeploy': {
-        description: 'Re-deploy ALL skills in a solution at once. Iterates every linked skill, regenerates MCP servers, pushes to ADAS Core.',
+        description: 'Re-deploy ALL skills in a solution at once. Iterates every linked skill, regenerates MCP servers, pushes to A-Team Core.',
         body: { _note: 'No body required. Just POST with empty body.' },
         returns: {
           ok: true,
@@ -251,7 +251,7 @@ function buildIndex() {
         },
       },
       'POST /deploy/solutions/:solutionId/skills/:skillId/redeploy': {
-        description: 'Re-deploy a single skill after PATCH updates. Reads stored definition, regenerates MCP server, pushes to ADAS Core. Accepts original or internal skill ID.',
+        description: 'Re-deploy a single skill after PATCH updates. Reads stored definition, regenerates MCP server, pushes to A-Team Core. Accepts original or internal skill ID.',
         body: { _note: 'No body required — reads from stored state. Just POST with empty body.' },
         returns: {
           ok: true,
@@ -264,7 +264,7 @@ function buildIndex() {
         },
         typical_workflow: [
           '1. PATCH /deploy/solutions/:id/skills/:skillId — update tools, policy, etc.',
-          '2. POST /deploy/solutions/:id/skills/:skillId/redeploy — push changes to ADAS Core',
+          '2. POST /deploy/solutions/:id/skills/:skillId/redeploy — push changes to A-Team Core',
           '3. GET /deploy/status/:id — verify new status',
         ],
       },
@@ -285,7 +285,7 @@ function buildIndex() {
 
 function buildEnums() {
   return {
-    description: 'All ADAS enum values. Use these when building skill and solution YAML files.',
+    description: 'All A-Team enum values. Use these when building skill and solution YAML files.',
     enums: {
       // Phases
       phase: VALID_PHASES,
@@ -356,7 +356,7 @@ function buildEnums() {
 function buildSkillSpec() {
   return {
     spec_version: '1.0.0',
-    description: 'Complete ADAS skill definition specification. A skill is an autonomous AI agent with tools, policies, and workflows.',
+    description: 'Complete A-Team skill definition specification. A skill is an autonomous AI agent with tools, policies, and workflows.',
 
     schema: {
       // ── Metadata ──
@@ -868,7 +868,7 @@ function buildSkillSpec() {
 
     // ── System Tools ──
     system_tools: {
-      description: 'Tools provided by the ADAS runtime — do NOT define these in your tools array',
+      description: 'Tools provided by the A-Team runtime — do NOT define these in your tools array',
       prefixes: SYSTEM_TOOL_PREFIXES,
       known_tools: {
         'sys.askUser': 'Pause job execution to request user input; resumes when user responds',
@@ -1037,7 +1037,7 @@ function buildSkillSpec() {
 
     // ── Agent Guide ──
     agent_guide: {
-      description: 'Step-by-step instructions for an AI agent building an ADAS skill from scratch.',
+      description: 'Step-by-step instructions for an AI agent building an A-Team skill from scratch.',
       build_order: [
         '1. GET /spec/enums — learn all valid enum values',
         '2. GET /spec/skill — study the schema, validation rules, and system tools',
@@ -1071,8 +1071,8 @@ function buildSkillSpec() {
         'Providing slug or mcpServer in deploy requests — these are computed automatically. Just provide skill definitions with tools.',
       ],
       key_concepts: {
-        connector_storage: 'ADAS Core auto-injects a DATA_DIR environment variable into every stdio connector process, pointing to a tenant-scoped, connector-isolated directory. Use process.env.DATA_DIR to store SQLite databases, files, or any persistent data. No configuration needed — just read the env var in your connector code.',
-        tool_vs_system_tool: 'Your tools come from MCP connectors. System tools (sys.*, ui.*, cp.*) are provided by the ADAS runtime — do NOT define them in your tools array.',
+        connector_storage: 'A-Team Core auto-injects a DATA_DIR environment variable into every stdio connector process, pointing to a tenant-scoped, connector-isolated directory. Use process.env.DATA_DIR to store SQLite databases, files, or any persistent data. No configuration needed — just read the env var in your connector code.',
+        tool_vs_system_tool: 'Your tools come from MCP connectors. System tools (sys.*, ui.*, cp.*) are provided by the A-Team runtime — do NOT define them in your tools array.',
         grant_economy: 'Grants are verified claims that flow between skills. A skill issues grants via grant_mappings (tool output → grant). Another skill requires grants via access_policy. Security contracts enforce this at the solution level.',
         workflow_steps: 'Workflow steps are tool NAMES (not IDs). Example: ["orders.order.get", "sys.emitUserMessage"]. System tools are valid step targets.',
         access_policy_effects: '"allow" = permit unconditionally, "deny" = block, "constrain" = inject values into tool inputs (e.g., force customer_id from grant). Use "*" in tools array to cover all tools.',
@@ -1087,7 +1087,7 @@ function buildWorkflows() {
     usage: 'When a user wants to build a skill or solution, read this workflow and follow it step by step. At each phase, ask the user the right questions, collect their answers, build the definition incrementally, validate with adas_validate_skill / adas_validate_solution, and deploy with adas_deploy_solution.',
 
     skill_workflow: {
-      description: 'State machine for building a single ADAS skill (autonomous AI agent)',
+      description: 'State machine for building a single A-Team skill (autonomous AI agent)',
       phases: [
         {
           id: 'PROBLEM_DISCOVERY',
@@ -1288,7 +1288,7 @@ function buildWorkflows() {
     },
 
     solution_workflow: {
-      description: 'State machine for building a multi-skill ADAS solution (the architecture layer that connects skills)',
+      description: 'State machine for building a multi-skill A-Team solution (the architecture layer that connects skills)',
       note: 'Build each skill individually first using the skill workflow. Then use this workflow to define how skills work together.',
       phases: [
         {
@@ -1461,7 +1461,7 @@ function buildWorkflows() {
         'One topic at a time — complete one phase before moving to the next',
         'Show progress — tell the user which phase they\'re in and what\'s next',
       ],
-      opening_message: 'When the user wants to build something, start with: "I\'m an ADAS Solution Architect. I\'ll help you design and deploy a multi-agent AI system. Let\'s start — what problem do you want to solve?"',
+      opening_message: 'When the user wants to build something, start with: "I\'m an A-Team Solution Architect. I\'ll help you design and deploy a multi-agent AI system. Let\'s start — what problem do you want to solve?"',
       tools_to_use: {
         'adas_get_spec': 'Fetch the full schema when you need field details',
         'adas_get_examples': 'Show the user a working example for reference',
@@ -1477,7 +1477,7 @@ function buildWorkflows() {
 function buildSolutionSpec() {
   return {
     spec_version: '1.0.0',
-    description: 'Complete ADAS solution definition specification. A solution orchestrates multiple skills into a cohesive multi-agent system with shared grants, handoffs, and routing.',
+    description: 'Complete A-Team solution definition specification. A solution orchestrates multiple skills into a cohesive multi-agent system with shared grants, handoffs, and routing.',
 
     schema: {
       // ── Metadata ──
@@ -1614,7 +1614,7 @@ function buildSolutionSpec() {
     // ── Models ──
     models: {
       grant_economy: {
-        description: 'How verified claims flow between skills in ADAS',
+        description: 'How verified claims flow between skills in A-Team',
         lifecycle: [
           '1. Skill calls a tool (e.g., identity.candidates.search)',
           '2. Platform checks grant_mapping rules for that tool',
@@ -1747,7 +1747,7 @@ function buildSolutionSpec() {
 
     // ── Agent Guide ──
     agent_guide: {
-      description: 'Step-by-step instructions for an AI agent building a multi-skill ADAS solution.',
+      description: 'Step-by-step instructions for an AI agent building a multi-skill A-Team solution.',
       build_order: [
         '1. Build each skill individually first — each must pass POST /validate/skill',
         '2. Write connector source code — real MCP server implementations (Node.js/Python) with business logic, database access, UI dashboards',
@@ -1757,7 +1757,7 @@ function buildSolutionSpec() {
         '6. Set up routing: which skill answers which channel? (telegram, email, api)',
         '7. Add security contracts: which grants protect which tools across skill boundaries?',
         '8. POST /validate/solution with { "solution": <def>, "skills": [<skill1>, <skill2>] }',
-        '9. POST /deploy/solution with { solution, skills, connectors, mcp_store } — the Skill Builder imports everything, auto-generates Python MCP servers from skill tool definitions, and deploys to ADAS Core. No slug or Python MCP code needed for skills.',
+        '9. POST /deploy/solution with { solution, skills, connectors, mcp_store } — the Skill Builder imports everything, auto-generates Python MCP servers from skill tool definitions, and deploys to A-Team Core. No slug or Python MCP code needed for skills.',
       ],
       naming_conventions: {
         solution_id: 'lowercase-kebab-case (e.g., "ecom-customer-service")',
@@ -1775,9 +1775,9 @@ function buildSolutionSpec() {
         'Using "grants_propagated" instead of "grants_passed" in handoffs — the correct field name is grants_passed',
         'Using { tool, skill } in security_contracts instead of { name, consumer, provider, for_tools } — see the template and example for the correct schema',
         'Missing "id" field on handoffs — every handoff needs a unique id',
-        'Deploying directly to ADAS Core instead of through the Skill Builder — always use POST /deploy/solution which routes through the Skill Builder for proper storage and MCP generation',
+        'Deploying directly to A-Team Core instead of through the Skill Builder — always use POST /deploy/solution which routes through the Skill Builder for proper storage and MCP generation',
         'Writing Python MCP server code for skills — only connector implementations need real code. Skill MCP servers are auto-generated from tool definitions.',
-        'Defining stdio connectors without providing mcp_store code — if the connector server code is not pre-installed on ADAS Core, include it in the mcp_store field of the deploy payload. Without it, the connector will fail to start.',
+        'Defining stdio connectors without providing mcp_store code — if the connector server code is not pre-installed on A-Team Core, include it in the mcp_store field of the deploy payload. Without it, the connector will fail to start.',
         'Manually remapping skill IDs after deploy — ID remapping is now automatic. The deploy pipeline deep-replaces original IDs with internal dom_xxx IDs in grants, handoffs, routing, and security_contracts.',
       ],
       key_concepts: {
