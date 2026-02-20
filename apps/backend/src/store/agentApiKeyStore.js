@@ -13,7 +13,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
-import { getMemoryRoot, getCurrentTenant } from '../utils/tenantContext.js';
+import { getTenantRoot, getCurrentTenant } from '../utils/tenantContext.js';
 
 const AGENT_API_DIR = '_agent-api';
 const KEYS_FILE = 'keys.json';
@@ -57,11 +57,11 @@ async function writeJson(filePath, data) {
 }
 
 function getKeysDir() {
-  return path.join(getMemoryRoot(), AGENT_API_DIR);
+  return path.join(getTenantRoot(), AGENT_API_DIR);
 }
 
 function getKeysPath() {
-  return path.join(getMemoryRoot(), AGENT_API_DIR, KEYS_FILE);
+  return path.join(getTenantRoot(), AGENT_API_DIR, KEYS_FILE);
 }
 
 /**
