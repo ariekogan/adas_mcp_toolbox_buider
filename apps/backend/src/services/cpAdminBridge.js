@@ -19,9 +19,11 @@ const CORE_MCP_SECRET = process.env.CORE_MCP_SECRET || "";
  * @returns {Promise<any>} - Result from the admin API
  */
 async function callAdminApi(method, params = {}) {
+  const tenant = getCurrentTenant();
+  console.log(`[cpAdminBridge] callAdminApi method=${method} tenant=${tenant} url=${CORE_MCP_URL}`);
   const headers = {
     "Content-Type": "application/json",
-    "x-adas-tenant": getCurrentTenant(),
+    "x-adas-tenant": tenant,
   };
 
   // Add auth header if secret is configured
