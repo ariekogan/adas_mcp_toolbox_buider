@@ -149,7 +149,7 @@ export default async function apiKeyAuth(req, res, next) {
   if (!candidateKey || !safeCompare(storedKey, candidateKey)) {
     return res.status(401).json({
       error: 'Invalid or missing API key',
-      hint: 'Include header: X-API-KEY: adas_<tenant>_<key>. Get your key at https://app.ateam-ai.com/get-api-key'
+      hint: 'Include header: X-API-KEY: adas_<tenant>_<key>'
     });
   }
 

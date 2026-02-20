@@ -191,8 +191,11 @@ export default function App() {
   // Export state
   const [exportModalOpen, setExportModalOpen] = useState(false);
 
-  // Agent API modal
-  const [showAgentApiModal, setShowAgentApiModal] = useState(false);
+  // Agent API modal — auto-open if ?show=api-key is in the URL
+  const [showAgentApiModal, setShowAgentApiModal] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('show') === 'api-key';
+  });
 
   // Context indicator state - shows what panel/tab the chat is aware of
   const [contextLabel, setContextLabel] = useState(null);
@@ -652,6 +655,31 @@ export default function App() {
   }, []);
 
   const apiConfigured = hasApiKey();
+
+  // Auth gate: in standalone mode (not embedded in iframe), require authentication
+  if (!isEmbedded() && !isAuthenticated()) {
+    return (
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        height: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)', gap: '24px'
+      }}>
+        <div style={{ fontSize: '28px', fontWeight: '700' }}>Skill Builder</div>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '14px', textAlign: 'center', maxWidth: '360px' }}>
+          Sign in to access your AI agent skills and solutions.
+        </div>
+        <button
+          onClick={redirectToLogin}
+          style={{
+            padding: '10px 24px', fontSize: '14px', fontWeight: '600',
+            background: 'var(--accent)', color: '#fff', border: 'none',
+            borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px'
+          }}
+        >
+          Sign in with Google
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.app}>
