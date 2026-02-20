@@ -5,6 +5,8 @@
  * Calls CORE's MCP server to manage actors, tokens, and identities.
  */
 
+import { getCurrentTenant } from "../utils/tenantContext.js";
+
 // Configuration from environment
 const CORE_MCP_URL = process.env.CORE_MCP_URL || "http://localhost:4310/mcp";
 const CORE_MCP_SECRET = process.env.CORE_MCP_SECRET || "";
@@ -19,6 +21,7 @@ const CORE_MCP_SECRET = process.env.CORE_MCP_SECRET || "";
 async function callAdminApi(method, params = {}) {
   const headers = {
     "Content-Type": "application/json",
+    "x-adas-tenant": getCurrentTenant(),
   };
 
   // Add auth header if secret is configured
