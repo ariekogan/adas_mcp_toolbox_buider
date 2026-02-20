@@ -3,7 +3,6 @@ import {
   getAgentApiStatus,
   startAgentApiTunnel,
   stopAgentApiTunnel,
-  rotateAgentApiKey,
   getTenant
 } from '../api/client';
 
@@ -23,7 +22,7 @@ const styles = {
   modal: {
     background: 'var(--bg-card)',
     borderRadius: '12px',
-    width: '540px',
+    width: '480px',
     maxWidth: '90vw',
     maxHeight: '80vh',
     overflow: 'auto',
@@ -57,15 +56,83 @@ const styles = {
   description: {
     fontSize: '14px',
     color: 'var(--text-secondary)',
-    marginBottom: '20px',
+    marginBottom: '24px',
     lineHeight: '1.5'
+  },
+  keyBox: {
+    background: 'var(--bg-secondary)',
+    border: '1px solid var(--border)',
+    borderRadius: '10px',
+    padding: '16px',
+    marginBottom: '12px'
+  },
+  keyDisplay: {
+    fontFamily: 'monospace',
+    fontSize: '14px',
+    color: 'var(--text-primary)',
+    letterSpacing: '0.3px',
+    lineHeight: '1.6',
+    wordBreak: 'break-all',
+    marginBottom: '12px',
+    userSelect: 'all'
+  },
+  keyActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px'
+  },
+  copyKeyBtn: {
+    padding: '7px 20px',
+    borderRadius: '6px',
+    border: 'none',
+    background: 'var(--accent)',
+    color: 'white',
+    cursor: 'pointer',
+    fontWeight: '500',
+    fontSize: '13px',
+    transition: 'opacity 0.2s'
+  },
+  smallBtn: {
+    background: 'transparent',
+    border: '1px solid var(--border)',
+    borderRadius: '5px',
+    padding: '6px 10px',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    whiteSpace: 'nowrap',
+    transition: 'color 0.15s'
+  },
+  hint: {
+    fontSize: '12px',
+    color: 'var(--text-muted)',
+    lineHeight: '1.5',
+    marginBottom: '20px'
+  },
+  divider: {
+    borderTop: '1px solid var(--border)',
+    margin: '20px 0'
+  },
+  advancedToggle: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    padding: '4px 0',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px'
+  },
+  advancedContent: {
+    marginTop: '16px'
   },
   statusRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: '20px',
-    padding: '12px 16px',
+    marginBottom: '12px',
+    padding: '10px 14px',
     background: 'var(--bg-secondary)',
     borderRadius: '8px',
     border: '1px solid var(--border)'
@@ -74,22 +141,22 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    fontSize: '14px',
+    fontSize: '13px',
     fontWeight: '500'
   },
   dot: {
-    width: '10px',
-    height: '10px',
+    width: '8px',
+    height: '8px',
     borderRadius: '50%',
     display: 'inline-block'
   },
   actionBtn: {
-    padding: '8px 18px',
-    borderRadius: '6px',
+    padding: '6px 14px',
+    borderRadius: '5px',
     border: 'none',
     cursor: 'pointer',
     fontWeight: '500',
-    fontSize: '13px',
+    fontSize: '12px',
     transition: 'opacity 0.2s'
   },
   startBtn: {
@@ -101,19 +168,19 @@ const styles = {
     color: 'white'
   },
   urlBox: {
-    marginBottom: '20px',
-    padding: '12px 16px',
+    marginBottom: '12px',
+    padding: '10px 14px',
     background: 'var(--bg-secondary)',
     borderRadius: '8px',
     border: '1px solid var(--border)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: '12px'
+    gap: '10px'
   },
   urlText: {
     fontFamily: 'monospace',
-    fontSize: '14px',
+    fontSize: '13px',
     color: 'var(--accent)',
     wordBreak: 'break-all',
     flex: 1
@@ -121,38 +188,34 @@ const styles = {
   copyBtn: {
     background: 'transparent',
     border: '1px solid var(--border)',
-    borderRadius: '6px',
-    padding: '6px 12px',
+    borderRadius: '5px',
+    padding: '4px 10px',
     color: 'var(--text-secondary)',
     cursor: 'pointer',
-    fontSize: '13px',
-    whiteSpace: 'nowrap',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '4px'
-  },
-  section: {
-    marginBottom: '16px'
+    fontSize: '12px',
+    whiteSpace: 'nowrap'
   },
   sectionTitle: {
-    fontSize: '13px',
+    fontSize: '12px',
     fontWeight: '600',
     marginBottom: '8px',
-    color: 'var(--text-secondary)'
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px'
   },
   note: {
-    fontSize: '13px',
+    fontSize: '12px',
     color: 'var(--text-muted)',
     lineHeight: '1.5',
-    marginBottom: '12px'
+    marginBottom: '8px'
   },
   codeBlock: {
     fontFamily: 'monospace',
-    fontSize: '12px',
+    fontSize: '11px',
     background: 'var(--bg-secondary)',
     border: '1px solid var(--border)',
     borderRadius: '8px',
-    padding: '14px 16px',
+    padding: '12px 14px',
     whiteSpace: 'pre',
     color: 'var(--text-primary)',
     lineHeight: '1.6',
@@ -161,12 +224,12 @@ const styles = {
   },
   copyCodeBtn: {
     position: 'absolute',
-    top: '8px',
-    right: '8px',
+    top: '6px',
+    right: '6px',
     background: 'var(--bg-card)',
     border: '1px solid var(--border)',
     borderRadius: '4px',
-    padding: '4px 8px',
+    padding: '3px 7px',
     color: 'var(--text-muted)',
     cursor: 'pointer',
     fontSize: '11px'
@@ -176,54 +239,9 @@ const styles = {
     fontSize: '13px',
     marginTop: '8px'
   },
-  noToken: {
-    padding: '16px',
-    background: 'rgba(239, 68, 68, 0.1)',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
-    borderRadius: '8px',
-    marginBottom: '20px'
-  },
-  noTokenTitle: {
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#ef4444',
-    marginBottom: '6px'
-  },
-  noTokenText: {
-    fontSize: '13px',
-    color: 'var(--text-secondary)',
-    lineHeight: '1.5'
-  },
-  keyRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '10px 14px',
-    background: 'var(--bg-secondary)',
-    border: '1px solid var(--border)',
-    borderRadius: '8px',
-    marginBottom: '8px'
-  },
-  keyText: {
-    fontFamily: 'monospace',
-    fontSize: '13px',
-    color: 'var(--text-primary)',
-    flex: 1,
-    wordBreak: 'break-all'
-  },
-  smallBtn: {
-    background: 'transparent',
-    border: '1px solid var(--border)',
-    borderRadius: '4px',
-    padding: '4px 8px',
-    color: 'var(--text-muted)',
-    cursor: 'pointer',
-    fontSize: '12px',
-    whiteSpace: 'nowrap'
-  },
   providerBadge: {
-    fontSize: '11px',
-    padding: '2px 8px',
+    fontSize: '10px',
+    padding: '2px 6px',
     borderRadius: '4px',
     fontWeight: '500',
     textTransform: 'uppercase',
@@ -235,9 +253,9 @@ const styles = {
  * Mask an API key for display: show prefix + first 4 hex chars + dots
  */
 function maskKey(key) {
-  if (!key) return '—';
-  if (key.length <= 9) return key;
-  return key.substring(0, 9) + '••••••••••••';
+  if (!key) return '\u2014';
+  if (key.length <= 12) return key;
+  return key.substring(0, 12) + '\u2022'.repeat(20);
 }
 
 export default function AgentApiModal({ onClose }) {
@@ -245,10 +263,9 @@ export default function AgentApiModal({ onClose }) {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [copied, setCopied] = useState(null); // 'url' | 'snippet' | 'key' | null
+  const [copied, setCopied] = useState(null);
   const [showKey, setShowKey] = useState(false);
-  const [rotateConfirm, setRotateConfirm] = useState(false);
-  const [rotateLoading, setRotateLoading] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const tenant = getTenant();
   const isCloudflare = status?.provider === 'cloudflare';
@@ -295,21 +312,6 @@ export default function AgentApiModal({ onClose }) {
     }
   };
 
-  const handleRotateKey = async () => {
-    setRotateLoading(true);
-    setError(null);
-    try {
-      const result = await rotateAgentApiKey();
-      setStatus(prev => ({ ...prev, apiKey: result.apiKey }));
-      setRotateConfirm(false);
-      setShowKey(true); // Show the new key after rotation
-    } catch (err) {
-      setError(err.message || 'Failed to rotate key');
-    } finally {
-      setRotateLoading(false);
-    }
-  };
-
   const copyToClipboard = (text, type) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(type);
@@ -321,7 +323,7 @@ export default function AgentApiModal({ onClose }) {
   const apiKey = status?.apiKey;
 
   const instructionSnippet = [
-    'Use this API to build and deploy ADAS solutions:',
+    'Use this API to build and deploy A-Team solutions:',
     `Base URL: ${tunnelUrl}`,
     `Header: X-ADAS-TENANT: ${tenant}`,
     ...(apiKey ? [`Header: X-API-KEY: ${apiKey}`] : []),
@@ -332,137 +334,60 @@ export default function AgentApiModal({ onClose }) {
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
         <div style={styles.header}>
-          <span style={styles.title}>
-            <span>Agent API</span>
-          </span>
-          <button style={styles.closeBtn} onClick={onClose}>×</button>
+          <span style={styles.title}>API Key</span>
+          <button style={styles.closeBtn} onClick={onClose}>&times;</button>
         </div>
 
         <div style={styles.body}>
           <div style={styles.description}>
-            Share this URL with an AI agent (Claude, GPT, Cursor, etc.) to let it build and deploy ADAS solutions on your behalf.
+            Copy this key and paste it into any AI agent (Claude, ChatGPT, Cursor, etc.) to let it build and deploy A-Team solutions on your behalf.
           </div>
 
           {loading ? (
             <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
-              Loading status...
+              Loading...
             </div>
           ) : (
             <>
-              {/* No provider configured warning */}
-              {!isCloudflare && !status?.hasAuthToken && (
-                <div style={styles.noToken}>
-                  <div style={styles.noTokenTitle}>No tunnel configured</div>
-                  <div style={styles.noTokenText}>
-                    Set <code>AGENT_API_URL</code> (Cloudflare Tunnel) or <code>NGROK_AUTHTOKEN</code> (ngrok) on the backend server to enable the Agent API tunnel.
-                  </div>
-                </div>
-              )}
-
-              {/* Status & Toggle */}
-              <div style={styles.statusRow}>
-                <div style={styles.statusIndicator}>
-                  <span style={{
-                    ...styles.dot,
-                    background: status?.active ? '#10b981' : '#6b7280',
-                    boxShadow: status?.active ? '0 0 6px rgba(16, 185, 129, 0.5)' : 'none'
-                  }} />
-                  <span style={{ color: status?.active ? '#10b981' : 'var(--text-muted)' }}>
-                    {status?.active ? 'Tunnel Active' : 'Tunnel Inactive'}
-                  </span>
-                  {status?.provider && (
-                    <span style={{
-                      ...styles.providerBadge,
-                      background: isCloudflare ? 'rgba(249, 115, 22, 0.15)' : 'rgba(99, 102, 241, 0.15)',
-                      color: isCloudflare ? '#f97316' : '#6366f1'
-                    }}>
-                      {isCloudflare ? 'Cloudflare' : 'ngrok'}
-                    </span>
-                  )}
-                </div>
-                {/* Only show start/stop for ngrok — Cloudflare is externally managed */}
-                {!isCloudflare && status?.hasAuthToken && (
-                  <button
-                    style={{
-                      ...styles.actionBtn,
-                      ...(status?.active ? styles.stopBtn : styles.startBtn),
-                      opacity: actionLoading ? 0.6 : 1,
-                      cursor: actionLoading ? 'wait' : 'pointer'
-                    }}
-                    onClick={status?.active ? handleStop : handleStart}
-                    disabled={actionLoading}
-                  >
-                    {actionLoading
-                      ? (status?.active ? 'Stopping...' : 'Starting...')
-                      : (status?.active ? 'Stop Tunnel' : 'Start Tunnel')
-                    }
-                  </button>
-                )}
-              </div>
-
-              {/* URL Display */}
-              {status?.active && (
-                <div style={styles.urlBox}>
-                  <span style={styles.urlText}>{tunnelUrl}</span>
-                  <button
-                    style={styles.copyBtn}
-                    onClick={() => copyToClipboard(tunnelUrl, 'url')}
-                  >
-                    {copied === 'url' ? 'Copied!' : 'Copy'}
-                  </button>
-                </div>
-              )}
-
-              {/* API Key Section */}
-              {apiKey && (
-                <div style={styles.section}>
-                  <div style={styles.sectionTitle}>API Key</div>
-                  <div style={styles.keyRow}>
-                    <span style={styles.keyText}>
+              {/* API Key — primary content */}
+              {apiKey ? (
+                <>
+                  <div style={styles.keyBox}>
+                    <div style={styles.keyDisplay}>
                       {showKey ? apiKey : maskKey(apiKey)}
-                    </span>
-                    <button
-                      style={styles.smallBtn}
-                      onClick={() => setShowKey(prev => !prev)}
-                      title={showKey ? 'Hide key' : 'Show key'}
-                    >
-                      {showKey ? 'Hide' : 'Show'}
-                    </button>
-                    <button
-                      style={styles.smallBtn}
-                      onClick={() => copyToClipboard(apiKey, 'key')}
-                    >
-                      {copied === 'key' ? 'Copied' : 'Copy'}
-                    </button>
-                    {!rotateConfirm ? (
+                    </div>
+                    <div style={styles.keyActions}>
+                      <button
+                        style={{
+                          ...styles.copyKeyBtn,
+                          background: copied === 'key' ? '#10b981' : 'var(--accent)'
+                        }}
+                        onClick={() => copyToClipboard(apiKey, 'key')}
+                      >
+                        {copied === 'key' ? 'Copied!' : 'Copy Key'}
+                      </button>
                       <button
                         style={styles.smallBtn}
-                        onClick={() => setRotateConfirm(true)}
-                        title="Rotate API key"
+                        onClick={() => setShowKey(prev => !prev)}
                       >
-                        Rotate
+                        {showKey ? 'Hide' : 'Reveal'}
                       </button>
-                    ) : (
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button
-                          style={{ ...styles.smallBtn, color: '#ef4444', borderColor: '#ef4444' }}
-                          onClick={handleRotateKey}
-                          disabled={rotateLoading}
-                        >
-                          {rotateLoading ? '...' : 'Confirm'}
-                        </button>
-                        <button
-                          style={styles.smallBtn}
-                          onClick={() => setRotateConfirm(false)}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    )}
+                    </div>
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    Agents must include this key via the <code style={{ background: 'var(--bg-secondary)', padding: '1px 4px', borderRadius: '3px' }}>X-API-KEY</code> header.
+                  <div style={styles.hint}>
+                    When an AI agent asks you to authenticate, paste this key. It identifies your account and tenant.
                   </div>
+                </>
+              ) : (
+                <div style={{
+                  padding: '20px',
+                  textAlign: 'center',
+                  color: 'var(--text-muted)',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: '8px',
+                  marginBottom: '16px'
+                }}>
+                  No API key available
                 </div>
               )}
 
@@ -471,14 +396,79 @@ export default function AgentApiModal({ onClose }) {
                 <div style={styles.errorText}>{error}</div>
               )}
 
-              {/* Details shown when tunnel is active */}
-              {status?.active && (
-                <>
-                  <div style={styles.section}>
-                    <div style={styles.sectionTitle}>Tenant Header</div>
-                    <div style={styles.note}>
-                      The agent must include this header in all requests:
+              {/* Advanced — tunnel & technical details */}
+              <div style={styles.divider} />
+              <button
+                style={styles.advancedToggle}
+                onClick={() => setShowAdvanced(prev => !prev)}
+              >
+                <span style={{
+                  display: 'inline-block',
+                  transition: 'transform 0.2s',
+                  transform: showAdvanced ? 'rotate(90deg)' : 'rotate(0deg)',
+                  fontSize: '10px'
+                }}>&#9654;</span>
+                Advanced
+              </button>
+
+              {showAdvanced && (
+                <div style={styles.advancedContent}>
+                  {/* Tunnel Status */}
+                  <div style={styles.statusRow}>
+                    <div style={styles.statusIndicator}>
+                      <span style={{
+                        ...styles.dot,
+                        background: status?.active ? '#10b981' : '#6b7280',
+                        boxShadow: status?.active ? '0 0 6px rgba(16, 185, 129, 0.5)' : 'none'
+                      }} />
+                      <span style={{ color: status?.active ? '#10b981' : 'var(--text-muted)' }}>
+                        {status?.active ? 'Tunnel Active' : 'Tunnel Inactive'}
+                      </span>
+                      {status?.provider && (
+                        <span style={{
+                          ...styles.providerBadge,
+                          background: isCloudflare ? 'rgba(249, 115, 22, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+                          color: isCloudflare ? '#f97316' : '#6366f1'
+                        }}>
+                          {isCloudflare ? 'Cloudflare' : 'ngrok'}
+                        </span>
+                      )}
                     </div>
+                    {!isCloudflare && status?.hasAuthToken && (
+                      <button
+                        style={{
+                          ...styles.actionBtn,
+                          ...(status?.active ? styles.stopBtn : styles.startBtn),
+                          opacity: actionLoading ? 0.6 : 1,
+                          cursor: actionLoading ? 'wait' : 'pointer'
+                        }}
+                        onClick={status?.active ? handleStop : handleStart}
+                        disabled={actionLoading}
+                      >
+                        {actionLoading
+                          ? (status?.active ? 'Stopping...' : 'Starting...')
+                          : (status?.active ? 'Stop' : 'Start')
+                        }
+                      </button>
+                    )}
+                  </div>
+
+                  {/* URL Display */}
+                  {status?.active && (
+                    <div style={styles.urlBox}>
+                      <span style={styles.urlText}>{tunnelUrl}</span>
+                      <button
+                        style={styles.copyBtn}
+                        onClick={() => copyToClipboard(tunnelUrl, 'url')}
+                      >
+                        {copied === 'url' ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Tenant */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={styles.sectionTitle}>Tenant</div>
                     <div style={{
                       fontFamily: 'monospace',
                       fontSize: '13px',
@@ -488,34 +478,29 @@ export default function AgentApiModal({ onClose }) {
                       borderRadius: '6px',
                       color: 'var(--text-primary)'
                     }}>
-                      X-ADAS-TENANT: {tenant}
-                    </div>
-                  </div>
-
-                  <div style={styles.section}>
-                    <div style={styles.sectionTitle}>Quick Start</div>
-                    <div style={styles.note}>
-                      Tell the agent to call <code style={{ background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: '3px' }}>GET {tunnelUrl}/spec</code> to learn the full API.
+                      {tenant}
                     </div>
                   </div>
 
                   {/* Copyable Instruction Snippet */}
-                  <div style={styles.section}>
-                    <div style={styles.sectionTitle}>Copy to Agent</div>
-                    <div style={styles.note}>
-                      Paste this into any AI agent to get started:
+                  {status?.active && (
+                    <div style={{ marginBottom: '12px' }}>
+                      <div style={styles.sectionTitle}>Agent Snippet</div>
+                      <div style={styles.note}>
+                        Paste this into any AI agent to get started:
+                      </div>
+                      <div style={styles.codeBlock}>
+                        <button
+                          style={styles.copyCodeBtn}
+                          onClick={() => copyToClipboard(instructionSnippet, 'snippet')}
+                        >
+                          {copied === 'snippet' ? 'Copied!' : 'Copy'}
+                        </button>
+                        {instructionSnippet}
+                      </div>
                     </div>
-                    <div style={styles.codeBlock}>
-                      <button
-                        style={styles.copyCodeBtn}
-                        onClick={() => copyToClipboard(instructionSnippet, 'snippet')}
-                      >
-                        {copied === 'snippet' ? 'Copied!' : 'Copy'}
-                      </button>
-                      {instructionSnippet}
-                    </div>
-                  </div>
-                </>
+                  )}
+                </div>
               )}
             </>
           )}

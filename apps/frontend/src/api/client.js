@@ -125,12 +125,12 @@ async function request(path, options = {}) {
     'Content-Type': 'application/json',
     ...options.headers
   };
-  // JWT auth (from parent frame) takes precedence; fall back to X-ADAS-TENANT for dev/standalone
+  // JWT auth — required for production. Without it, backend auth guard returns 401.
   if (_authToken) {
     headers['Authorization'] = `Bearer ${_authToken}`;
-  } else {
-    headers['X-ADAS-TENANT'] = getTenant();
   }
+  // Always send tenant header for context (backend uses it as hint, not for auth)
+  headers['X-ADAS-TENANT'] = getTenant();
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers

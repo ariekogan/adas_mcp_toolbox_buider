@@ -2,7 +2,7 @@
 // Multi-tenant middleware for Skill Builder — resolves tenant from:
 // 1) JWT (Authorization: Bearer <JWT>) — verified via ADAS Core /api/auth/me
 // 2) PAT (Authorization: Bearer <PAT>) — verified via ADAS Core /api/auth/verify-pat
-// 3) X-ADAS-TENANT header (fallback for dev/standalone mode)
+// In dev mode only: X-ADAS-TENANT header fallback (when SB_AUTH_SKIP=true or NODE_ENV=development)
 // Then wraps request in ALS context for tenant-scoped path resolution.
 
 import { runWithTenant, isValidTenant, DEFAULT_TENANT, refreshTenantCache } from "../utils/tenantContext.js";
@@ -104,8 +104,11 @@ async function verifyPatViaCore(token) {
 }
 
 /**
- * Express middleware: resolves tenant from JWT, PAT, or X-ADAS-TENANT header,
- * wraps request in tenant-scoped ALS context.
+ * Express middleware: resolves tenant from JWT or PAT.
+ * Sets req.auth only for authenticated requests.
+ * In dev mode, falls back to X-ADAS-TENANT header (without setting req.auth).
+ * In production, unauthenticated requests get DEFAULT_TENANT but no req.auth,
+ * so the auth guard in server.js blocks protected routes.
  */
 export async function attachTenant(req, res, next) {
   const token = parseBearer(req);
@@ -137,12 +140,21 @@ export async function attachTenant(req, res, next) {
     }
   }
 
-  // 3) Fallback: X-ADAS-TENANT header (dev/standalone mode)
-  const raw = req.headers["x-adas-tenant"];
-  const requested = raw ? raw.trim().toLowerCase() : "";
-  req.tenant = isValidTenant(requested) ? requested : DEFAULT_TENANT;
+  // No valid JWT/PAT — check if dev mode allows X-ADAS-TENANT fallback
+  const IS_DEV = process.env.NODE_ENV === "development" || process.env.SB_AUTH_SKIP === "true";
+
+  if (IS_DEV) {
+    // Dev/standalone: accept X-ADAS-TENANT header without authentication
+    const raw = req.headers["x-adas-tenant"];
+    const requested = raw ? raw.trim().toLowerCase() : "";
+    req.tenant = isValidTenant(requested) ? requested : DEFAULT_TENANT;
+  } else {
+    // Production: no auth = default tenant, req.auth stays unset (auth guard will block /api)
+    req.tenant = DEFAULT_TENANT;
+  }
 
   // Wrap the rest of the request in tenant-scoped ALS context
+  // Note: req.auth is NOT set — the auth guard in server.js will block protected routes
   runWithTenant(req.tenant, () => next());
 }
 
