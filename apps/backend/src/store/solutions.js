@@ -141,6 +141,13 @@ async function list() {
 async function create(name) {
   await init();
 
+  // ── One solution per tenant: remove any existing solutions ──
+  const existing = await list();
+  for (const sol of existing) {
+    console.log(`[SolutionStore] Replacing existing solution: ${sol.id} (one-per-tenant)`);
+    await remove(sol.id);
+  }
+
   const id = `sol_${uuidv4().slice(0, 8)}`;
   const solDir = path.join(getSolutionsDir(), id);
   await ensureDir(solDir);
@@ -427,6 +434,13 @@ async function importFromYaml(solutionData, linkedSkillIds = []) {
 
     await writeJson(path.join(getSolutionsDir(), existing.id, 'solution.json'), updated);
     return updated;
+  }
+
+  // ── One solution per tenant: remove any stale solutions before creating ──
+  const allSolutions = await list();
+  for (const sol of allSolutions) {
+    console.log(`[SolutionStore] Replacing existing solution: ${sol.id} (one-per-tenant, importing ${solutionData.id || solutionData.name})`);
+    await remove(sol.id);
   }
 
   // Create new solution
