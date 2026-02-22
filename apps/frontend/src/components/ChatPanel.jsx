@@ -913,7 +913,10 @@ export default function ChatPanel({
                 gap: '4px',
               }}
             >
-              {solutionSkills.length} skills ▾
+              {(() => {
+                const sel = currentSkillId && solutionSkills.find(s => s.id === currentSkillId);
+                return sel ? (sel.name || sel.id) : `${solutionSkills.length} skills`;
+              })()} ▾
             </button>
             {skillDropdownOpen && (
               <>
@@ -967,7 +970,7 @@ export default function ChatPanel({
                       }}>
                         {s.role === 'gateway' ? 'GW' : 'WK'}
                       </span>
-                      <span style={{ flex: 1, color: 'var(--text-primary)' }}>{s.name}</span>
+                      <span style={{ flex: 1, color: 'var(--text-primary)' }}>{s.name || s.id}</span>
                       {s.connectors?.length > 0 && (
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                           {s.connectors.length} MCP
