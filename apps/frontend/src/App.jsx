@@ -400,14 +400,17 @@ export default function App() {
   const handleSelect = useCallback(async (id) => {
     setUiFocus(null);
     setContextLabel(null);
-    setSelectedType('skill');
     setViewMode('skill');
+    // Keep selectedType as 'solution' when in solution mode — only set 'skill' for standalone
+    if (selectedType !== 'solution') {
+      setSelectedType('skill');
+    }
     if (!currentSolution?.id) {
       console.error('Cannot select skill without a solution');
       return;
     }
     await loadSkill(currentSolution.id, id);
-  }, [loadSkill, currentSolution?.id]);
+  }, [loadSkill, currentSolution?.id, selectedType]);
 
   const handleSelectSolution = useCallback(async (id) => {
     setUiFocus(null);
@@ -885,7 +888,6 @@ export default function App() {
                     onFocusChange={setUiFocus}
                     onGoHome={() => {
                       setViewMode('map');
-                      setSelectedType('solution');
                     }}
                     onExport={handleExport}
                     onAskAbout={(topicOrPrompt, isRawPrompt) => {
