@@ -1,6 +1,12 @@
 /**
  * ADAS Core Client — unified HTTP client for all outbound calls to ADAS Core.
  *
+ * ARCHITECTURE: This is the BRIDGE between Skill Builder (FS) and ADAS Core (Mongo).
+ * - Skill Builder stores everything on filesystem (`_builder/`).
+ * - ADAS Core stores everything in MongoDB. No filesystem.
+ * - This client pushes design-time data FROM Builder TO Core via HTTP API.
+ * - Auth: forwards the user's JWT/PAT token from AsyncLocalStorage.
+ *
  * Consolidates URL construction, tenant headers, timeouts, error handling,
  * and logging that were previously scattered across exportDeploy.js,
  * adasConnectorSync.js, exportRuntime.js, and import.js.

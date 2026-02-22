@@ -1,6 +1,10 @@
 /**
  * Skills Store - file-based storage for DraftSkill
  *
+ * ARCHITECTURE: This is the SKILL BUILDER's store — FILESYSTEM ONLY.
+ * ADAS Core uses MongoDB. These two systems never share storage.
+ * Builder FS → deploy via API → Core Mongo.
+ *
  * Storage structure:
  *   /memory/<slug>/skill.json     - new DAL format
  *   /memory/<slug>/project.json    - legacy format (auto-migrated)

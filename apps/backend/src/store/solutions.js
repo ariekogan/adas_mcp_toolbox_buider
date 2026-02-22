@@ -1,6 +1,11 @@
 /**
  * Solutions Store - file-based storage for Solution definitions
  *
+ * ARCHITECTURE: This is the SKILL BUILDER's store — FILESYSTEM ONLY.
+ * ADAS Core uses MongoDB. These two systems never share storage.
+ * Builder FS → deploy via API → Core Mongo.
+ * ONE SOLUTION PER TENANT — enforced in list() and create().
+ *
  * Storage structure:
  *   /memory/<tenant>/solutions/<solutionId>/
  *     solution.json       - Solution definition (parsed from solution.yaml)
