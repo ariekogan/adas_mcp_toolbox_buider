@@ -651,7 +651,8 @@ export default function SkillPanel({
   onAskAbout,
   onIssuesChange,
   onSkillUpdate,
-  skillId
+  skillId,
+  hideTabBar = false,
 }) {
   const [activeTab, setActiveTab] = useState('identity');
   const [showValidationPanel, setShowValidationPanel] = useState(false);
@@ -901,45 +902,48 @@ export default function SkillPanel({
 
   return (
     <div style={styles.container}>
-      <div style={styles.header}>
-        <span style={styles.title}>Skill: {skill.name}</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <ValidationMicroDashboard
-            validation={skill.validation}
-            onClick={() => setShowValidationPanel(true)}
-            onValidateAll={handleValidateAll}
-            validatingAll={validatingAll}
-          />
-          <span style={styles.version}>v{skill.version || '0.1.0'}</span>
+      {!hideTabBar && (
+        <div style={styles.header}>
+          <span style={styles.title}>Skill: {skill.name}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ValidationMicroDashboard
+              validation={skill.validation}
+              onClick={() => setShowValidationPanel(true)}
+              onValidateAll={handleValidateAll}
+              validatingAll={validatingAll}
+            />
+            <span style={styles.version}>v{skill.version || '0.1.0'}</span>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Tabs */}
-      <div style={styles.tabs}>
-        {TABS.map(tab => {
-          const badge = getTabBadge(tab.id, skill);
-          return (
-            <div
-              key={tab.id}
-              style={{
-                ...styles.tab,
-                ...(activeTab === tab.id ? styles.tabActive : {})
-              }}
-              onClick={() => {
-                setActiveTab(tab.id);
-                onFocusChange?.({ tab: tab.id });
-              }}
-            >
-              {tab.label}
-              {badge && (
-                <span style={{ ...styles.tabBadge, ...badge.style }}>
-                  {badge.text}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {!hideTabBar && (
+        <div style={styles.tabs}>
+          {TABS.map(tab => {
+            const badge = getTabBadge(tab.id, skill);
+            return (
+              <div
+                key={tab.id}
+                style={{
+                  ...styles.tab,
+                  ...(activeTab === tab.id ? styles.tabActive : {})
+                }}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  onFocusChange?.({ tab: tab.id });
+                }}
+              >
+                {tab.label}
+                {badge && (
+                  <span style={{ ...styles.tabBadge, ...badge.style }}>
+                    {badge.text}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div style={styles.content}>
         {/* Identity Tab - Problem, Role, Scenarios */}

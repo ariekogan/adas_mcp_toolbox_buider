@@ -11,12 +11,14 @@ import PoliciesPage from './components/PoliciesPage';
 import AgentApiModal from './components/AgentApiModal';
 import SolutionPanel from './components/SolutionPanel';
 import ResizableSplit from './components/ResizableSplit';
+import MapWorkspace from './components/MapWorkspace';
+import FloatingChat from './components/FloatingChat';
+import SkillDetailView from './components/SkillDetailView';
 import { useSkill } from './hooks/useSkill';
 import { useSolution } from './hooks/useSolution';
 import { useSettings } from './hooks/useSettings';
 import * as api from './api/client';
 import { getTenant, setTenant, fetchTenants, isAuthenticated, isEmbedded, redirectToLogin, logout } from './api/client';
-// Force rebuild - triggers and channels update + solution builder
 
 const styles = {
   app: {
@@ -182,6 +184,9 @@ export default function App() {
   // Track whether user selected a skill or solution
   const [selectedType, setSelectedType] = useState('skill'); // 'skill' | 'solution'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+
+  // View mode for solution layout: 'map' shows MapWorkspace, 'skill' shows SkillDetailView
+  const [viewMode, setViewMode] = useState('map'); // 'map' | 'skill'
 
   // File upload extraction state
   const [extraction, setExtraction] = useState(null);
@@ -396,6 +401,7 @@ export default function App() {
     setUiFocus(null);
     setContextLabel(null);
     setSelectedType('skill');
+    setViewMode('skill');
     if (!currentSolution?.id) {
       console.error('Cannot select skill without a solution');
       return;
@@ -407,6 +413,7 @@ export default function App() {
     setUiFocus(null);
     setContextLabel(null);
     setSelectedType('solution');
+    setViewMode('map');
     setInputHint(null);
     setSolutionGreetingData(null); // Reset — greeting is per-solution
     await loadSolution(id);
@@ -863,30 +870,70 @@ export default function App() {
             />
 
             {selectedType === 'solution' && currentSolution ? (
-              <ResizableSplit
-                initialLeftPercent={50}
-                left={
-                  <ChatPanel
-                    messages={solutionMessages}
-                    onSendMessage={handleSendSolutionMessage}
-                    sending={sending}
-                    skillName={currentSkill?.name || ''}
-                    solutionName={currentSolution.name}
-                    inputHint={inputHint}
-                    skill={currentSolution}
-                    contextLabel={contextLabel}
-                    onContextClick={handleContextClick}
-                    onContextClear={handleContextClear}
-                    onSimplifyMessage={handleSimplifyMessage}
-                    solutionSkills={currentSolution.skills || []}
-                    onSelectSkill={handleSelect}
-                    currentSkillId={currentSkill?.id}
+              <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+                {viewMode === 'map' ? (
+                  <MapWorkspace
+                    solution={currentSolution}
+                    sidebarSkills={skills}
+                    onSkillClick={handleSelect}
                   />
-                }
-                right={
-                  <SolutionPanel solution={currentSolution} sidebarSkills={skills} onSolutionUpdate={() => loadSolution(currentSolution.id)} onFocusChange={setUiFocus} />
-                }
-              />
+                ) : viewMode === 'skill' && currentSkill ? (
+                  <SkillDetailView
+                    skill={currentSkill}
+                    solutionId={currentSolution?.id}
+                    focus={uiFocus}
+                    onFocusChange={setUiFocus}
+                    onGoHome={() => {
+                      setViewMode('map');
+                      setSelectedType('solution');
+                    }}
+                    onExport={handleExport}
+                    onAskAbout={(topicOrPrompt, isRawPrompt) => {
+                      if (isRawPrompt) {
+                        handleSendMessage(topicOrPrompt);
+                      } else {
+                        handleSendMessage(`Tell me about the "${topicOrPrompt}" section - what's the current status, what's missing, and how can I improve it?`);
+                      }
+                    }}
+                    onIssuesChange={(issues) => {
+                      if (currentSolution?.id) {
+                        api.updateSkill(currentSolution.id, currentSkill.id, { cascading_issues: issues }).catch(err => {
+                          console.error('Failed to persist validation issues:', err);
+                        });
+                      }
+                    }}
+                    onSkillUpdate={updateSkill}
+                    skillId={currentSkill?.id}
+                  />
+                ) : (
+                  <MapWorkspace
+                    solution={currentSolution}
+                    sidebarSkills={skills}
+                    onSkillClick={handleSelect}
+                  />
+                )}
+
+                {/* Floating chat overlay */}
+                <FloatingChat
+                  messages={viewMode === 'skill' ? messages : solutionMessages}
+                  onSendMessage={viewMode === 'skill' ? handleSendMessage : handleSendSolutionMessage}
+                  onFileUpload={viewMode === 'skill' ? handleFileUpload : undefined}
+                  sending={sending}
+                  skillName={currentSkill?.name || ''}
+                  solutionName={currentSolution.name}
+                  inputHint={inputHint}
+                  skill={viewMode === 'skill' ? currentSkill : currentSolution}
+                  onFocusChange={setUiFocus}
+                  solution={currentSolution}
+                  solutionSkills={currentSolution.skills || []}
+                  onSelectSkill={handleSelect}
+                  currentSkillId={currentSkill?.id}
+                  contextLabel={contextLabel}
+                  onContextClick={handleContextClick}
+                  onContextClear={handleContextClear}
+                  onSimplifyMessage={handleSimplifyMessage}
+                />
+              </div>
             ) : currentSkill ? (
               <ResizableSplit
                 initialLeftPercent={50}
