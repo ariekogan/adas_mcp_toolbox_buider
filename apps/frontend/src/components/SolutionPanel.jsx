@@ -361,7 +361,7 @@ export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <div style={styles.title}>★ {solution.name}</div>
+        <div style={styles.title}>⌂ {solution.name}</div>
         <div style={styles.subtitle}>
           {skills.length} skills · {grants.length} verifications · {handoffs.length} handoffs
         </div>

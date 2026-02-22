@@ -613,11 +613,11 @@ export default function SkillList({
                     onMouseLeave={() => setHoveredSkill(null)}
                   >
                     {collapsed ? (
-                      <div style={{ textAlign: 'center', fontSize: '16px', color: 'var(--accent)' }}>★</div>
+                      <div style={{ textAlign: 'center', fontSize: '16px', color: 'var(--accent)' }}>⌂</div>
                     ) : (
                       <>
                         <div style={solutionStyles.solutionName}>
-                          ★ {sol.name}
+                          ⌂ {sol.name}
                         </div>
                         <div style={solutionStyles.solutionMeta}>
                           {sol.skills_count || matchedSkills.length} skills · {sol.grants_count || 0} grants

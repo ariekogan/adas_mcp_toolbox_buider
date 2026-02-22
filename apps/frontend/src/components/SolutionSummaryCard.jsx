@@ -455,7 +455,7 @@ export default function SolutionSummaryCard({
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <div style={styles.solutionIcon}>★</div>
+          <div style={styles.solutionIcon}>⌂</div>
           <span style={styles.solutionName}>{solution.name || 'Untitled Solution'}</span>
         </div>
         <div style={styles.headerRight}>
