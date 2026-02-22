@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { listTemplates } from '../api/client';
 
 // ═══════════════════════════════════════════════════════════════
@@ -328,6 +328,7 @@ export default function SkillList({
   const [hoveredDelete, setHoveredDelete] = useState(false);
   const [hoveredTemplate, setHoveredTemplate] = useState(null);
   const [gearOpen, setGearOpen] = useState(false);
+  const gearBtnRef = useRef(null);
 
   // Load templates when modal opens
   useEffect(() => {
@@ -464,8 +465,9 @@ export default function SkillList({
         {!collapsed && <span style={styles.title}>Builder</span>}
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           {embedded && (
-            <div style={{ position: 'relative' }}>
+            <div>
               <button
+                ref={gearBtnRef}
                 onClick={() => setGearOpen(prev => !prev)}
                 title="Administration"
                 style={{
@@ -488,15 +490,14 @@ export default function SkillList({
                     onClick={() => setGearOpen(false)}
                   />
                   <div style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    marginTop: '4px',
+                    position: 'fixed',
+                    top: gearBtnRef.current ? gearBtnRef.current.getBoundingClientRect().bottom + 4 : 0,
+                    left: gearBtnRef.current ? gearBtnRef.current.getBoundingClientRect().left : 0,
                     background: 'var(--bg-secondary)',
                     border: '1px solid var(--border)',
                     borderRadius: '8px',
                     boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-                    minWidth: '200px',
+                    minWidth: '220px',
                     zIndex: 100,
                     overflow: 'hidden',
                   }}>
