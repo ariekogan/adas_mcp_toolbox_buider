@@ -655,6 +655,7 @@ export default function App() {
   }, []);
 
   const apiConfigured = hasApiKey();
+  const embedded = isEmbedded();
 
   // Auth gate: require authentication for protected flows and standalone mode
   if (!isAuthenticated()) {
@@ -692,121 +693,123 @@ export default function App() {
 
   return (
     <div style={styles.app}>
-      <div style={styles.topBar}>
-        <div style={styles.logo}>
-          Skill Builder
-          <select
-            value={tenant}
-            onChange={handleTenantChange}
-            style={(() => {
-              const KNOWN = { main: '#10b981', testing: '#3b82f6', dev: '#f59e0b' };
-              const PALETTE = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
-              const idx = tenants.findIndex(t => t.id === tenant);
-              const c = KNOWN[tenant] || PALETTE[idx % PALETTE.length] || '#8b949e';
-              return {
-                marginLeft: '12px',
-                padding: '3px 8px',
-                fontSize: '11px',
-                fontWeight: '500',
-                background: `${c}20`,
-                color: c,
-                border: `1px solid ${c}50`,
-                borderRadius: '4px',
-                cursor: 'pointer'
-              };
-            })()}
-          >
-            {tenants.map(t => (
-              <option key={t.id} value={t.id}>{t.name || t.id}</option>
-            ))}
-          </select>
-        </div>
-        <div style={styles.topActions}>
-          <span style={{
-            ...styles.apiStatus,
-            background: apiConfigured ? '#10b98120' : '#ef444420',
-            color: apiConfigured ? 'var(--success)' : 'var(--error)'
-          }}>
-            {apiConfigured ? 'API Key Set' : 'No API Key'}
-          </span>
-          <button style={styles.settingsBtn} onClick={openSettings}>
-            Settings
-          </button>
-          <div style={styles.gearBtnWrap}>
-            <button
-              style={{
-                ...styles.gearBtn,
-                ...(gearMenuOpen || currentView !== 'skills' ? styles.gearBtnActive : {})
-              }}
-              onClick={() => setGearMenuOpen(prev => !prev)}
-              title="Administration"
+      {!embedded && (
+        <div style={styles.topBar}>
+          <div style={styles.logo}>
+            Skill Builder
+            <select
+              value={tenant}
+              onChange={handleTenantChange}
+              style={(() => {
+                const KNOWN = { main: '#10b981', testing: '#3b82f6', dev: '#f59e0b' };
+                const PALETTE = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+                const idx = tenants.findIndex(t => t.id === tenant);
+                const c = KNOWN[tenant] || PALETTE[idx % PALETTE.length] || '#8b949e';
+                return {
+                  marginLeft: '12px',
+                  padding: '3px 8px',
+                  fontSize: '11px',
+                  fontWeight: '500',
+                  background: `${c}20`,
+                  color: c,
+                  border: `1px solid ${c}50`,
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                };
+              })()}
             >
-              &#9881;
+              {tenants.map(t => (
+                <option key={t.id} value={t.id}>{t.name || t.id}</option>
+              ))}
+            </select>
+          </div>
+          <div style={styles.topActions}>
+            <span style={{
+              ...styles.apiStatus,
+              background: apiConfigured ? '#10b98120' : '#ef444420',
+              color: apiConfigured ? 'var(--success)' : 'var(--error)'
+            }}>
+              {apiConfigured ? 'API Key Set' : 'No API Key'}
+            </span>
+            <button style={styles.settingsBtn} onClick={openSettings}>
+              Settings
             </button>
-            {gearMenuOpen && (
-              <>
-                <div
-                  style={{ position: 'fixed', inset: 0, zIndex: 99 }}
-                  onClick={() => setGearMenuOpen(false)}
-                />
-                <div style={styles.gearMenu}>
-                  <button
-                    style={{
-                      ...styles.gearMenuItem,
-                      ...(currentView === 'connectors' ? styles.gearMenuItemActive : {})
-                    }}
-                    onClick={() => { setCurrentView('connectors'); setGearMenuOpen(false); }}
-                  >
-                    MCP-Connectors
-                  </button>
-                  <button
-                    style={{
-                      ...styles.gearMenuItem,
-                      ...(currentView === 'channels' ? styles.gearMenuItemActive : {})
-                    }}
-                    onClick={() => { setCurrentView('channels'); setGearMenuOpen(false); }}
-                  >
-                    Communication Channels
-                  </button>
-                  <button
-                    style={{
-                      ...styles.gearMenuItem,
-                      ...(currentView === 'llm-models' ? styles.gearMenuItemActive : {})
-                    }}
-                    onClick={() => { setCurrentView('llm-models'); setGearMenuOpen(false); }}
-                  >
-                    LLM Models
-                  </button>
-                  <div style={{ height: '1px', background: 'var(--border)', margin: '2px 0' }} />
-                  <button
-                    style={{
-                      ...styles.gearMenuItem,
-                      ...(currentView === 'policies' ? styles.gearMenuItemActive : {})
-                    }}
-                    onClick={() => { setCurrentView('policies'); setGearMenuOpen(false); }}
-                  >
-                    Policies & Retention
-                  </button>
-                  <div style={{ height: '1px', background: 'var(--border)', margin: '2px 0' }} />
-                  <button
-                    style={styles.gearMenuItem}
-                    onClick={() => { handleDownloadGenericTemplate(); setGearMenuOpen(false); }}
-                  >
-                    Download MCP Template
-                  </button>
-                  <div style={{ height: '1px', background: 'var(--border)', margin: '2px 0' }} />
-                  <button
-                    style={styles.gearMenuItem}
-                    onClick={() => { setShowAgentApiModal(true); setGearMenuOpen(false); }}
-                  >
-                    🤖 Agent API
-                  </button>
-                </div>
-              </>
-            )}
+            <div style={styles.gearBtnWrap}>
+              <button
+                style={{
+                  ...styles.gearBtn,
+                  ...(gearMenuOpen || currentView !== 'skills' ? styles.gearBtnActive : {})
+                }}
+                onClick={() => setGearMenuOpen(prev => !prev)}
+                title="Administration"
+              >
+                &#9881;
+              </button>
+              {gearMenuOpen && (
+                <>
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+                    onClick={() => setGearMenuOpen(false)}
+                  />
+                  <div style={styles.gearMenu}>
+                    <button
+                      style={{
+                        ...styles.gearMenuItem,
+                        ...(currentView === 'connectors' ? styles.gearMenuItemActive : {})
+                      }}
+                      onClick={() => { setCurrentView('connectors'); setGearMenuOpen(false); }}
+                    >
+                      MCP-Connectors
+                    </button>
+                    <button
+                      style={{
+                        ...styles.gearMenuItem,
+                        ...(currentView === 'channels' ? styles.gearMenuItemActive : {})
+                      }}
+                      onClick={() => { setCurrentView('channels'); setGearMenuOpen(false); }}
+                    >
+                      Communication Channels
+                    </button>
+                    <button
+                      style={{
+                        ...styles.gearMenuItem,
+                        ...(currentView === 'llm-models' ? styles.gearMenuItemActive : {})
+                      }}
+                      onClick={() => { setCurrentView('llm-models'); setGearMenuOpen(false); }}
+                    >
+                      LLM Models
+                    </button>
+                    <div style={{ height: '1px', background: 'var(--border)', margin: '2px 0' }} />
+                    <button
+                      style={{
+                        ...styles.gearMenuItem,
+                        ...(currentView === 'policies' ? styles.gearMenuItemActive : {})
+                      }}
+                      onClick={() => { setCurrentView('policies'); setGearMenuOpen(false); }}
+                    >
+                      Policies & Retention
+                    </button>
+                    <div style={{ height: '1px', background: 'var(--border)', margin: '2px 0' }} />
+                    <button
+                      style={styles.gearMenuItem}
+                      onClick={() => { handleDownloadGenericTemplate(); setGearMenuOpen(false); }}
+                    >
+                      Download MCP Template
+                    </button>
+                    <div style={{ height: '1px', background: 'var(--border)', margin: '2px 0' }} />
+                    <button
+                      style={styles.gearMenuItem}
+                      onClick={() => { setShowAgentApiModal(true); setGearMenuOpen(false); }}
+                    >
+                      Agent API
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div style={styles.main}>
         {currentView === 'channels' ? (
@@ -845,6 +848,13 @@ export default function App() {
               selectedType={selectedType}
               collapsed={sidebarCollapsed}
               onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+              embedded={embedded}
+              currentView={currentView}
+              onNavigateView={setCurrentView}
+              onOpenSettings={openSettings}
+              onOpenAgentApi={() => setShowAgentApiModal(true)}
+              onDownloadTemplate={handleDownloadGenericTemplate}
+              apiConfigured={apiConfigured}
             />
 
             {selectedType === 'solution' && currentSolution ? (

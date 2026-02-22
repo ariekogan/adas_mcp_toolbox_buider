@@ -310,6 +310,14 @@ export default function SkillList({
   // Collapse props
   collapsed = false,
   onToggleCollapse,
+  // Embedded mode props (when in iframe, top bar is hidden)
+  embedded = false,
+  currentView = 'skills',
+  onNavigateView,
+  onOpenSettings,
+  onOpenAgentApi,
+  onDownloadTemplate,
+  apiConfigured = false,
 }) {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
@@ -319,6 +327,7 @@ export default function SkillList({
   const [hoveredSkill, setHoveredSkill] = useState(null);
   const [hoveredDelete, setHoveredDelete] = useState(false);
   const [hoveredTemplate, setHoveredTemplate] = useState(null);
+  const [gearOpen, setGearOpen] = useState(false);
 
   // Load templates when modal opens
   useEffect(() => {
@@ -453,23 +462,130 @@ export default function SkillList({
     }}>
       <div style={styles.header}>
         {!collapsed && <span style={styles.title}>Builder</span>}
-        <button
-          onClick={onToggleCollapse}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            padding: '4px 6px',
-            borderRadius: '4px',
-            fontSize: '14px',
-            lineHeight: 1,
-            transition: 'color 0.2s',
-          }}
-        >
-          {collapsed ? '»' : '«'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {embedded && (
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setGearOpen(prev => !prev)}
+                title="Administration"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: gearOpen || currentView !== 'skills' ? 'var(--accent)' : 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: '4px 6px',
+                  borderRadius: '4px',
+                  fontSize: '16px',
+                  lineHeight: 1,
+                }}
+              >
+                &#9881;
+              </button>
+              {gearOpen && (
+                <>
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+                    onClick={() => setGearOpen(false)}
+                  />
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: '4px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+                    minWidth: '200px',
+                    zIndex: 100,
+                    overflow: 'hidden',
+                  }}>
+                    {[
+                      { key: 'connectors', label: 'MCP-Connectors' },
+                      { key: 'channels', label: 'Channels' },
+                      { key: 'llm-models', label: 'LLM Models' },
+                    ].map(item => (
+                      <button
+                        key={item.key}
+                        style={{
+                          display: 'block', width: '100%', textAlign: 'left',
+                          padding: '8px 14px', fontSize: '13px', border: 'none',
+                          background: currentView === item.key ? 'var(--accent)15' : 'transparent',
+                          color: currentView === item.key ? 'var(--accent)' : 'var(--text-secondary)',
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => { onNavigateView(item.key); setGearOpen(false); }}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                    <div style={{ height: '1px', background: 'var(--border)', margin: '2px 0' }} />
+                    <button
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left',
+                        padding: '8px 14px', fontSize: '13px', border: 'none',
+                        background: currentView === 'policies' ? 'var(--accent)15' : 'transparent',
+                        color: currentView === 'policies' ? 'var(--accent)' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => { onNavigateView('policies'); setGearOpen(false); }}
+                    >
+                      Policies & Retention
+                    </button>
+                    <div style={{ height: '1px', background: 'var(--border)', margin: '2px 0' }} />
+                    <button
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left',
+                        padding: '8px 14px', fontSize: '13px', border: 'none',
+                        background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer',
+                      }}
+                      onClick={() => { onOpenSettings(); setGearOpen(false); }}
+                    >
+                      Settings
+                    </button>
+                    <button
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left',
+                        padding: '8px 14px', fontSize: '13px', border: 'none',
+                        background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer',
+                      }}
+                      onClick={() => { onDownloadTemplate(); setGearOpen(false); }}
+                    >
+                      Download MCP Template
+                    </button>
+                    <button
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left',
+                        padding: '8px 14px', fontSize: '13px', border: 'none',
+                        background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer',
+                      }}
+                      onClick={() => { onOpenAgentApi(); setGearOpen(false); }}
+                    >
+                      Agent API
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          <button
+            onClick={onToggleCollapse}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              padding: '4px 6px',
+              borderRadius: '4px',
+              fontSize: '14px',
+              lineHeight: 1,
+              transition: 'color 0.2s',
+            }}
+          >
+            {collapsed ? '»' : '«'}
+          </button>
+        </div>
       </div>
 
       <div style={styles.list}>
