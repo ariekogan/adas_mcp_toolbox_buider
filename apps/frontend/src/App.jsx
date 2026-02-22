@@ -872,7 +872,7 @@ export default function App() {
                     onContextClick={handleContextClick}
                     onContextClear={handleContextClear}
                     onSimplifyMessage={handleSimplifyMessage}
-                    solutionSkills={skills.filter(s => s.solution_id === currentSolution.id)}
+                    solutionSkills={currentSolution.skills || []}
                     onSelectSkill={handleSelect}
                     currentSkillId={currentSkill?.id}
                   />

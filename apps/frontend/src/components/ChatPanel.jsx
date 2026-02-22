@@ -937,24 +937,14 @@ export default function ChatPanel({
                   overflowY: 'auto',
                 }}>
                   {solutionSkills.map(s => (
-                    <button
-                      key={s.id}
+                    <div
+                      key={s.id || s.name}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
                         gap: '8px',
-                        width: '100%',
-                        textAlign: 'left',
                         padding: '8px 12px',
                         fontSize: '13px',
-                        border: 'none',
-                        background: s.id === currentSkillId ? 'var(--accent)15' : 'transparent',
-                        color: s.id === currentSkillId ? 'var(--accent)' : 'var(--text-primary)',
-                        cursor: 'pointer',
-                      }}
-                      onClick={() => {
-                        onSelectSkill(s.id);
-                        setSkillDropdownOpen(false);
                       }}
                     >
                       <span style={{
@@ -969,11 +959,13 @@ export default function ChatPanel({
                       }}>
                         {s.role === 'gateway' ? 'GW' : 'WK'}
                       </span>
-                      <span style={{ flex: 1 }}>{s.name}</span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        {s.tools_count || 0} tools
-                      </span>
-                    </button>
+                      <span style={{ flex: 1, color: 'var(--text-primary)' }}>{s.name}</span>
+                      {s.connectors?.length > 0 && (
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          {s.connectors.length} MCP
+                        </span>
+                      )}
+                    </div>
                   ))}
                 </div>
               </>
