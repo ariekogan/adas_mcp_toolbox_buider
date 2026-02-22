@@ -91,7 +91,11 @@ async function init() {
 }
 
 /**
- * List all solutions
+ * List all solutions (enforces ONE solution per tenant)
+ *
+ * If multiple solutions exist on disk (legacy data), returns only the most
+ * recently updated one and removes stale extras in the background.
+ *
  * @returns {Promise<Array>}
  */
 async function list() {
@@ -130,7 +134,28 @@ async function list() {
     // No solutions directory yet
   }
 
-  return solutions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+  // Sort by updated_at descending (most recent first)
+  solutions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+
+  // ONE solution per tenant: if multiple exist, keep only the most recent
+  if (solutions.length > 1) {
+    console.log(`[SolutionStore] Found ${solutions.length} solutions — enforcing one-per-tenant. Keeping: ${solutions[0].id}, removing: ${solutions.slice(1).map(s => s.id).join(', ')}`);
+    // Remove stale solutions in background (don't block the response)
+    const stale = solutions.slice(1);
+    setImmediate(async () => {
+      for (const sol of stale) {
+        try {
+          await remove(sol.id);
+          console.log(`[SolutionStore] Cleaned up stale solution: ${sol.id}`);
+        } catch (err) {
+          console.log(`[SolutionStore] Warning: Failed to clean up ${sol.id}: ${err.message}`);
+        }
+      }
+    });
+    return [solutions[0]];
+  }
+
+  return solutions;
 }
 
 /**
