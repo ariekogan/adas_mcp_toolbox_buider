@@ -15,6 +15,7 @@
 - **One tenant = one solution.** Both tools share the same tenant.
 - **Data flow at deploy:** Builder FS → (API call) → Core Mongo. One-way push.
 - **Production Docker volume:** `ai-dev-assistant/memory/<tenant>/_builder/` is the Builder's FS root. This is NOT the same as `adas_mcp_toolbox_builder/memory/` (that's the git repo, used for local dev only).
+- **TENANT ISOLATION IS CRITICAL.** NEVER fallback to a default tenant. If tenant is missing, FAIL LOUDLY with an error. Cross-tenant data leaks are unacceptable.
 
 ## Project Structure
 
