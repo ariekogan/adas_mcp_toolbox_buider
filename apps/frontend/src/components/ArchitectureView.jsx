@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { ROLE_COLORS, ICONS, ROLE_ICONS, CHANNEL_ICONS, SvgIcon, SharedDefs, EmptyState, Legend } from './SvgUtils';
 
-export default function ArchitectureView({ skills, connectors, handoffs }) {
+export default function ArchitectureView({ skills, connectors, handoffs, onSkillClick, onConnectorClick }) {
   const [hoveredSkill, setHoveredSkill] = useState(null);
   const [hoveredConnector, setHoveredConnector] = useState(null);
 
@@ -188,6 +188,7 @@ export default function ArchitectureView({ skills, connectors, handoffs }) {
               filter={isHovered ? `url(#glow-${skill.role || 'worker'})` : 'none'}
               onMouseEnter={() => setHoveredSkill(skill.id)}
               onMouseLeave={() => setHoveredSkill(null)}
+              onClick={() => onSkillClick && onSkillClick(skill.id)}
               style={{ cursor: 'pointer' }}
               opacity={dimmed ? 0.3 : 1}
             >
@@ -272,6 +273,7 @@ export default function ArchitectureView({ skills, connectors, handoffs }) {
               key={conn.id}
               onMouseEnter={() => setHoveredConnector(conn.id)}
               onMouseLeave={() => setHoveredConnector(null)}
+              onClick={() => onConnectorClick && onConnectorClick(conn.id)}
               style={{ cursor: 'pointer' }}
               opacity={dimmed ? 0.25 : 1}
             >

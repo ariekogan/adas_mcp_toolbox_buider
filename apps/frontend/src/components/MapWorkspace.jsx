@@ -10,7 +10,7 @@ const ZOOM_STEP = 0.15;
 const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 2.5;
 
-export default function MapWorkspace({ solution, sidebarSkills = [], onSkillClick }) {
+export default function MapWorkspace({ solution, sidebarSkills = [], onSkillClick, onConnectorClick }) {
   const [activeView, setActiveView] = useState('team-map');
   const [zoom, setZoom] = useState(1);
   const containerRef = useRef(null);
@@ -249,6 +249,8 @@ export default function MapWorkspace({ solution, sidebarSkills = [], onSkillClic
               skills={enrichedSkills}
               connectors={connectors}
               handoffs={handoffs}
+              onSkillClick={onSkillClick}
+              onConnectorClick={onConnectorClick}
             />
           )}
         </div>

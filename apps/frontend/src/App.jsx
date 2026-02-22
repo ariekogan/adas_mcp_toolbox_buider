@@ -879,6 +879,7 @@ export default function App() {
                     solution={currentSolution}
                     sidebarSkills={skills}
                     onSkillClick={handleSelect}
+                    onConnectorClick={() => setCurrentView('connectors')}
                   />
                 ) : viewMode === 'skill' && currentSkill ? (
                   <SkillDetailView
@@ -912,6 +913,7 @@ export default function App() {
                     solution={currentSolution}
                     sidebarSkills={skills}
                     onSkillClick={handleSelect}
+                    onConnectorClick={() => setCurrentView('connectors')}
                   />
                 )}
 
