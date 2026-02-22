@@ -134,10 +134,16 @@ async function list() {
     // No solutions directory yet
   }
 
-  // Sort by updated_at descending (most recent first)
-  solutions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+  // Sort: DEPLOYED first, then by updated_at descending
+  solutions.sort((a, b) => {
+    // DEPLOYED phase always wins
+    if (a.phase === 'DEPLOYED' && b.phase !== 'DEPLOYED') return -1;
+    if (b.phase === 'DEPLOYED' && a.phase !== 'DEPLOYED') return 1;
+    // Then by most recently updated
+    return new Date(b.updated_at) - new Date(a.updated_at);
+  });
 
-  // ONE solution per tenant: if multiple exist, keep only the most recent
+  // ONE solution per tenant: if multiple exist, keep only the primary
   if (solutions.length > 1) {
     console.log(`[SolutionStore] Found ${solutions.length} solutions — enforcing one-per-tenant. Keeping: ${solutions[0].id}, removing: ${solutions.slice(1).map(s => s.id).join(', ')}`);
     // Remove stale solutions in background (don't block the response)
