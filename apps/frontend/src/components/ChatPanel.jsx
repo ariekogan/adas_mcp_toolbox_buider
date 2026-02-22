@@ -937,15 +937,23 @@ export default function ChatPanel({
                   overflowY: 'auto',
                 }}>
                   {solutionSkills.map(s => (
-                    <div
+                    <button
                       key={s.id || s.name}
+                      onClick={() => { onSelectSkill(s.id); setSkillDropdownOpen(false); }}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
                         gap: '8px',
                         padding: '8px 12px',
                         fontSize: '13px',
+                        width: '100%',
+                        border: 'none',
+                        background: currentSkillId === s.id ? 'var(--bg-tertiary)' : 'transparent',
+                        cursor: 'pointer',
+                        textAlign: 'left',
                       }}
+                      onMouseEnter={e => { if (currentSkillId !== s.id) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                      onMouseLeave={e => { if (currentSkillId !== s.id) e.currentTarget.style.background = 'transparent'; }}
                     >
                       <span style={{
                         fontSize: '11px',
@@ -965,7 +973,7 @@ export default function ChatPanel({
                           {s.connectors.length} MCP
                         </span>
                       )}
-                    </div>
+                    </button>
                   ))}
                 </div>
               </>
