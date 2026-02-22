@@ -836,6 +836,7 @@ export default function ChatPanel({
   onFileUpload,
   sending,
   skillName,
+  solutionName,
   inputHint,
   skill,
   onFocusChange,
@@ -895,22 +896,22 @@ export default function ChatPanel({
   return (
     <div style={styles.container}>
       <div style={{ ...styles.header, display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <span>Chat {skillName && `— ${skillName}`}</span>
-        {solutionSkills.length > 0 && (
-          <div style={{ position: 'relative', marginLeft: '4px' }}>
+        {solutionSkills.length > 0 ? (
+          <div style={{ position: 'relative' }}>
             <button
               onClick={() => setSkillDropdownOpen(prev => !prev)}
               style={{
                 background: 'transparent',
                 border: '1px solid var(--border)',
                 borderRadius: '4px',
-                padding: '2px 8px',
-                color: 'var(--text-muted)',
+                padding: '4px 10px',
+                color: 'var(--text-primary)',
                 cursor: 'pointer',
-                fontSize: '12px',
+                fontSize: '13px',
+                fontWeight: '500',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '4px',
+                gap: '6px',
               }}
             >
               {(() => {
@@ -942,7 +943,7 @@ export default function ChatPanel({
                   {solutionSkills.map(s => (
                     <button
                       key={s.id || s.name}
-                      onClick={() => { onSelectSkill(s.id); setSkillDropdownOpen(false); }}
+                      onClick={() => { onSelectSkill(s.id); }}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -970,11 +971,14 @@ export default function ChatPanel({
                       }}>
                         {s.role === 'gateway' ? 'GW' : 'WK'}
                       </span>
-                      <span style={{ flex: 1, color: 'var(--text-primary)' }}>{s.name || s.id}</span>
+                      <span style={{ flex: 1, color: currentSkillId === s.id ? 'var(--accent)' : 'var(--text-primary)', fontWeight: currentSkillId === s.id ? '600' : '400' }}>{s.name || s.id}</span>
                       {s.connectors?.length > 0 && (
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                           {s.connectors.length} MCP
                         </span>
+                      )}
+                      {currentSkillId === s.id && (
+                        <span style={{ color: 'var(--accent)', fontSize: '12px' }}>✓</span>
                       )}
                     </button>
                   ))}
@@ -982,9 +986,11 @@ export default function ChatPanel({
               </>
             )}
           </div>
+        ) : (
+          <span>{skillName || ''}</span>
         )}
       </div>
-      
+
       <div style={styles.messages}>
         {messages.length === 0 && (
           <div style={styles.welcome}>

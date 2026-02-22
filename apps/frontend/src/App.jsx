@@ -672,7 +672,7 @@ export default function App() {
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           height: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)', gap: '24px'
         }}>
-          <div style={{ fontSize: '28px', fontWeight: '700' }}>Skill Builder</div>
+          <div style={{ fontSize: '28px', fontWeight: '700' }}>A-Team</div>
           <div style={{ color: 'var(--text-secondary)', fontSize: '14px', textAlign: 'center', maxWidth: '360px' }}>
             Sign in to access your AI agent skills and solutions.
           </div>
@@ -696,7 +696,12 @@ export default function App() {
       {!embedded && (
         <div style={styles.topBar}>
           <div style={styles.logo}>
-            Skill Builder
+            A-Team
+            {currentSolution && (
+              <span style={{ color: 'var(--text-muted)', fontWeight: '400', fontSize: '13px' }}>
+                — {currentSolution.name}
+              </span>
+            )}
             <select
               value={tenant}
               onChange={handleTenantChange}
@@ -865,7 +870,8 @@ export default function App() {
                     messages={solutionMessages}
                     onSendMessage={handleSendSolutionMessage}
                     sending={sending}
-                    skillName={currentSolution.name}
+                    skillName={currentSkill?.name || ''}
+                    solutionName={currentSolution.name}
                     inputHint={inputHint}
                     skill={currentSolution}
                     contextLabel={contextLabel}
@@ -928,7 +934,7 @@ export default function App() {
               />
             ) : (
               <div style={styles.welcome}>
-                <div style={styles.welcomeTitle}>Welcome to Skill Builder</div>
+                <div style={styles.welcomeTitle}>Welcome to A-Team</div>
                 <p style={styles.welcomeText}>
                   Create AI agent skills through guided conversation.
                   Select a skill or solution from the sidebar to get started.
