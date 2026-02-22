@@ -8,13 +8,14 @@ import ArchitectureView from './ArchitectureView';
 
 const ZOOM_STEP = 0.15;
 const MIN_ZOOM = 0.3;
-const MAX_ZOOM = 2.0;
+const MAX_ZOOM = 2.5;
 
 export default function MapWorkspace({ solution, sidebarSkills = [], onSkillClick }) {
-  const [activeView, setActiveView] = useState('team-map'); // 'team-map' | 'architecture'
+  const [activeView, setActiveView] = useState('team-map');
   const [zoom, setZoom] = useState(1);
   const containerRef = useRef(null);
   const contentRef = useRef(null);
+  const fitDoneRef = useRef(false);
 
   const skills = solution?.skills || [];
   const handoffs = solution?.handoffs || [];
@@ -62,39 +63,40 @@ export default function MapWorkspace({ solution, sidebarSkills = [], onSkillClic
 
   // Calculate zoom to fit all content in the viewport
   const fitAll = useCallback(() => {
+    const container = containerRef.current;
+    const content = contentRef.current;
+    if (!container || !content) return;
+
+    // Temporarily set to 100% to measure natural SVG size
+    content.style.width = '100%';
+
     requestAnimationFrame(() => {
-      const container = containerRef.current;
-      const content = contentRef.current;
-      if (!container || !content) return;
+      const svg = content.querySelector('svg');
+      if (!svg) return;
 
-      // Temporarily reset zoom to 1 to measure natural size
-      content.style.transform = 'scale(1)';
-      content.style.width = '100%';
+      const containerH = container.clientHeight;
+      const containerW = container.clientWidth;
+      const svgRect = svg.getBoundingClientRect();
 
-      requestAnimationFrame(() => {
-        const cH = container.clientHeight;
-        const cW = container.clientWidth;
-        const svg = content.querySelector('svg');
-        if (!svg) return;
+      if (svgRect.height <= 0 || svgRect.width <= 0) return;
 
-        // Get actual rendered height at zoom=1
-        const contentH = svg.getBoundingClientRect().height;
-        const contentW = svg.getBoundingClientRect().width;
+      // Calculate zoom so SVG fits entirely within container
+      const fitW = containerW / svgRect.width;
+      const fitH = containerH / svgRect.height;
+      let fitZoom = Math.min(fitW, fitH, 1.0);
+      fitZoom = Math.max(fitZoom, MIN_ZOOM);
 
-        let fitZoom = 1;
-        if (contentH > cH || contentW > cW) {
-          fitZoom = Math.min(cH / contentH, cW / contentW);
-        }
-        fitZoom = Math.max(Math.min(fitZoom, MAX_ZOOM), MIN_ZOOM);
-
-        setZoom(fitZoom);
-      });
+      setZoom(fitZoom);
     });
   }, []);
 
   // Auto-fit on mount and when view changes
   useEffect(() => {
-    const timer = setTimeout(fitAll, 150);
+    fitDoneRef.current = false;
+    const timer = setTimeout(() => {
+      fitAll();
+      fitDoneRef.current = true;
+    }, 200);
     return () => clearTimeout(timer);
   }, [activeView, fitAll, enrichedSkills]);
 
@@ -106,7 +108,7 @@ export default function MapWorkspace({ solution, sidebarSkills = [], onSkillClic
     setZoom(z => Math.max(z - ZOOM_STEP, MIN_ZOOM));
   }, []);
 
-  // Mouse wheel zoom
+  // Ctrl + mouse wheel zoom
   const handleWheel = useCallback((e) => {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -116,6 +118,10 @@ export default function MapWorkspace({ solution, sidebarSkills = [], onSkillClic
   }, []);
 
   const zoomPercent = Math.round(zoom * 100);
+
+  // Width-based zoom: set the inner content width as a percentage
+  // SVGs with viewBox will scale proportionally
+  const contentWidth = `${zoom * 100}%`;
 
   return (
     <div style={{
@@ -216,7 +222,7 @@ export default function MapWorkspace({ solution, sidebarSkills = [], onSkillClic
         </button>
       </div>
 
-      {/* Map content with zoom transform */}
+      {/* Map content — width-based zoom (SVGs scale via viewBox) */}
       <div
         ref={containerRef}
         onWheel={handleWheel}
@@ -225,10 +231,8 @@ export default function MapWorkspace({ solution, sidebarSkills = [], onSkillClic
         <div
           ref={contentRef}
           style={{
-            transform: `scale(${zoom})`,
-            transformOrigin: 'top center',
-            width: zoom < 1 ? `${100 / zoom}%` : '100%',
-            transition: 'transform 0.15s ease-out',
+            width: contentWidth,
+            margin: zoom <= 1 ? '0 auto' : undefined,
           }}
         >
           {activeView === 'team-map' ? (
