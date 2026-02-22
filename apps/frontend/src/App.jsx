@@ -181,7 +181,7 @@ export default function App() {
   const [inputHint, setInputHint] = useState(null);
   // Track whether user selected a skill or solution
   const [selectedType, setSelectedType] = useState('skill'); // 'skill' | 'solution'
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   // File upload extraction state
   const [extraction, setExtraction] = useState(null);
@@ -872,6 +872,9 @@ export default function App() {
                     onContextClick={handleContextClick}
                     onContextClear={handleContextClear}
                     onSimplifyMessage={handleSimplifyMessage}
+                    solutionSkills={skills.filter(s => s.solution_id === currentSolution.id)}
+                    onSelectSkill={handleSelect}
+                    currentSkillId={currentSkill?.id}
                   />
                 }
                 right={

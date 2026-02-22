@@ -843,6 +843,8 @@ export default function ChatPanel({
   solution,
   solutionSkills = [],
   onNavigate,
+  onSelectSkill,
+  currentSkillId,
   // Context indicator props
   contextLabel,
   onContextClick,
@@ -851,6 +853,7 @@ export default function ChatPanel({
   onSimplifyMessage
 }) {
   const messagesEndRef = useRef(null);
+  const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
   // Track simplified versions per message index: { [index]: { simplified: string, showSimplified: boolean, loading: boolean } }
   const [simplifiedMap, setSimplifiedMap] = useState({});
 
@@ -891,8 +894,92 @@ export default function ChatPanel({
 
   return (
     <div style={styles.container}>
-      <div style={styles.header}>
-        Chat {skillName && `— ${skillName}`}
+      <div style={{ ...styles.header, display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <span>Chat {skillName && `— ${skillName}`}</span>
+        {solutionSkills.length > 0 && (
+          <div style={{ position: 'relative', marginLeft: '4px' }}>
+            <button
+              onClick={() => setSkillDropdownOpen(prev => !prev)}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                borderRadius: '4px',
+                padding: '2px 8px',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              {solutionSkills.length} skills ▾
+            </button>
+            {skillDropdownOpen && (
+              <>
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+                  onClick={() => setSkillDropdownOpen(false)}
+                />
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: '4px',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+                  minWidth: '240px',
+                  zIndex: 100,
+                  overflow: 'hidden',
+                  maxHeight: '320px',
+                  overflowY: 'auto',
+                }}>
+                  {solutionSkills.map(s => (
+                    <button
+                      key={s.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '8px 12px',
+                        fontSize: '13px',
+                        border: 'none',
+                        background: s.id === currentSkillId ? 'var(--accent)15' : 'transparent',
+                        color: s.id === currentSkillId ? 'var(--accent)' : 'var(--text-primary)',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => {
+                        onSelectSkill(s.id);
+                        setSkillDropdownOpen(false);
+                      }}
+                    >
+                      <span style={{
+                        fontSize: '11px',
+                        padding: '1px 6px',
+                        borderRadius: '3px',
+                        background: s.role === 'gateway' ? '#f59e0b20' : '#3b82f620',
+                        color: s.role === 'gateway' ? '#fbbf24' : '#60a5fa',
+                        fontWeight: '500',
+                        textTransform: 'uppercase',
+                        flexShrink: 0,
+                      }}>
+                        {s.role === 'gateway' ? 'GW' : 'WK'}
+                      </span>
+                      <span style={{ flex: 1 }}>{s.name}</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        {s.tools_count || 0} tools
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
       
       <div style={styles.messages}>
