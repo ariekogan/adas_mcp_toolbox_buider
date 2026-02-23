@@ -30,7 +30,7 @@ export default function ArchitectureView({ skills, connectors, handoffs, onSkill
     'handoff-controller-mcp': 'Handoff sessions',
   };
   const customList = [...customConnectorIds].map(id => ({ id, description: CONNECTOR_LABELS[id] || 'Custom connector' }));
-  const allConnectors = [...platformList, ...customList];
+  const allConnectors = [...platformList, ...customList].filter(c => c && c.id);
 
   const connectorUsage = {};
   allConnectors.forEach(c => { connectorUsage[c.id] = 0; });
