@@ -2,8 +2,52 @@ import { Router } from 'express';
 import solutionsStore from '../store/solutions.js';
 import skillsStore from '../store/skills.js';
 import { validateSolution, validateSecurity, validateSolutionQuality } from '@adas/skill-validator';
+import { getImportedConnectorsForTenant, getAllPrebuiltConnectors } from './connectors.js';
+import { getCurrentTenant } from '../utils/tenantContext.js';
 
 const router = Router({ mergeParams: true });
+
+/**
+ * Check connector consistency: imported connectors vs solution.platform_connectors.
+ * Returns { errors: [], warnings: [] } with any issues found.
+ */
+function checkConnectorConsistency(solution) {
+  const errors = [];
+  const warnings = [];
+  const platformConnectorIds = new Set((solution.platform_connectors || []).map(c => c.id));
+
+  try {
+    const tenant = getCurrentTenant();
+    const importedConnectors = getImportedConnectorsForTenant(tenant);
+
+    // Forward check: imported connectors must be in platform_connectors
+    for (const [connectorId, config] of importedConnectors) {
+      if (!platformConnectorIds.has(connectorId)) {
+        errors.push({
+          check: 'imported_connector_not_in_solution',
+          message: `Imported connector "${connectorId}" (${config.name || connectorId}) is registered in the catalog but missing from solution.platform_connectors`,
+          connector: connectorId,
+        });
+      }
+    }
+
+    // Reverse check: platform_connectors referencing unknown connectors
+    const allKnown = getAllPrebuiltConnectors();
+    for (const pc of (solution.platform_connectors || [])) {
+      if (!allKnown[pc.id]) {
+        warnings.push({
+          check: 'platform_connector_not_in_catalog',
+          message: `Solution references connector "${pc.id}" in platform_connectors but it is not in the connector catalog`,
+          connector: pc.id,
+        });
+      }
+    }
+  } catch (err) {
+    console.warn(`[Validation] Connector consistency check failed: ${err.message}`);
+  }
+
+  return { errors, warnings };
+}
 
 // ═══════════════════════════════════════════════════════════════
 // VALIDATION & TOPOLOGY
@@ -36,16 +80,21 @@ router.get('/:id/validate', async (req, res, next) => {
     // Solution-level validation
     const solutionValidation = validateSolution(solution);
 
+    // Connector consistency check
+    const connectorCheck = checkConnectorConsistency(solution);
+
     // Per-skill validation (includes security validation)
     const skillValidation = validateSkills(skills, solution);
 
     // Aggregate all issues
     const allErrors = [
       ...solutionValidation.errors,
+      ...connectorCheck.errors,
       ...skillValidation.issues.filter(i => i.severity === 'error'),
     ];
     const allWarnings = [
       ...solutionValidation.warnings,
+      ...connectorCheck.warnings,
       ...skillValidation.issues.filter(i => i.severity === 'warning'),
     ];
 
@@ -99,6 +148,11 @@ router.get('/:id/validation', async (req, res, next) => {
 
     // Solution-level validation
     const solutionValidation = validateSolution(solution);
+
+    // Connector consistency check
+    const connectorCheck = checkConnectorConsistency(solution);
+    solutionValidation.errors.push(...connectorCheck.errors);
+    solutionValidation.warnings.push(...connectorCheck.warnings);
 
     // Skill-level validation
     const skillValidation = validateSkills(skills, solution);
@@ -431,6 +485,27 @@ router.get('/:id/validation-report', async (req, res, next) => {
         });
       }
     });
+
+    // Check connector consistency: imported connectors vs solution.platform_connectors
+    const connectorConsistency = checkConnectorConsistency(solution);
+    for (const err of connectorConsistency.errors) {
+      report.level_1_technical.issues.push({
+        severity: 'error',
+        code: 'IMPORTED_CONNECTOR_NOT_IN_SOLUTION',
+        message: err.message,
+        context: { connector_id: err.connector },
+        suggestion: `Add "${err.connector}" to solution.platform_connectors. Re-import the solution pack to fix.`
+      });
+    }
+    for (const warn of connectorConsistency.warnings) {
+      report.level_1_technical.issues.push({
+        severity: 'warning',
+        code: 'PLATFORM_CONNECTOR_NOT_IN_CATALOG',
+        message: warn.message,
+        context: { connector_id: warn.connector },
+        suggestion: `Verify "${warn.connector}" is valid. It may be a system-level connector or may have been removed.`
+      });
+    }
 
     // ═══════════════════════════════════════════════════════════
     // LEVEL 2: Completeness Validation

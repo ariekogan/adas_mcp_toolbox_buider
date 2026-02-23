@@ -229,6 +229,36 @@ router.post('/', async (req, res) => {
     // Persist to file
     savePackages();
 
+    // Sync imported connectors into the current solution's platform_connectors
+    try {
+      const solutions = await solutionsStore.list();
+      if (solutions.length > 0) {
+        const solution = await solutionsStore.load(solutions[0].id);
+        const existingIds = new Set((solution.platform_connectors || []).map(c => c.id));
+        let added = 0;
+
+        for (const mcp of connectorConfigs) {
+          if (!existingIds.has(mcp.id)) {
+            if (!solution.platform_connectors) solution.platform_connectors = [];
+            solution.platform_connectors.push({
+              id: mcp.id,
+              description: mcp.description || '',
+              required: true,
+              used_by: [],
+            });
+            added++;
+          }
+        }
+
+        if (added > 0) {
+          await solutionsStore.save(solution);
+          console.log(`[Import] Synced ${added} connectors to solution.platform_connectors`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[Import] Could not sync connectors to solution: ${err.message}`);
+    }
+
     console.log(`[Import] Package imported: ${mcps.length} MCPs added to catalog`);
 
     res.json({
@@ -836,6 +866,32 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
     // If no solution was imported but we need to import skills, require solution_id in manifest
     if (!targetSolutionId && manifest.solution_id) {
       targetSolutionId = manifest.solution_id;
+    }
+
+    // Step 2.5: Sync imported connectors into solution.platform_connectors
+    // The solution definition must know about its connectors — not just the catalog.
+    if (targetSolutionId && connectorConfigs.length > 0) {
+      try {
+        const solution = await solutionsStore.load(targetSolutionId);
+        const existingIds = new Set((solution.platform_connectors || []).map(c => c.id));
+
+        for (const mcp of connectorConfigs) {
+          if (!existingIds.has(mcp.id)) {
+            if (!solution.platform_connectors) solution.platform_connectors = [];
+            solution.platform_connectors.push({
+              id: mcp.id,
+              description: mcp.description || '',
+              required: true,
+              used_by: [],
+            });
+            console.log(`[Import] Added connector "${mcp.id}" to solution.platform_connectors`);
+          }
+        }
+
+        await solutionsStore.save(solution);
+      } catch (err) {
+        console.warn(`[Import] Could not sync connectors to solution: ${err.message}`);
+      }
     }
 
     // Step 3: Import skills as skills (now with solution context)

@@ -654,7 +654,7 @@ export { PREBUILT_CONNECTORS };
 // Each tenant gets its own Map so connectors don't leak across tenants
 const importedConnectorsByTenant = new Map();
 
-function getImportedConnectorsForTenant(tenant) {
+export function getImportedConnectorsForTenant(tenant) {
   if (!importedConnectorsByTenant.has(tenant)) {
     importedConnectorsByTenant.set(tenant, new Map());
   }
