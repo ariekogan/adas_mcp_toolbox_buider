@@ -54,9 +54,12 @@ export default function SkillVoiceEditor() {
       setAllSkills(all);
 
       const sel = selRes?.selection || {};
+      // Build set of valid slugs from the API to detect stale entries
+      const validSlugs = new Set(all.map(s => s.slug));
       if (sel.enabled?.length || sel.disabled?.length) {
-        const en = sel.enabled || [];
-        const dis = sel.disabled || [];
+        // Filter out stale slugs that no longer exist in the API
+        const en = (sel.enabled || []).filter(s => validSlugs.has(s));
+        const dis = (sel.disabled || []).filter(s => validSlugs.has(s));
         // Auto-add newly discovered skills (not in either list) to enabled
         const listed = new Set([...en, ...dis]);
         const newSlugs = all.filter(s => !listed.has(s.slug)).map(s => s.slug);
