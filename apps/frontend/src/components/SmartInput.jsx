@@ -253,8 +253,10 @@ const styles = {
 // Determine if options are "short" (use pills) or "long" (use list)
 function shouldUseListFormat(options) {
   if (!options || options.length === 0) return false;
-  const avgLength = options.reduce((sum, opt) => sum + opt.length, 0) / options.length;
-  const maxLength = Math.max(...options.map(opt => opt.length));
+  const valid = options.filter(opt => typeof opt === 'string');
+  if (valid.length === 0) return false;
+  const avgLength = valid.reduce((sum, opt) => sum + opt.length, 0) / valid.length;
+  const maxLength = Math.max(...valid.map(opt => opt.length));
   // Use list if avg > 25 chars OR any option > 40 chars
   return avgLength > 25 || maxLength > 40;
 }
@@ -279,7 +281,7 @@ export default function SmartInput({
   const fileInputRef = useRef(null);
 
   const mode = inputHint?.mode || 'text';
-  const options = inputHint?.options || [];
+  const options = (inputHint?.options || []).filter(opt => typeof opt === 'string');
   const customPlaceholder = inputHint?.placeholder || placeholder;
   const useList = shouldUseListFormat(options);
 
