@@ -3,6 +3,7 @@ import OpenAIAdapter from "./openai.js";
 import fs from "fs";
 import path from "path";
 import { getMemoryRoot } from "../../utils/tenantContext.js";
+import { getSettings as getCoreSettings } from "../adasCoreClient.js";
 
 /**
  * Read the current tenant's settings.json (sync, cached briefly).
@@ -39,6 +40,30 @@ function getCoreLlmConfig() {
   // Core secrets are at /tenants/<tenant>/secrets/llm.json
   const coreRoot = memRoot.replace(/\/_builder\/?$/, "");
   return _readJsonCached(path.join(coreRoot, "secrets", "llm.json"));
+}
+
+/**
+ * In-memory cache for ADAS Core settings (fetched via API).
+ * Populated async by warmCoreSettings(), read sync by createAdapter().
+ */
+const _coreSettingsCache = { data: null, ts: 0 };
+const CORE_SETTINGS_TTL = 60_000; // 60s
+
+export async function warmCoreSettings() {
+  if (_coreSettingsCache.data && Date.now() - _coreSettingsCache.ts < CORE_SETTINGS_TTL) return;
+  try {
+    const settings = await getCoreSettings();
+    if (settings) {
+      _coreSettingsCache.data = settings;
+      _coreSettingsCache.ts = Date.now();
+    }
+  } catch {
+    // Core unreachable — continue with whatever we have
+  }
+}
+
+function getCoreSettingsSync() {
+  return _coreSettingsCache.data || {};
 }
 
 /**
@@ -92,24 +117,30 @@ export function createAdapter(provider, options = {}) {
   const resolvedModel = resolveModel(provider, rawModel);
 
   // Key resolution order:
-  // 1. Builder per-tenant settings.json
-  // 2. Core per-tenant secrets/llm.json (shared tenant LLM config)
-  // 3. Env var
-  // 4. Frontend-provided options.apiKey
+  // 1. Builder per-tenant settings.json (filesystem)
+  // 2. Core per-tenant secrets/llm.json (filesystem, shared tenant)
+  // 3. Core settings API (same key ADAS Core uses — fetched via warmCoreSettings)
+  // 4. Env var (fallback)
+  // 5. Frontend-provided options.apiKey
   const tenantSettings = getTenantSettings();
   const coreLlm = getCoreLlmConfig();
+  const coreApiSettings = getCoreSettingsSync();
+
   const tenantKey = provider === "openai"
     ? (tenantSettings.openai_api_key || tenantSettings.openaiApiKey)
     : (tenantSettings.anthropic_api_key || tenantSettings.anthropicApiKey);
   const coreKey = (coreLlm.useGlobalKeys)
-    ? null  // useGlobalKeys means skip tenant key, go to env
+    ? null  // useGlobalKeys means skip FS tenant key, try Core API settings
     : provider === "openai"
       ? coreLlm.openaiApiKey
       : coreLlm.anthropicApiKey;
+  const coreApiKey = provider === "openai"
+    ? coreApiSettings.openaiApiKey
+    : coreApiSettings.anthropicApiKey;
   const envKey = provider === "openai"
     ? process.env.OPENAI_API_KEY
     : process.env.ANTHROPIC_API_KEY;
-  const apiKey = tenantKey || coreKey || envKey || options.apiKey;
+  const apiKey = tenantKey || coreKey || coreApiKey || envKey || options.apiKey;
 
   switch (provider) {
     case "anthropic":
@@ -135,4 +166,4 @@ export function getDefaultAdapter() {
   return createAdapter(provider);
 }
 
-export default { createAdapter, getDefaultAdapter, MODEL_MAP, DEFAULT_TIER, resolveModel };
+export default { createAdapter, getDefaultAdapter, warmCoreSettings, MODEL_MAP, DEFAULT_TIER, resolveModel };

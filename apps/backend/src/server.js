@@ -18,6 +18,7 @@ import agentApiRouter from "./routes/agentApi.js";
 import settingsRouter from "./routes/settings.js";
 import { attachTenant } from "./middleware/attachTenant.js";
 import { isSearchAvailable } from "./services/webSearch.js";
+import { warmCoreSettings } from "./services/llm/adapter.js";
 import mcpManager from "./services/mcpConnector.js";
 import connectorState from "./store/connectorState.js";
 
@@ -112,6 +113,9 @@ app.use("/api", (req, res, next) => {
   if (req.auth) return next(); // Authenticated via JWT or PAT
   res.status(401).json({ ok: false, error: "Authentication required" });
 });
+
+// Pre-warm ADAS Core settings cache (async, non-blocking — for LLM key resolution)
+app.use("/api", (req, res, next) => { warmCoreSettings().then(next, next); });
 
 // Routes
 // Note: skills routes are now mounted under /api/solutions/:solutionId/skills (via solutionsRouter)

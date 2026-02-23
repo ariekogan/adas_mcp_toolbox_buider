@@ -268,8 +268,31 @@ async function deleteAllConnectors() {
 // EXPORTS
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * Fetch tenant settings from ADAS Core.
+ * Returns { llmProvider, openaiApiKey, anthropicApiKey, ... } or null on error.
+ */
+const _settingsCache = { data: null, ts: 0 };
+const SETTINGS_TTL = 60_000; // 60s cache
+
+async function getSettings() {
+  if (_settingsCache.data && Date.now() - _settingsCache.ts < SETTINGS_TTL) {
+    return _settingsCache.data;
+  }
+  try {
+    const data = await request('/api/settings');
+    const settings = data.settings || data;
+    _settingsCache.data = settings;
+    _settingsCache.ts = Date.now();
+    return settings;
+  } catch {
+    return null;
+  }
+}
+
 export default {
   getBaseUrl: () => BASE_URL,
+  getSettings,
   deployIdentity,
   deployMcp,
   importSkill,
@@ -291,6 +314,7 @@ export default {
 
 export {
   BASE_URL,
+  getSettings,
   deployIdentity,
   deployMcp,
   importSkill,
