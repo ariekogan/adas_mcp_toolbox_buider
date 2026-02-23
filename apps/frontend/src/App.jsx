@@ -14,6 +14,7 @@ import ResizableSplit from './components/ResizableSplit';
 import MapWorkspace from './components/MapWorkspace';
 import FloatingChat from './components/FloatingChat';
 import SkillDetailView from './components/SkillDetailView';
+import VoiceView from './components/voice/VoiceView';
 import { useSkill } from './hooks/useSkill';
 import { useSolution } from './hooks/useSolution';
 import { useSettings } from './hooks/useSettings';
@@ -185,8 +186,8 @@ export default function App() {
   const [selectedType, setSelectedType] = useState('skill'); // 'skill' | 'solution'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
-  // View mode for solution layout: 'map' shows MapWorkspace, 'skill' shows SkillDetailView
-  const [viewMode, setViewMode] = useState('map'); // 'map' | 'skill'
+  // View mode for solution layout: 'map' shows MapWorkspace, 'skill' shows SkillDetailView, 'voice' shows VoiceView
+  const [viewMode, setViewMode] = useState('map'); // 'map' | 'skill' | 'voice'
 
   // File upload extraction state
   const [extraction, setExtraction] = useState(null);
@@ -848,38 +849,44 @@ export default function App() {
           </div>
         ) : (
           <>
-            <SkillList
-              skills={skills}
-              currentId={currentSkill?.id}
-              onSelect={handleSelect}
-              onCreate={handleCreate}
-              onDelete={(skillId) => currentSolution?.id && deleteSkill(currentSolution.id, skillId)}
-              loading={loading}
-              solutions={solutions}
-              currentSolutionId={currentSolution?.id}
-              onSelectSolution={handleSelectSolution}
-              onCreateSolution={handleCreateSolution}
-              onDeleteSolution={deleteSolution}
-              selectedType={selectedType}
-              collapsed={sidebarCollapsed}
-              onToggleCollapse={() => setSidebarCollapsed(c => !c)}
-              embedded={embedded}
-              currentView={currentView}
-              onNavigateView={setCurrentView}
-              onOpenSettings={openSettings}
-              onOpenAgentApi={() => setShowAgentApiModal(true)}
-              onDownloadTemplate={handleDownloadGenericTemplate}
-              apiConfigured={apiConfigured}
-            />
+            {/* Only show SkillList sidebar when on the map view */}
+            {viewMode === 'map' && (
+              <SkillList
+                skills={skills}
+                currentId={currentSkill?.id}
+                onSelect={handleSelect}
+                onCreate={handleCreate}
+                onDelete={(skillId) => currentSolution?.id && deleteSkill(currentSolution.id, skillId)}
+                loading={loading}
+                solutions={solutions}
+                currentSolutionId={currentSolution?.id}
+                onSelectSolution={handleSelectSolution}
+                onCreateSolution={handleCreateSolution}
+                onDeleteSolution={deleteSolution}
+                selectedType={selectedType}
+                collapsed={sidebarCollapsed}
+                onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+                embedded={embedded}
+                currentView={currentView}
+                onNavigateView={setCurrentView}
+                onOpenSettings={openSettings}
+                onOpenAgentApi={() => setShowAgentApiModal(true)}
+                onDownloadTemplate={handleDownloadGenericTemplate}
+                apiConfigured={apiConfigured}
+              />
+            )}
 
             {selectedType === 'solution' && currentSolution ? (
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-                {viewMode === 'map' ? (
+                {viewMode === 'voice' ? (
+                  <VoiceView onClose={() => setViewMode('map')} />
+                ) : viewMode === 'map' ? (
                   <MapWorkspace
                     solution={currentSolution}
                     sidebarSkills={skills}
                     onSkillClick={handleSelect}
                     onConnectorClick={() => setCurrentView('connectors')}
+                    onGoVoice={() => setViewMode('voice')}
                   />
                 ) : viewMode === 'skill' && currentSkill ? (
                   <SkillDetailView
@@ -890,6 +897,7 @@ export default function App() {
                     onGoHome={() => {
                       setViewMode('map');
                     }}
+                    onGoVoice={() => setViewMode('voice')}
                     onExport={handleExport}
                     onAskAbout={(topicOrPrompt, isRawPrompt) => {
                       if (isRawPrompt) {
@@ -914,29 +922,32 @@ export default function App() {
                     sidebarSkills={skills}
                     onSkillClick={handleSelect}
                     onConnectorClick={() => setCurrentView('connectors')}
+                    onGoVoice={() => setViewMode('voice')}
                   />
                 )}
 
-                {/* Floating chat overlay */}
-                <FloatingChat
-                  messages={viewMode === 'skill' ? messages : solutionMessages}
-                  onSendMessage={viewMode === 'skill' ? handleSendMessage : handleSendSolutionMessage}
-                  onFileUpload={viewMode === 'skill' ? handleFileUpload : undefined}
-                  sending={sending}
-                  skillName={currentSkill?.name || ''}
-                  solutionName={currentSolution.name}
-                  inputHint={inputHint}
-                  skill={viewMode === 'skill' ? currentSkill : currentSolution}
-                  onFocusChange={setUiFocus}
-                  solution={currentSolution}
-                  solutionSkills={currentSolution.skills || []}
-                  onSelectSkill={handleSelect}
-                  currentSkillId={currentSkill?.id}
-                  contextLabel={contextLabel}
-                  onContextClick={handleContextClick}
-                  onContextClear={handleContextClear}
-                  onSimplifyMessage={handleSimplifyMessage}
-                />
+                {/* Floating chat overlay — not shown in voice view */}
+                {viewMode !== 'voice' && (
+                  <FloatingChat
+                    messages={viewMode === 'skill' ? messages : solutionMessages}
+                    onSendMessage={viewMode === 'skill' ? handleSendMessage : handleSendSolutionMessage}
+                    onFileUpload={viewMode === 'skill' ? handleFileUpload : undefined}
+                    sending={sending}
+                    skillName={currentSkill?.name || ''}
+                    solutionName={currentSolution.name}
+                    inputHint={inputHint}
+                    skill={viewMode === 'skill' ? currentSkill : currentSolution}
+                    onFocusChange={setUiFocus}
+                    solution={currentSolution}
+                    solutionSkills={currentSolution.skills || []}
+                    onSelectSkill={handleSelect}
+                    currentSkillId={currentSkill?.id}
+                    contextLabel={contextLabel}
+                    onContextClick={handleContextClick}
+                    onContextClear={handleContextClear}
+                    onSimplifyMessage={handleSimplifyMessage}
+                  />
+                )}
               </div>
             ) : currentSkill ? (
               <ResizableSplit

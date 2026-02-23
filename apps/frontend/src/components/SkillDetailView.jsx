@@ -75,6 +75,7 @@ export default function SkillDetailView({
   focus,
   onFocusChange,
   onGoHome,
+  onGoVoice,
   onExport,
   onAskAbout,
   onIssuesChange,
@@ -106,6 +107,7 @@ export default function SkillDetailView({
         activeTab={activeTab}
         onTabChange={handleTabChange}
         onGoHome={onGoHome}
+        onGoVoice={onGoVoice}
         getTabBadge={getTabBadge}
         skill={skill}
       />
