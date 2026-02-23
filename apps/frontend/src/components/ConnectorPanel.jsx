@@ -365,7 +365,7 @@ if (typeof document !== 'undefined' && !document.getElementById('connector-spinn
   document.head.appendChild(style);
 }
 
-export default function ConnectorPanel({ skillId, onToolsImported, standalone = false }) {
+export default function ConnectorPanel({ skillId, onToolsImported, standalone = false, solution }) {
   const [activeConnections, setActiveConnections] = useState([]);
   const [prebuiltConnectors, setPrebuiltConnectors] = useState([]);
   const [connectingId, setConnectingId] = useState(null); // Track which connector is connecting
@@ -381,6 +381,7 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
   // Section expansion state
   const [expanded, setExpanded] = useState({
     active: true,
+    solutionConns: true,
     available: true,
     custom: false,
     tools: true
@@ -708,6 +709,43 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
 
   // Get set of connected connector IDs for quick lookup
   const connectedIds = new Set(activeConnections.map(c => c.id));
+
+  // Extract solution-level connectors (A-Team section)
+  const solutionName = solution?.name || solution?.identity?.name || '';
+  const solutionConnectors = (() => {
+    if (!solution) return [];
+    const platformConns = solution.platform_connectors || [];
+    // Also gather connector IDs from skills that aren't in platform_connectors
+    const platformIds = new Set(platformConns.map(c => c.id));
+    const skillConnIds = new Set();
+    (solution.skills || []).forEach(s => {
+      (s.connectors || []).forEach(cId => {
+        if (!platformIds.has(cId)) skillConnIds.add(cId);
+      });
+    });
+    // Build combined list
+    const result = platformConns.map(c => ({
+      id: c.id,
+      description: c.description || '',
+      required: c.required || false,
+      usedBy: c.used_by || [],
+      source: 'platform'
+    }));
+    skillConnIds.forEach(cId => {
+      // Find which skills use this connector
+      const usedBy = (solution.skills || [])
+        .filter(s => (s.connectors || []).includes(cId))
+        .map(s => s.id);
+      result.push({
+        id: cId,
+        description: '',
+        required: false,
+        usedBy,
+        source: 'skill'
+      });
+    });
+    return result;
+  })();
 
   // Group connectors by category, EXCLUDING already connected ones
   // Connected connectors are shown in the "Active Connections" section at the top
@@ -1201,12 +1239,54 @@ export default function ConnectorPanel({ skillId, onToolsImported, standalone = 
         </div>
       )}
 
-      {/* Available Connectors (excluding already connected ones) */}
+      {/* A-Team / Solution Connectors */}
+      {solutionConnectors.length > 0 && (
+        <div style={{ ...styles.section, background: 'rgba(249, 115, 22, 0.05)', borderRadius: '8px', padding: '12px', marginBottom: '16px' }}>
+          <div style={styles.sectionHeader} onClick={() => toggleSection('solutionConns')}>
+            <div style={{ ...styles.sectionTitle, color: '#f97316' }}>
+              <span style={{ ...styles.expandIcon, transform: expanded.solutionConns ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
+              A-Team{solutionName ? ` / ${solutionName}` : ''} ({solutionConnectors.length})
+            </div>
+          </div>
+          {expanded.solutionConns && (
+            <div>
+              {solutionConnectors.map(conn => (
+                <div key={conn.id} style={{ ...styles.card, borderColor: 'rgba(249, 115, 22, 0.2)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)' }}>{conn.id}</span>
+                    {conn.required && (
+                      <span style={{ fontSize: '9px', fontWeight: '600', padding: '1px 5px', borderRadius: '3px', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>
+                        REQUIRED
+                      </span>
+                    )}
+                    <span style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: conn.source === 'platform' ? 'rgba(20, 184, 166, 0.15)' : 'rgba(245, 158, 11, 0.15)', color: conn.source === 'platform' ? '#14b8a6' : '#f59e0b' }}>
+                      {conn.source === 'platform' ? 'platform' : 'skill'}
+                    </span>
+                  </div>
+                  {conn.description && (
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>
+                      {conn.description}
+                    </p>
+                  )}
+                  {conn.usedBy.length > 0 && (
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Used by: {conn.usedBy.join(', ')}
+                    </div>
+                  )}
+                  <ADASStatusBadges connectorId={conn.id} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Public Connectors (excluding already connected ones) */}
       <div style={styles.section}>
         <div style={styles.sectionHeader} onClick={() => toggleSection('available')}>
           <div style={styles.sectionTitle}>
             <span style={{ ...styles.expandIcon, transform: expanded.available ? 'rotate(90deg)' : 'rotate(0deg)' }}>›</span>
-            Available Connectors ({availableCount})
+            Public Connectors ({availableCount})
           </div>
         </div>
         {expanded.available && (

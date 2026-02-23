@@ -830,7 +830,7 @@ export default function App() {
         {currentView === 'channels' ? (
           <TenantChannelsPage onClose={() => setCurrentView('skills')} />
         ) : currentView === 'connectors' ? (
-          <ConnectorsPage onClose={() => setCurrentView('skills')} />
+          <ConnectorsPage onClose={() => setCurrentView('skills')} solution={currentSolution} />
         ) : currentView === 'policies' ? (
           <PoliciesPage onClose={() => setCurrentView('skills')} />
         ) : currentView === 'llm-models' ? (

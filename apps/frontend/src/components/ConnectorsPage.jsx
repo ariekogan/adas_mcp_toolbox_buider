@@ -378,7 +378,7 @@ const RocketIcon = () => (
   </svg>
 );
 
-export default function ConnectorsPage({ onClose }) {
+export default function ConnectorsPage({ onClose, solution }) {
   const [selectedMCP, setSelectedMCP] = useState(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importJson, setImportJson] = useState('');
@@ -722,6 +722,7 @@ export default function ConnectorsPage({ onClose }) {
             skillId={null}
             onToolsImported={() => {}}
             standalone={true}
+            solution={solution}
           />
         </div>
       </div>
