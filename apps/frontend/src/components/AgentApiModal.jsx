@@ -3,6 +3,7 @@ import {
   getAgentApiStatus,
   startAgentApiTunnel,
   stopAgentApiTunnel,
+  rotateAgentApiKey,
   getTenant
 } from '../api/client';
 
@@ -266,6 +267,8 @@ export default function AgentApiModal({ onClose }) {
   const [copied, setCopied] = useState(null);
   const [showKey, setShowKey] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [confirmRotate, setConfirmRotate] = useState(false);
 
   const tenant = getTenant();
   const isCloudflare = status?.provider === 'cloudflare';
@@ -309,6 +312,22 @@ export default function AgentApiModal({ onClose }) {
       setError(err.message || 'Failed to stop tunnel');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleRotateKey = async () => {
+    setRotating(true);
+    setError(null);
+    try {
+      const result = await rotateAgentApiKey();
+      setStatus(prev => ({ ...prev, apiKey: result.apiKey }));
+      setShowKey(true);
+      setConfirmRotate(false);
+      setCopied(null);
+    } catch (err) {
+      setError(err.message || 'Failed to generate new key');
+    } finally {
+      setRotating(false);
     }
   };
 
@@ -372,7 +391,52 @@ export default function AgentApiModal({ onClose }) {
                       >
                         {showKey ? 'Hide' : 'Reveal'}
                       </button>
+                      <button
+                        style={styles.smallBtn}
+                        onClick={() => setConfirmRotate(true)}
+                      >
+                        Generate New
+                      </button>
                     </div>
+
+                    {/* Confirm rotation */}
+                    {confirmRotate && (
+                      <div style={{
+                        marginTop: '10px',
+                        padding: '10px 12px',
+                        background: 'rgba(239, 68, 68, 0.08)',
+                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                        borderRadius: '6px',
+                        fontSize: '13px'
+                      }}>
+                        <div style={{ color: '#ef4444', fontWeight: 500, marginBottom: '6px' }}>
+                          This will invalidate the current key.
+                        </div>
+                        <div style={{ color: 'var(--text-muted)', marginBottom: '8px', fontSize: '12px' }}>
+                          Any agents using the old key will stop working.
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            style={{
+                              ...styles.actionBtn,
+                              background: '#ef4444',
+                              color: 'white',
+                              opacity: rotating ? 0.6 : 1
+                            }}
+                            onClick={handleRotateKey}
+                            disabled={rotating}
+                          >
+                            {rotating ? 'Generating...' : 'Confirm'}
+                          </button>
+                          <button
+                            style={{ ...styles.actionBtn, background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                            onClick={() => setConfirmRotate(false)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div style={styles.hint}>
                     When an AI agent asks you to authenticate, paste this key. It identifies your account and tenant.
