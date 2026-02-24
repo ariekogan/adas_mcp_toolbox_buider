@@ -845,6 +845,116 @@ router.get('/solutions/:solutionId/skills/:skillId/validate', async (req, res) =
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// DEVELOPER TOOLS — Execution Logs, Testing, Metrics, Connector Source, Diff
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /deploy/solutions/:solutionId/logs — Execution logs
+ * Query: ?skill_id=X&limit=10&job_id=X
+ */
+router.get('/solutions/:solutionId/logs', async (req, res) => {
+  try {
+    const qs = new URLSearchParams();
+    if (req.query.skill_id) qs.set('skill_id', req.query.skill_id);
+    if (req.query.limit) qs.set('limit', req.query.limit);
+    if (req.query.job_id) qs.set('job_id', req.query.job_id);
+    const qsStr = qs.toString() ? `?${qs}` : '';
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/logs${qsStr}`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Get execution logs error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * POST /deploy/solutions/:solutionId/skills/:skillId/test — Test a skill
+ * Body: { message: string }
+ */
+router.post('/solutions/:solutionId/skills/:skillId/test', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}/test`, {
+      method: 'POST',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(90000), // 90s — allows 60s polling + overhead
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Test skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/metrics — Execution metrics
+ * Query: ?job_id=X or ?skill_id=X
+ */
+router.get('/solutions/:solutionId/metrics', async (req, res) => {
+  try {
+    const qs = new URLSearchParams();
+    if (req.query.job_id) qs.set('job_id', req.query.job_id);
+    if (req.query.skill_id) qs.set('skill_id', req.query.skill_id);
+    if (req.query.limit) qs.set('limit', req.query.limit);
+    const qsStr = qs.toString() ? `?${qs}` : '';
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/metrics${qsStr}`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Get metrics error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/connectors/:connectorId/source — Connector source code
+ */
+router.get('/solutions/:solutionId/connectors/:connectorId/source', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const connId = encodeURIComponent(req.params.connectorId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/connectors/${connId}/source`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Get connector source error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/diff — Compare Builder vs Core
+ * Query: ?skill_id=X (optional)
+ */
+router.get('/solutions/:solutionId/diff', async (req, res) => {
+  try {
+    const qs = req.query.skill_id ? `?skill_id=${encodeURIComponent(req.query.skill_id)}` : '';
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/diff${qs}`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Diff error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
 export default router;
 
 // ═══════════════════════════════════════════════════════════════════════════

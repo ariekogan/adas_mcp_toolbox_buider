@@ -888,6 +888,290 @@ What would you like to work on?`;
   }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// EXTERNAL AGENT API — Execution Logs, Testing, Metrics, Connectors
+// (Proxied to ADAS Core for fleet developer agents)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/solutions/:id/logs — Execution logs (list jobs or single job detail)
+ * Query: ?skill_id=X&limit=10&job_id=X
+ */
+router.get('/:id/logs', async (req, res, next) => {
+  try {
+    const { skill_id, job_id, limit = '10' } = req.query;
+
+    // Single job detail
+    if (job_id) {
+      const data = await adasCore.getJobDetails(job_id, skill_id || null);
+      return res.json({ ok: true, ...data });
+    }
+
+    // List jobs (optionally filtered by skill)
+    // Resolve skill_id to skillSlug if needed
+    let skillSlug = skill_id || null;
+    if (skillSlug) {
+      try {
+        const skill = await skillsStore.load(req.params.id, skillSlug);
+        skillSlug = skill.slug || skill.id;
+      } catch {
+        // Use skill_id as-is if lookup fails
+      }
+    }
+
+    const data = await adasCore.listJobs({ skillSlug, limit: Number(limit) });
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    if (err.status === 502 || err.message?.includes('fetch failed')) {
+      return res.status(502).json({ ok: false, error: 'ADAS Core unreachable', details: err.message });
+    }
+    next(err);
+  }
+});
+
+/**
+ * POST /api/solutions/:id/skills/:skillId/test — Test a skill with a message
+ * Body: { message: string }
+ * Starts a job, polls until done (up to 60s), returns result.
+ */
+router.post('/:id/skills/:skillId/test', async (req, res, next) => {
+  try {
+    const { message } = req.body;
+    if (!message) {
+      return res.status(400).json({ ok: false, error: 'message is required' });
+    }
+
+    // Resolve skill slug
+    let skillSlug;
+    try {
+      const skill = await skillsStore.load(req.params.id, req.params.skillId);
+      skillSlug = skill.slug || skill.id;
+    } catch {
+      skillSlug = req.params.skillId;
+    }
+
+    // Start the job
+    const startResult = await adasCore.startChat({ goal: message, skillSlug });
+    const jobId = startResult.jobId || startResult.id;
+
+    if (!jobId) {
+      return res.status(502).json({ ok: false, error: 'Failed to start job — no job ID returned' });
+    }
+
+    // Poll until done (max 60s, every 2s)
+    const startTime = Date.now();
+    const TIMEOUT = 60000;
+    const POLL_INTERVAL = 2000;
+    let job;
+
+    while (Date.now() - startTime < TIMEOUT) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+      try {
+        job = await adasCore.getJob(jobId);
+        if (job.done || job.status === 'done' || job.status === 'error' || job.status === 'failed') {
+          break;
+        }
+      } catch {
+        // Retry on transient errors
+      }
+    }
+
+    if (!job) {
+      return res.json({ ok: false, job_id: jobId, status: 'timeout', error: 'Job did not complete within 60s' });
+    }
+
+    // Extract useful info from the job
+    const steps = [];
+    const exec = job?.state?.steps?.__exec;
+    if (exec && typeof exec === 'object') {
+      for (const [, arr] of Object.entries(exec)) {
+        if (!Array.isArray(arr)) continue;
+        for (const s of arr) {
+          if (!s || typeof s.tool !== 'string') continue;
+          steps.push({ tool: s.tool, args: s.args || {}, result: s.result, error: s.error || null });
+        }
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    const status = job.status === 'done' ? 'completed' : job.status === 'error' || job.status === 'failed' ? 'failed' : job.status;
+
+    res.json({
+      ok: status === 'completed',
+      job_id: jobId,
+      skill_slug: skillSlug,
+      status,
+      result: job.summary || job.outcome || job.result || null,
+      steps,
+      duration_ms: duration,
+      error: job.error || job.state?.internal_error || null,
+    });
+  } catch (err) {
+    if (err.status === 502 || err.message?.includes('fetch failed')) {
+      return res.status(502).json({ ok: false, error: 'ADAS Core unreachable', details: err.message });
+    }
+    next(err);
+  }
+});
+
+/**
+ * GET /api/solutions/:id/metrics — Execution metrics (per job or per skill)
+ * Query: ?job_id=X or ?skill_id=X&limit=5
+ */
+router.get('/:id/metrics', async (req, res, next) => {
+  try {
+    const { job_id, skill_id } = req.query;
+
+    if (job_id) {
+      // Single job insight
+      const data = await adasCore.getInsightJob(job_id, 0);
+      return res.json({ ok: true, ...data });
+    }
+
+    if (skill_id) {
+      // List recent jobs for the skill, then get insights for the most recent
+      let skillSlug = skill_id;
+      try {
+        const skill = await skillsStore.load(req.params.id, skill_id);
+        skillSlug = skill.slug || skill.id;
+      } catch {
+        // Use as-is
+      }
+
+      const jobsData = await adasCore.listJobs({ skillSlug, limit: 5 });
+      const jobs = jobsData.jobs || [];
+
+      if (jobs.length === 0) {
+        return res.json({ ok: true, jobs: [], message: 'No recent jobs found for this skill' });
+      }
+
+      // Get insight for the most recent job
+      const recentJobId = jobs[0]?.id;
+      let insight = null;
+      if (recentJobId) {
+        try {
+          insight = await adasCore.getInsightJob(recentJobId, 0);
+        } catch {
+          // Insight may not be available
+        }
+      }
+
+      return res.json({
+        ok: true,
+        skill_id,
+        recent_jobs: jobs,
+        latest_insight: insight,
+      });
+    }
+
+    return res.status(400).json({ ok: false, error: 'Provide job_id or skill_id' });
+  } catch (err) {
+    if (err.status === 502 || err.message?.includes('fetch failed')) {
+      return res.status(502).json({ ok: false, error: 'ADAS Core unreachable', details: err.message });
+    }
+    next(err);
+  }
+});
+
+/**
+ * GET /api/solutions/:id/connectors/:connectorId/source — Connector source code
+ */
+router.get('/:id/connectors/:connectorId/source', async (req, res, next) => {
+  try {
+    const data = await adasCore.getConnectorSource(req.params.connectorId);
+    res.json({ ok: true, connector_id: req.params.connectorId, ...data });
+  } catch (err) {
+    if (err.status === 404) {
+      return res.status(404).json({ ok: false, error: `Connector source not found: ${req.params.connectorId}` });
+    }
+    if (err.status === 502 || err.message?.includes('fetch failed')) {
+      return res.status(502).json({ ok: false, error: 'ADAS Core unreachable', details: err.message });
+    }
+    next(err);
+  }
+});
+
+/**
+ * GET /api/solutions/:id/diff — Compare Builder definition vs ADAS Core deployed state
+ * Query: ?skill_id=X (optional — diff single skill, otherwise diff solution)
+ */
+router.get('/:id/diff', async (req, res, next) => {
+  try {
+    const { skill_id } = req.query;
+    const solutionId = req.params.id;
+
+    if (skill_id) {
+      // Diff a single skill: Builder FS vs Core
+      let builderSkill;
+      try {
+        builderSkill = await skillsStore.load(solutionId, skill_id);
+      } catch {
+        return res.status(404).json({ ok: false, error: `Skill not found in Builder: ${skill_id}` });
+      }
+
+      let coreSkills;
+      try {
+        coreSkills = await adasCore.getSkills();
+      } catch {
+        return res.status(502).json({ ok: false, error: 'Cannot reach ADAS Core to compare' });
+      }
+
+      const coreSkill = coreSkills.find(s =>
+        s.slug === (builderSkill.slug || builderSkill.id) ||
+        s.id === (builderSkill.slug || builderSkill.id)
+      );
+
+      if (!coreSkill) {
+        return res.json({ ok: true, changed: true, status: 'not_deployed', skill_id, message: 'Skill exists in Builder but not in Core' });
+      }
+
+      // Compare key fields
+      const changes = diffObjects(builderSkill, coreSkill, ['name', 'description', 'version', 'tools', 'intents', 'policy', 'connectors', 'prompt']);
+      return res.json({ ok: true, changed: changes.length > 0, skill_id, changes });
+    }
+
+    // Diff the solution
+    let builderSolution;
+    try {
+      builderSolution = await solutionsStore.load(solutionId);
+    } catch {
+      return res.status(404).json({ ok: false, error: 'Solution not found in Builder' });
+    }
+
+    // Compare skill count: Builder linked skills vs Core registered skills
+    let coreSkills;
+    try {
+      coreSkills = await adasCore.getSkills();
+    } catch {
+      return res.status(502).json({ ok: false, error: 'Cannot reach ADAS Core to compare' });
+    }
+
+    const builderSkillIds = (builderSolution.skills || []).map(s => s.id);
+    const coreSkillSlugs = coreSkills.map(s => s.slug || s.id);
+    const inBuilderNotCore = builderSkillIds.filter(id => !coreSkillSlugs.includes(id));
+    const inCoreNotBuilder = coreSkillSlugs.filter(slug => !builderSkillIds.includes(slug));
+
+    const changes = [];
+    if (inBuilderNotCore.length > 0) {
+      changes.push({ path: 'skills', type: 'not_deployed', ids: inBuilderNotCore, message: 'Skills in Builder but not deployed to Core' });
+    }
+    if (inCoreNotBuilder.length > 0) {
+      changes.push({ path: 'skills', type: 'orphaned', ids: inCoreNotBuilder, message: 'Skills in Core but not in Builder solution' });
+    }
+
+    res.json({
+      ok: true,
+      changed: changes.length > 0,
+      solution_id: solutionId,
+      builder_skills: builderSkillIds,
+      core_skills: coreSkillSlugs,
+      changes,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Mount validation sub-router
 router.use("/", validationRouter);
 
@@ -976,6 +1260,27 @@ function setNestedValue(obj, path, value) {
     return current[key];
   }, obj);
   target[lastKey] = value;
+}
+
+/**
+ * Compare two objects on specific fields, returning a list of changes.
+ */
+function diffObjects(builderObj, coreObj, fields) {
+  const changes = [];
+  for (const field of fields) {
+    const bVal = builderObj[field];
+    const cVal = coreObj[field];
+    const bJson = JSON.stringify(bVal ?? null);
+    const cJson = JSON.stringify(cVal ?? null);
+    if (bJson !== cJson) {
+      changes.push({
+        path: field,
+        builder_value: bVal ?? null,
+        core_value: cVal ?? null,
+      });
+    }
+  }
+  return changes;
 }
 
 export default router;

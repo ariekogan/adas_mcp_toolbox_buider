@@ -265,6 +265,71 @@ async function deleteAllConnectors() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// JOBS & EXECUTION LOGS (External Agent API)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * List jobs — summaries with status, timing, skill info.
+ */
+async function listJobs({ skillSlug, limit = 10, offset = 0 } = {}) {
+  const qs = new URLSearchParams();
+  if (skillSlug) qs.set('skillSlug', skillSlug);
+  qs.set('limit', String(limit));
+  qs.set('offset', String(offset));
+  return request(`/api/jobs?${qs}`);
+}
+
+/**
+ * Get full job details with iterations, tool calls, planner steps.
+ */
+async function getJobDetails(jobId, skillSlug) {
+  const qs = skillSlug ? `?skillSlug=${encodeURIComponent(skillSlug)}` : '';
+  return request(`/api/job/${encodeURIComponent(jobId)}/details${qs}`);
+}
+
+/**
+ * Get single job (lightweight).
+ */
+async function getJob(jobId) {
+  return request(`/api/job/${encodeURIComponent(jobId)}`);
+}
+
+/**
+ * Start a skill execution (test). Returns { ok, id, jobId, streamUrl }.
+ */
+async function startChat({ goal, skillSlug }) {
+  return request('/api/chat', {
+    method: 'POST',
+    body: { goal, skillSlug },
+    timeout: 30000,
+  });
+}
+
+/**
+ * Get job insight analysis — timing, toolStats, bottleneck, signals, recommendations.
+ */
+async function getInsightJob(jobId, level = 0) {
+  return request(`/api/insight/${encodeURIComponent(jobId)}?level=${level}`);
+}
+
+/**
+ * List conversations for a skill.
+ */
+async function listConversations({ skillSlug, limit = 20 } = {}) {
+  const qs = new URLSearchParams();
+  if (skillSlug) qs.set('skillSlug', skillSlug);
+  qs.set('page_size', String(limit));
+  return request(`/api/conversation?${qs}`);
+}
+
+/**
+ * Get connector source code from mcp-store.
+ */
+async function getConnectorSource(connectorId) {
+  return request(`/api/mcp-store/${encodeURIComponent(connectorId)}`);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════════════════════════
 
@@ -310,6 +375,14 @@ export default {
   callConnectorTool,
   uploadMcpCode,
   isAvailable,
+  // External Agent API — jobs, testing, insights
+  listJobs,
+  getJobDetails,
+  getJob,
+  startChat,
+  getInsightJob,
+  listConversations,
+  getConnectorSource,
 };
 
 export {
@@ -332,4 +405,12 @@ export {
   callConnectorTool,
   uploadMcpCode,
   isAvailable,
+  // External Agent API — jobs, testing, insights
+  listJobs,
+  getJobDetails,
+  getJob,
+  startChat,
+  getInsightJob,
+  listConversations,
+  getConnectorSource,
 };

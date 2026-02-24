@@ -102,5 +102,11 @@ app.listen(PORT, () => {
   console.log(`  POST /deploy/solutions/:id/redeploy — Bulk re-deploy all skills`);
   console.log(`  POST /deploy/solutions/:id/skills — Add skill to existing solution`);
   console.log(`  GET  /deploy/solutions/:id/export — Export solution bundle`);
+  console.log(`  --- Developer Tools ---`);
+  console.log(`  GET  /deploy/solutions/:id/logs   — Execution logs`);
+  console.log(`  POST /deploy/solutions/:id/skills/:sk/test — Test a skill`);
+  console.log(`  GET  /deploy/solutions/:id/metrics — Execution metrics`);
+  console.log(`  GET  /deploy/solutions/:id/connectors/:cid/source — Connector source`);
+  console.log(`  GET  /deploy/solutions/:id/diff   — Builder vs Core diff`);
   console.log(`  GET  /health                     — Health check`);
 });
