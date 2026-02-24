@@ -65,6 +65,12 @@ function buildIndex() {
       '9. GET /deploy/solutions/:id/skills/:skillId — read back individual skills to verify',
       '10. PATCH /deploy/solutions/:id/skills/:skillId — update skills incrementally (tools_push, tools_delete, etc.) without re-deploying everything',
       '11. POST /deploy/solutions/:id/skills/:skillId/redeploy — after PATCH, redeploy just that skill (regenerates MCP server, pushes to A-Team Core)',
+      '--- Operate & Debug ---',
+      '12. POST /deploy/solutions/:id/skills/:skillId/test — test a skill by sending a message and getting the full result',
+      '13. GET /deploy/solutions/:id/logs — view execution logs (job traces, tool calls, errors)',
+      '14. GET /deploy/solutions/:id/metrics — analyze execution metrics (timing, bottlenecks, signals)',
+      '15. GET /deploy/solutions/:id/diff — compare Builder definitions vs what is deployed in Core',
+      '16. GET /deploy/solutions/:id/connectors/:connectorId/source — inspect connector source code',
     ],
     endpoints: {
       '/spec/enums': {
@@ -129,6 +135,12 @@ function buildIndex() {
       'POST /deploy/solutions/:solutionId/redeploy': 'Re-deploy ALL skills at once — regenerates MCP servers and pushes to A-Team Core',
       'POST /deploy/solutions/:solutionId/skills': 'Add a new skill to an existing solution — creates, links, and updates solution topology',
       'GET /deploy/solutions/:solutionId/export': 'Export solution as a JSON bundle — compatible with POST /deploy/solution for re-import',
+      // Developer Tools
+      'GET /deploy/solutions/:solutionId/logs': 'Execution logs — recent jobs with step traces, tool calls, errors, timing. Query: ?skill_id=X&limit=10&job_id=X',
+      'POST /deploy/solutions/:solutionId/skills/:skillId/test': 'Test a skill — send a message, wait for result (up to 60s). Body: { message: "..." }',
+      'GET /deploy/solutions/:solutionId/metrics': 'Execution metrics — timing, bottlenecks, tool stats, signals. Query: ?job_id=X or ?skill_id=X',
+      'GET /deploy/solutions/:solutionId/connectors/:connectorId/source': 'Connector source code — read the MCP server files',
+      'GET /deploy/solutions/:solutionId/diff': 'Diff Builder vs Core — shows undeployed, orphaned, or changed skills. Query: ?skill_id=X',
       'GET /health': 'Health check',
     },
     deploy_guide: {
