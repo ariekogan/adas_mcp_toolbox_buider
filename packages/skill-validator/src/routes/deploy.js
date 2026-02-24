@@ -874,22 +874,64 @@ router.get('/solutions/:solutionId/logs', async (req, res) => {
 
 /**
  * POST /deploy/solutions/:solutionId/skills/:skillId/test — Test a skill
- * Body: { message: string }
+ * Body: { message: string, async?: boolean, timeout_ms?: number }
  */
 router.post('/solutions/:solutionId/skills/:skillId/test', async (req, res) => {
   try {
     const solId = encodeURIComponent(req.params.solutionId);
     const skillId = encodeURIComponent(req.params.skillId);
+    const isAsync = req.body?.async === true;
+    const timeoutMs = isAsync ? 15000 : Math.min((req.body?.timeout_ms || 60000) + 30000, 330000);
     const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}/test`, {
       method: 'POST',
       headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body),
-      signal: AbortSignal.timeout(90000), // 90s — allows 60s polling + overhead
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const data = await resp.json();
     res.status(resp.status).json(data);
   } catch (err) {
     console.error('[Deploy] Test skill error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/skills/:skillId/test/:jobId — Poll test progress
+ */
+router.get('/solutions/:solutionId/skills/:skillId/test/:jobId', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const jobId = encodeURIComponent(req.params.jobId);
+    const resp = await fetch(
+      `${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}/test/${jobId}`,
+      { headers: sbHeaders(req), signal: AbortSignal.timeout(15000) }
+    );
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Test status error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * DELETE /deploy/solutions/:solutionId/skills/:skillId/test/:jobId — Abort test
+ */
+router.delete('/solutions/:solutionId/skills/:skillId/test/:jobId', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const jobId = encodeURIComponent(req.params.jobId);
+    const resp = await fetch(
+      `${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}/test/${jobId}`,
+      { method: 'DELETE', headers: sbHeaders(req), signal: AbortSignal.timeout(15000) }
+    );
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Test abort error:', err.message);
     res.status(502).json({ ok: false, error: err.message });
   }
 });

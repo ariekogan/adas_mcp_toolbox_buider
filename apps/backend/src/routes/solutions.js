@@ -929,14 +929,43 @@ router.get('/:id/logs', async (req, res, next) => {
   }
 });
 
+/** Extract tool call steps from job's __exec state (same data Job Progress UI shows) */
+function extractSteps(job) {
+  const steps = [];
+  const exec = job?.state?.steps?.__exec;
+  if (exec && typeof exec === 'object') {
+    for (const [, arr] of Object.entries(exec)) {
+      if (!Array.isArray(arr)) continue;
+      for (const s of arr) {
+        if (!s || typeof s.tool !== 'string') continue;
+        steps.push({ tool: s.tool, args: s.args || {}, result: s.result, error: s.error || null });
+      }
+    }
+  }
+  return steps;
+}
+
+/** Check if a job is in a terminal state */
+function isJobFinal(job) {
+  return job.done || job.status === 'done' || job.status === 'error' || job.status === 'failed';
+}
+
+/** Map job.status to a cleaner status string */
+function mapJobStatus(job) {
+  if (job.status === 'done') return 'completed';
+  if (job.status === 'error' || job.status === 'failed') return 'failed';
+  return job.status || 'running';
+}
+
 /**
  * POST /api/solutions/:id/skills/:skillId/test — Test a skill with a message
- * Body: { message: string }
- * Starts a job, polls until done (up to 60s), returns result.
+ * Body: { message: string, async?: boolean, timeout_ms?: number }
+ * async=true: returns job_id immediately. Poll GET .../test/:jobId for progress.
+ * async=false (default): starts job, polls until done, returns result.
  */
 router.post('/:id/skills/:skillId/test', async (req, res, next) => {
   try {
-    const { message } = req.body;
+    const { message, async: asyncMode, timeout_ms } = req.body;
     if (!message) {
       return res.status(400).json({ ok: false, error: 'message is required' });
     }
@@ -958,43 +987,40 @@ router.post('/:id/skills/:skillId/test', async (req, res, next) => {
       return res.status(502).json({ ok: false, error: 'Failed to start job — no job ID returned' });
     }
 
-    // Poll until done (max 60s, every 2s)
-    const startTime = Date.now();
-    const TIMEOUT = 60000;
+    // ── ASYNC MODE: return immediately ──
+    if (asyncMode === true) {
+      return res.json({
+        ok: true,
+        job_id: jobId,
+        skill_slug: skillSlug,
+        status: 'running',
+        message: 'Job started. Poll GET .../test/' + jobId + ' for progress.',
+      });
+    }
+
+    // ── SYNC MODE (default, backward compatible) ──
+    const TIMEOUT = Math.min(timeout_ms || 60000, 300000);
     const POLL_INTERVAL = 2000;
+    const startTime = Date.now();
     let job;
 
     while (Date.now() - startTime < TIMEOUT) {
       await new Promise(r => setTimeout(r, POLL_INTERVAL));
       try {
         job = await adasCore.getJob(jobId);
-        if (job.done || job.status === 'done' || job.status === 'error' || job.status === 'failed') {
-          break;
-        }
+        if (isJobFinal(job)) break;
       } catch {
         // Retry on transient errors
       }
     }
 
     if (!job) {
-      return res.json({ ok: false, job_id: jobId, status: 'timeout', error: 'Job did not complete within 60s' });
+      return res.json({ ok: false, job_id: jobId, status: 'timeout', error: `Job did not complete within ${TIMEOUT / 1000}s` });
     }
 
-    // Extract useful info from the job
-    const steps = [];
-    const exec = job?.state?.steps?.__exec;
-    if (exec && typeof exec === 'object') {
-      for (const [, arr] of Object.entries(exec)) {
-        if (!Array.isArray(arr)) continue;
-        for (const s of arr) {
-          if (!s || typeof s.tool !== 'string') continue;
-          steps.push({ tool: s.tool, args: s.args || {}, result: s.result, error: s.error || null });
-        }
-      }
-    }
-
+    const steps = extractSteps(job);
     const duration = Date.now() - startTime;
-    const status = job.status === 'done' ? 'completed' : job.status === 'error' || job.status === 'failed' ? 'failed' : job.status;
+    const status = mapJobStatus(job);
 
     res.json({
       ok: status === 'completed',
@@ -1007,6 +1033,62 @@ router.post('/:id/skills/:skillId/test', async (req, res, next) => {
       error: job.error || job.state?.internal_error || null,
     });
   } catch (err) {
+    if (err.status === 502 || err.message?.includes('fetch failed')) {
+      return res.status(502).json({ ok: false, error: 'ADAS Core unreachable', details: err.message });
+    }
+    next(err);
+  }
+});
+
+/**
+ * GET /api/solutions/:id/skills/:skillId/test/:jobId — Poll test progress
+ * Returns progress derived from in-memory job snapshot (same data Job Progress UI shows).
+ */
+router.get('/:id/skills/:skillId/test/:jobId', async (req, res, next) => {
+  try {
+    const job = await adasCore.getJob(req.params.jobId);
+
+    if (!job || job.status === 'unknown') {
+      return res.status(404).json({ ok: false, error: 'Job not found or expired from memory' });
+    }
+
+    const done = isJobFinal(job);
+    const steps = extractSteps(job);
+    const status = mapJobStatus(job);
+
+    res.json({
+      ok: done ? status === 'completed' : null,
+      job_id: req.params.jobId,
+      status,
+      done,
+      iteration: job.state?.plannerIter || 0,
+      steps,
+      pending_question: job.state?.pendingQuestion || null,
+      result: done ? (job.summary || job.outcome || job.result || null) : null,
+      error: job.error || job.state?.internal_error || null,
+      elapsed_ms: job.lastUpdate && job.createdAt
+        ? job.lastUpdate - job.createdAt
+        : null,
+    });
+  } catch (err) {
+    if (err.status === 502 || err.message?.includes('fetch failed')) {
+      return res.status(502).json({ ok: false, error: 'ADAS Core unreachable', details: err.message });
+    }
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/solutions/:id/skills/:skillId/test/:jobId — Abort a running test
+ */
+router.delete('/:id/skills/:skillId/test/:jobId', async (req, res, next) => {
+  try {
+    const result = await adasCore.abortJob(req.params.jobId);
+    res.json(result);
+  } catch (err) {
+    if (err.status === 404) {
+      return res.status(404).json({ ok: false, error: 'Job not found' });
+    }
     if (err.status === 502 || err.message?.includes('fetch failed')) {
       return res.status(502).json({ ok: false, error: 'ADAS Core unreachable', details: err.message });
     }

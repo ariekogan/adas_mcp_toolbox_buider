@@ -323,6 +323,16 @@ async function listConversations({ skillSlug, limit = 20 } = {}) {
 }
 
 /**
+ * Abort a running job.
+ */
+async function abortJob(jobId) {
+  return request(`/api/job/${encodeURIComponent(jobId)}/abort`, {
+    method: 'POST',
+    timeout: 10000,
+  });
+}
+
+/**
  * Get connector source code from mcp-store.
  */
 async function getConnectorSource(connectorId) {
@@ -380,6 +390,7 @@ export default {
   getJobDetails,
   getJob,
   startChat,
+  abortJob,
   getInsightJob,
   listConversations,
   getConnectorSource,
@@ -410,6 +421,7 @@ export {
   getJobDetails,
   getJob,
   startChat,
+  abortJob,
   getInsightJob,
   listConversations,
   getConnectorSource,
