@@ -1245,13 +1245,17 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
           mcpUri: deployResult.mcpUri,
           tools: deployResult.tools ?? null,
           toolNames: deployResult.toolNames || [],
+          hasGetSkillDefinition: deployResult.hasGetSkillDefinition ?? false,
+          warnings: deployResult.warnings || undefined,
         });
         sendEvent('skill_progress', {
           skillId: skillRef.id, status: 'done', step: 'done',
           mcpUri: deployResult.mcpUri,
           tools: deployResult.tools ?? null,
           toolNames: deployResult.toolNames || [],
-          message: `Deployed (${deployResult.tools ?? '?'} tools)`,
+          hasGetSkillDefinition: deployResult.hasGetSkillDefinition ?? false,
+          warnings: deployResult.warnings || undefined,
+          message: `Deployed (${deployResult.tools ?? '?'} tools, get_skill_definition: ${deployResult.hasGetSkillDefinition ? 'OK' : 'MISSING'})`,
         });
 
       } catch (err) {

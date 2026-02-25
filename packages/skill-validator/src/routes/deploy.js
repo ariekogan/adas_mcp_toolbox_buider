@@ -1152,6 +1152,17 @@ async function consumeDeploySSE(packageName, req) {
             deploy_log: r.deploy_log || null,
           })),
       }),
+      // Surface skill warnings (e.g. missing get_skill_definition)
+      ...(sResults.some(r => r.warnings?.length) && {
+        skill_warnings: sResults
+          .filter(r => r.warnings?.length)
+          .map(r => ({
+            id: r.id,
+            tools: r.tools,
+            hasGetSkillDefinition: r.hasGetSkillDefinition ?? false,
+            warnings: r.warnings,
+          })),
+      }),
     };
   }
 
@@ -1173,6 +1184,8 @@ async function consumeDeploySSE(packageName, req) {
     .map(e => ({
       id: e.skillId, ok: e.status === 'done', mcpUri: e.mcpUri,
       tools: e.tools ?? null, toolNames: e.toolNames || [],
+      hasGetSkillDefinition: e.hasGetSkillDefinition ?? false,
+      warnings: e.warnings || undefined,
       error: e.error, deploy_log: e.deploy_log || undefined,
     }));
 

@@ -158,12 +158,23 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     throw enriched;
   }
 
-  // Post-deploy verification: check tool count from ADAS Core response
+  // Post-deploy verification: check tool count and get_skill_definition presence
   const deployedToolCount = result.tools ?? null;
+  const hasGetSkillDefinition = result.hasGetSkillDefinition ?? false;
+
   if (deployedToolCount === 0) {
-    log.warn(`[MCP Deploy] Skill "${skillSlug}" deployed but has 0 tools — may be broken`);
-  } else if (deployedToolCount !== null) {
-    log.info(`[MCP Deploy] Skill "${skillSlug}" verified: ${deployedToolCount} tools (${(result.toolNames || []).join(', ')})`);
+    log.warn(`[MCP Deploy] Skill "${skillSlug}" deployed but has 0 tools — ADAS Core cannot bootstrap this skill!`);
+  } else if (!hasGetSkillDefinition) {
+    log.warn(`[MCP Deploy] Skill "${skillSlug}" has ${deployedToolCount} tools but MISSING get_skill_definition — ADAS Core cannot load skill config!`);
+  } else {
+    log.info(`[MCP Deploy] Skill "${skillSlug}" verified: ${deployedToolCount} tools (${(result.toolNames || []).join(', ')}), get_skill_definition: OK`);
+  }
+
+  // Surface ADAS Core warnings
+  if (result.warnings?.length) {
+    for (const w of result.warnings) {
+      log.warn(`[MCP Deploy] ADAS Core warning: ${w}`);
+    }
   }
 
   // Register skill definition in ADAS Core so it appears in GET /api/skills
@@ -306,6 +317,8 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     mcpUri: result.mcpUri, port: result.port, connectorId: result.connectorId,
     tools: deployedToolCount,
     toolNames: result.toolNames || [],
+    hasGetSkillDefinition,
+    ...(result.warnings?.length ? { warnings: result.warnings } : {}),
     connectors: connectorResults, adasResponse: result,
     message: `Skill "${skillSlug}" deployed to ADAS Core and running!`
   };
