@@ -2,7 +2,7 @@ import skillsStore from "../store/skills.js";
 import solutionsStore from "../store/solutions.js";
 import { getAllPrebuiltConnectors } from "../routes/connectors.js";
 import { generateMCPSimple } from "./mcpGenerationAgent.js";
-import { syncConnectorToADAS, startConnectorInADAS } from "./adasConnectorSync.js";
+import { syncConnectorToADAS, startConnectorInADAS, uploadMcpCodeToADAS } from "./adasConnectorSync.js";
 import { buildConnectorPayload } from "../utils/connectorPayload.js";
 import { compileUiPlugins } from "../utils/skillFieldHelpers.js";
 import adasCore from "./adasCoreClient.js";
@@ -214,6 +214,19 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     log.info(`[MCP Deploy] Syncing ${linkedConnectors.length} linked connectors: ${linkedConnectors.join(', ')}`);
     const allConnectors = getAllPrebuiltConnectors();
 
+    // Resolve mcp-store path for connector source code upload.
+    // Full deploy writes source code to solution-packs/<name>/mcp-store/<connectorId>/.
+    // On redeploy, re-upload so updated source code reaches ADAS Core.
+    let mcpStoreBase = null;
+    try {
+      const { getMemoryRoot } = await import('../utils/tenantContext.js');
+      const solution = await solutionsStore.load(solutionId);
+      const solutionName = solution?.name || solutionId;
+      mcpStoreBase = path.join(getMemoryRoot(), 'solution-packs', solutionName, 'mcp-store');
+    } catch {
+      // Non-fatal: source code upload is best-effort
+    }
+
     for (const connectorId of linkedConnectors) {
       const connector = allConnectors[connectorId];
       if (!connector) {
@@ -221,6 +234,20 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
         continue;
       }
       try {
+        // Upload connector source code to ADAS Core mcp-store (if available)
+        if (mcpStoreBase) {
+          const mcpCodeDir = path.join(mcpStoreBase, connectorId);
+          try {
+            const { default: fsSync } = await import('fs');
+            if (fsSync.existsSync(mcpCodeDir)) {
+              await uploadMcpCodeToADAS(connectorId, mcpCodeDir);
+              log.info(`[MCP Deploy] Uploaded mcp-store for "${connectorId}"`);
+            }
+          } catch (uploadErr) {
+            log.warn(`[MCP Deploy] mcp-store upload for "${connectorId}" failed (non-fatal): ${uploadErr.message}`);
+          }
+        }
+
         await syncConnectorToADAS(buildConnectorPayload({ id: connectorId, ...connector }));
         const startResult = await startConnectorInADAS(connectorId);
         const toolCount = startResult?.tools?.length || 0;
