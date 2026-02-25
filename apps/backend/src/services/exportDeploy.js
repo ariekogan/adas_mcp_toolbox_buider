@@ -248,14 +248,47 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
           }
         }
 
-        await syncConnectorToADAS(buildConnectorPayload({ id: connectorId, ...connector }));
-        const startResult = await startConnectorInADAS(connectorId);
+        const payload = buildConnectorPayload({ id: connectorId, ...connector });
+        await syncConnectorToADAS(payload);
+
+        // Pass transport hint so startConnectorInADAS can detect stdio failures
+        const startResult = await startConnectorInADAS(connectorId, {
+          transport: payload.transport || (connector.command ? 'stdio' : 'http'),
+        });
         const toolCount = startResult?.tools?.length || 0;
-        log.info(`[MCP Deploy] Connector "${connectorId}" started: ${toolCount} tools`);
-        connectorResults.push({ id: connectorId, ok: true, tools: toolCount });
+
+        // Check if startConnectorInADAS flagged a failure (0 tools on stdio)
+        if (startResult?.ok === false) {
+          log.warn(`[MCP Deploy] Connector "${connectorId}" FAILED: ${startResult.message}`);
+          connectorResults.push({
+            id: connectorId,
+            ok: false,
+            tools: 0,
+            error: startResult.error || 'connector_start_failed',
+            message: startResult.message,
+            diagnostic: startResult.diagnostic || null,
+          });
+        } else if (startResult?.warning === 'zero_tools') {
+          log.warn(`[MCP Deploy] Connector "${connectorId}" WARNING: ${startResult.message}`);
+          connectorResults.push({
+            id: connectorId,
+            ok: true,
+            tools: 0,
+            warning: startResult.message,
+            diagnostic: startResult.diagnostic || null,
+          });
+        } else {
+          log.info(`[MCP Deploy] Connector "${connectorId}" started: ${toolCount} tools`);
+          connectorResults.push({ id: connectorId, ok: true, tools: toolCount });
+        }
       } catch (err) {
         log.warn(`[MCP Deploy] Connector "${connectorId}" failed: ${err.message}`);
-        connectorResults.push({ id: connectorId, ok: false, error: err.message });
+        connectorResults.push({
+          id: connectorId,
+          ok: false,
+          error: err.message,
+          diagnostic: err.diagnostic || null,
+        });
       }
     }
   }

@@ -151,12 +151,35 @@ async function syncConnector(payload) {
 
 /**
  * Start (connect) a connector — triggers MCPGateway to spawn it.
+ * Returns { ok, tools, status, error?, stderr? } from ADAS Core.
  */
 async function startConnector(connectorId) {
   return request(`/api/connectors/${connectorId}/connect`, {
     method: 'POST',
     timeout: 30000,
   });
+}
+
+/**
+ * Fetch connector details from ADAS Core (status, tools, error, stderr).
+ * Useful for diagnosing why a connector has 0 tools after start.
+ */
+async function getConnectorDiagnostics(connectorId) {
+  try {
+    const data = await request(`/api/connectors/${connectorId}`);
+    const c = data.connector || data;
+    return {
+      id: connectorId,
+      status: c.status || 'unknown',
+      transport: c.transport || null,
+      tools: c.tools || [],
+      error: c.error || null,
+      stderr: c.stderr || c.lastError || null,
+      config: c.config || null,
+    };
+  } catch (err) {
+    return { id: connectorId, status: 'unreachable', error: err.message };
+  }
 }
 
 /**
@@ -373,6 +396,7 @@ export default {
   importSkill,
   importSkillPayload,
   getConnector,
+  getConnectorDiagnostics,
   syncConnector,
   startConnector,
   stopConnector,
@@ -404,6 +428,7 @@ export {
   importSkill,
   importSkillPayload,
   getConnector,
+  getConnectorDiagnostics,
   syncConnector,
   startConnector,
   stopConnector,

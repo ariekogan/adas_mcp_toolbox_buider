@@ -86,15 +86,88 @@ export async function syncConnectorToADAS(connector) {
 
 /**
  * Start a connector in ADAS (trigger MCPGateway to spawn it).
+ *
+ * Enhanced: detects silent failures (ok:true but 0 tools for stdio connectors).
+ * When 0 tools are discovered, fetches diagnostics from ADAS Core to capture
+ * stderr, error messages, and config details so the developer can debug.
+ *
+ * @param {string} connectorId
+ * @param {object} [opts] - Options
+ * @param {string} [opts.transport] - Transport type ('stdio'|'http'). If 'stdio' and 0 tools, treated as failure.
+ * @returns {Promise<object>} Start result with tools array and optional diagnostics
  */
-export async function startConnectorInADAS(connectorId) {
+export async function startConnectorInADAS(connectorId, opts = {}) {
   try {
     const data = await adasCore.startConnector(connectorId);
-    console.log(`[ADASSync] Started connector ${connectorId} in ADAS: ${data.tools?.length || 0} tools`);
+    const toolCount = data.tools?.length || 0;
+    console.log(`[ADASSync] Started connector ${connectorId} in ADAS: ${toolCount} tools`);
+
+    // Detect silent failure: stdio connector with 0 tools is almost always broken
+    if (toolCount === 0) {
+      console.warn(`[ADASSync] Connector "${connectorId}" started with 0 tools — fetching diagnostics`);
+
+      // Fetch diagnostics to get stderr, error, and config details
+      const diag = await adasCore.getConnectorDiagnostics(connectorId);
+
+      // Determine transport from diagnostics or caller hint
+      const transport = opts.transport || diag.transport || 'unknown';
+      const isStdio = transport === 'stdio';
+
+      // Build diagnostic info
+      const diagnostic = {
+        tools_discovered: 0,
+        transport,
+        status: diag.status,
+        error: diag.error || data.error || null,
+        stderr: diag.stderr || data.stderr || null,
+        config: diag.config ? {
+          command: diag.config.command,
+          args: diag.config.args,
+        } : null,
+      };
+
+      if (isStdio) {
+        // For stdio connectors, 0 tools = failure
+        const errMsg = diagnostic.stderr || diagnostic.error || 'No tools discovered';
+        console.error(`[ADASSync] Connector "${connectorId}" FAILED (stdio, 0 tools): ${errMsg}`);
+
+        return {
+          ...data,
+          ok: false,
+          tools: [],
+          error: 'connector_start_failed',
+          message: `Connector "${connectorId}" started but discovered 0 tools. ` +
+            `This usually means the MCP server crashed on startup or the entry point is missing.`,
+          diagnostic,
+        };
+      } else {
+        // For HTTP connectors, 0 tools might be temporary (server still starting)
+        console.warn(`[ADASSync] Connector "${connectorId}" has 0 tools (transport: ${transport}) — may still be starting`);
+        return {
+          ...data,
+          warning: 'zero_tools',
+          message: `Connector "${connectorId}" is running but reports 0 tools. It may still be initializing.`,
+          diagnostic,
+        };
+      }
+    }
+
     return data;
   } catch (err) {
+    // Connection-level failure (HTTP error, timeout, etc.)
     console.error(`[ADASSync] Failed to start connector ${connectorId}:`, err.message);
-    throw err;
+
+    // Enrich with diagnostics if possible
+    let diagnostic = null;
+    try {
+      diagnostic = await adasCore.getConnectorDiagnostics(connectorId);
+    } catch { /* ignore — diagnostics are best-effort */ }
+
+    const enriched = new Error(err.message);
+    enriched.code = 'CONNECTOR_START_FAILED';
+    enriched.diagnostic = diagnostic;
+    enriched.data = err.data || {};
+    throw enriched;
   }
 }
 

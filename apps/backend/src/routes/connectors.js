@@ -62,6 +62,8 @@ router.post('/connect', async (req, res) => {
 
     // Sync to ADAS if enabled (allows ADAS to run the connector at runtime)
     let adasSynced = false;
+    let adasWarning = null;
+    let adasDiagnostic = null;
     if (syncToADAS) {
       try {
         const adasAvailable = await isADASAvailable();
@@ -78,9 +80,18 @@ router.post('/connect', async (req, res) => {
             credentials: env || {} // Credentials are encrypted by ADAS
           });
 
-          // Also start it in ADAS
-          await startConnectorInADAS(result.id);
-          adasSynced = true;
+          // Also start it in ADAS — now returns diagnostics on failure
+          const startResult = await startConnectorInADAS(result.id, { transport: 'stdio' });
+
+          if (startResult?.ok === false) {
+            // Connector started but failed (0 tools for stdio)
+            adasWarning = startResult.message;
+            adasDiagnostic = startResult.diagnostic;
+            console.warn(`[Connectors] ADAS connector ${result.id} started with issues: ${startResult.message}`);
+          } else {
+            adasSynced = true;
+          }
+
           console.log(`[Connectors] Synced connector ${result.id} to ADAS`);
         } else {
           console.log(`[Connectors] ADAS not available, skipping sync for ${result.id}`);
@@ -88,6 +99,8 @@ router.post('/connect', async (req, res) => {
       } catch (syncErr) {
         // Don't fail the request if ADAS sync fails
         console.error(`[Connectors] Failed to sync to ADAS:`, syncErr.message);
+        adasWarning = syncErr.message;
+        adasDiagnostic = syncErr.diagnostic || null;
       }
     }
 
@@ -102,11 +115,19 @@ router.post('/connect', async (req, res) => {
       syncedToADAS: adasSynced
     });
 
-    res.json({
+    const response = {
       success: true,
       connection: result,
       adasSynced
-    });
+    };
+
+    // Include ADAS warnings/diagnostics so the developer can see problems
+    if (adasWarning) {
+      response.adasWarning = adasWarning;
+      response.adasDiagnostic = adasDiagnostic;
+    }
+
+    res.json(response);
   } catch (err) {
     console.error('Failed to connect to MCP server:', err);
     const classified = classifyError(err, { connector: name || command });

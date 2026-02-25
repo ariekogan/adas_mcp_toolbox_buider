@@ -1075,15 +1075,47 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
         await syncConnectorToADAS(connectorPayload);
 
         sendEvent('connector_progress', { connectorId: mcp.id, status: 'deploying', step: 'connecting', message: 'Connecting...' });
-        const startResult = await startConnectorInADAS(mcp.id);
+
+        // Pass transport hint for 0-tools detection
+        const transport = connectorPayload.transport || (mcp.command ? 'stdio' : 'http');
+        const startResult = await startConnectorInADAS(mcp.id, { transport });
         const toolCount = startResult?.tools?.length || 0;
 
-        connectorResults.push({ id: mcp.id, ok: true, tools: toolCount });
-        sendEvent('connector_progress', { connectorId: mcp.id, status: 'done', step: 'done', tools: toolCount, message: `${toolCount} tools` });
+        // Check if startConnectorInADAS flagged a failure (0 tools on stdio)
+        if (startResult?.ok === false) {
+          connectorResults.push({
+            id: mcp.id, ok: false, tools: 0,
+            error: startResult.error || 'connector_start_failed',
+            message: startResult.message,
+            diagnostic: startResult.diagnostic || null,
+          });
+          sendEvent('connector_progress', {
+            connectorId: mcp.id, status: 'error', step: 'zero_tools',
+            tools: 0, error: startResult.error,
+            message: startResult.message,
+            diagnostic: startResult.diagnostic || null,
+          });
+        } else if (startResult?.warning === 'zero_tools') {
+          connectorResults.push({ id: mcp.id, ok: true, tools: 0, warning: startResult.message });
+          sendEvent('connector_progress', {
+            connectorId: mcp.id, status: 'warning', step: 'done',
+            tools: 0, warning: startResult.message, message: `0 tools (may still be starting)`,
+          });
+        } else {
+          connectorResults.push({ id: mcp.id, ok: true, tools: toolCount });
+          sendEvent('connector_progress', { connectorId: mcp.id, status: 'done', step: 'done', tools: toolCount, message: `${toolCount} tools` });
+        }
 
       } catch (err) {
-        connectorResults.push({ id: mcp.id, ok: false, error: err.message });
-        sendEvent('connector_progress', { connectorId: mcp.id, status: 'error', step: 'error', error: err.message, message: err.message });
+        connectorResults.push({
+          id: mcp.id, ok: false, error: err.message,
+          diagnostic: err.diagnostic || null,
+        });
+        sendEvent('connector_progress', {
+          connectorId: mcp.id, status: 'error', step: 'error',
+          error: err.message, message: err.message,
+          diagnostic: err.diagnostic || null,
+        });
       }
     }
 

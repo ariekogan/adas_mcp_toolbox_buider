@@ -102,15 +102,34 @@ router.post('/connector', async (req, res) => {
 
     // Find this connector's result
     const connResult = deployResult.connectorResults?.find(r => r.id === connector.id);
+    const toolCount = connResult?.tools || 0;
+    const isOk = connResult?.ok ?? false;
 
-    res.json({
-      ok: connResult?.ok ?? false,
+    // Build response with clear error signals
+    const response = {
+      ok: isOk,
       connector_id: connector.id,
       action: 'deployed_via_skill_builder',
-      started: connResult?.ok ?? false,
-      tools_discovered: connResult?.tools || 0,
-      deploy_summary: deployResult,
-    });
+      started: isOk,
+      tools_discovered: toolCount,
+    };
+
+    // Surface error details so the developer can debug
+    if (!isOk) {
+      response.error = connResult?.error || 'connector_start_failed';
+      response.message = connResult?.message ||
+        (toolCount === 0
+          ? `Connector "${connector.id}" started but discovered 0 tools. Check that the entry point exists and registers at least one tool.`
+          : `Connector "${connector.id}" failed to deploy.`);
+      if (connResult?.diagnostic) {
+        response.diagnostic = connResult.diagnostic;
+      }
+    } else if (toolCount === 0 && connResult?.warning) {
+      response.warning = connResult.warning;
+    }
+
+    response.deploy_summary = deployResult;
+    res.json(response);
   } catch (err) {
     console.error('[Deploy] Connector error:', err.message);
     res.status(502).json({ ok: false, error: err.message, skill_builder_url: SKILL_BUILDER_URL });
@@ -1032,19 +1051,40 @@ async function consumeDeploySSE(packageName, req) {
   }
 
   if (completeEvent) {
+    const cResults = completeEvent.connectorResults || [];
+    const sResults = completeEvent.skillResults || [];
     return {
       ok: (completeEvent.connectors?.failed || 0) === 0 && (completeEvent.skills?.failed || 0) === 0,
       connectors: completeEvent.connectors,
       skills: completeEvent.skills,
-      connectorResults: completeEvent.connectorResults || [],
-      skillResults: completeEvent.skillResults || [],
+      connectorResults: cResults,
+      skillResults: sResults,
+      // Surface any connector diagnostics at top level for easy access
+      ...(cResults.some(r => !r.ok) && {
+        connector_errors: cResults
+          .filter(r => !r.ok)
+          .map(r => ({
+            id: r.id,
+            error: r.error,
+            message: r.message,
+            diagnostic: r.diagnostic || null,
+          })),
+      }),
     };
   }
 
   // No complete event — build summary from individual events
   const connectorResults = events
-    .filter(e => e.type === 'connector_progress' && (e.status === 'done' || e.status === 'error'))
-    .map(e => ({ id: e.connectorId, ok: e.status === 'done', tools: e.tools || 0, error: e.error }));
+    .filter(e => e.type === 'connector_progress' && (e.status === 'done' || e.status === 'error' || e.status === 'warning'))
+    .map(e => ({
+      id: e.connectorId,
+      ok: e.status === 'done' || e.status === 'warning',
+      tools: e.tools || 0,
+      error: e.error || undefined,
+      message: e.message || undefined,
+      warning: e.warning || undefined,
+      diagnostic: e.diagnostic || undefined,
+    }));
 
   const skillResults = events
     .filter(e => e.type === 'skill_progress' && (e.status === 'done' || e.status === 'error'))
