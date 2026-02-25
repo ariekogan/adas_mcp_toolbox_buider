@@ -285,6 +285,94 @@ export function validateSolution(solution, context) {
       }
     }
 
+    // ─── 8b. Connector mcp_store deep validation ──────────────
+    // Catch common deployment failures: missing package.json, wrong paths,
+    // missing dependencies, deprecated paths.
+    for (const connector of connectors) {
+      const storeFiles = mcpStore[connector.id];
+      if (!storeFiles || !Array.isArray(storeFiles)) continue;
+
+      const filePaths = storeFiles.map(f => f.path);
+      const serverFile = storeFiles.find(f =>
+        f.path === 'server.js' || f.path === 'index.js' || f.path === 'server.ts'
+      );
+      const pkgFile = storeFiles.find(f => f.path === 'package.json');
+      const serverCode = serverFile?.content || '';
+
+      // 8b-1: Detect require() or import calls that need npm dependencies
+      const NODE_BUILTINS = new Set(['fs', 'path', 'http', 'https', 'crypto', 'url', 'os', 'util', 'stream', 'events', 'child_process', 'net', 'tls', 'dns', 'querystring', 'readline', 'assert', 'buffer', 'zlib', 'worker_threads', 'cluster', 'dgram', 'perf_hooks', 'async_hooks', 'v8', 'vm', 'module', 'timers', 'console', 'process', 'string_decoder', 'punycode']);
+      const baseName = (mod) => mod.startsWith('@') ? mod.split('/').slice(0, 2).join('/') : mod.split('/')[0];
+
+      const requireMatches = serverCode.match(/require\s*\(\s*['"]([^./][^'"]*)['"]\s*\)/g) || [];
+      const importMatches = serverCode.match(/from\s+['"]([^./][^'"]*)['"]/g) || [];
+
+      // Extract and filter to only external (non-builtin) modules
+      const reqModules = requireMatches.map(m => m.match(/['"]([^'"]+)['"]/)?.[1]).filter(Boolean);
+      const impModules = importMatches.map(m => m.match(/['"]([^'"]+)['"]/)?.[1]).filter(Boolean);
+      const allModules = [...new Set([...reqModules, ...impModules])];
+      const externalModules = allModules.filter(m => !NODE_BUILTINS.has(baseName(m)));
+      const hasExternalDeps = externalModules.length > 0;
+
+      if (hasExternalDeps && !pkgFile) {
+        const depList = externalModules.slice(0, 5).join(', ');
+
+        errors.push({
+          check: 'connector_missing_package_json',
+          message: `Connector "${connector.id}" server code requires npm packages (${depList}) but no package.json was included in mcp_store. Without it, npm install cannot run and the connector will crash at startup with MODULE_NOT_FOUND.`,
+          connector: connector.id,
+          fix: `Add a package.json to mcp_store.${connector.id} with the required dependencies: { "name": "${connector.id}", "dependencies": { ${externalModules.slice(0, 5).map(m => `"${baseName(m)}": "*"`).join(', ')} } }`,
+        });
+      }
+
+      // 8b-2: If package.json exists, check that required modules are in dependencies
+      if (hasExternalDeps && pkgFile) {
+        try {
+          const pkg = JSON.parse(pkgFile.content);
+          const declaredDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+          const missingDeps = externalModules
+            .map(baseName)
+            .filter(mod => !declaredDeps[mod]);
+
+          if (missingDeps.length > 0) {
+            warnings.push({
+              check: 'connector_missing_dependencies',
+              message: `Connector "${connector.id}" server code requires ${missingDeps.join(', ')} but ${missingDeps.length === 1 ? "it's" : "they're"} not in package.json dependencies. The connector may crash at startup.`,
+              connector: connector.id,
+              fix: `Add to package.json dependencies: ${missingDeps.map(m => `"${m}": "*"`).join(', ')}`,
+            });
+          }
+        } catch { /* malformed package.json — handled elsewhere */ }
+      }
+
+      // 8b-3: Detect deprecated /opt/mcp-connectors/ path in explicit args
+      const args = connector.args || [];
+      for (const arg of args) {
+        if (typeof arg === 'string' && arg.includes('/opt/mcp-connectors/')) {
+          errors.push({
+            check: 'connector_deprecated_path',
+            message: `Connector "${connector.id}" uses deprecated path "/opt/mcp-connectors/" in args. This path does not exist on A-Team Core. You can omit command and args entirely — the system auto-detects the entry point from mcp_store files.`,
+            connector: connector.id,
+            fix: `Remove command and args from the connector definition. The system will auto-resolve them from the uploaded mcp_store files. Or if you need explicit control, use "/mcp-store/${connector.id}/server.js".`,
+          });
+        }
+      }
+
+      // 8b-4: Warn about wrong /mcp-store/ path that doesn't match connector id
+      for (const arg of args) {
+        if (typeof arg === 'string' && arg.includes('/mcp-store/')) {
+          const pathMatch = arg.match(/\/mcp-store\/([^/]+)\//);
+          if (pathMatch && pathMatch[1] !== connector.id) {
+            warnings.push({
+              check: 'connector_path_mismatch',
+              message: `Connector "${connector.id}" args reference "/mcp-store/${pathMatch[1]}/" but the connector id is "${connector.id}". Files are stored at /mcp-store/${connector.id}/.`,
+              connector: connector.id,
+              fix: `Change the path to "/mcp-store/${connector.id}/..." or omit command/args to let the system auto-resolve.`,
+            });
+          }
+        }
+      }
+    }
+
     // ─── 9. UI-capable connector validation ──────────────────
     // Connectors with ui_capable: true MUST have ui.listPlugins and ui.getPlugin tools,
     // and their mcp_store server code must return the correct response format.
