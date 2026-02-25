@@ -259,7 +259,10 @@ export async function uploadMcpCodeToADAS(connectorId, sourceDir) {
 
   try {
     const data = await adasCore.uploadMcpCode(connectorId, files);
-    console.log(`[ADASSync] Uploaded connector ${connectorId}: ${data.filesWritten?.length || 0} files, deps=${data.depsInstalled}`);
+    const parts = [`${data.filesWritten?.length || 0} files`, `deps=${data.depsInstalled}`];
+    if (data.buildRan) parts.push('build=ok');
+    if (data.buildError) parts.push(`buildError=${data.buildError}`);
+    console.log(`[ADASSync] Uploaded connector ${connectorId}: ${parts.join(', ')}`);
     return data;
   } catch (err) {
     console.error(`[ADASSync] Failed to upload MCP code for ${connectorId}:`, err.message);

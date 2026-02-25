@@ -223,12 +223,14 @@ async function callConnectorTool(connectorId, toolName, args = {}) {
 
 /**
  * Upload MCP code files to ADAS Core's /mcp-store.
+ * Sends source files → Core runs npm install + npm run build (if package.json has build script).
+ * Agents send source code only; dist/ files are produced server-side by the build step.
  */
 async function uploadMcpCode(connectorId, files) {
   return request('/api/mcp-store/upload', {
     method: 'POST',
     body: { connectorId, files, installDeps: true },
-    timeout: 60000,
+    timeout: 360000, // 6 min — npm install + build can take time
   });
 }
 
