@@ -1141,6 +1141,17 @@ async function consumeDeploySSE(packageName, req) {
             diagnostic: r.diagnostic || null,
           })),
       }),
+      // Surface any skill errors at top level (parity with connector_errors)
+      ...(sResults.some(r => !r.ok) && {
+        skill_errors: sResults
+          .filter(r => !r.ok)
+          .map(r => ({
+            id: r.id,
+            skillId: r.skillId,
+            error: r.error,
+            deploy_log: r.deploy_log || null,
+          })),
+      }),
     };
   }
 
@@ -1159,7 +1170,11 @@ async function consumeDeploySSE(packageName, req) {
 
   const skillResults = events
     .filter(e => e.type === 'skill_progress' && (e.status === 'done' || e.status === 'error'))
-    .map(e => ({ id: e.skillId, ok: e.status === 'done', mcpUri: e.mcpUri, error: e.error, deploy_log: e.deploy_log || undefined }));
+    .map(e => ({
+      id: e.skillId, ok: e.status === 'done', mcpUri: e.mcpUri,
+      tools: e.tools ?? null, toolNames: e.toolNames || [],
+      error: e.error, deploy_log: e.deploy_log || undefined,
+    }));
 
   return {
     ok: connectorResults.every(r => r.ok) && skillResults.every(r => r.ok),

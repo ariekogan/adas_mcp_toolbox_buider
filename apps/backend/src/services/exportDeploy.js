@@ -158,6 +158,14 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     throw enriched;
   }
 
+  // Post-deploy verification: check tool count from ADAS Core response
+  const deployedToolCount = result.tools ?? null;
+  if (deployedToolCount === 0) {
+    log.warn(`[MCP Deploy] Skill "${skillSlug}" deployed but has 0 tools — may be broken`);
+  } else if (deployedToolCount !== null) {
+    log.info(`[MCP Deploy] Skill "${skillSlug}" verified: ${deployedToolCount} tools (${(result.toolNames || []).join(', ')})`);
+  }
+
   // Register skill definition in ADAS Core so it appears in GET /api/skills
   try {
     const skillDef = {
@@ -296,6 +304,8 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
   return {
     ok: true, status: 'deployed', skillSlug,
     mcpUri: result.mcpUri, port: result.port, connectorId: result.connectorId,
+    tools: deployedToolCount,
+    toolNames: result.toolNames || [],
     connectors: connectorResults, adasResponse: result,
     message: `Skill "${skillSlug}" deployed to ADAS Core and running!`
   };

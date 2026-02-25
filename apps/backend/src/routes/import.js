@@ -1240,8 +1240,19 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
           sendEvent('skill_progress', { skillId: skillRef.id, status: 'deploying', step, message });
         });
 
-        skillResults.push({ id: skillRef.id, skillId, ok: true, mcpUri: deployResult.mcpUri });
-        sendEvent('skill_progress', { skillId: skillRef.id, status: 'done', step: 'done', mcpUri: deployResult.mcpUri, message: 'Deployed' });
+        skillResults.push({
+          id: skillRef.id, skillId, ok: true,
+          mcpUri: deployResult.mcpUri,
+          tools: deployResult.tools ?? null,
+          toolNames: deployResult.toolNames || [],
+        });
+        sendEvent('skill_progress', {
+          skillId: skillRef.id, status: 'done', step: 'done',
+          mcpUri: deployResult.mcpUri,
+          tools: deployResult.tools ?? null,
+          toolNames: deployResult.toolNames || [],
+          message: `Deployed (${deployResult.tools ?? '?'} tools)`,
+        });
 
       } catch (err) {
         skillResults.push({ id: skillRef.id, skillId, ok: false, error: err.message, deploy_log: err.data || undefined });
