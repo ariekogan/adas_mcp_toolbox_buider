@@ -57,8 +57,7 @@ describe('example connector', () => {
     expect(EXAMPLE_CONNECTOR.id).toBeTruthy();
     expect(EXAMPLE_CONNECTOR.name).toBeTruthy();
     expect(EXAMPLE_CONNECTOR.transport).toBe('stdio');
-    expect(EXAMPLE_CONNECTOR.command).toBeTruthy();
-    expect(EXAMPLE_CONNECTOR.args).toBeInstanceOf(Array);
+    // command and args are optional — auto-resolved from mcp_store at deploy time
   });
 
   it('is not ui_capable', () => {
@@ -71,7 +70,7 @@ describe('example UI connector', () => {
     expect(EXAMPLE_CONNECTOR_UI.id).toBeTruthy();
     expect(EXAMPLE_CONNECTOR_UI.name).toBeTruthy();
     expect(EXAMPLE_CONNECTOR_UI.transport).toBeTruthy();
-    expect(EXAMPLE_CONNECTOR_UI.command).toBeTruthy();
+    // command and args are optional — auto-resolved from mcp_store at deploy time
   });
 
   it('is ui_capable', () => {

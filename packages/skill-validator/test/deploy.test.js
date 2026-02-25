@@ -416,6 +416,285 @@ describe('deploy routes (golden path)', () => {
       expect(res.body.error).toContain('Skill Builder import failed');
     });
 
+    // ── AUTO-RESOLVE connector command/args from mcp_store ──
+
+    it('auto-resolves command/args when mcp_store has server.js and connector omits command', async () => {
+      const app = createApp();
+      await makeRequest(app, 'POST', '/deploy/solution', {
+        solution: { id: 'test-sol', name: 'Test' },
+        connectors: [
+          { id: 'my-mcp', name: 'My MCP', transport: 'stdio' },
+          // No command, no args
+        ],
+        mcp_store: {
+          'my-mcp': [
+            { path: 'server.js', content: 'console.log("hello");' },
+            { path: 'package.json', content: '{"name":"my-mcp"}' },
+          ],
+        },
+      });
+
+      const importCall = fetchCalls[0];
+      const body = JSON.parse(importCall.options.body);
+      const mcp = body.manifest.mcps[0];
+      expect(mcp.command).toBe('node');
+      expect(mcp.args).toEqual(['/mcp-store/my-mcp/server.js']);
+    });
+
+    it('auto-resolves from package.json main field', async () => {
+      const app = createApp();
+      await makeRequest(app, 'POST', '/deploy/solution', {
+        solution: { id: 'test-sol', name: 'Test' },
+        connectors: [
+          { id: 'my-mcp', name: 'My MCP', transport: 'stdio' },
+        ],
+        mcp_store: {
+          'my-mcp': [
+            { path: 'dist/index.js', content: 'module.exports = {};' },
+            { path: 'package.json', content: '{"name":"my-mcp","main":"dist/index.js"}' },
+          ],
+        },
+      });
+
+      const importCall = fetchCalls[0];
+      const body = JSON.parse(importCall.options.body);
+      const mcp = body.manifest.mcps[0];
+      expect(mcp.command).toBe('node');
+      expect(mcp.args).toEqual(['/mcp-store/my-mcp/dist/index.js']);
+    });
+
+    it('auto-resolves python connector from server.py', async () => {
+      const app = createApp();
+      await makeRequest(app, 'POST', '/deploy/solution', {
+        solution: { id: 'test-sol', name: 'Test' },
+        connectors: [
+          { id: 'py-mcp', name: 'Python MCP', transport: 'stdio' },
+        ],
+        mcp_store: {
+          'py-mcp': [
+            { path: 'server.py', content: 'import asyncio' },
+            { path: 'requirements.txt', content: 'mcp>=0.1.0' },
+          ],
+        },
+      });
+
+      const importCall = fetchCalls[0];
+      const body = JSON.parse(importCall.options.body);
+      const mcp = body.manifest.mcps[0];
+      expect(mcp.command).toBe('python3');
+      expect(mcp.args).toEqual(['/mcp-store/py-mcp/server.py']);
+    });
+
+    it('auto-resolves TypeScript connector from server.ts', async () => {
+      const app = createApp();
+      await makeRequest(app, 'POST', '/deploy/solution', {
+        solution: { id: 'test-sol', name: 'Test' },
+        connectors: [
+          { id: 'ts-mcp', name: 'TS MCP', transport: 'stdio' },
+        ],
+        mcp_store: {
+          'ts-mcp': [
+            { path: 'server.ts', content: 'import { Server } from "@modelcontextprotocol/sdk/server";' },
+            { path: 'package.json', content: '{"name":"ts-mcp"}' },
+          ],
+        },
+      });
+
+      const importCall = fetchCalls[0];
+      const body = JSON.parse(importCall.options.body);
+      const mcp = body.manifest.mcps[0];
+      expect(mcp.command).toBe('npx');
+      expect(mcp.args).toEqual(['tsx', '/mcp-store/ts-mcp/server.ts']);
+    });
+
+    it('does NOT override explicit command/args even with mcp_store', async () => {
+      const app = createApp();
+      await makeRequest(app, 'POST', '/deploy/solution', {
+        solution: { id: 'test-sol', name: 'Test' },
+        connectors: [
+          {
+            id: 'my-mcp',
+            name: 'My MCP',
+            transport: 'stdio',
+            command: 'node',
+            args: ['/custom/path/app.js'],
+          },
+        ],
+        mcp_store: {
+          'my-mcp': [
+            { path: 'server.js', content: 'console.log("hello");' },
+          ],
+        },
+      });
+
+      const importCall = fetchCalls[0];
+      const body = JSON.parse(importCall.options.body);
+      const mcp = body.manifest.mcps[0];
+      // Explicit values preserved, NOT overridden by auto-resolve
+      expect(mcp.command).toBe('node');
+      expect(mcp.args).toEqual(['/custom/path/app.js']);
+    });
+
+    it('does NOT auto-resolve when no mcp_store for connector', async () => {
+      const app = createApp();
+      await makeRequest(app, 'POST', '/deploy/solution', {
+        solution: { id: 'test-sol', name: 'Test' },
+        connectors: [
+          { id: 'prebuilt-mcp', name: 'Prebuilt', transport: 'stdio' },
+        ],
+        // No mcp_store at all
+      });
+
+      const importCall = fetchCalls[0];
+      const body = JSON.parse(importCall.options.body);
+      const mcp = body.manifest.mcps[0];
+      // No command/args — connector was not in mcp_store
+      expect(mcp.command).toBeUndefined();
+      expect(mcp.args).toEqual([]);
+    });
+
+    it('auto-resolves index.js when no server.js exists', async () => {
+      const app = createApp();
+      await makeRequest(app, 'POST', '/deploy/solution', {
+        solution: { id: 'test-sol', name: 'Test' },
+        connectors: [
+          { id: 'idx-mcp', name: 'Index MCP', transport: 'stdio' },
+        ],
+        mcp_store: {
+          'idx-mcp': [
+            { path: 'index.js', content: 'module.exports = {};' },
+            { path: 'utils.js', content: 'module.exports = {};' },
+          ],
+        },
+      });
+
+      const importCall = fetchCalls[0];
+      const body = JSON.parse(importCall.options.body);
+      const mcp = body.manifest.mcps[0];
+      expect(mcp.command).toBe('node');
+      expect(mcp.args).toEqual(['/mcp-store/idx-mcp/index.js']);
+    });
+
+    it('falls back to first root .js file when no well-known entry point', async () => {
+      const app = createApp();
+      await makeRequest(app, 'POST', '/deploy/solution', {
+        solution: { id: 'test-sol', name: 'Test' },
+        connectors: [
+          { id: 'custom-mcp', name: 'Custom MCP', transport: 'stdio' },
+        ],
+        mcp_store: {
+          'custom-mcp': [
+            { path: 'app.js', content: 'console.log("custom");' },
+            { path: 'lib/helper.js', content: '' },
+          ],
+        },
+      });
+
+      const importCall = fetchCalls[0];
+      const body = JSON.parse(importCall.options.body);
+      const mcp = body.manifest.mcps[0];
+      expect(mcp.command).toBe('node');
+      expect(mcp.args).toEqual(['/mcp-store/custom-mcp/app.js']);
+    });
+
+    it('auto-resolves multiple connectors independently', async () => {
+      const app = createApp();
+      await makeRequest(app, 'POST', '/deploy/solution', {
+        solution: { id: 'test-sol', name: 'Test' },
+        connectors: [
+          { id: 'node-mcp', name: 'Node MCP', transport: 'stdio' },
+          { id: 'py-mcp', name: 'Python MCP', transport: 'stdio' },
+          { id: 'explicit-mcp', name: 'Explicit', transport: 'stdio', command: 'deno', args: ['run', 'server.ts'] },
+        ],
+        mcp_store: {
+          'node-mcp': [{ path: 'server.js', content: '' }],
+          'py-mcp': [{ path: 'main.py', content: '' }],
+          'explicit-mcp': [{ path: 'server.ts', content: '' }],
+        },
+      });
+
+      const importCall = fetchCalls[0];
+      const body = JSON.parse(importCall.options.body);
+
+      // Node auto-resolved
+      expect(body.manifest.mcps[0].command).toBe('node');
+      expect(body.manifest.mcps[0].args).toEqual(['/mcp-store/node-mcp/server.js']);
+
+      // Python auto-resolved
+      expect(body.manifest.mcps[1].command).toBe('python3');
+      expect(body.manifest.mcps[1].args).toEqual(['/mcp-store/py-mcp/main.py']);
+
+      // Explicit preserved
+      expect(body.manifest.mcps[2].command).toBe('deno');
+      expect(body.manifest.mcps[2].args).toEqual(['run', 'server.ts']);
+    });
+
+    it('package.json main takes priority over server.js', async () => {
+      const app = createApp();
+      await makeRequest(app, 'POST', '/deploy/solution', {
+        solution: { id: 'test-sol', name: 'Test' },
+        connectors: [
+          { id: 'pkg-mcp', name: 'Pkg MCP', transport: 'stdio' },
+        ],
+        mcp_store: {
+          'pkg-mcp': [
+            { path: 'server.js', content: 'old entry' },
+            { path: 'build/main.js', content: 'compiled' },
+            { path: 'package.json', content: '{"name":"pkg-mcp","main":"build/main.js"}' },
+          ],
+        },
+      });
+
+      const importCall = fetchCalls[0];
+      const body = JSON.parse(importCall.options.body);
+      const mcp = body.manifest.mcps[0];
+      // package.json main wins over server.js
+      expect(mcp.command).toBe('node');
+      expect(mcp.args).toEqual(['/mcp-store/pkg-mcp/build/main.js']);
+    });
+
+    it('handles malformed package.json gracefully', async () => {
+      const app = createApp();
+      await makeRequest(app, 'POST', '/deploy/solution', {
+        solution: { id: 'test-sol', name: 'Test' },
+        connectors: [
+          { id: 'bad-pkg', name: 'Bad Pkg', transport: 'stdio' },
+        ],
+        mcp_store: {
+          'bad-pkg': [
+            { path: 'server.js', content: 'works' },
+            { path: 'package.json', content: '{invalid json!!!}' },
+          ],
+        },
+      });
+
+      const importCall = fetchCalls[0];
+      const body = JSON.parse(importCall.options.body);
+      const mcp = body.manifest.mcps[0];
+      // Falls through to server.js despite bad package.json
+      expect(mcp.command).toBe('node');
+      expect(mcp.args).toEqual(['/mcp-store/bad-pkg/server.js']);
+    });
+
+    it('handles HTTP transport connectors — no auto-resolve', async () => {
+      const app = createApp();
+      await makeRequest(app, 'POST', '/deploy/solution', {
+        solution: { id: 'test-sol', name: 'Test' },
+        connectors: [
+          { id: 'http-mcp', name: 'HTTP MCP', transport: 'http', endpoint: 'http://example.com/mcp' },
+        ],
+        mcp_store: {
+          'http-mcp': [{ path: 'server.js', content: '' }],
+        },
+      });
+
+      const importCall = fetchCalls[0];
+      const body = JSON.parse(importCall.options.body);
+      const mcp = body.manifest.mcps[0];
+      // HTTP transport — no command should be auto-resolved
+      expect(mcp.command).toBeUndefined();
+    });
+
     it('handles deploy-all SSE error event', async () => {
       global.fetch = vi.fn(async (url) => {
         if (url.includes('/api/import/solution-pack')) {

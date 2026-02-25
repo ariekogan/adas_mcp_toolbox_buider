@@ -416,6 +416,19 @@ function buildExampleConnector() {
   return {
     _note: 'A standard stdio MCP connector. This is what A-Team Core manages as a child process.',
 
+    _entry_point_resolution: {
+      _note: 'command and args are OPTIONAL when deploying with mcp_store. The system auto-detects the entry point from uploaded files.',
+      auto_detection_priority: [
+        '1. package.json "main" field',
+        '2. server.js',
+        '3. index.js',
+        '4. server.py → python3',
+        '5. main.py → python3',
+        '6. server.ts → npx tsx',
+      ],
+      explicit_override: 'You can always provide command + args to override auto-detection.',
+    },
+
     _storage: {
       _note: 'A-Team Core automatically provides a DATA_DIR environment variable to every stdio connector. Use it to store persistent data (SQLite databases, files, etc.).',
       how_to_use: 'const DATA_DIR = process.env.DATA_DIR || "./data"; // A-Team Core auto-sets DATA_DIR per tenant+connector',
@@ -427,8 +440,7 @@ function buildExampleConnector() {
     name: 'Orders MCP',
     description: 'E-commerce order management — CRUD operations for orders, customers, shipments, and returns tracking.',
     transport: 'stdio',
-    command: 'node',
-    args: ['/mcp-store/orders-mcp/server.js'],
+    // command and args omitted — auto-resolved from mcp_store files (server.js → node)
     env: {
       ORDERS_DB_URL: 'postgresql://orders:secret@db:5432/orders',
       NODE_ENV: 'production',
@@ -467,8 +479,7 @@ function buildExampleConnectorUI() {
     name: 'E-Commerce Dashboard',
     description: 'Analytics dashboard with interactive charts — serves both MCP tools for data access and UI plugins for visual dashboards.',
     transport: 'stdio',
-    command: 'node',
-    args: ['/mcp-store/ecommerce-dashboard-mcp/server.js'],
+    // command and args omitted — auto-resolved from mcp_store files (server.js → node)
     env: {
       ANALYTICS_DB_URL: 'postgresql://analytics:secret@db:5432/analytics',
     },
@@ -720,8 +731,9 @@ function buildExampleSolution() {
         '... full skill definitions (same format as POST /validate/skill) — see GET /spec/examples/skill ...',
       ],
       connectors: [
-        { id: 'orders-mcp', name: 'Orders MCP', transport: 'stdio', command: 'node', args: ['/mcp-store/orders-mcp/server.js'] },
-        { id: 'identity-mcp', name: 'Identity MCP', transport: 'stdio', command: 'node', args: ['/mcp-store/identity-mcp/server.js'] },
+        { id: 'orders-mcp', name: 'Orders MCP', transport: 'stdio' },
+        { id: 'identity-mcp', name: 'Identity MCP', transport: 'stdio' },
+        // command + args auto-resolved from mcp_store files
       ],
       mcp_store: {
         _note: 'Optional: connector source code. Key = connector id, value = array of { path, content }',

@@ -58,6 +58,68 @@ function sbHeaders(req) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Auto-resolve connector entry point from mcp_store files
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Detect the runtime command and entry point args for a connector
+ * from its mcp_store file list.
+ *
+ * Priority:
+ *   1. package.json "main" field → node /mcp-store/<id>/<main>
+ *   2. server.js → node /mcp-store/<id>/server.js
+ *   3. index.js → node /mcp-store/<id>/index.js
+ *   4. server.py → python3 /mcp-store/<id>/server.py
+ *   5. main.py  → python3 /mcp-store/<id>/main.py
+ *   6. server.ts → npx tsx /mcp-store/<id>/server.ts
+ *   7. index.ts → npx tsx /mcp-store/<id>/index.ts
+ *
+ * @param {string} connectorId - Connector ID (used for /mcp-store/<id>/ path)
+ * @param {string[]} filePaths - Array of relative file paths from mcp_store
+ * @param {Array<{path: string, content: string}>} files - Full file objects
+ * @returns {{ command: string|null, args: string[] }}
+ */
+function resolveEntryPoint(connectorId, filePaths, files) {
+  const basePath = `/mcp-store/${connectorId}`;
+
+  // 1. Check package.json "main" field
+  const pkgFile = files.find(f => f.path === 'package.json');
+  if (pkgFile) {
+    try {
+      const pkg = JSON.parse(pkgFile.content);
+      if (pkg.main) {
+        return { command: 'node', args: [`${basePath}/${pkg.main}`] };
+      }
+    } catch { /* ignore parse errors */ }
+  }
+
+  // 2. Well-known entry points by priority
+  const candidates = [
+    { file: 'server.js',  command: 'node' },
+    { file: 'index.js',   command: 'node' },
+    { file: 'server.py',  command: 'python3' },
+    { file: 'main.py',    command: 'python3' },
+    { file: 'server.ts',  command: 'npx', extraArgs: ['tsx'] },
+    { file: 'index.ts',   command: 'npx', extraArgs: ['tsx'] },
+  ];
+
+  for (const { file, command, extraArgs } of candidates) {
+    if (filePaths.includes(file)) {
+      const args = [...(extraArgs || []), `${basePath}/${file}`];
+      return { command, args };
+    }
+  }
+
+  // 3. Fallback: first .js file at root level
+  const rootJs = filePaths.find(p => !p.includes('/') && p.endsWith('.js'));
+  if (rootJs) {
+    return { command: 'node', args: [`${basePath}/${rootJs}`] };
+  }
+
+  return { command: null, args: [] };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MCP-STORE PRE-UPLOAD — stage large connector files before deploying
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -306,13 +368,39 @@ router.post('/solution', async (req, res) => {
       console.log(`[Deploy] Pre-deploy warnings for ${solution.id}: ${preValidation.warnings.map(w => w.message).join('; ')}`);
     }
 
+    // ── Auto-resolve connector command/args from mcp_store ──
+    // When an agent provides mcp_store code but omits command/args,
+    // we auto-detect the entry point and runtime from the uploaded files.
+    // Explicit command/args always win (no override).
+    const resolvedConnectors = (connectors || []).map(c => {
+      const storeFiles = mcp_store?.[c.id];
+      const hasExplicitCommand = !!c.command;
+
+      // Only auto-resolve for stdio connectors with mcp_store code and no explicit command
+      const isHttp = c.transport === 'http';
+      if (hasExplicitCommand || isHttp || !storeFiles || storeFiles.length === 0) {
+        return c;
+      }
+
+      const filePaths = storeFiles.map(f => f.path);
+      const { command, args } = resolveEntryPoint(c.id, filePaths, storeFiles);
+
+      if (command) {
+        console.log(`[Deploy] Auto-resolved connector ${c.id}: ${command} ${args.join(' ')}`);
+        return { ...c, command, args, transport: c.transport || 'stdio' };
+      }
+
+      console.warn(`[Deploy] Could not auto-resolve entry point for connector ${c.id} — files: ${filePaths.join(', ')}`);
+      return c;
+    });
+
     // ── Build the manifest ──
     const manifest = {
       name: solution.id,
       version: solution.version || '1.0.0',
       description: solution.description || solution.name,
       mcp_store_included: !!mcp_store && Object.keys(mcp_store).length > 0,
-      mcps: (connectors || []).map(c => ({
+      mcps: resolvedConnectors.map(c => ({
         id: c.id,
         name: c.name,
         description: c.description || '',
