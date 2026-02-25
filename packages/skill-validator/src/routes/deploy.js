@@ -58,6 +58,78 @@ function sbHeaders(req) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// MCP-STORE PRE-UPLOAD — stage large connector files before deploying
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/mcp-store/:connectorId
+ * Pre-upload connector source code files that are too large for inline JSON.
+ *
+ * Body: { files: [{ path: "server.py", content: "..." }, ...] }
+ *
+ * The files are staged on the Skill Builder. When you next call
+ * POST /deploy/solution, they are automatically merged into the
+ * solution pack — no need to include them in mcp_store.
+ */
+router.post('/mcp-store/:connectorId', async (req, res) => {
+  const { connectorId } = req.params;
+  if (!connectorId) {
+    return res.status(400).json({ ok: false, error: 'Missing connectorId' });
+  }
+
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/import/mcp-store/${encodeURIComponent(connectorId)}`, {
+      method: 'POST',
+      headers: sbHeaders(req),
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(120000), // 2 min for large files
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] MCP-store pre-upload error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/mcp-store
+ * List all pre-staged connector files
+ */
+router.get('/mcp-store', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/import/mcp-store`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] MCP-store list error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * DELETE /deploy/mcp-store/:connectorId
+ * Remove pre-staged files for a connector
+ */
+router.delete('/mcp-store/:connectorId', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/import/mcp-store/${encodeURIComponent(req.params.connectorId)}`, {
+      method: 'DELETE',
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] MCP-store delete error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // POST /deploy/connector
 // Register a connector in the Skill Builder and connect it in ADAS Core.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -266,11 +338,10 @@ router.post('/solution', async (req, res) => {
       })),
     };
 
-    // If the solution has architecture (identity, grants, handoffs, routing),
-    // embed it as _solutionYaml so the Skill Builder creates a solution object
-    if (solution.identity || solution.grants || solution.handoffs || solution.routing || solution.skills) {
-      manifest._solutionYaml = JSON.stringify(solution);
-    }
+    // Always embed the solution definition so the Skill Builder creates a
+    // solution object on its filesystem.  Previously this was conditional on
+    // having architecture fields, which could leave the Builder FS empty.
+    manifest._solutionYaml = JSON.stringify(solution);
 
     // Build skills map: skill id → JSON string (YAML-compatible)
     const skillFiles = {};

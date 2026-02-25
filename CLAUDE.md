@@ -61,6 +61,41 @@ ssh mac1 "cd /Users/ariekogan333/Projects/ai-dev-assistant && export PATH=/usr/l
 ssh mac1 "cd /Users/ariekogan333/Projects/ai-dev-assistant && export PATH=/usr/local/bin:/opt/homebrew/bin:\$PATH && docker compose up -d skill-builder-backend skill-builder-frontend"
 ```
 
+### CRITICAL: Docker Compose Warning
+
+**NEVER run `docker compose up` from this repo (`adas_mcp_toolbox_builder/`) on mac1.**
+
+This repo has its own `docker-compose.yml` for local dev convenience, but on mac1 the skill-builder containers are managed by the **`ai-dev-assistant/docker-compose.yml`** project. Running compose from both repos creates duplicate containers (`adas_mcp_toolbox_builder-backend-1` vs `ai-dev-assistant-skill-builder-backend-1`) that fight over the same ports (4311, 3312, 3201, 8100-8110), causing port conflicts and 502 errors.
+
+**Always deploy skill-builder via `ai-dev-assistant`:**
+```bash
+ssh mac1 "cd /Users/ariekogan333/Projects/ai-dev-assistant && export PATH=/usr/local/bin:/opt/homebrew/bin:\$PATH && docker compose up -d skill-builder-backend skill-builder-frontend"
+```
+
+## Production Container Inventory (mac1)
+
+All containers run under the `ai-dev-assistant` docker-compose project.
+
+| Container | Service | Port (host→container) | Role |
+|-----------|---------|----------------------|------|
+| `backend` | ADAS Core backend | 4100→4000 | Core API server |
+| `frontend` | ADAS Core frontend | 3102→80 | Core UI (nginx) |
+| `mongo` | MongoDB | 27017→27017 | Database |
+| `skill-builder-backend` | Skill Builder API | 4311→4000, 3201→3200, 8100-8110 | Builder backend + dynamic MCP ports |
+| `skill-builder-frontend` | Skill Builder UI | 3312→80 | Builder UI (nginx, proxies /api/ to backend) |
+| `admin-backend` | Admin API | 4105→4000 | SysAdmin backend |
+| `sysadmin-frontend` | SysAdmin UI | 3105→80 | SysAdmin panel |
+| `voice-backend` | Voice API | 4200→4000 | Voice/Twilio backend |
+| `voice-frontend` | Voice UI | 3200→80 | Voice UI |
+| `adas-mcp` | Core MCP server | 4310→4310 | MCP protocol server |
+| `trigger-runner` | Trigger engine | 3100→3100 | Scheduled triggers |
+| `telegram-mcp` | Telegram connector | 7302→7302 | Telegram MCP (supergateway) |
+| `gmail-mcp-adas-main` | Gmail connector | 7301→7301 | Gmail MCP (supergateway) |
+| `internal-comm-mcp` | Internal comm | 7303→7303 | Internal comms MCP (supergateway) |
+| `handoff-controller-mcp` | Handoff controller | 7309→7309 | Handoff MCP (supergateway) |
+
+**Domain routing:** `app.ateam-ai.com` → Cloudflare Tunnel → mac1 → `frontend` (port 3102) for Core UI, `/builder/` → `skill-builder-frontend` (port 3312).
+
 ## Working Agreements
 
 1. **READ EXISTING CODE FIRST** — before implementing anything
@@ -68,3 +103,4 @@ ssh mac1 "cd /Users/ariekogan333/Projects/ai-dev-assistant && export PATH=/usr/l
 3. **Core = Mongo, Builder = FS** — never mix them up
 4. **Always deploy to production** — user tests on `app.ateam-ai.com`, not localhost
 5. **One solution per tenant** — enforced at code level
+6. **NEVER run docker compose from this repo on mac1** — always use `ai-dev-assistant/docker-compose.yml`

@@ -115,6 +115,9 @@ function buildIndex() {
     also_available: {
       'POST /validate/skill': 'Validate a single skill definition (5-stage pipeline)',
       'POST /validate/solution': 'Validate a solution (cross-skill contracts + LLM quality scoring)',
+      'POST /deploy/mcp-store/:connectorId': 'Pre-upload large connector source files (e.g., dist bundles). They are auto-merged into the next POST /deploy/solution. Body: { files: [{ path, content }] }',
+      'GET /deploy/mcp-store': 'List all pre-staged connector files',
+      'DELETE /deploy/mcp-store/:connectorId': 'Remove pre-staged files for a connector',
       'POST /deploy/connector': 'Deploy a connector via Skill Builder → A-Team Core',
       'POST /deploy/skill': 'Deploy a single skill via Skill Builder (requires solution_id)',
       'POST /deploy/solution': 'Deploy a full solution via Skill Builder → A-Team Core (identity + connectors + skills). No slug or Python MCP code needed.',

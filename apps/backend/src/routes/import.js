@@ -688,6 +688,7 @@ function getSolutionPacksDir() { return path.join(getPersistenceDir(), 'solution
  * }
  */
 router.post('/solution-pack', upload.single('file'), async (req, res) => {
+  let restoreFromBackup = null; // hoisted so catch block can call it
   try {
     let manifest, skillFiles, mcpStoreFiles;
 
@@ -802,31 +803,101 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
 
     console.log(`[Import] Importing solution pack: ${manifest.name} v${manifest.version}`);
 
-    // ── One solution per tenant: clear everything before importing ──
-    // Remove all existing packages and their connectors
-    for (const [key, oldPkg] of getImportedPackages().entries()) {
+    // ── One solution per tenant: BACKUP existing data before importing ──
+    // Instead of deleting first (which leaves FS empty on failure),
+    // we rename to _backup_*, import new data, then clean backup on success.
+    const memRoot = getMemoryRoot();
+    const backupSuffix = `_backup_${Date.now()}`;
+    const backupMeta = { packages: [], skills: [], solutions: [] };
+
+    // Backup existing packages (in-memory + persisted)
+    const oldPackages = new Map(getImportedPackages());
+    for (const [key, oldPkg] of oldPackages.entries()) {
       for (const mcp of (oldPkg.mcps || [])) {
         unregisterImportedConnector(mcp.id);
       }
       getImportedPackages().delete(key);
-      console.log(`[Import] Cleared old package: ${key}`);
+      backupMeta.packages.push(key);
     }
 
-    // Remove all existing skills (skill_* directories)
+    // Backup existing skill directories (rename to _backup_<slug>)
     const allSkills = await skillsStore.list();
     for (const skill of allSkills) {
-      await skillsStore.remove(null, skill.id);
-      console.log(`[Import] Removed old skill: ${skill.id}`);
+      const srcDir = path.join(memRoot, skill.id);
+      const bkDir = path.join(memRoot, `${skill.id}${backupSuffix}`);
+      try {
+        await fs.promises.rename(srcDir, bkDir);
+        backupMeta.skills.push({ id: skill.id, backupDir: bkDir });
+        console.log(`[Import] Backed up skill: ${skill.id}`);
+      } catch (err) {
+        console.warn(`[Import] Could not backup skill ${skill.id}: ${err.message}`);
+      }
     }
 
-    // Remove all existing solutions
+    // Backup existing solutions (rename directory)
     const allSolutions = await solutionsStore.list();
+    const solsDir = path.join(memRoot, 'solutions');
     for (const sol of allSolutions) {
-      await solutionsStore.remove(sol.id);
-      console.log(`[Import] Removed old solution: ${sol.id}`);
+      const srcDir = path.join(solsDir, sol.id);
+      const bkDir = path.join(solsDir, `${sol.id}${backupSuffix}`);
+      try {
+        await fs.promises.rename(srcDir, bkDir);
+        backupMeta.solutions.push({ id: sol.id, backupDir: bkDir });
+        console.log(`[Import] Backed up solution: ${sol.id}`);
+      } catch (err) {
+        console.warn(`[Import] Could not backup solution ${sol.id}: ${err.message}`);
+      }
     }
 
     savePackages(); // persist the now-empty packages list
+
+    // Helper: restore from backup on failure
+    restoreFromBackup = async function(reason) {
+      console.error(`[Import] RESTORING from backup — reason: ${reason}`);
+      // Restore skills
+      for (const { id, backupDir } of backupMeta.skills) {
+        const targetDir = path.join(memRoot, id);
+        try {
+          // Remove any partially-written new data
+          await fs.promises.rm(targetDir, { recursive: true, force: true }).catch(() => {});
+          await fs.promises.rename(backupDir, targetDir);
+          console.log(`[Import] Restored skill: ${id}`);
+        } catch (err) {
+          console.error(`[Import] Failed to restore skill ${id}: ${err.message}`);
+        }
+      }
+      // Restore solutions
+      for (const { id, backupDir } of backupMeta.solutions) {
+        const targetDir = path.join(solsDir, id);
+        try {
+          await fs.promises.rm(targetDir, { recursive: true, force: true }).catch(() => {});
+          await fs.promises.rename(backupDir, targetDir);
+          console.log(`[Import] Restored solution: ${id}`);
+        } catch (err) {
+          console.error(`[Import] Failed to restore solution ${id}: ${err.message}`);
+        }
+      }
+      // Restore packages
+      for (const [key, pkg] of oldPackages.entries()) {
+        getImportedPackages().set(key, pkg);
+        for (const mcp of (pkg.mcps || [])) {
+          registerImportedConnector(mcp.id, { ...mcp, importedFrom: pkg.name });
+        }
+      }
+      savePackages();
+      console.log(`[Import] Backup restored successfully`);
+    }
+
+    // Helper: clean up backup after successful import
+    async function cleanupBackup() {
+      for (const { backupDir } of backupMeta.skills) {
+        await fs.promises.rm(backupDir, { recursive: true, force: true }).catch(() => {});
+      }
+      for (const { backupDir } of backupMeta.solutions) {
+        await fs.promises.rm(backupDir, { recursive: true, force: true }).catch(() => {});
+      }
+      console.log(`[Import] Cleaned up backup data`);
+    }
 
     // Step 1: Register connectors in catalog
     const mcps = manifest.mcps || [];
@@ -858,8 +929,9 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
           console.log(`[Import] Solution imported: ${solution.name} (${solution.id})`);
         }
       } catch (err) {
-        console.error('[Import] Solution import failed:', err.message);
-        solutionResult = { status: 'error', error: err.message };
+        console.error('[Import] Solution import failed — restoring backup:', err.message);
+        await restoreFromBackup(`Solution import failed: ${err.message}`);
+        return res.status(500).json({ ok: false, error: `Solution import failed: ${err.message}`, restored: true });
       }
     }
 
@@ -899,7 +971,9 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
     const skills = manifest.skills || [];
 
     if (skills.length > 0 && !targetSolutionId) {
-      console.warn('[Import] No solution context for skills - skills will not be imported');
+      console.warn('[Import] No solution context for skills — restoring backup');
+      await restoreFromBackup('No solution context for skills');
+      return res.status(500).json({ ok: false, error: 'No solution context — skills cannot be imported without a solution', restored: true });
     } else {
       for (const skillRef of skills) {
         const skillYaml = skillFiles[skillRef.id];
@@ -951,6 +1025,15 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
     // Clean up internal field
     delete manifest._solutionYaml;
 
+    // Step 3.5: Merge any pre-staged mcp_store files (uploaded via POST /mcp-store/:id)
+    const connectorIds = connectorConfigs.map(c => c.id);
+    const stagingResult = mergeStagedMcpStore(manifest.name, connectorIds);
+    if (stagingResult.merged.length > 0) {
+      console.log(`[Import] Merged pre-staged files for ${stagingResult.merged.length} connectors (${stagingResult.totalFiles} files)`);
+      // Ensure mcp_store_included is set so deploy-all uploads the code
+      manifest.mcp_store_included = true;
+    }
+
     // Step 4: Store package info
     const packageInfo = {
       name: manifest.name,
@@ -971,6 +1054,9 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
     getImportedPackages().set(manifest.name, packageInfo);
     savePackages();
 
+    // ── Import succeeded — clean up backup ──
+    await cleanupBackup();
+
     console.log(`[Import] Solution pack imported: ${connectorConfigs.length} connectors, ${skillResults.length} skills${solutionResult ? ', 1 solution' : ''}`);
 
     res.json({
@@ -983,6 +1069,12 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
 
   } catch (err) {
     console.error('[Import] Solution pack import failed:', err);
+    // Try to restore from backup if we have one
+    if (restoreFromBackup) {
+      try { await restoreFromBackup(`Unexpected error: ${err.message}`); } catch (restoreErr) {
+        console.error('[Import] Backup restore also failed:', restoreErr.message);
+      }
+    }
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -1189,5 +1281,181 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
     res.end();
   }
 });
+
+// ============================================================================
+// Pre-Upload: Stage large mcp_store files before deploying a solution
+// ============================================================================
+
+function getStagingDir() { return path.join(getPersistenceDir(), '_mcp_staging'); }
+
+/**
+ * POST /api/import/mcp-store/:connectorId
+ * Pre-upload connector source files (for files too large to inline in JSON).
+ *
+ * Accepts:
+ *   - multipart: file upload of a .tar.gz containing connector source
+ *   - JSON body: { files: [{ path: "server.py", content: "..." }, ...] }
+ *
+ * Files are stored in a staging area. The next POST /api/import/solution-pack
+ * will automatically pick them up and merge them into the solution pack.
+ */
+router.post('/mcp-store/:connectorId', upload.single('file'), async (req, res) => {
+  const { connectorId } = req.params;
+  if (!connectorId) {
+    return res.status(400).json({ ok: false, error: 'Missing connectorId' });
+  }
+
+  try {
+    const connectorDir = path.join(getStagingDir(), connectorId);
+    fs.mkdirSync(connectorDir, { recursive: true });
+
+    let fileCount = 0;
+
+    if (req.file) {
+      // Uploaded .tar.gz — extract into staging directory
+      const tarPath = path.join(connectorDir, '_upload.tar.gz');
+      fs.copyFileSync(req.file.path, tarPath);
+      try { fs.unlinkSync(req.file.path); } catch { /* ok */ }
+
+      try {
+        execSync(`tar -xzf _upload.tar.gz`, { cwd: connectorDir });
+        fs.unlinkSync(tarPath);
+      } catch (e) {
+        return res.status(400).json({ ok: false, error: `Failed to extract tar.gz: ${e.message}` });
+      }
+
+      // Count extracted files
+      const countFiles = (dir) => {
+        let count = 0;
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (entry.isDirectory()) count += countFiles(path.join(dir, entry.name));
+          else count++;
+        }
+        return count;
+      };
+      fileCount = countFiles(connectorDir);
+
+    } else if (req.body?.files && Array.isArray(req.body.files)) {
+      // JSON body with files array
+      for (const file of req.body.files) {
+        if (!file.path || file.content === undefined) continue;
+        const filePath = path.join(connectorDir, file.path);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, file.content, 'utf-8');
+        fileCount++;
+      }
+    } else {
+      return res.status(400).json({ ok: false, error: 'Provide a .tar.gz file upload or JSON body with { files: [{ path, content }] }' });
+    }
+
+    console.log(`[Import] Pre-staged ${fileCount} files for connector: ${connectorId}`);
+
+    res.json({
+      ok: true,
+      connector_id: connectorId,
+      files_staged: fileCount,
+      message: `${fileCount} files staged for "${connectorId}". They will be included in your next solution deploy.`
+    });
+
+  } catch (err) {
+    console.error(`[Import] Pre-upload failed for ${connectorId}:`, err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/import/mcp-store
+ * List all pre-staged connector files
+ */
+router.get('/mcp-store', (_req, res) => {
+  const stagingDir = getStagingDir();
+  const staged = [];
+
+  if (fs.existsSync(stagingDir)) {
+    for (const entry of fs.readdirSync(stagingDir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        const connDir = path.join(stagingDir, entry.name);
+        const countFiles = (dir) => {
+          let count = 0;
+          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (e.isDirectory()) count += countFiles(path.join(dir, e.name));
+            else count++;
+          }
+          return count;
+        };
+        staged.push({ connector_id: entry.name, files: countFiles(connDir) });
+      }
+    }
+  }
+
+  res.json({ ok: true, staged });
+});
+
+/**
+ * DELETE /api/import/mcp-store/:connectorId
+ * Remove pre-staged files for a connector
+ */
+router.delete('/mcp-store/:connectorId', (req, res) => {
+  const connDir = path.join(getStagingDir(), req.params.connectorId);
+  if (fs.existsSync(connDir)) {
+    fs.rmSync(connDir, { recursive: true, force: true });
+  }
+  res.json({ ok: true, message: `Staging cleared for ${req.params.connectorId}` });
+});
+
+/**
+ * Merge any pre-staged mcp_store files into a solution pack's mcp-store directory.
+ * Called during solution-pack import to pick up files uploaded via POST /mcp-store/:id.
+ *
+ * @param {string} solutionPackName - The solution pack name (used to determine target dir)
+ * @param {string[]} connectorIds - List of connector IDs in the solution
+ * @returns {{ merged: string[], totalFiles: number }} - Which connectors had staged files
+ */
+function mergeStagedMcpStore(solutionPackName, connectorIds) {
+  const stagingDir = getStagingDir();
+  if (!fs.existsSync(stagingDir)) return { merged: [], totalFiles: 0 };
+
+  const mcpStoreBase = path.join(getSolutionPacksDir(), solutionPackName, 'mcp-store');
+  const merged = [];
+  let totalFiles = 0;
+
+  for (const connectorId of connectorIds) {
+    const stagedDir = path.join(stagingDir, connectorId);
+    if (!fs.existsSync(stagedDir)) continue;
+
+    const targetDir = path.join(mcpStoreBase, connectorId);
+    fs.mkdirSync(targetDir, { recursive: true });
+
+    // Copy all staged files to the solution pack's mcp-store
+    const copyRecursive = (src, dest) => {
+      let count = 0;
+      for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+        const srcPath = path.join(src, entry.name);
+        const destPath = path.join(dest, entry.name);
+        if (entry.isDirectory()) {
+          fs.mkdirSync(destPath, { recursive: true });
+          count += copyRecursive(srcPath, destPath);
+        } else {
+          fs.copyFileSync(srcPath, destPath);
+          count++;
+        }
+      }
+      return count;
+    };
+
+    const fileCount = copyRecursive(stagedDir, targetDir);
+    totalFiles += fileCount;
+    merged.push(connectorId);
+    console.log(`[Import] Merged ${fileCount} staged files for connector: ${connectorId}`);
+
+    // Clean up staging
+    fs.rmSync(stagedDir, { recursive: true, force: true });
+  }
+
+  return { merged, totalFiles };
+}
+
+// Export the merge function for use in the solution-pack handler
+export { mergeStagedMcpStore };
 
 export default router;
