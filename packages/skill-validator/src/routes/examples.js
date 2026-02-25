@@ -428,7 +428,7 @@ function buildExampleConnector() {
     description: 'E-commerce order management — CRUD operations for orders, customers, shipments, and returns tracking.',
     transport: 'stdio',
     command: 'node',
-    args: ['/opt/mcp-connectors/orders-mcp/server.js'],
+    args: ['/mcp-store/orders-mcp/server.js'],
     env: {
       ORDERS_DB_URL: 'postgresql://orders:secret@db:5432/orders',
       NODE_ENV: 'production',
@@ -468,7 +468,7 @@ function buildExampleConnectorUI() {
     description: 'Analytics dashboard with interactive charts — serves both MCP tools for data access and UI plugins for visual dashboards.',
     transport: 'stdio',
     command: 'node',
-    args: ['/opt/mcp-connectors/ecommerce-dashboard-mcp/server.js'],
+    args: ['/mcp-store/ecommerce-dashboard-mcp/server.js'],
     env: {
       ANALYTICS_DB_URL: 'postgresql://analytics:secret@db:5432/analytics',
     },
@@ -544,7 +544,7 @@ function buildExampleConnectorUI() {
 
     // File structure for a UI-capable connector:
     _file_structure_reference: {
-      '/opt/mcp-connectors/ecommerce-dashboard-mcp/': [
+      '/mcp-store/ecommerce-dashboard-mcp/': [
         'server.js          — MCP server (exposes tools + ui.listPlugins/ui.getPlugin)',
         'package.json',
         'ui-dist/            — Static UI assets served by A-Team Core',
