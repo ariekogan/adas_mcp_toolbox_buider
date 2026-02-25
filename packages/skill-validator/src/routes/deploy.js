@@ -1175,6 +1175,54 @@ router.get('/solutions/:solutionId/diff', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// MCP Store — Pre-upload connector source files
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/mcp-store/:connectorId
+ * Pre-upload connector source files before deploying a solution.
+ * Proxies to Skill Builder: POST /api/import/mcp-store/:connectorId
+ *
+ * Body: { files: [{ path: "server.js", content: "..." }, ...] }
+ *
+ * Use this when mcp_store payload is too large for a single deploy call.
+ * Upload files first, then deploy without mcp_store — staged files are
+ * automatically merged into the next solution deploy.
+ */
+router.post('/mcp-store/:connectorId', async (req, res) => {
+  const { connectorId } = req.params;
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/import/mcp-store/${connectorId}`, {
+      method: 'POST',
+      headers: sbHeaders(req),
+      body: JSON.stringify(req.body),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error(`[Deploy] mcp-store upload error for ${connectorId}:`, err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/mcp-store
+ * List all pre-staged connector files.
+ */
+router.get('/mcp-store', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/import/mcp-store`, {
+      headers: sbHeaders(req),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] mcp-store list error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
 export default router;
 
 // ═══════════════════════════════════════════════════════════════════════════
