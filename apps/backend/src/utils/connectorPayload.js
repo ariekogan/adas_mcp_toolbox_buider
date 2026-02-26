@@ -67,13 +67,16 @@ export function buildConnectorPayload(mcp, opts = {}) {
     payload.endpoint = deriveEndpoint(mcp);
   }
 
-  // Pass through command/args/env as-is from manifest
+  // Pass through command/args/env/cwd as-is from manifest
   if (mcp.command) {
     payload.config = {
       command: mcp.command,
       args: mcp.args || [],
       env: mcp.envDefaults || mcp.env || {}
     };
+    // Pass through cwd if provided — critical for connectors whose args use
+    // relative paths (e.g., "server.js" instead of "/mcp-store/.../server.js")
+    if (mcp.cwd) payload.config.cwd = mcp.cwd;
   }
 
   return payload;
