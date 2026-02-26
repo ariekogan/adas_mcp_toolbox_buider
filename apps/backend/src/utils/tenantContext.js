@@ -81,10 +81,25 @@ export function runWithTenant(tenant, fn, { token } = {}) {
 export function getCurrentTenant() {
   const store = als.getStore();
   if (!store?.tenant) {
-    console.error("[CRITICAL TENANT ERROR] getCurrentTenant called outside ALS context! Falling back to DEFAULT_TENANT. Stack:", new Error().stack);
-    return DEFAULT_TENANT;
+    const err = new Error(
+      "[CRITICAL TENANT ERROR] getCurrentTenant called outside ALS context! " +
+      "This is a security violation — refusing to fall back to DEFAULT_TENANT. " +
+      "Ensure this code runs inside runWithTenant() or the attachTenant middleware."
+    );
+    console.error(err.message, "\nStack:", err.stack);
+    throw err;
   }
   return store.tenant;
+}
+
+/**
+ * Get the current tenant, or null if no ALS context is set.
+ * Use this ONLY for non-critical paths (logging, metrics) where
+ * failing is worse than operating without tenant context.
+ * NEVER use for data access or storage operations.
+ */
+export function getCurrentTenantOrNull() {
+  return als.getStore()?.tenant || null;
 }
 
 /**

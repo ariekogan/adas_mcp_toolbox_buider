@@ -99,8 +99,10 @@ function looksLikeMcpServer(content) {
   return patterns.some(p => p.test(content));
 }
 
-function resolveEntryPoint(connectorId, filePaths, files) {
-  const basePath = `/mcp-store/${connectorId}`;
+function resolveEntryPoint(connectorId, filePaths, files, tenant) {
+  // Tenant-scoped path: /mcp-store/<tenant>/<connectorId>/
+  // Falls back to legacy /mcp-store/<connectorId>/ if no tenant provided
+  const basePath = tenant ? `/mcp-store/${tenant}/${connectorId}` : `/mcp-store/${connectorId}`;
   const warnings = [];
 
   // Helper: get file content by path
@@ -464,7 +466,9 @@ router.post('/solution', async (req, res) => {
       }
 
       const filePaths = storeFiles.map(f => f.path);
-      const resolved = resolveEntryPoint(c.id, filePaths, storeFiles);
+      // Pass tenant for tenant-scoped mcp-store paths
+      const tenant = req.headers['x-adas-tenant'];
+      const resolved = resolveEntryPoint(c.id, filePaths, storeFiles, tenant);
 
       if (resolved.warnings?.length) {
         for (const w of resolved.warnings) {
