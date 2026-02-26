@@ -555,27 +555,27 @@ router.post('/solution', async (req, res) => {
             console.warn(`[Deploy] ⚠ Connector "${connId}" uses ESM syntax but no package.json`);
           }
         }
-      }
 
-      // ── Anti-pattern detection — catch web server code, port binding, etc. ──
-      // These would cause EADDRINUSE crashes at runtime. Catch them early.
-      const antiPatterns = detectConnectorAntiPatterns(connId, files || []);
-      if (antiPatterns.errors.length > 0) {
-        // Fatal anti-patterns block deployment
-        console.error(`[Deploy] ✖ Connector "${connId}" has fatal anti-patterns: ${antiPatterns.errors.join('; ')}`);
-        return res.status(400).json({
-          ok: false,
-          error: 'connector_source_invalid',
-          connector_id: connId,
-          message: antiPatterns.errors[0],
-          all_errors: antiPatterns.errors,
-          fix_hint: 'A-Team connectors use stdio transport (stdin/stdout JSON-RPC). Remove all HTTP server code (express, app.listen, http.createServer, etc.). Use StdioServerTransport or raw JSON-RPC over stdin. See ateam_get_examples(type="connector") for the correct pattern.',
-        });
-      }
-      if (antiPatterns.warnings.length > 0) {
-        for (const w of antiPatterns.warnings) {
-          deployWarnings.push({ connector_id: connId, warning: w });
-          console.warn(`[Deploy] ⚠ ${w}`);
+        // ── Anti-pattern detection — catch web server code, port binding, etc. ──
+        // These would cause EADDRINUSE crashes at runtime. Catch them early.
+        const antiPatterns = detectConnectorAntiPatterns(connId, files || []);
+        if (antiPatterns.errors.length > 0) {
+          // Fatal anti-patterns block deployment
+          console.error(`[Deploy] ✖ Connector "${connId}" has fatal anti-patterns: ${antiPatterns.errors.join('; ')}`);
+          return res.status(400).json({
+            ok: false,
+            error: 'connector_source_invalid',
+            connector_id: connId,
+            message: antiPatterns.errors[0],
+            all_errors: antiPatterns.errors,
+            fix_hint: 'A-Team connectors use stdio transport (stdin/stdout JSON-RPC). Remove all HTTP server code (express, app.listen, http.createServer, etc.). Use StdioServerTransport or raw JSON-RPC over stdin. See ateam_get_examples(type="connector") for the correct pattern.',
+          });
+        }
+        if (antiPatterns.warnings.length > 0) {
+          for (const w of antiPatterns.warnings) {
+            deployWarnings.push({ connector_id: connId, warning: w });
+            console.warn(`[Deploy] ⚠ ${w}`);
+          }
         }
       }
     }
