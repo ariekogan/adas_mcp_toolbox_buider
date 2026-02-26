@@ -10,6 +10,25 @@
  */
 const ERROR_PATTERNS = [
   {
+    // ── Web server started inside a stdio connector ──
+    // This MUST come before the generic "port_conflict" pattern to give actionable guidance.
+    // When a connector includes express/http.createServer/app.listen, it crashes with EADDRINUSE
+    // because it tries to bind a port — but stdio connectors should ONLY use stdin/stdout.
+    patterns: ['EADDRINUSE'],
+    category: 'web_server_in_stdio',
+    title: 'Connector is starting a web server — this is not allowed',
+    message: 'Your connector code is trying to start a web server (express, http.createServer, or similar) and bind to a network port. A-Team connectors use stdio transport — they communicate via stdin/stdout JSON-RPC, NOT by listening on a port. The port conflict with ADAS Core caused the crash.',
+    recovery: [
+      'REMOVE all web server code: express(), app.listen(), http.createServer(), etc.',
+      'Use StdioServerTransport from @modelcontextprotocol/sdk instead',
+      'Or implement raw JSON-RPC over stdin/stdout (see ateam_get_examples type="connector")',
+      'A-Team Core spawns your connector as a child process and sends JSON-RPC messages via stdin',
+      'Your connector reads from stdin (process.stdin) and writes responses to stdout (process.stdout)',
+      'Never call app.listen(), http.createServer(), or bind to any port'
+    ],
+    severity: 'error'
+  },
+  {
     // Command/runtime not found
     patterns: ['command not found', 'ENOENT', 'not found in PATH', 'spawn ENOENT'],
     category: 'runtime_missing',
@@ -23,8 +42,8 @@ const ERROR_PATTERNS = [
     severity: 'error'
   },
   {
-    // Port already in use
-    patterns: ['EADDRINUSE', 'address already in use', 'port is already allocated'],
+    // Port already in use (generic fallback for non-EADDRINUSE port issues)
+    patterns: ['address already in use', 'port is already allocated'],
     category: 'port_conflict',
     title: 'Port conflict',
     message: 'The connector tried to use a network port that is already in use.',

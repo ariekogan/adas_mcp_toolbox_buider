@@ -1076,6 +1076,14 @@ function buildSkillSpec() {
         grant_key: 'namespace.name (e.g., "ecom.customer_id", "ecom.assurance_level")',
       },
       common_mistakes: [
+        // ── CONNECTOR MISTAKES (most common, most painful) ──
+        'FATAL: Starting a web server (express, fastify, http.createServer) inside a stdio connector — connectors MUST use stdio transport (stdin/stdout JSON-RPC), NOT HTTP. Code with app.listen() will crash with EADDRINUSE. The deploy pipeline now blocks this.',
+        'FATAL: Using HttpServerTransport, SSEServerTransport, or StreamableHTTPServerTransport — A-Team ONLY supports StdioServerTransport. These HTTP transports bind to ports and crash.',
+        'Using console.log() in a stdio connector — console.log writes to stdout which is the JSON-RPC channel. Use console.error() or process.stderr.write() instead.',
+        'Calling process.exit() in connector code — MCP servers must stay alive. Let A-Team manage the lifecycle.',
+        'Forgetting "type": "module" in package.json when using @modelcontextprotocol/sdk or ESM imports — the runtime is Node.js 22.x which fully supports ESM, but package.json must declare it.',
+        'Defining stdio connectors without providing mcp_store code — if the connector server code is not pre-installed on A-Team Core, include it in the mcp_store field of the deploy payload. Without it, the connector will fail to start.',
+        // ── SKILL MISTAKES ──
         'Forgetting security.classification on tools — every tool needs one',
         'High-risk tools (pii_write, financial, destructive) without access_policy rules → validation error',
         'Workflow steps referencing tool IDs instead of tool names — steps use tool.name not tool.id',
@@ -1088,11 +1096,23 @@ function buildSkillSpec() {
         'Omitting grant_mappings when a skill issues grants — if your skill verifies identity or produces claims consumed by other skills, add grant_mappings',
         'Trying to write Python MCP server code for skills — the Skill Builder auto-generates it from your tool definitions. Only connector source code (real business logic) needs to be written by you.',
         'Providing slug or mcpServer in deploy requests — these are computed automatically. Just provide skill definitions with tools.',
-        'Forgetting "type": "module" in package.json when using @modelcontextprotocol/sdk or ESM imports — the runtime is Node.js 22.x which fully supports ESM, but package.json must declare it.',
-        'Defining stdio connectors without providing mcp_store code — if the connector server code is not pre-installed on A-Team Core, include it in the mcp_store field of the deploy payload. Without it, the connector will fail to start.',
       ],
       key_concepts: {
         connector_runtime: 'A-Team Core runs connector MCP servers on Node.js 22.x with full ESM support. Recommended: use @modelcontextprotocol/sdk with StdioServerTransport — it is the simplest and most reliable approach. Make sure package.json has "type": "module" and lists @modelcontextprotocol/sdk + zod as dependencies. Alternative: implement raw JSON-RPC over stdio with readline if you prefer zero dependencies. See the connector examples for both patterns.',
+        connector_rules: {
+          _CRITICAL: 'EVERY connector deployed to A-Team MUST follow these rules. Violations are caught at deploy time and blocked.',
+          transport: 'A-Team connectors use STDIO transport — they are spawned as child processes and communicate via stdin/stdout JSON-RPC. There is NO HTTP mode for custom connectors.',
+          must_use: 'StdioServerTransport from @modelcontextprotocol/sdk, or raw readline over process.stdin with JSON-RPC responses to process.stdout.',
+          must_NOT_use: [
+            'express(), fastify(), Koa, Hapi, or any web framework',
+            'http.createServer(), https.createServer(), or net.createServer()',
+            'app.listen(PORT) or any port binding',
+            'HttpServerTransport, SSEServerTransport, StreamableHTTPServerTransport from MCP SDK',
+          ],
+          stdout_is_sacred: 'stdout is the JSON-RPC communication channel. NEVER write non-JSON-RPC data to stdout. Use console.error() or process.stderr.write() for logging.',
+          stay_alive: 'MCP servers must stay alive and continuously process messages. Never call process.exit().',
+          validation: 'The deploy pipeline scans connector source code for anti-patterns (web server code, port binding) and BLOCKS deployment if found.',
+        },
         connector_storage: 'A-Team Core auto-injects a DATA_DIR environment variable into every stdio connector process, pointing to a tenant-scoped, connector-isolated directory. Use process.env.DATA_DIR to store SQLite databases, files, or any persistent data. No configuration needed — just read the env var in your connector code.',
         tool_vs_system_tool: 'Your tools come from MCP connectors. System tools (sys.*, ui.*, cp.*) are provided by the A-Team runtime — do NOT define them in your tools array.',
         grant_economy: 'Grants are verified claims that flow between skills. A skill issues grants via grant_mappings (tool output → grant). Another skill requires grants via access_policy. Security contracts enforce this at the solution level.',

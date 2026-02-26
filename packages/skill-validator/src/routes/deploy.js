@@ -99,6 +99,81 @@ function looksLikeMcpServer(content) {
   return patterns.some(p => p.test(content));
 }
 
+/**
+ * Detect anti-patterns in connector source code that will cause runtime failures.
+ *
+ * A-Team Core runs stdio connectors as child processes — they communicate via
+ * stdin/stdout JSON-RPC. Code that starts a web server (express, http, fastify,
+ * koa, etc.) or binds to a port will crash with EADDRINUSE because ADAS Core's
+ * own server already occupies common ports, and the connector is NOT supposed
+ * to listen on any port.
+ *
+ * @param {string} connectorId - Connector ID for error messages
+ * @param {Array<{path: string, content: string}>} files - All connector files
+ * @returns {{ errors: string[], warnings: string[] }}
+ */
+function detectConnectorAntiPatterns(connectorId, files) {
+  const errors = [];
+  const warnings = [];
+
+  for (const file of files) {
+    if (!file.content || typeof file.content !== 'string') continue;
+    // Only analyze JS/TS/MJS files
+    if (!/\.(js|ts|mjs|cjs)$/.test(file.path)) continue;
+
+    const content = file.content;
+    const fileName = file.path;
+
+    // ── FATAL: Web server / port binding in a stdio connector ──
+    // These patterns indicate the code starts an HTTP server, which will crash.
+    const webServerPatterns = [
+      { pattern: /\bexpress\s*\(\s*\)/,                  reason: 'creates an Express server' },
+      { pattern: /\bapp\.listen\s*\(/,                    reason: 'binds to a network port via app.listen()' },
+      { pattern: /\.listen\s*\(\s*(\d+|PORT|port|process\.env\.PORT)/, reason: 'binds to a network port' },
+      { pattern: /\bhttp\.createServer\s*\(/,             reason: 'creates an HTTP server' },
+      { pattern: /\bhttps\.createServer\s*\(/,            reason: 'creates an HTTPS server' },
+      { pattern: /\bfastify\s*\(\s*\)/,                   reason: 'creates a Fastify server' },
+      { pattern: /\bnew\s+Koa\s*\(/,                      reason: 'creates a Koa server' },
+      { pattern: /\bnew\s+Hapi\.Server\s*\(/,             reason: 'creates a Hapi server' },
+      { pattern: /\bnet\.createServer\s*\(/,              reason: 'creates a raw TCP server' },
+      { pattern: /\bHttpServerTransport\b/,               reason: 'uses HTTP transport (A-Team connectors MUST use StdioServerTransport)' },
+      { pattern: /\bSSEServerTransport\b/,                reason: 'uses SSE transport (A-Team connectors MUST use StdioServerTransport)' },
+      { pattern: /\bStreamableHTTPServerTransport\b/,     reason: 'uses HTTP transport (A-Team connectors MUST use StdioServerTransport)' },
+    ];
+
+    for (const { pattern, reason } of webServerPatterns) {
+      if (pattern.test(content)) {
+        errors.push(
+          `FATAL: "${fileName}" in connector "${connectorId}" ${reason}. ` +
+          `A-Team Core runs stdio connectors as child processes — they MUST communicate via stdin/stdout JSON-RPC, NOT by starting a web server. ` +
+          `The connector will crash at runtime with EADDRINUSE (port conflict with ADAS Core). ` +
+          `Fix: Remove all HTTP server code. Use StdioServerTransport from @modelcontextprotocol/sdk, or implement raw JSON-RPC over stdin/stdout. ` +
+          `See the connector example (ateam_get_examples type="connector") for the correct pattern.`
+        );
+        break; // One error per file is enough
+      }
+    }
+
+    // ── WARNING: Suspicious patterns that might cause issues ──
+    const suspiciousPatterns = [
+      { pattern: /\brequire\s*\(\s*['"]express['"]\s*\)/, reason: 'imports Express (web framework) — stdio connectors should NOT use Express' },
+      { pattern: /\bimport\s+.*\bfrom\s+['"]express['"]/, reason: 'imports Express (web framework) — stdio connectors should NOT use Express' },
+      { pattern: /\brequire\s*\(\s*['"]koa['"]\s*\)/,     reason: 'imports Koa (web framework) — stdio connectors should NOT use Koa' },
+      { pattern: /\brequire\s*\(\s*['"]fastify['"]\s*\)/, reason: 'imports Fastify (web framework) — stdio connectors should NOT use Fastify' },
+      { pattern: /process\.exit\s*\(\s*\d/,               reason: 'calls process.exit() — MCP servers should stay alive and handle shutdown gracefully' },
+      { pattern: /setTimeout\s*\(\s*.*process\.exit/,      reason: 'schedules process.exit() — MCP servers must stay alive' },
+    ];
+
+    for (const { pattern, reason } of suspiciousPatterns) {
+      if (pattern.test(content)) {
+        warnings.push(`"${fileName}" in connector "${connectorId}" ${reason}.`);
+      }
+    }
+  }
+
+  return { errors, warnings };
+}
+
 function resolveEntryPoint(connectorId, filePaths, files, tenant) {
   // Tenant-scoped path: /mcp-store/<tenant>/<connectorId>/
   // Falls back to legacy /mcp-store/<connectorId>/ if no tenant provided
@@ -182,6 +257,29 @@ router.post('/mcp-store/:connectorId', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Missing connectorId' });
   }
 
+  // ── Early anti-pattern detection on uploaded files ──
+  // Catch web-server-in-stdio errors before the files even reach the Skill Builder.
+  const uploadedFiles = req.body?.files;
+  if (Array.isArray(uploadedFiles) && uploadedFiles.length > 0) {
+    const antiPatterns = detectConnectorAntiPatterns(connectorId, uploadedFiles);
+    if (antiPatterns.errors.length > 0) {
+      console.error(`[Deploy] ✖ Pre-upload rejected for "${connectorId}": ${antiPatterns.errors[0]}`);
+      return res.status(400).json({
+        ok: false,
+        error: 'connector_source_invalid',
+        connector_id: connectorId,
+        message: antiPatterns.errors[0],
+        all_errors: antiPatterns.errors,
+        warnings: antiPatterns.warnings,
+        fix_hint: 'A-Team connectors use stdio transport (stdin/stdout JSON-RPC). Remove all HTTP server code. See ateam_get_examples(type="connector") for the correct pattern.',
+      });
+    }
+    // Attach warnings to the forwarded response
+    if (antiPatterns.warnings.length > 0) {
+      console.warn(`[Deploy] ⚠ Pre-upload warnings for "${connectorId}": ${antiPatterns.warnings.join('; ')}`);
+    }
+  }
+
   try {
     const resp = await fetch(`${SKILL_BUILDER_URL}/api/import/mcp-store/${encodeURIComponent(connectorId)}`, {
       method: 'POST',
@@ -190,6 +288,15 @@ router.post('/mcp-store/:connectorId', async (req, res) => {
       signal: AbortSignal.timeout(120000), // 2 min for large files
     });
     const data = await resp.json();
+
+    // Append anti-pattern warnings to the response
+    if (Array.isArray(uploadedFiles) && uploadedFiles.length > 0) {
+      const { warnings } = detectConnectorAntiPatterns(connectorId, uploadedFiles);
+      if (warnings.length > 0) {
+        data.connector_warnings = warnings;
+      }
+    }
+
     res.status(resp.status).json(data);
   } catch (err) {
     console.error('[Deploy] MCP-store pre-upload error:', err.message);
@@ -449,7 +556,33 @@ router.post('/solution', async (req, res) => {
           }
         }
       }
+
+      // ── Anti-pattern detection — catch web server code, port binding, etc. ──
+      // These would cause EADDRINUSE crashes at runtime. Catch them early.
+      const antiPatterns = detectConnectorAntiPatterns(connId, files || []);
+      if (antiPatterns.errors.length > 0) {
+        // Fatal anti-patterns block deployment
+        console.error(`[Deploy] ✖ Connector "${connId}" has fatal anti-patterns: ${antiPatterns.errors.join('; ')}`);
+        return res.status(400).json({
+          ok: false,
+          error: 'connector_source_invalid',
+          connector_id: connId,
+          message: antiPatterns.errors[0],
+          all_errors: antiPatterns.errors,
+          fix_hint: 'A-Team connectors use stdio transport (stdin/stdout JSON-RPC). Remove all HTTP server code (express, app.listen, http.createServer, etc.). Use StdioServerTransport or raw JSON-RPC over stdin. See ateam_get_examples(type="connector") for the correct pattern.',
+        });
+      }
+      if (antiPatterns.warnings.length > 0) {
+        for (const w of antiPatterns.warnings) {
+          deployWarnings.push({ connector_id: connId, warning: w });
+          console.warn(`[Deploy] ⚠ ${w}`);
+        }
+      }
     }
+
+    // ── Anti-pattern detection for connectors WITHOUT mcp_store ──
+    // (uploaded via ateam_upload_connector_files earlier — we can't re-check those,
+    //  but we CAN check inline mcp_store files above)
 
     // ── Auto-resolve connector command/args from mcp_store ──
     // When an agent provides mcp_store code but omits command/args,

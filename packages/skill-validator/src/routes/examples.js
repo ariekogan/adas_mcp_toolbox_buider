@@ -484,6 +484,62 @@ rl.on("line", async (line) => {
 });`,
     },
 
+    // ═══════════════════════════════════════════════════════════════════
+    // COMMON MISTAKES — READ THIS BEFORE WRITING CONNECTOR CODE
+    // ═══════════════════════════════════════════════════════════════════
+    _common_mistakes: {
+      _note: 'CRITICAL: These are the most common mistakes agents make when building connectors. Avoid them all.',
+
+      '1_FATAL_web_server': {
+        mistake: 'Starting an HTTP server (express, fastify, http.createServer) inside a stdio connector',
+        why_it_fails: 'A-Team Core spawns your connector as a child process and communicates via stdin/stdout JSON-RPC. If your code calls app.listen(PORT) or http.createServer(), it will crash with EADDRINUSE because ADAS Core already uses those ports. Even if the port were free, ADAS Core cannot communicate with your connector over HTTP — it ONLY reads your stdout.',
+        wrong_code: `// ❌ WRONG — DO NOT DO THIS
+const express = require("express");
+const app = express();
+app.post("/tools/call", (req, res) => { ... });
+app.listen(4000); // CRASHES — port 4000 is ADAS Core's server`,
+        correct_code: `// ✅ CORRECT — Use stdio transport
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+const transport = new StdioServerTransport();
+await server.connect(transport);`,
+        deploy_check: 'The deploy pipeline now detects express(), app.listen(), http.createServer() and BLOCKS deployment with an actionable error.'
+      },
+
+      '2_FATAL_http_transport': {
+        mistake: 'Using HttpServerTransport, SSEServerTransport, or StreamableHTTPServerTransport from the MCP SDK',
+        why_it_fails: 'A-Team Core ONLY supports StdioServerTransport for connectors. HTTP-based MCP transports start a web server and bind to a port, which crashes in the A-Team runtime.',
+        wrong_code: `// ❌ WRONG
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";`,
+        correct_code: `// ✅ CORRECT
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";`
+      },
+
+      '3_WARNING_missing_package_json': {
+        mistake: 'Uploading ESM code (.js files with import/export) without a package.json',
+        why_it_fails: 'Without package.json, Node.js defaults to CommonJS mode. import/export syntax will fail with ERR_REQUIRE_ESM. Also, npm install cannot run, so dependencies are missing.',
+        fix: 'Always include a package.json with "type": "module" (for ESM) and list all dependencies.'
+      },
+
+      '4_WARNING_no_error_handling': {
+        mistake: 'Not handling JSON-RPC errors in tool handlers',
+        why_it_fails: 'Unhandled exceptions crash the process. ADAS Core will retry 5 times, then mark the connector as permanently failed.',
+        fix: 'Wrap all tool handlers in try/catch and return MCP error responses: { content: [{ type: "text", text: JSON.stringify({ error: e.message }) }], isError: true }'
+      },
+
+      '5_WARNING_process_exit': {
+        mistake: 'Calling process.exit() in connector code',
+        why_it_fails: 'MCP servers must stay alive and continuously process messages from stdin. Calling process.exit() kills the connector.',
+        fix: 'Never call process.exit(). Let the ADAS Core runtime manage the connector lifecycle.'
+      },
+
+      '6_WARNING_console_log': {
+        mistake: 'Using console.log() for debugging in a stdio connector',
+        why_it_fails: 'console.log() writes to stdout, which is the JSON-RPC communication channel. Debug output mixed with JSON-RPC messages will corrupt the protocol.',
+        fix: 'Use console.error() or process.stderr.write() for debug output. These go to stderr and are captured in connector diagnostics.'
+      }
+    },
+
     id: 'orders-mcp',
     name: 'Orders MCP',
     description: 'E-commerce order management — CRUD operations for orders, customers, shipments, and returns tracking.',
