@@ -437,10 +437,27 @@ function buildExampleConnector() {
     },
 
     _runtime_compatibility: {
-      _note: 'CRITICAL: A-Team Core runs connectors on Node.js 18.x. Do NOT use @modelcontextprotocol/sdk — it is ESM-only and incompatible with Node 18.',
-      recommended_approach: 'Implement raw JSON-RPC over stdio. This is simple (~30 lines of boilerplate) and works reliably.',
-      boilerplate: `const readline = require("readline");
-const rl = readline.createInterface({ input: process.stdin });
+      _note: 'A-Team Core runs connectors on Node.js 22.x with full ESM support. The @modelcontextprotocol/sdk works great.',
+      recommended_approach: 'Use the official @modelcontextprotocol/sdk with StdioServerTransport. This is the simplest and most reliable approach.',
+      boilerplate: `import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+
+const server = new McpServer({
+  name: "my-mcp",
+  version: "1.0.0",
+});
+
+server.tool("my.tool", "Does something", { arg1: z.string() }, async ({ arg1 }) => {
+  return { content: [{ type: "text", text: JSON.stringify({ ok: true, arg1 }) }] };
+});
+
+const transport = new StdioServerTransport();
+await server.connect(transport);`,
+      package_json_note: 'Use "type": "module" in package.json when using ESM imports. List @modelcontextprotocol/sdk and zod as dependencies.',
+      alternative_approach: 'You can also implement raw JSON-RPC over stdio without the SDK — useful if you want zero dependencies.',
+      raw_boilerplate: `import { createInterface } from "readline";
+const rl = createInterface({ input: process.stdin });
 
 function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
 function result(id, data) { send({ jsonrpc: "2.0", id, result: data }); }
@@ -465,7 +482,6 @@ rl.on("line", async (line) => {
     catch (e) { return result(req.id, { content: [{ type: "text", text: JSON.stringify({ error: e.message }) }], isError: true }); }
   }
 });`,
-      package_json_note: 'Use "type": "commonjs" in package.json. Do NOT use "type": "module" — Node 18 has limited ESM support.',
     },
 
     id: 'orders-mcp',

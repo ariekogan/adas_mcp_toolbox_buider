@@ -79,8 +79,32 @@ function sbHeaders(req) {
  * @param {Array<{path: string, content: string}>} files - Full file objects
  * @returns {{ command: string|null, args: string[] }}
  */
+/**
+ * Check if file content looks like an MCP server (stays alive on stdin).
+ * Returns true if the content contains patterns indicating it reads stdin
+ * for JSON-RPC messages (either via SDK or raw implementation).
+ */
+function looksLikeMcpServer(content) {
+  if (!content || typeof content !== 'string') return false;
+  const patterns = [
+    /process\.stdin/,                           // Raw stdin reading
+    /readline.*createInterface/,                // readline over stdin
+    /StdioServerTransport/,                     // MCP SDK stdio transport
+    /McpServer|createServer/,                   // MCP SDK server creation
+    /jsonrpc.*2\.0/,                            // JSON-RPC protocol handling
+    /tools\/list|tools\/call/,                  // MCP method handlers
+    /method.*initialize/,                       // MCP initialize handler
+    /rl\.on\s*\(\s*["']line/,                   // readline line handler
+  ];
+  return patterns.some(p => p.test(content));
+}
+
 function resolveEntryPoint(connectorId, filePaths, files) {
   const basePath = `/mcp-store/${connectorId}`;
+  const warnings = [];
+
+  // Helper: get file content by path
+  const getContent = (filePath) => files.find(f => f.path === filePath)?.content;
 
   // 1. Check package.json "main" field
   const pkgFile = files.find(f => f.path === 'package.json');
@@ -88,12 +112,16 @@ function resolveEntryPoint(connectorId, filePaths, files) {
     try {
       const pkg = JSON.parse(pkgFile.content);
       if (pkg.main) {
-        return { command: 'node', args: [`${basePath}/${pkg.main}`] };
+        const mainContent = getContent(pkg.main);
+        if (mainContent && !looksLikeMcpServer(mainContent)) {
+          warnings.push(`package.json "main" points to "${pkg.main}" but it doesn't look like an MCP server (no stdin/JSON-RPC handling found). MCP servers must stay alive and read JSON-RPC from stdin.`);
+        }
+        return { command: 'node', args: [`${basePath}/${pkg.main}`], warnings };
       }
     } catch { /* ignore parse errors */ }
   }
 
-  // 2. Well-known entry points by priority
+  // 2. Well-known entry points by priority — skip files that don't look like servers
   const candidates = [
     { file: 'server.js',  command: 'node' },
     { file: 'index.js',   command: 'node' },
@@ -103,20 +131,33 @@ function resolveEntryPoint(connectorId, filePaths, files) {
     { file: 'index.ts',   command: 'npx', extraArgs: ['tsx'] },
   ];
 
+  // First pass: find a candidate that looks like an MCP server
+  for (const { file, command, extraArgs } of candidates) {
+    if (!filePaths.includes(file)) continue;
+    const content = getContent(file);
+    if (content && looksLikeMcpServer(content)) {
+      const args = [...(extraArgs || []), `${basePath}/${file}`];
+      return { command, args, warnings };
+    }
+  }
+
+  // Second pass: fallback to first existing candidate (with warning)
   for (const { file, command, extraArgs } of candidates) {
     if (filePaths.includes(file)) {
       const args = [...(extraArgs || []), `${basePath}/${file}`];
-      return { command, args };
+      warnings.push(`Auto-resolved entry point "${file}" but it doesn't look like an MCP server. MCP servers must stay alive and read JSON-RPC messages from stdin. If this file is not your server, set "main" in package.json to point to the correct file.`);
+      return { command, args, warnings };
     }
   }
 
   // 3. Fallback: first .js file at root level
   const rootJs = filePaths.find(p => !p.includes('/') && p.endsWith('.js'));
   if (rootJs) {
-    return { command: 'node', args: [`${basePath}/${rootJs}`] };
+    warnings.push(`No standard entry point (server.js/index.js) found — falling back to "${rootJs}". Make sure this file is your MCP server.`);
+    return { command: 'node', args: [`${basePath}/${rootJs}`], warnings };
   }
 
-  return { command: null, args: [] };
+  return { command: null, args: [], warnings };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -358,6 +399,9 @@ router.post('/solution', async (req, res) => {
   }
 
   try {
+    // Collect deploy-time warnings from entry-point analysis, compatibility checks, etc.
+    const deployWarnings = [];
+
     // ── Pre-deploy validation ──
     const validationContext = { skills: skills || [], connectors: connectors || [], mcp_store: mcp_store || {} };
     const preValidation = validateSolution(solution, validationContext);
@@ -368,10 +412,9 @@ router.post('/solution', async (req, res) => {
       console.log(`[Deploy] Pre-deploy warnings for ${solution.id}: ${preValidation.warnings.map(w => w.message).join('; ')}`);
     }
 
-    // ── Check mcp_store for known compatibility issues ──
-    // The A-Team Core runtime uses Node.js 18.x. The @modelcontextprotocol/sdk v1.x+
-    // is ESM-only and incompatible with Node 18's module resolution. Warn developers
-    // so they can either remove the SDK (use raw JSON-RPC) or use a compatible approach.
+    // ── Check mcp_store for known issues ──
+    // The A-Team Core runtime uses Node.js 22.x (supports ESM + MCP SDK).
+    // Check for missing package.json, missing "type": "module" when using ESM, etc.
     if (mcp_store && Object.keys(mcp_store).length > 0) {
       for (const [connId, files] of Object.entries(mcp_store)) {
         const pkgFile = (files || []).find(f => f.path === 'package.json');
@@ -379,19 +422,29 @@ router.post('/solution', async (req, res) => {
           try {
             const pkg = JSON.parse(pkgFile.content);
             const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
-            if (allDeps['@modelcontextprotocol/sdk']) {
-              preValidation.warnings = preValidation.warnings || [];
-              preValidation.warnings.push({
-                type: 'connector_compatibility',
+
+            // If using MCP SDK (ESM), ensure package.json has "type": "module"
+            if (allDeps['@modelcontextprotocol/sdk'] && pkg.type !== 'module') {
+              deployWarnings.push({
                 connector_id: connId,
-                message: `Connector "${connId}" uses @modelcontextprotocol/sdk which is ESM-only and incompatible with the A-Team Core runtime (Node.js 18.x). ` +
-                  `The connector will likely fail with MODULE_NOT_FOUND or ERR_MODULE_NOT_FOUND errors. ` +
-                  `Recommended fix: remove the SDK dependency and implement the MCP protocol directly using raw JSON-RPC over stdio (readline + JSON.parse + process.stdout.write). ` +
-                  `See the connector examples for a working pattern without the SDK.`,
+                warning: `Connector "${connId}" uses @modelcontextprotocol/sdk (ESM-only) but package.json is missing "type": "module". ` +
+                  `Add \`"type": "module"\` to package.json or rename .js files to .mjs to avoid ERR_REQUIRE_ESM errors.`,
               });
-              console.warn(`[Deploy] WARNING: Connector "${connId}" depends on @modelcontextprotocol/sdk — incompatible with Node 18 runtime`);
+              console.warn(`[Deploy] ⚠ Connector "${connId}" uses MCP SDK but missing "type": "module"`);
             }
           } catch { /* ignore parse errors */ }
+        } else {
+          // No package.json — check if any JS files use import/export (ESM syntax)
+          const jsFiles = (files || []).filter(f => f.path.endsWith('.js'));
+          const usesEsm = jsFiles.some(f => f.content && /\b(import\s+.*from\s+|export\s+(default|const|function|class)\s)/.test(f.content));
+          if (usesEsm) {
+            deployWarnings.push({
+              connector_id: connId,
+              warning: `Connector "${connId}" uses ESM import/export syntax but has no package.json. ` +
+                `Add a package.json with "type": "module" and list dependencies so npm install can run.`,
+            });
+            console.warn(`[Deploy] ⚠ Connector "${connId}" uses ESM syntax but no package.json`);
+          }
         }
       }
     }
@@ -411,11 +464,19 @@ router.post('/solution', async (req, res) => {
       }
 
       const filePaths = storeFiles.map(f => f.path);
-      const { command, args } = resolveEntryPoint(c.id, filePaths, storeFiles);
+      const resolved = resolveEntryPoint(c.id, filePaths, storeFiles);
 
-      if (command) {
-        console.log(`[Deploy] Auto-resolved connector ${c.id}: ${command} ${args.join(' ')}`);
-        return { ...c, command, args, transport: c.transport || 'stdio' };
+      if (resolved.warnings?.length) {
+        for (const w of resolved.warnings) {
+          console.warn(`[Deploy] ⚠ Connector ${c.id}: ${w}`);
+        }
+        // Attach warnings so they appear in the deploy response
+        deployWarnings.push(...resolved.warnings.map(w => ({ connector_id: c.id, warning: w })));
+      }
+
+      if (resolved.command) {
+        console.log(`[Deploy] Auto-resolved connector ${c.id}: ${resolved.command} ${resolved.args.join(' ')}`);
+        return { ...c, command: resolved.command, args: resolved.args, transport: c.transport || 'stdio' };
       }
 
       console.warn(`[Deploy] Could not auto-resolve entry point for connector ${c.id} — files: ${filePaths.join(', ')}`);
@@ -503,6 +564,7 @@ router.post('/solution', async (req, res) => {
       deploy: deployResult,
       ...(preValidation.errors?.length > 0 && { validation_errors: preValidation.errors }),
       ...(preValidation.warnings?.length > 0 && { validation_warnings: preValidation.warnings }),
+      ...(deployWarnings.length > 0 && { deploy_warnings: deployWarnings }),
       _next_steps: [
         `GET /deploy/solutions/${solution.id}/health — verify skills deployed and connectors healthy`,
         `GET /deploy/solutions/${solution.id}/definition — read back the solution definition`,

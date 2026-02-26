@@ -1088,11 +1088,11 @@ function buildSkillSpec() {
         'Omitting grant_mappings when a skill issues grants — if your skill verifies identity or produces claims consumed by other skills, add grant_mappings',
         'Trying to write Python MCP server code for skills — the Skill Builder auto-generates it from your tool definitions. Only connector source code (real business logic) needs to be written by you.',
         'Providing slug or mcpServer in deploy requests — these are computed automatically. Just provide skill definitions with tools.',
-        'Using @modelcontextprotocol/sdk in connector code — the runtime is Node.js 18.x which cannot load ESM-only packages. Use raw JSON-RPC over stdio instead (readline + JSON.parse + process.stdout.write). This is the #1 cause of connector startup failures.',
+        'Forgetting "type": "module" in package.json when using @modelcontextprotocol/sdk or ESM imports — the runtime is Node.js 22.x which fully supports ESM, but package.json must declare it.',
         'Defining stdio connectors without providing mcp_store code — if the connector server code is not pre-installed on A-Team Core, include it in the mcp_store field of the deploy payload. Without it, the connector will fail to start.',
       ],
       key_concepts: {
-        connector_runtime: 'A-Team Core runs connector MCP servers on Node.js 18.x. IMPORTANT: Do NOT use @modelcontextprotocol/sdk (v1.x+) — it is ESM-only and incompatible with Node 18. Instead, implement the MCP protocol directly using raw JSON-RPC over stdio: read lines from stdin with readline, parse JSON-RPC requests, write JSON-RPC responses to stdout. This is simple (~30 lines of boilerplate) and works reliably. See the connector examples for a working pattern.',
+        connector_runtime: 'A-Team Core runs connector MCP servers on Node.js 22.x with full ESM support. Recommended: use @modelcontextprotocol/sdk with StdioServerTransport — it is the simplest and most reliable approach. Make sure package.json has "type": "module" and lists @modelcontextprotocol/sdk + zod as dependencies. Alternative: implement raw JSON-RPC over stdio with readline if you prefer zero dependencies. See the connector examples for both patterns.',
         connector_storage: 'A-Team Core auto-injects a DATA_DIR environment variable into every stdio connector process, pointing to a tenant-scoped, connector-isolated directory. Use process.env.DATA_DIR to store SQLite databases, files, or any persistent data. No configuration needed — just read the env var in your connector code.',
         tool_vs_system_tool: 'Your tools come from MCP connectors. System tools (sys.*, ui.*, cp.*) are provided by the A-Team runtime — do NOT define them in your tools array.',
         grant_economy: 'Grants are verified claims that flow between skills. A skill issues grants via grant_mappings (tool output → grant). Another skill requires grants via access_policy. Security contracts enforce this at the solution level.',
@@ -1800,7 +1800,7 @@ function buildSolutionSpec() {
         'Deploying directly to A-Team Core instead of through the Skill Builder — always use POST /deploy/solution which routes through the Skill Builder for proper storage and MCP generation',
         'Writing Python MCP server code for skills — only connector implementations need real code. Skill MCP servers are auto-generated from tool definitions.',
         'Defining stdio connectors without providing mcp_store code — if the connector server code is not pre-installed on A-Team Core, include it in the mcp_store field of the deploy payload. Without it, the connector will fail to start.',
-        'Using @modelcontextprotocol/sdk in Node.js connector code — the A-Team Core runtime uses Node.js 18.x which cannot load ESM-only packages like the MCP SDK v1.x+. Implement the MCP protocol directly with raw JSON-RPC over stdio instead.',
+        'Forgetting "type": "module" in package.json when using ESM imports or @modelcontextprotocol/sdk — Node.js 22.x supports ESM fully but needs the package.json declaration.',
         'Manually remapping skill IDs after deploy — ID remapping is now automatic. The deploy pipeline deep-replaces original IDs with internal dom_xxx IDs in grants, handoffs, routing, and security_contracts.',
       ],
       key_concepts: {
