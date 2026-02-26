@@ -2,7 +2,7 @@ import skillsStore from "../store/skills.js";
 import solutionsStore from "../store/solutions.js";
 import { getAllPrebuiltConnectors } from "../routes/connectors.js";
 import { generateMCPSimple } from "./mcpGenerationAgent.js";
-import { syncConnectorToADAS, startConnectorInADAS, uploadMcpCodeToADAS } from "./adasConnectorSync.js";
+import { syncConnectorToADAS, startConnectorInADAS, stopConnectorInADAS, uploadMcpCodeToADAS } from "./adasConnectorSync.js";
 import { buildConnectorPayload } from "../utils/connectorPayload.js";
 import { compileUiPlugins } from "../utils/skillFieldHelpers.js";
 import adasCore from "./adasCoreClient.js";
@@ -237,11 +237,13 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     // Full deploy writes source code to solution-packs/<name>/mcp-store/<connectorId>/.
     // On redeploy, re-upload so updated source code reaches ADAS Core.
     let mcpStoreBase = null;
+    let mcpStagingDir = null;
     try {
       const { getMemoryRoot } = await import('../utils/tenantContext.js');
       const solution = await solutionsStore.load(solutionId);
       const solutionName = solution?.name || solutionId;
       mcpStoreBase = path.join(getMemoryRoot(), 'solution-packs', solutionName, 'mcp-store');
+      mcpStagingDir = path.join(getMemoryRoot(), '_mcp_staging');
     } catch {
       // Non-fatal: source code upload is best-effort
     }
@@ -253,6 +255,48 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
         continue;
       }
       try {
+        // Merge pre-staged connector files (from upload_connector_files) into mcp-store.
+        // This ensures redeploy picks up files staged via the MCP API, not just deploy-all.
+        if (mcpStagingDir && mcpStoreBase) {
+          const { default: fsSync } = await import('fs');
+          const stagedDir = path.join(mcpStagingDir, connectorId);
+          if (fsSync.existsSync(stagedDir)) {
+            const targetDir = path.join(mcpStoreBase, connectorId);
+            fsSync.mkdirSync(targetDir, { recursive: true });
+
+            const copyRecursive = (src, dest) => {
+              let count = 0;
+              for (const entry of fsSync.readdirSync(src, { withFileTypes: true })) {
+                const srcPath = path.join(src, entry.name);
+                const destPath = path.join(dest, entry.name);
+                if (entry.isDirectory()) {
+                  fsSync.mkdirSync(destPath, { recursive: true });
+                  count += copyRecursive(srcPath, destPath);
+                } else {
+                  fsSync.copyFileSync(srcPath, destPath);
+                  count++;
+                }
+              }
+              return count;
+            };
+
+            const mergedCount = copyRecursive(stagedDir, targetDir);
+            // Clean up staging after successful merge
+            fsSync.rmSync(stagedDir, { recursive: true, force: true });
+            log.info(`[MCP Deploy] Merged ${mergedCount} pre-staged files for connector "${connectorId}" into mcp-store`);
+          }
+        }
+
+        // Stop the existing connector before uploading new code.
+        // This clears stale stderr/error diagnostics from the previous run,
+        // ensuring error messages after redeploy reflect the CURRENT code, not the old one.
+        try {
+          await stopConnectorInADAS(connectorId);
+          log.info(`[MCP Deploy] Stopped existing connector "${connectorId}" before redeploy`);
+        } catch {
+          // Non-fatal: connector may not be running yet (first deploy)
+        }
+
         // Upload connector source code to ADAS Core mcp-store (if available)
         if (mcpStoreBase) {
           const mcpCodeDir = path.join(mcpStoreBase, connectorId);

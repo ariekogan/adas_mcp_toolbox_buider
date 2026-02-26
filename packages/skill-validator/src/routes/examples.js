@@ -436,6 +436,38 @@ function buildExampleConnector() {
       isolation: 'Each connector gets its own directory. Data is tenant-scoped and persisted across restarts.',
     },
 
+    _runtime_compatibility: {
+      _note: 'CRITICAL: A-Team Core runs connectors on Node.js 18.x. Do NOT use @modelcontextprotocol/sdk — it is ESM-only and incompatible with Node 18.',
+      recommended_approach: 'Implement raw JSON-RPC over stdio. This is simple (~30 lines of boilerplate) and works reliably.',
+      boilerplate: `const readline = require("readline");
+const rl = readline.createInterface({ input: process.stdin });
+
+function send(msg) { process.stdout.write(JSON.stringify(msg) + "\\n"); }
+function result(id, data) { send({ jsonrpc: "2.0", id, result: data }); }
+
+const TOOLS = [
+  { name: "my.tool", description: "Does something", inputSchema: { type: "object", properties: { arg1: { type: "string" } } } }
+];
+
+async function handleCall(name, args) {
+  switch (name) {
+    case "my.tool": return { content: [{ type: "text", text: JSON.stringify({ ok: true }) }] };
+    default: throw new Error("Unknown tool: " + name);
+  }
+}
+
+rl.on("line", async (line) => {
+  const req = JSON.parse(line);
+  if (req.method === "initialize") return result(req.id, { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "my-mcp", version: "1.0.0" } });
+  if (req.method === "tools/list") return result(req.id, { tools: TOOLS });
+  if (req.method === "tools/call") {
+    try { return result(req.id, await handleCall(req.params.name, req.params.arguments || {})); }
+    catch (e) { return result(req.id, { content: [{ type: "text", text: JSON.stringify({ error: e.message }) }], isError: true }); }
+  }
+});`,
+      package_json_note: 'Use "type": "commonjs" in package.json. Do NOT use "type": "module" — Node 18 has limited ESM support.',
+    },
+
     id: 'orders-mcp',
     name: 'Orders MCP',
     description: 'E-commerce order management — CRUD operations for orders, customers, shipments, and returns tracking.',

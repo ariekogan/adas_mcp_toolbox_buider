@@ -1380,7 +1380,7 @@ router.post('/mcp-store/:connectorId', upload.single('file'), async (req, res) =
 
 /**
  * GET /api/import/mcp-store
- * List all pre-staged connector files
+ * List all pre-staged connector files with paths and sizes
  */
 router.get('/mcp-store', (_req, res) => {
   const stagingDir = getStagingDir();
@@ -1390,15 +1390,21 @@ router.get('/mcp-store', (_req, res) => {
     for (const entry of fs.readdirSync(stagingDir, { withFileTypes: true })) {
       if (entry.isDirectory()) {
         const connDir = path.join(stagingDir, entry.name);
-        const countFiles = (dir) => {
-          let count = 0;
+        const collectFiles = (dir, prefix = '') => {
+          const files = [];
           for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (e.isDirectory()) count += countFiles(path.join(dir, e.name));
-            else count++;
+            const relPath = prefix ? `${prefix}/${e.name}` : e.name;
+            if (e.isDirectory()) {
+              files.push(...collectFiles(path.join(dir, e.name), relPath));
+            } else {
+              const stat = fs.statSync(path.join(dir, e.name));
+              files.push({ path: relPath, size: stat.size });
+            }
           }
-          return count;
+          return files;
         };
-        staged.push({ connector_id: entry.name, files: countFiles(connDir) });
+        const files = collectFiles(connDir);
+        staged.push({ connector_id: entry.name, file_count: files.length, files });
       }
     }
   }

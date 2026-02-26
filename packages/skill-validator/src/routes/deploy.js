@@ -368,6 +368,34 @@ router.post('/solution', async (req, res) => {
       console.log(`[Deploy] Pre-deploy warnings for ${solution.id}: ${preValidation.warnings.map(w => w.message).join('; ')}`);
     }
 
+    // ── Check mcp_store for known compatibility issues ──
+    // The A-Team Core runtime uses Node.js 18.x. The @modelcontextprotocol/sdk v1.x+
+    // is ESM-only and incompatible with Node 18's module resolution. Warn developers
+    // so they can either remove the SDK (use raw JSON-RPC) or use a compatible approach.
+    if (mcp_store && Object.keys(mcp_store).length > 0) {
+      for (const [connId, files] of Object.entries(mcp_store)) {
+        const pkgFile = (files || []).find(f => f.path === 'package.json');
+        if (pkgFile?.content) {
+          try {
+            const pkg = JSON.parse(pkgFile.content);
+            const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+            if (allDeps['@modelcontextprotocol/sdk']) {
+              preValidation.warnings = preValidation.warnings || [];
+              preValidation.warnings.push({
+                type: 'connector_compatibility',
+                connector_id: connId,
+                message: `Connector "${connId}" uses @modelcontextprotocol/sdk which is ESM-only and incompatible with the A-Team Core runtime (Node.js 18.x). ` +
+                  `The connector will likely fail with MODULE_NOT_FOUND or ERR_MODULE_NOT_FOUND errors. ` +
+                  `Recommended fix: remove the SDK dependency and implement the MCP protocol directly using raw JSON-RPC over stdio (readline + JSON.parse + process.stdout.write). ` +
+                  `See the connector examples for a working pattern without the SDK.`,
+              });
+              console.warn(`[Deploy] WARNING: Connector "${connId}" depends on @modelcontextprotocol/sdk — incompatible with Node 18 runtime`);
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      }
+    }
+
     // ── Auto-resolve connector command/args from mcp_store ──
     // When an agent provides mcp_store code but omits command/args,
     // we auto-detect the entry point and runtime from the uploaded files.
