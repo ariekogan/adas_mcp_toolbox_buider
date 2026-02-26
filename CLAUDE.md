@@ -50,21 +50,27 @@ packages/
 # Local dev (uses local filesystem, NOT production data)
 cd apps/frontend && BACKEND_PORT=4000 npx vite --port 3100
 cd apps/backend && node src/server.js
+
+# Build
+cd apps/frontend && npx vite build
+
+# Deploy to production (skill-builder only)
+git push origin main
+ssh mac1 "cd /Users/ariekogan333/Projects/adas_mcp_toolbox_builder && git pull origin main"
+ssh mac1 "cd /Users/ariekogan333/Projects/ai-dev-assistant && export PATH=/usr/local/bin:/opt/homebrew/bin:\$PATH && docker compose build skill-builder-backend skill-builder-frontend"
+ssh mac1 "cd /Users/ariekogan333/Projects/ai-dev-assistant && export PATH=/usr/local/bin:/opt/homebrew/bin:\$PATH && docker compose up -d skill-builder-backend skill-builder-frontend"
 ```
 
-## Deploy to Production
+### CRITICAL: Docker Compose Warning
 
+**NEVER run `docker compose up` from this repo (`adas_mcp_toolbox_builder/`) on mac1.**
+
+This repo has its own `docker-compose.yml` for local dev convenience, but on mac1 the skill-builder containers are managed by the **`ai-dev-assistant/docker-compose.yml`** project. Running compose from both repos creates duplicate containers (`adas_mcp_toolbox_builder-backend-1` vs `ai-dev-assistant-skill-builder-backend-1`) that fight over the same ports (4311, 3312, 3201, 8100-8110), causing port conflicts and 502 errors.
+
+**Always deploy skill-builder via `ai-dev-assistant`:**
 ```bash
-./deploy.sh
+ssh mac1 "cd /Users/ariekogan333/Projects/ai-dev-assistant && export PATH=/usr/local/bin:/opt/homebrew/bin:\$PATH && docker compose up -d skill-builder-backend skill-builder-frontend"
 ```
-
-That's it. One command. The script pushes code, pulls on mac1, and rebuilds via the ADAS Core compose.
-
-### WHY: There is NO standalone docker-compose.yml in this repo.
-
-The Skill Builder runs INSIDE the `ai-dev-assistant` docker-compose as `skill-builder-backend` + `skill-builder-frontend`. They share a Docker network with all other ADAS services. Running a separate compose creates an isolated network where nginx can't find `skill-builder-backend`, causing 502 errors on `app.ateam-ai.com`.
-
-`docker-compose.local-dev.yml` exists for local dev only. Never use it on mac1.
 
 ## Production Container Inventory (mac1)
 
@@ -97,4 +103,4 @@ All containers run under the `ai-dev-assistant` docker-compose project.
 3. **Core = Mongo, Builder = FS** — never mix them up
 4. **Always deploy to production** — user tests on `app.ateam-ai.com`, not localhost
 5. **One solution per tenant** — enforced at code level
-6. **Deploy = `./deploy.sh`** — never run docker compose manually on mac1
+6. **NEVER run docker compose from this repo on mac1** — always use `ai-dev-assistant/docker-compose.yml`
