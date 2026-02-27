@@ -54,9 +54,9 @@ function buildIndex() {
     version: '1.0.0',
     description: 'A-Team External Agent API — learn, build, validate, and deploy A-Team multi-agent solutions',
     getting_started: [
-      '1. GET /spec/skill — read the skill specification and agent guide',
+      '1. GET /spec/skill — read the skill specification (note the auto_expand section for minimal definitions)',
       '2. GET /spec/examples/skill — study a complete working example',
-      '3. Build your skill definition following the schema',
+      '3. Build your skill definition — define only what is unique (problem, tools, guardrails). The platform auto-generates intents, workflows, scenarios, and role when you validate or deploy.',
       '4. POST /validate/skill — validate and fix errors',
       '5. GET /spec/solution — read the solution specification when ready to compose skills',
       '6. POST /validate/solution — validate the full solution',
@@ -377,6 +377,13 @@ function buildSkillSpec() {
     spec_version: '1.0.0',
     description: 'Complete A-Team skill definition specification. A skill is an autonomous AI agent with tools, policies, and workflows.',
 
+    auto_expand: {
+      description: 'You can send a minimal skill definition (just id, name, problem, tools, and optionally guardrails). The platform auto-expands missing fields transparently during validation and deployment. Only define intents, workflows, scenarios, and role explicitly when you need custom logic.',
+      minimal_required: ['id', 'name', 'problem', 'tools'],
+      auto_generated: ['scenarios', 'intents', 'role', 'engine', 'policy.workflows', 'entities', 'access_policy'],
+      rule: 'If default planner behavior works — do not define extra blocks. Complexity is opt-in.',
+    },
+
     schema: {
       // ── Metadata ──
       id: { type: 'string', required: true, description: 'Unique skill identifier (e.g., "identity-assurance")' },
@@ -408,7 +415,8 @@ function buildSkillSpec() {
       // ── Scenarios ──
       scenarios: {
         type: 'array', required: true, min_items: 1,
-        description: 'Concrete use cases that demonstrate the skill in action',
+        auto_expandable: true,
+        description: 'Concrete use cases that demonstrate the skill in action. Auto-generated from tools if omitted when sent to validate or deploy.',
         item_schema: {
           id: { type: 'string', required: true, description: 'Unique scenario ID' },
           title: { type: 'string', required: true, description: 'Short scenario title' },
@@ -421,7 +429,8 @@ function buildSkillSpec() {
       // ── Role ──
       role: {
         type: 'object', required: true,
-        description: 'The agent persona and behavioral constraints',
+        auto_expandable: true,
+        description: 'The agent persona and behavioral constraints. Auto-generated from problem + tools + guardrails if omitted when sent to validate or deploy.',
         fields: {
           name: { type: 'string', required: true, description: 'Role name (e.g., "Identity Assurance Manager")' },
           persona: { type: 'string', required: true, description: 'Detailed persona description — how the agent should behave' },
@@ -446,7 +455,8 @@ function buildSkillSpec() {
       // ── Intents ──
       intents: {
         type: 'object', required: true,
-        description: 'User intent classification configuration',
+        auto_expandable: true,
+        description: 'User intent classification configuration. Auto-generated from tool names and descriptions if omitted when sent to validate or deploy. Only define explicitly when you need custom intent examples, entities, or disambiguation.',
         fields: {
           supported: {
             type: 'array', required: true,
@@ -686,7 +696,8 @@ function buildSkillSpec() {
       // ── Engine ──
       engine: {
         type: 'object', required: false,
-        description: 'AI model and reasoning configuration',
+        auto_expandable: true,
+        description: 'AI model and reasoning configuration. Uses sensible defaults (Claude Sonnet, temp 0.3, 10 iterations) if omitted.',
         fields: {
           model: { type: 'string', required: false, description: 'LLM model (e.g., "claude-sonnet-4-20250514")' },
           temperature: { type: 'number', required: false, description: 'LLM temperature (0.0-1.0)' },

@@ -40,8 +40,11 @@
  * GET  /deploy/solutions/:id/health           — Live health check
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { Router } from 'express';
 import { validateSolution } from '../validators/solutionValidator.js';
+import { expandSkill } from '../services/skillExpander.js';
 
 const router = Router();
 
@@ -511,8 +514,18 @@ router.post('/solution', async (req, res) => {
     // Collect deploy-time warnings from entry-point analysis, compatibility checks, etc.
     const deployWarnings = [];
 
-    // ── Pre-deploy validation ──
-    const validationContext = { skills: skills || [], connectors: connectors || [], mcp_store: mcp_store || {} };
+    // ── Auto-expand minimal skills ──
+    const expandedSkillsList = [];
+    const expandedSkills = (skills || []).map(s => {
+      const needsExpand = !s.intents || !s.scenarios || !s.role;
+      if (!needsExpand) return s;
+      const { skill: expanded, expanded_fields } = expandSkill(s);
+      expandedSkillsList.push({ skill_id: s.id, expanded_fields });
+      return expanded;
+    });
+
+    // ── Pre-deploy validation (on expanded skills) ──
+    const validationContext = { skills: expandedSkills, connectors: connectors || [], mcp_store: mcp_store || {} };
     const preValidation = validateSolution(solution, validationContext);
     if (preValidation.errors?.length > 0) {
       console.log(`[Deploy] Pre-deploy errors for ${solution.id}: ${preValidation.errors.map(e => e.message).join('; ')}`);
@@ -592,16 +605,55 @@ router.post('/solution', async (req, res) => {
       const storeFiles = mcp_store?.[c.id];
       const hasExplicitCommand = !!c.command;
 
-      // Only auto-resolve for stdio connectors with mcp_store code and no explicit command
+      // Only auto-resolve for stdio connectors without explicit command
       const isHttp = c.transport === 'http';
-      if (hasExplicitCommand || isHttp || !storeFiles || storeFiles.length === 0) {
+      if (hasExplicitCommand || isHttp) {
         return c;
       }
 
-      const filePaths = storeFiles.map(f => f.path);
-      // Pass tenant for tenant-scoped mcp-store paths
       const tenant = req.headers['x-adas-tenant'];
-      const resolved = resolveEntryPoint(c.id, filePaths, storeFiles, tenant);
+      let filePaths, filesForDetection;
+
+      if (storeFiles && storeFiles.length > 0) {
+        // Case 1: inline mcp_store files provided in this deploy
+        filePaths = storeFiles.map(f => f.path);
+        filesForDetection = storeFiles;
+      } else {
+        // Case 2: no inline mcp_store — check if files already exist on disk from a previous deploy
+        const MCP_STORE_BASE = '/mcp-store';
+        const dirCandidates = [];
+        if (tenant) dirCandidates.push(path.join(MCP_STORE_BASE, tenant, c.id));
+        dirCandidates.push(path.join(MCP_STORE_BASE, c.id));
+
+        let connectorDir = null;
+        for (const dir of dirCandidates) {
+          try { if (fs.existsSync(dir)) { connectorDir = dir; break; } } catch { /* ignore */ }
+        }
+
+        if (!connectorDir) return c; // no files anywhere — skip
+
+        // Read file names from disk
+        try {
+          const allFiles = [];
+          const readDir = (dir, prefix = '') => {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              if (entry.name === 'node_modules' || entry.name === '.git') continue;
+              const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+              if (entry.isDirectory()) { readDir(path.join(dir, entry.name), relPath); }
+              else { allFiles.push({ path: relPath, content: fs.readFileSync(path.join(dir, entry.name), 'utf-8') }); }
+            }
+          };
+          readDir(connectorDir);
+          filePaths = allFiles.map(f => f.path);
+          filesForDetection = allFiles;
+          console.log(`[Deploy] Auto-detect for ${c.id}: found ${filePaths.length} files on disk at ${connectorDir}`);
+        } catch (e) {
+          console.warn(`[Deploy] Could not read disk files for ${c.id}: ${e.message}`);
+          return c;
+        }
+      }
+
+      const resolved = resolveEntryPoint(c.id, filePaths, filesForDetection, tenant);
 
       if (resolved.warnings?.length) {
         for (const w of resolved.warnings) {
@@ -644,7 +696,7 @@ router.post('/solution', async (req, res) => {
         ...(c.envHelp ? { envHelp: c.envHelp } : {}),
         ...(c.authInstructions ? { authInstructions: c.authInstructions } : {}),
       })),
-      skills: (skills || []).map(s => ({
+      skills: expandedSkills.map(s => ({
         id: s.id,
         name: s.name,
         description: s.description || '',
@@ -659,7 +711,7 @@ router.post('/solution', async (req, res) => {
 
     // Build skills map: skill id → JSON string (YAML-compatible)
     const skillFiles = {};
-    for (const s of (skills || [])) {
+    for (const s of expandedSkills) {
       skillFiles[s.id] = JSON.stringify(s);
     }
 
@@ -702,6 +754,7 @@ router.post('/solution', async (req, res) => {
       ...(preValidation.errors?.length > 0 && { validation_errors: preValidation.errors }),
       ...(preValidation.warnings?.length > 0 && { validation_warnings: preValidation.warnings }),
       ...(deployWarnings.length > 0 && { deploy_warnings: deployWarnings }),
+      ...(expandedSkillsList.length > 0 && { auto_expanded_skills: expandedSkillsList }),
       _next_steps: [
         `GET /deploy/solutions/${solution.id}/health — verify skills deployed and connectors healthy`,
         `GET /deploy/solutions/${solution.id}/definition — read back the solution definition`,
@@ -1379,6 +1432,73 @@ router.get('/solutions/:solutionId/connectors/:connectorId/source', async (req, 
     res.status(resp.status).json(data);
   } catch (err) {
     console.error('[Deploy] Get connector source error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/connectors/:connectorId/tools — Auto-discover tools
+ *
+ * Reads the tools from a deployed connector and returns them formatted as
+ * minimal skill tool definitions. Use this instead of manually defining tools
+ * when the connector is already deployed.
+ *
+ * Returns: { ok, connector_id, tools: MinimalToolDef[] }
+ */
+router.get('/solutions/:solutionId/connectors/:connectorId/tools', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const connId = encodeURIComponent(req.params.connectorId);
+
+    // Get connector health (includes discovered tools)
+    const healthResp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/connectors/health`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(15000),
+    });
+    const healthData = await healthResp.json();
+
+    // Find the specific connector
+    const connectors = healthData.connectors || healthData.mcps || [];
+    const connector = connectors.find(c => c.id === req.params.connectorId || c.name === req.params.connectorId);
+
+    if (!connector) {
+      return res.status(404).json({ ok: false, error: `Connector "${req.params.connectorId}" not found in solution "${req.params.solutionId}"` });
+    }
+
+    // Extract tools and format as minimal skill tool definitions
+    const discoveredTools = connector.tools || [];
+    const minimalTools = discoveredTools.map(t => {
+      const tool = {
+        name: t.name,
+        description: t.description || '',
+      };
+      // Convert MCP inputSchema to simplified inputs array
+      if (t.inputSchema?.properties) {
+        const required = t.inputSchema.required || [];
+        tool.inputs = Object.entries(t.inputSchema.properties).map(([name, schema]) => ({
+          name,
+          type: schema.type || 'string',
+          required: required.includes(name),
+          description: schema.description || '',
+        }));
+      }
+      // Output type hint
+      if (t.outputSchema) {
+        tool.output = t.outputSchema.description || 'Result object';
+      }
+      return tool;
+    });
+
+    res.json({
+      ok: true,
+      connector_id: req.params.connectorId,
+      connector_status: connector.status,
+      tools_count: minimalTools.length,
+      tools: minimalTools,
+      usage_hint: 'Copy these tools into your minimal skill definition. Add security classifications for PII/financial tools.',
+    });
+  } catch (err) {
+    console.error('[Deploy] Connector tool discovery error:', err.message);
     res.status(502).json({ ok: false, error: err.message });
   }
 });

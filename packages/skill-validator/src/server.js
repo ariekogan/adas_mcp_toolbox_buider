@@ -44,6 +44,7 @@ import validateRoutes from './routes/validate.js';
 import specRoutes from './routes/spec.js';
 import examplesRoutes from './routes/examples.js';
 import deployRoutes from './routes/deploy.js';
+// expand logic is baked into validate + deploy routes (no separate endpoint needed)
 
 const app = express();
 const PORT = process.env.VALIDATOR_PORT || 3200;
@@ -59,6 +60,7 @@ app.use('/', validateRoutes);
 app.use('/spec', specRoutes);
 app.use('/spec/examples', examplesRoutes);
 app.use('/deploy', deployRoutes);
+// expand is transparent — baked into validate + deploy routes
 
 // Error handler
 app.use((err, _req, res, _next) => {
