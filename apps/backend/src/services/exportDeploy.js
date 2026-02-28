@@ -435,9 +435,97 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     log.info(`[MCP Deploy] ✓ POST-DEPLOY: ${healthyConnectors.length}/${connectorResults.length} connector(s) healthy (${totalTools} total tools)`);
   }
 
+  // ── Post-deploy skill registration verification ─────────────
+  // Confirm the skill actually appears in ADAS Core's skill registry.
+  // Without this, the skill dropdown shows "No custom skills installed".
+  let skillRegistered = false;
+  try {
+    const registeredSkills = await adasCore.getSkills();
+    skillRegistered = registeredSkills.some(s =>
+      (s.id === skillSlug || s.skillSlug === skillSlug || s.slug === skillSlug)
+    );
+    if (!skillRegistered) {
+      log.warn(`[MCP Deploy] POST-DEPLOY: Skill "${skillSlug}" deployed but NOT found in ADAS Core skill registry (GET /api/skills). The skill may not appear in the UI dropdown.`);
+    } else {
+      log.info(`[MCP Deploy] POST-DEPLOY: Skill "${skillSlug}" confirmed in ADAS Core skill registry`);
+    }
+  } catch (err) {
+    log.warn(`[MCP Deploy] POST-DEPLOY: Could not verify skill registration (non-fatal): ${err.message}`);
+  }
+
+  // ── Post-deploy UI contract verification ─────────────────────
+  // For UI-capable skills: call ui.getPlugin on each UI connector and verify
+  // the iframeUrl follows conventions and the asset exists.
+  const uiVerification = [];
+  const uiPlugins = skill.ui_plugins || [];
+  if (uiPlugins.length > 0 && healthyConnectors.length > 0) {
+    for (const plugin of uiPlugins) {
+      const connId = plugin.connector_id;
+      const pluginId = plugin.id;
+      if (!connId || !pluginId) continue;
+
+      // Only check if this connector deployed successfully
+      const connResult = connectorResults.find(c => c.id === connId);
+      if (!connResult?.ok) continue;
+
+      try {
+        const manifest = await adasCore.callConnectorTool(connId, 'ui.getPlugin', { id: pluginId });
+
+        if (!manifest) {
+          uiVerification.push({
+            plugin: pluginId, connector: connId,
+            ok: false, issue: `ui.getPlugin("${pluginId}") returned null`,
+          });
+          continue;
+        }
+
+        // Parse if wrapped in MCP content format
+        let parsed = manifest;
+        if (manifest?.content?.[0]?.type === 'text') {
+          try { parsed = JSON.parse(manifest.content[0].text); } catch {}
+        }
+
+        const iframeUrl = parsed?.render?.iframeUrl;
+        if (!iframeUrl) {
+          uiVerification.push({
+            plugin: pluginId, connector: connId,
+            ok: false, issue: `Plugin manifest missing render.iframeUrl`,
+          });
+          continue;
+        }
+
+        // Convention check: iframeUrl should start with /ui/ for consistent resolution
+        const followsConvention = iframeUrl.startsWith('/ui/') || iframeUrl.startsWith('http');
+        if (!followsConvention) {
+          uiVerification.push({
+            plugin: pluginId, connector: connId,
+            ok: true, // Still works (auto-corrected at runtime), but warn
+            warning: `iframeUrl "${iframeUrl}" does not follow /ui/<path> convention. ` +
+              `Recommend: "/ui/${iframeUrl.replace(/^\//, '')}" for consistent URL resolution.`,
+          });
+          log.warn(`[MCP Deploy] POST-DEPLOY UI: Plugin "${pluginId}" iframeUrl "${iframeUrl}" ` +
+            `does not follow /ui/<path> convention — will be auto-corrected at runtime but should be fixed`);
+        } else {
+          uiVerification.push({
+            plugin: pluginId, connector: connId,
+            ok: true, iframeUrl,
+          });
+          log.info(`[MCP Deploy] POST-DEPLOY UI: Plugin "${pluginId}" verified — iframeUrl: ${iframeUrl}`);
+        }
+      } catch (err) {
+        uiVerification.push({
+          plugin: pluginId, connector: connId,
+          ok: false, issue: `ui.getPlugin failed: ${err.message}`,
+        });
+        log.warn(`[MCP Deploy] POST-DEPLOY UI: Plugin "${pluginId}" verification failed: ${err.message}`);
+      }
+    }
+  }
+
   // Build post-deploy verification report
   const verification = {
     skill_deployed: true,
+    skill_registered: skillRegistered,
     skill_tools: deployedToolCount,
     has_get_skill_definition: hasGetSkillDefinition,
     connectors_total: connectorResults.length,
@@ -446,14 +534,37 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     connectors_zero_tools: zeroToolConnectors.length,
   };
 
+  // Add UI verification results if present
+  if (uiVerification.length > 0) {
+    verification.ui_plugins_checked = uiVerification.length;
+    verification.ui_plugins_ok = uiVerification.filter(u => u.ok).length;
+    verification.ui_plugins_failed = uiVerification.filter(u => !u.ok).length;
+    verification.ui_plugins_warnings = uiVerification.filter(u => u.warning).length;
+    verification.ui_details = uiVerification;
+  }
+
   // Flag if the overall deploy has issues that need attention
-  if (failedConnectors.length > 0 || !hasGetSkillDefinition || deployedToolCount === 0) {
+  const uiFailed = uiVerification.filter(u => !u.ok);
+  const uiWarnings = uiVerification.filter(u => u.warning);
+  if (failedConnectors.length > 0 || !hasGetSkillDefinition || deployedToolCount === 0 ||
+      !skillRegistered || uiFailed.length > 0) {
     verification.needs_attention = true;
     verification.issues = [];
     if (deployedToolCount === 0) verification.issues.push('Skill has 0 tools — cannot execute');
     if (!hasGetSkillDefinition) verification.issues.push('Missing get_skill_definition — ADAS Core cannot load skill config');
+    if (!skillRegistered) verification.issues.push(`Skill "${skillSlug}" not found in ADAS Core skill registry — may not appear in UI`);
     for (const c of failedConnectors) {
       verification.issues.push(`Connector "${c.id}" failed: ${c.error}`);
+    }
+    for (const u of uiFailed) {
+      verification.issues.push(`UI plugin "${u.plugin}" (${u.connector}): ${u.issue}`);
+    }
+  }
+  // Surface UI warnings even if no blocking issues
+  if (uiWarnings.length > 0) {
+    if (!verification.issues) verification.issues = [];
+    for (const u of uiWarnings) {
+      verification.issues.push(`UI warning: ${u.warning}`);
     }
   }
 

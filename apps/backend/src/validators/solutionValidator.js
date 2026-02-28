@@ -334,6 +334,69 @@ export function validateSolution(solution, context) {
         });
       }
     }
+
+    // 8f. UI-capable skill validation
+    // For skills with ui_plugins, verify:
+    //   1. The connector_id in each plugin exists in the solution's connectors
+    //   2. The connector has ui.getPlugin and ui.listPlugins tools
+    //   3. The skill is listed as ui_capable
+    for (const skill of fullSkills) {
+      const uiPlugins = skill.ui_plugins || [];
+      if (uiPlugins.length === 0) continue;
+
+      // Check ui_capable flag consistency
+      if (!skill.ui_capable) {
+        warnings.push({
+          check: 'ui_capable_flag',
+          message: `Skill "${skill.name || skill.id}" has ${uiPlugins.length} ui_plugins but ui_capable is not set to true`,
+          skill: skill.id,
+        });
+      }
+
+      for (const plugin of uiPlugins) {
+        // Validate connector reference
+        if (plugin.connector_id && !declaredConnectorIds.has(plugin.connector_id)) {
+          errors.push({
+            check: 'ui_plugin_connector_exists',
+            message: `UI plugin "${plugin.id}" in skill "${skill.name || skill.id}" references connector "${plugin.connector_id}" which is not declared`,
+            skill: skill.id,
+            plugin: plugin.id,
+            connector: plugin.connector_id,
+          });
+        }
+
+        // Check the connector has UI tools (ui.getPlugin, ui.listPlugins)
+        if (plugin.connector_id) {
+          const connectorDef = connectors.find(c => c.id === plugin.connector_id);
+          if (connectorDef) {
+            // If connector has tools metadata, verify ui tools exist
+            const connTools = connectorDef.tools || [];
+            if (connTools.length > 0) {
+              const hasGetPlugin = connTools.some(t => t.name === 'ui.getPlugin');
+              const hasListPlugins = connTools.some(t => t.name === 'ui.listPlugins');
+              if (!hasGetPlugin) {
+                warnings.push({
+                  check: 'ui_connector_has_getplugin',
+                  message: `Connector "${plugin.connector_id}" used by UI plugin "${plugin.id}" is missing "ui.getPlugin" tool — the dashboard cannot load`,
+                  skill: skill.id,
+                  plugin: plugin.id,
+                  connector: plugin.connector_id,
+                });
+              }
+              if (!hasListPlugins) {
+                warnings.push({
+                  check: 'ui_connector_has_listplugins',
+                  message: `Connector "${plugin.connector_id}" used by UI plugin "${plugin.id}" is missing "ui.listPlugins" tool — plugin discovery will fail`,
+                  skill: skill.id,
+                  plugin: plugin.id,
+                  connector: plugin.connector_id,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   // ─── Summary ───────────────────────────────────────────────
