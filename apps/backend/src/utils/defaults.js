@@ -1,128 +1,35 @@
 /**
  * Default values for DraftSkill
+ *
+ * Structural defaults (engine, policy, intents, role, etc.) come from
+ * the SHARED ensureSkillDefaults() in @adas/skill-validator — SAME CODE
+ * used by both Skill Builder (design-time) and ADAS Core (runtime).
+ *
+ * This file adds Builder-specific fields (validation state) on top.
+ *
  * @module utils/defaults
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { ensureSkillDefaults } from '@adas/skill-validator';
 
 /**
- * Create an empty DraftSkill with default values
+ * Create an empty DraftSkill with default values.
+ * Uses shared ensureSkillDefaults() for structural defaults,
+ * then adds Builder-specific fields (validation).
+ *
  * @param {string} id - Domain ID
  * @param {string} name - Domain name
  * @returns {import('../types/DraftSkill.js').DraftSkill}
  */
 export function createEmptyDraftSkill(id, name) {
-  const now = new Date().toISOString();
+  // Shared defaults (same code as Core runtime)
+  const skill = ensureSkillDefaults({ id, name });
 
-  return {
-    id,
-    name,
-    description: '',
-    version: '0.1.0',
-    phase: 'PROBLEM_DISCOVERY',
-    created_at: now,
-    updated_at: now,
+  // Builder-specific: validation state (not needed at runtime)
+  skill.validation = createEmptyValidation();
 
-    problem: {
-      statement: '',
-      context: '',
-      goals: [],
-    },
-    scenarios: [],
-
-    role: {
-      name: '',
-      persona: '',
-      goals: [],
-      limitations: [],
-    },
-    glossary: {},
-
-    intents: {
-      supported: [],
-      thresholds: {
-        accept: 0.8,
-        clarify: 0.5,
-        reject: 0.5,
-      },
-      out_of_domain: {
-        action: 'redirect',
-        message: '',
-      },
-    },
-
-    engine: {
-      rv2: {
-        max_iterations: 10,
-        iteration_timeout_ms: 30000,
-        allow_parallel_tools: false,
-        on_max_iterations: 'ask_user',
-      },
-      hlr: {
-        enabled: true,
-        critic: {
-          enabled: true,
-          check_interval: 3,
-          strictness: 'medium',
-        },
-        reflection: {
-          enabled: true,
-          depth: 'shallow',
-        },
-        replanning: {
-          enabled: true,
-          max_replans: 5,
-        },
-      },
-      autonomy: {
-        level: 'supervised',
-      },
-      finalization_gate: {
-        enabled: true,
-        max_retries: 2,
-      },
-      internal_error: {
-        enabled: true,
-        tool_not_found: {
-          enter_resolution_after: 1,
-          retryable: false,
-        },
-        resolution: {
-          max_iterations: 1,
-          allowed_capabilities: ['read', 'search', 'document_output'],
-        },
-        loop_detection: {
-          enabled: true,
-          identical_call_threshold: 2,
-        },
-      },
-    },
-
-    toolbox_imports: [],
-    tools: [],
-    meta_tools: [], // DAL-generated tool compositions
-    triggers: [], // Automation triggers (schedule, event)
-
-    policy: {
-      guardrails: {
-        never: [],
-        always: [],
-      },
-      approvals: [],
-      workflows: [],
-      escalation: {
-        enabled: false,
-        conditions: [],
-        target: '',
-      },
-    },
-
-    channels: [],
-
-    validation: createEmptyValidation(),
-
-    conversation: [],
-  };
+  return skill;
 }
 
 /**

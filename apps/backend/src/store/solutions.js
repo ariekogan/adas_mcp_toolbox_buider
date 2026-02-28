@@ -18,6 +18,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { getMemoryRoot } from '../utils/tenantContext.js';
+import { ensureSolutionDefaults } from '@adas/skill-validator';
 
 // ═══════════════════════════════════════════════════════════════
 // HELPERS
@@ -206,12 +207,10 @@ async function load(id) {
     throw new Error(`Solution ${id} not found`);
   }
 
-  const solution = await readJson(solutionPath);
+  let solution = await readJson(solutionPath);
 
-  // Ensure conversation array exists
-  if (!Array.isArray(solution.conversation)) {
-    solution.conversation = [];
-  }
+  // Fill missing fields with sensible defaults (shared with Core)
+  solution = ensureSolutionDefaults(solution);
 
   return solution;
 }

@@ -17,7 +17,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { createEmptyDraftSkill } from '../utils/defaults.js';
-import { validateDraftSkill } from '@adas/skill-validator';
+import { validateDraftSkill, ensureSkillDefaults } from '@adas/skill-validator';
 import { migrateToV2 } from '../services/migrate.js';
 import templatesStore from './templates.js';
 import solutionsStore from './solutions.js';
@@ -349,7 +349,9 @@ async function load(solutionId, slug) {
   // Try new format first (skill.json)
   const skillPath = path.join(slugDir, 'skill.json');
   if (await fileExists(skillPath)) {
-    const skill = await readJson(skillPath);
+    let skill = await readJson(skillPath);
+    // Fill missing fields with sensible defaults (shared with Core)
+    skill = ensureSkillDefaults(skill);
     // Normalize data (fix missing IDs, etc.)
     const wasModified = normalizeSkill(skill);
     if (wasModified) {
