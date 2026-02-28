@@ -472,6 +472,7 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
         const manifest = await adasCore.callConnectorTool(connId, 'ui.getPlugin', { id: pluginId });
 
         if (!manifest) {
+          log.error(`[MCP Deploy] POST-DEPLOY UI: Plugin "${pluginId}" — ui.getPlugin returned null`);
           uiVerification.push({
             plugin: pluginId, connector: connId,
             ok: false, issue: `ui.getPlugin("${pluginId}") returned null`,
@@ -487,6 +488,7 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
 
         const iframeUrl = parsed?.render?.iframeUrl;
         if (!iframeUrl) {
+          log.error(`[MCP Deploy] POST-DEPLOY UI: Plugin "${pluginId}" manifest missing render.iframeUrl — got: ${JSON.stringify(parsed).slice(0, 200)}`);
           uiVerification.push({
             plugin: pluginId, connector: connId,
             ok: false, issue: `Plugin manifest missing render.iframeUrl`,
@@ -517,7 +519,7 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
           plugin: pluginId, connector: connId,
           ok: false, issue: `ui.getPlugin failed: ${err.message}`,
         });
-        log.warn(`[MCP Deploy] POST-DEPLOY UI: Plugin "${pluginId}" verification failed: ${err.message}`);
+        log.error(`[MCP Deploy] POST-DEPLOY UI: Plugin "${pluginId}" verification FAILED: ${err.message}`);
       }
     }
   }
@@ -568,8 +570,17 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     }
   }
 
+  // UI plugin failures are HARD FAILURES — the skill is deployed but broken
+  // for end users who see "Failed to load plugin" errors in the dashboard.
+  const uiHardFail = uiFailed.length > 0;
+  if (uiHardFail) {
+    log.error(`[MCP Deploy] HARD FAILURE: ${uiFailed.length} UI plugin(s) failed verification — ` +
+      `skill "${skillSlug}" deployed but UI is BROKEN. ` +
+      uiFailed.map(u => `${u.plugin}: ${u.issue}`).join('; '));
+  }
+
   return {
-    ok: true, status: 'deployed', skillSlug,
+    ok: !uiHardFail, status: uiHardFail ? 'deployed_with_errors' : 'deployed', skillSlug,
     mcpUri: result.mcpUri, port: result.port, connectorId: result.connectorId,
     tools: deployedToolCount,
     toolNames: result.toolNames || [],
@@ -577,6 +588,8 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     ...(result.warnings?.length ? { warnings: result.warnings } : {}),
     connectors: connectorResults, adasResponse: result,
     verification,
-    message: `Skill "${skillSlug}" deployed to ADAS Core and running!`
+    message: uiHardFail
+      ? `Skill "${skillSlug}" deployed but ${uiFailed.length} UI plugin(s) FAILED verification: ${uiFailed.map(u => u.issue).join('; ')}`
+      : `Skill "${skillSlug}" deployed to ADAS Core and running!`
   };
 }

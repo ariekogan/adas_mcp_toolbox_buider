@@ -457,8 +457,8 @@ router.post('/:id/skills/:skillId/redeploy', async (req, res, next) => {
 
     const result = await deploySkillToADAS(solutionId, requestedSkillId, log);
 
-    res.json({
-      ok: true,
+    const statusCode = result.ok === false ? 502 : 200;
+    res.status(statusCode).json({
       skill_id: requestedSkillId,
       ...result,
     });
@@ -526,10 +526,13 @@ router.post('/:id/redeploy', async (req, res, next) => {
     const failedConnectors = allConnectorResults.filter(c => !c.ok);
     const zeroToolConnectors = allConnectorResults.filter(c => c.ok && c.tools === 0);
     const skillsNeedingAttention = results.filter(r => r.verification?.needs_attention);
+    // Count skills where deployment succeeded but UI verification failed (ok: false from deploySkillToADAS)
+    const uiFailedSkills = results.filter(r => r.ok === false && r.status === 'deployed_with_errors');
+    const totalFailed = failed + uiFailedSkills.length;
 
     const verification = {
       skills_deployed: deployed,
-      skills_failed: failed,
+      skills_failed: totalFailed,
       connectors_total: allConnectorResults.length,
       connectors_healthy: allConnectorResults.filter(c => c.ok && c.tools > 0).length,
       connectors_failed: failedConnectors.length,
@@ -552,11 +555,12 @@ router.post('/:id/redeploy', async (req, res, next) => {
       }
     }
 
-    res.json({
-      ok: failed === 0,
+    const allOk = totalFailed === 0;
+    res.status(allOk ? 200 : 502).json({
+      ok: allOk,
       solution_id: solutionId,
       deployed,
-      failed,
+      failed: totalFailed,
       total: linkedSkills.length,
       skills: results,
       verification,
