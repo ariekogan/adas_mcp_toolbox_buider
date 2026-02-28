@@ -1094,6 +1094,9 @@ function buildSkillSpec() {
         'Calling process.exit() in connector code — MCP servers must stay alive. Let A-Team manage the lifecycle.',
         'Forgetting "type": "module" in package.json when using @modelcontextprotocol/sdk or ESM imports — the runtime is Node.js 22.x which fully supports ESM, but package.json must declare it.',
         'Defining stdio connectors without providing mcp_store code — if the connector server code is not pre-installed on A-Team Core, include it in the mcp_store field of the deploy payload. Without it, the connector will fail to start.',
+        // ── UI CONNECTOR MISTAKES ──
+        'FATAL: ui.getPlugin returning wrong manifest format — MUST return { render: { mode: "iframe", iframeUrl: "/ui/<plugin>/<version>/index.html" } }. Do NOT invent custom shapes like { plugin: { ui: { component, route } } } or put iframeUrl at the top level. Missing render.iframeUrl is a HARD DEPLOYMENT FAILURE. See GET /spec/examples/connector-ui for correct and wrong examples.',
+        'ui.listPlugins returning a bare array instead of { plugins: [...] } — Core expects the wrapper object.',
         // ── SKILL MISTAKES ──
         'Forgetting security.classification on tools — every tool needs one',
         'High-risk tools (pii_write, financial, destructive) without access_policy rules → validation error',
@@ -1125,6 +1128,13 @@ function buildSkillSpec() {
           validation: 'The deploy pipeline scans connector source code for anti-patterns (web server code, port binding) and BLOCKS deployment if found.',
         },
         connector_storage: 'A-Team Core auto-injects a DATA_DIR environment variable into every stdio connector process, pointing to a tenant-scoped, connector-isolated directory. Use process.env.DATA_DIR to store SQLite databases, files, or any persistent data. No configuration needed — just read the env var in your connector code.',
+        ui_capable_connectors: {
+          _note: 'UI-capable connectors serve dashboard plugins via iframe. They MUST implement ui.listPlugins and ui.getPlugin tools.',
+          required_tools: ['ui.listPlugins', 'ui.getPlugin'],
+          manifest_contract: 'ui.getPlugin MUST return { id, name, version, render: { mode: "iframe", iframeUrl: "/ui/<plugin>/<version>/index.html" } }. The render.iframeUrl field is REQUIRED — missing it is a HARD DEPLOYMENT FAILURE.',
+          file_structure: 'Put UI HTML files in ui-dist/<plugin-id>/<version>/index.html inside the connector mcp_store. Core serves them at /mcp-ui/<connector-id>/<plugin-id>/<version>/index.html.',
+          see_example: 'GET /spec/examples/connector-ui for a complete working example with correct AND wrong response formats.',
+        },
         tool_vs_system_tool: 'Your tools come from MCP connectors. System tools (sys.*, ui.*, cp.*) are provided by the A-Team runtime — do NOT define them in your tools array.',
         grant_economy: 'Grants are verified claims that flow between skills. A skill issues grants via grant_mappings (tool output → grant). Another skill requires grants via access_policy. Security contracts enforce this at the solution level.',
         workflow_steps: 'Workflow steps are tool NAMES (not IDs). Example: ["orders.order.get", "sys.emitUserMessage"]. System tools are valid step targets.',

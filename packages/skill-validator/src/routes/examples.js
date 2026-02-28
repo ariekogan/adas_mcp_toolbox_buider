@@ -644,7 +644,8 @@ function buildExampleConnectorUI() {
         code_example: 'case "ui.listPlugins":\n  return { content: [{ type: "text", text: JSON.stringify({ plugins: [{ id: "ecom-overview", name: "E-Commerce Overview", version: "1.0.0" }] }) }] };',
       },
       'ui.getPlugin': {
-        _note: 'Returns the full manifest for one plugin. iframeUrl uses /ui/ prefix — A-Team Core resolves it to /mcp-ui/<connector-id>/.',
+        _note: 'Returns the full manifest for one plugin. MUST include render.iframeUrl — this is how A-Team Core loads the UI. iframeUrl uses /ui/ prefix — Core resolves it to /mcp-ui/<connector-id>/.',
+        _critical: 'The response MUST have a top-level "render" object with "mode" and "iframeUrl". Without render.iframeUrl, the plugin FAILS to load with "invalid manifest" error. This is validated at deploy time and is a HARD FAILURE.',
         correct_example: {
           id: 'ecom-overview',
           name: 'E-Commerce Overview',
@@ -653,6 +654,20 @@ function buildExampleConnectorUI() {
           channels: ['command'],
           capabilities: { commands: [] },
         },
+        wrong_examples: [
+          {
+            _wrong_note: 'WRONG: Missing render.iframeUrl entirely. Custom ui/component/route fields are NOT recognized. A-Team Core checks manifest.render.iframeUrl — any other shape is rejected.',
+            example: { ok: true, plugin: { id: 'ecom-overview', ui: { component: 'ecom-overview', route: '/ecom-overview' } } },
+          },
+          {
+            _wrong_note: 'WRONG: iframeUrl at top level instead of nested in render object. Must be render.iframeUrl, NOT just iframeUrl.',
+            example: { id: 'ecom-overview', name: 'E-Commerce Overview', iframeUrl: '/ui/ecom-overview/1.0.0/index.html' },
+          },
+          {
+            _wrong_note: 'WRONG: Wrapping manifest in { plugin: ... }. Return the manifest object DIRECTLY, not wrapped.',
+            example: { plugin: { id: 'ecom-overview', render: { mode: 'iframe', iframeUrl: '/ui/ecom-overview/1.0.0/index.html' } } },
+          },
+        ],
         code_example: 'case "ui.getPlugin":\n  return { content: [{ type: "text", text: JSON.stringify({ id: "ecom-overview", name: "E-Commerce Overview", version: "1.0.0", render: { mode: "iframe", iframeUrl: "/ui/ecom-overview/1.0.0/index.html" }, channels: ["command"], capabilities: { commands: [] } }) }] };',
       },
     },
