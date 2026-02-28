@@ -68,6 +68,7 @@ export async function syncConnectorToADAS(connector) {
     // tenant-scoped mcp-store path at runtime via _resolveMcpStoreArgs + cwd auto-detect.
     // This prevents hardcoded absolute paths leaking into MongoDB, which would
     // break tenant isolation and fail if mcp-store layout changes.
+    const originalArgs = [...args];
     args = args.map(arg => {
       if (typeof arg !== 'string') return arg;
       // Replace legacy http-wrapper with server.js
@@ -77,8 +78,17 @@ export async function syncConnectorToADAS(connector) {
         const basename = arg.split('/').pop();
         return basename || arg;
       }
+      // Strip absolute /tenants/... prefix (another form of hardcoded paths)
+      if (arg.startsWith('/tenants/')) {
+        const basename = arg.split('/').pop();
+        return basename || arg;
+      }
       return arg;
     });
+    // Log autocorrection so it's visible to developers
+    if (JSON.stringify(originalArgs) !== JSON.stringify(args)) {
+      console.warn(`[ADASSync] AUTOCORRECT: connector "${id}" args normalized: ${JSON.stringify(originalArgs)} → ${JSON.stringify(args)}`);
+    }
     payload.config = {
       command: config?.command,
       args,

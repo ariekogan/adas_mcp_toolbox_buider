@@ -521,6 +521,37 @@ router.post('/:id/redeploy', async (req, res, next) => {
       }
     }
 
+    // Build post-deploy verification summary across all skills
+    const allConnectorResults = results.flatMap(r => r.connectors || []);
+    const failedConnectors = allConnectorResults.filter(c => !c.ok);
+    const zeroToolConnectors = allConnectorResults.filter(c => c.ok && c.tools === 0);
+    const skillsNeedingAttention = results.filter(r => r.verification?.needs_attention);
+
+    const verification = {
+      skills_deployed: deployed,
+      skills_failed: failed,
+      connectors_total: allConnectorResults.length,
+      connectors_healthy: allConnectorResults.filter(c => c.ok && c.tools > 0).length,
+      connectors_failed: failedConnectors.length,
+      connectors_zero_tools: zeroToolConnectors.length,
+    };
+
+    if (failed > 0 || failedConnectors.length > 0 || skillsNeedingAttention.length > 0) {
+      verification.needs_attention = true;
+      verification.issues = [];
+      if (failed > 0) {
+        verification.issues.push(`${failed} skill(s) failed to deploy`);
+      }
+      for (const c of failedConnectors) {
+        verification.issues.push(`Connector "${c.id}" failed: ${c.error}`);
+      }
+      for (const s of skillsNeedingAttention) {
+        for (const issue of (s.verification?.issues || [])) {
+          verification.issues.push(`[${s.skill_id}] ${issue}`);
+        }
+      }
+    }
+
     res.json({
       ok: failed === 0,
       solution_id: solutionId,
@@ -528,6 +559,7 @@ router.post('/:id/redeploy', async (req, res, next) => {
       failed,
       total: linkedSkills.length,
       skills: results,
+      verification,
     });
   } catch (err) {
     if (err.message?.includes('not found')) {

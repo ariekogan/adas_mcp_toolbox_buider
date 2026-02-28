@@ -248,10 +248,66 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
       // Non-fatal: source code upload is best-effort
     }
 
+    // ── Pre-deploy connector validation ─────────────────────────
+    // Check ALL connectors BEFORE deploying any — fail-fast with actionable errors.
+    // This prevents partial deploys where some connectors succeed and others fail at runtime.
+    const preDeployIssues = [];
     for (const connectorId of linkedConnectors) {
       const connector = allConnectors[connectorId];
       if (!connector) {
-        connectorResults.push({ id: connectorId, ok: false, error: 'unknown connector' });
+        preDeployIssues.push({
+          connector: connectorId,
+          severity: 'error',
+          message: `Connector "${connectorId}" is not registered. Check the connector ID or deploy the connector definition first.`,
+        });
+        continue;
+      }
+
+      // For stdio connectors: verify source code exists (mcp-store or staging)
+      const transport = connector.transport || (connector.command ? 'stdio' : 'http');
+      if (transport === 'stdio' && mcpStoreBase) {
+        const { default: fsSync } = await import('fs');
+        const codeDir = path.join(mcpStoreBase, connectorId);
+        const stagedDir = mcpStagingDir ? path.join(mcpStagingDir, connectorId) : null;
+        const hasCode = fsSync.existsSync(codeDir);
+        const hasStaged = stagedDir && fsSync.existsSync(stagedDir);
+
+        if (!hasCode && !hasStaged) {
+          preDeployIssues.push({
+            connector: connectorId,
+            severity: 'warning',
+            message: `Stdio connector "${connectorId}" has no source code in mcp-store or staging. ` +
+              `It will fail to start on ADAS Core unless the code was previously uploaded. ` +
+              `Expected location: solution-packs/<solution>/mcp-store/${connectorId}/`,
+          });
+        }
+      }
+    }
+
+    // Log all pre-deploy issues
+    for (const issue of preDeployIssues) {
+      if (issue.severity === 'error') {
+        log.error(`[MCP Deploy] PRE-DEPLOY CHECK: ${issue.message}`);
+      } else {
+        log.warn(`[MCP Deploy] PRE-DEPLOY CHECK: ${issue.message}`);
+      }
+    }
+
+    // Abort on blocking errors (unknown connectors)
+    const blockingErrors = preDeployIssues.filter(i => i.severity === 'error');
+    if (blockingErrors.length > 0) {
+      for (const err of blockingErrors) {
+        connectorResults.push({ id: err.connector, ok: false, error: err.message });
+      }
+    }
+
+    for (const connectorId of linkedConnectors) {
+      const connector = allConnectors[connectorId];
+      if (!connector) {
+        // Already reported in pre-deploy check — skip silently
+        if (!connectorResults.find(r => r.id === connectorId)) {
+          connectorResults.push({ id: connectorId, ok: false, error: 'unknown connector' });
+        }
         continue;
       }
       try {
@@ -356,6 +412,51 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     }
   }
 
+  // ── Post-deploy verification summary ─────────────────────────
+  // Produce a clear summary of deployment health for the AI agent developer
+  const failedConnectors = connectorResults.filter(c => !c.ok);
+  const zeroToolConnectors = connectorResults.filter(c => c.ok && c.tools === 0);
+  const healthyConnectors = connectorResults.filter(c => c.ok && c.tools > 0);
+
+  if (failedConnectors.length > 0) {
+    log.error(`[MCP Deploy] ⚠ POST-DEPLOY: ${failedConnectors.length}/${connectorResults.length} connector(s) FAILED:`);
+    for (const c of failedConnectors) {
+      log.error(`[MCP Deploy]   - ${c.id}: ${c.error || 'unknown error'}`);
+    }
+  }
+  if (zeroToolConnectors.length > 0) {
+    log.warn(`[MCP Deploy] ⚠ POST-DEPLOY: ${zeroToolConnectors.length} connector(s) started with 0 tools (may still be initializing):`);
+    for (const c of zeroToolConnectors) {
+      log.warn(`[MCP Deploy]   - ${c.id}: ${c.warning || 'zero tools'}`);
+    }
+  }
+  if (healthyConnectors.length > 0) {
+    const totalTools = healthyConnectors.reduce((sum, c) => sum + c.tools, 0);
+    log.info(`[MCP Deploy] ✓ POST-DEPLOY: ${healthyConnectors.length}/${connectorResults.length} connector(s) healthy (${totalTools} total tools)`);
+  }
+
+  // Build post-deploy verification report
+  const verification = {
+    skill_deployed: true,
+    skill_tools: deployedToolCount,
+    has_get_skill_definition: hasGetSkillDefinition,
+    connectors_total: connectorResults.length,
+    connectors_healthy: healthyConnectors.length,
+    connectors_failed: failedConnectors.length,
+    connectors_zero_tools: zeroToolConnectors.length,
+  };
+
+  // Flag if the overall deploy has issues that need attention
+  if (failedConnectors.length > 0 || !hasGetSkillDefinition || deployedToolCount === 0) {
+    verification.needs_attention = true;
+    verification.issues = [];
+    if (deployedToolCount === 0) verification.issues.push('Skill has 0 tools — cannot execute');
+    if (!hasGetSkillDefinition) verification.issues.push('Missing get_skill_definition — ADAS Core cannot load skill config');
+    for (const c of failedConnectors) {
+      verification.issues.push(`Connector "${c.id}" failed: ${c.error}`);
+    }
+  }
+
   return {
     ok: true, status: 'deployed', skillSlug,
     mcpUri: result.mcpUri, port: result.port, connectorId: result.connectorId,
@@ -364,6 +465,7 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     hasGetSkillDefinition,
     ...(result.warnings?.length ? { warnings: result.warnings } : {}),
     connectors: connectorResults, adasResponse: result,
+    verification,
     message: `Skill "${skillSlug}" deployed to ADAS Core and running!`
   };
 }

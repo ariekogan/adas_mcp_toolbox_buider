@@ -252,6 +252,7 @@ export function validateSolution(solution, context) {
     const mcpStore = context.mcp_store || {};
     const connectorIds = new Set(connectors.map(c => c.id));
 
+    // 8a. Check MCP bridge tools reference valid connectors
     for (const skill of fullSkills) {
       for (const tool of (skill.tools || [])) {
         if (tool.source?.type === 'mcp_bridge' && tool.source.connection_id) {
@@ -268,6 +269,7 @@ export function validateSolution(solution, context) {
       }
     }
 
+    // 8b. Check stdio connectors have source code
     for (const connector of connectors) {
       const transport = connector.transport || 'stdio';
       if (transport === 'stdio' && !mcpStore[connector.id]) {
@@ -276,6 +278,59 @@ export function validateSolution(solution, context) {
           message: `Connector "${connector.id}" has no server code. Provide the business logic (API calls, DB queries, etc.) in mcp_store.${connector.id} — the deploy pipeline will auto-wrap it into a working MCP server. Without this, the connector will fail to start on ADAS Core.`,
           connector: connector.id,
           fix: `Add mcp_store: { "${connector.id}": [{ path: "server.js", content: "..." }] } to your deploy payload. Write only the tool implementations — the MCP server scaffolding is generated automatically. See GET /spec/examples/connector for a working template.`,
+        });
+      }
+    }
+
+    // 8c. Check connector args use relative paths (no hardcoded absolute paths)
+    // Absolute paths break tenant isolation and fail if mcp-store layout changes.
+    for (const connector of connectors) {
+      const args = connector.config?.args || connector.args || [];
+      for (const arg of args) {
+        if (typeof arg === 'string' && (arg.startsWith('/mcp-store/') || arg.startsWith('/tenants/'))) {
+          errors.push({
+            check: 'connector_no_absolute_paths',
+            message: `Connector "${connector.id}" has hardcoded absolute path "${arg}" in args. ` +
+              `Use relative filenames (e.g., "server.js") — ADAS Core resolves the tenant-scoped mcp-store path at runtime.`,
+            connector: connector.id,
+            fix: `Replace "${arg}" with just the filename: "${arg.split('/').pop()}"`,
+          });
+        }
+      }
+    }
+
+    // 8d. Check skill.connectors references match declared connectors
+    // Every connector referenced by a skill should be in the solution's connector list
+    const declaredConnectorIds = new Set([
+      ...connectorIds,
+      ...platformConnectors.map(c => c.id),
+    ]);
+    for (const skill of fullSkills) {
+      for (const connId of (skill.connectors || [])) {
+        if (!declaredConnectorIds.has(connId)) {
+          warnings.push({
+            check: 'skill_connector_declared',
+            message: `Skill "${skill.name || skill.id}" references connector "${connId}" which is not declared in the solution's connectors or platform_connectors`,
+            skill: skill.id,
+            connector: connId,
+          });
+        }
+      }
+    }
+
+    // 8e. Check for unused connectors (defined but not referenced by any skill)
+    const usedConnectorIds = new Set();
+    for (const skill of fullSkills) {
+      for (const connId of (skill.connectors || [])) {
+        usedConnectorIds.add(connId);
+      }
+    }
+    for (const connector of connectors) {
+      if (!usedConnectorIds.has(connector.id)) {
+        warnings.push({
+          check: 'connector_unused',
+          message: `Connector "${connector.id}" is defined but not referenced by any skill. It will be deployed but unused — consider removing it to reduce resource usage.`,
+          connector: connector.id,
         });
       }
     }
