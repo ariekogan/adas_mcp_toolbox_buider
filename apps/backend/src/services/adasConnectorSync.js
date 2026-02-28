@@ -64,9 +64,21 @@ export async function syncConnectorToADAS(connector) {
   else {
     payload.transport = 'stdio';
     let args = config?.args || [];
-    args = args.map(arg =>
-      typeof arg === 'string' ? arg.replace(/\/http-wrapper\.js$/, '/server.js') : arg
-    );
+    // Normalize args to relative filenames — ConnectorManager resolves the
+    // tenant-scoped mcp-store path at runtime via _resolveMcpStoreArgs + cwd auto-detect.
+    // This prevents hardcoded absolute paths leaking into MongoDB, which would
+    // break tenant isolation and fail if mcp-store layout changes.
+    args = args.map(arg => {
+      if (typeof arg !== 'string') return arg;
+      // Replace legacy http-wrapper with server.js
+      arg = arg.replace(/\/http-wrapper\.js$/, '/server.js');
+      // Strip absolute /mcp-store/... prefix → just the filename (e.g., "server.js")
+      if (arg.startsWith('/mcp-store/')) {
+        const basename = arg.split('/').pop();
+        return basename || arg;
+      }
+      return arg;
+    });
     payload.config = {
       command: config?.command,
       args,
