@@ -377,25 +377,42 @@ router.get('/:id/health', async (req, res, next) => {
 
     // ── UI plugin asset verification ──────────────────────────────
     // For each healthy connector, try calling ui.listPlugins to check
-    // if it's UI-capable. If it is, verify that the HTML assets actually
-    // exist on ADAS Core's /mcp-store (reachable via /mcp-ui endpoint).
+    // if it's UI-capable. If it is, call ui.getPlugin for each plugin
+    // to get the full manifest (with iframeUrl), then verify the HTML
+    // asset exists on ADAS Core's /mcp-store (reachable via /mcp-ui).
     const uiAssetHealth = [];
     const tenant = getCurrentTenant();
     for (const ch of connectorHealth) {
       if (!ch.healthy) continue;
       try {
-        const rawPlugins = await adasCore.callConnectorTool(ch.id, 'ui.listPlugins', {});
-        // Parse MCP content format
-        let plugins = rawPlugins;
-        if (rawPlugins?.content?.[0]?.type === 'text') {
-          try { plugins = JSON.parse(rawPlugins.content[0].text); } catch {}
+        const rawList = await adasCore.callConnectorTool(ch.id, 'ui.listPlugins', {});
+        // Parse MCP content format — result may be { plugins: [...] } or direct array
+        let parsed = rawList;
+        if (rawList?.content?.[0]?.type === 'text') {
+          try { parsed = JSON.parse(rawList.content[0].text); } catch {}
         }
-        if (!Array.isArray(plugins) || plugins.length === 0) continue;
+        const pluginList = Array.isArray(parsed) ? parsed : (parsed?.plugins || []);
+        if (pluginList.length === 0) continue;
 
-        for (const plugin of plugins) {
-          const pluginId = plugin.id || plugin.name || 'unknown';
-          // Resolve iframeUrl from either render.iframeUrl or flat iframeUrl
-          const iframeUrl = plugin.render?.iframeUrl || plugin.iframeUrl;
+        for (const pluginSummary of pluginList) {
+          const pluginId = pluginSummary.id || pluginSummary.name || 'unknown';
+
+          // Call ui.getPlugin to get full manifest with iframeUrl
+          let iframeUrl;
+          try {
+            const rawManifest = await adasCore.callConnectorTool(ch.id, 'ui.getPlugin', { id: pluginId });
+            let manifest = rawManifest;
+            if (rawManifest?.content?.[0]?.type === 'text') {
+              try { manifest = JSON.parse(rawManifest.content[0].text); } catch {}
+            }
+            iframeUrl = manifest?.render?.iframeUrl || manifest?.iframeUrl;
+          } catch {
+            // ui.getPlugin failed — report as warning
+            issues.push({ severity: 'warning', connector: ch.id, message: `UI plugin "${pluginId}" — ui.getPlugin call failed` });
+            uiAssetHealth.push({ plugin: pluginId, connector: ch.id, ok: false, issue: 'ui.getPlugin failed' });
+            continue;
+          }
+
           if (!iframeUrl) {
             issues.push({ severity: 'error', connector: ch.id, message: `UI plugin "${pluginId}" manifest has no iframeUrl` });
             uiAssetHealth.push({ plugin: pluginId, connector: ch.id, ok: false, issue: 'no iframeUrl in manifest' });
