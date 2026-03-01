@@ -269,12 +269,8 @@ router.post('/validate/solution', async (req, res) => {
     if (allExpanded.length) response.expanded_skills = allExpanded;
     res.json(response);
   } catch (err) {
-    console.error('[Validator] Solution validation error:', err.message);
-    console.error('[Validator] Stack trace:', err.stack);
-    console.error('[Validator] Request body keys:', Object.keys(req.body || {}));
-    console.error('[Validator] solution keys:', solution ? Object.keys(solution).slice(0, 15) : 'null');
-    console.error('[Validator] skills count:', Array.isArray(skills) ? skills.length : typeof skills);
-    res.status(500).json({ ok: false, error: err.message, stack: err.stack });
+    console.error('[Validator] Solution validation error:', err.message, err.stack);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
