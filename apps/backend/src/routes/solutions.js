@@ -1080,8 +1080,13 @@ router.post('/:id/skills/:skillId/test', async (req, res, next) => {
       skillSlug = req.params.skillId;
     }
 
+    // Generate a unique actorId per test invocation so the Core's job
+    // continuation logic (highLevelPlan.js) doesn't confuse this test
+    // with a "continue" on a previous test run.
+    const testActorId = `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
     // Start the job
-    const startResult = await adasCore.startChat({ goal: message, skillSlug });
+    const startResult = await adasCore.startChat({ goal: message, skillSlug, actorId: testActorId });
     const jobId = startResult.jobId || startResult.id;
 
     if (!jobId) {

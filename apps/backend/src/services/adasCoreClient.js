@@ -341,10 +341,10 @@ async function getJob(jobId) {
 /**
  * Start a skill execution (test). Returns { ok, id, jobId, streamUrl }.
  */
-async function startChat({ goal, skillSlug }) {
+async function startChat({ goal, skillSlug, actorId }) {
   return request('/api/chat', {
     method: 'POST',
-    body: { goal, skillSlug },
+    body: { goal, skillSlug, ...(actorId ? { actorId } : {}) },
     timeout: 30000,
   });
 }
