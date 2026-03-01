@@ -255,10 +255,13 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     for (const connectorId of linkedConnectors) {
       const connector = allConnectors[connectorId];
       if (!connector) {
+        // Downgraded from 'error' to 'warning' — the main deploy loop will check
+        // ADAS Core directly for connectors not in the local catalog (e.g. those
+        // registered via POST /api/connectors/connect).
         preDeployIssues.push({
           connector: connectorId,
-          severity: 'error',
-          message: `Connector "${connectorId}" is not registered. Check the connector ID or deploy the connector definition first.`,
+          severity: 'warning',
+          message: `Connector "${connectorId}" is not in the local catalog — will check ADAS Core directly during deploy.`,
         });
         continue;
       }
@@ -304,7 +307,30 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
     for (const connectorId of linkedConnectors) {
       const connector = allConnectors[connectorId];
       if (!connector) {
-        // Already reported in pre-deploy check — skip silently
+        // Connector not in local catalog — check if it's already running in ADAS Core.
+        // This handles connectors registered via POST /api/connectors/connect that
+        // aren't in PREBUILT_CONNECTORS or importedConnectorsByTenant.
+        try {
+          const existing = await adasCore.getConnector(connectorId);
+          if (existing) {
+            const existingTools = existing.tools?.length || 0;
+            const status = existing.status || 'unknown';
+            if (status === 'connected' && existingTools > 0) {
+              log.info(`[MCP Deploy] Connector "${connectorId}" already running in ADAS Core (${existingTools} tools) — preserving`);
+              connectorResults.push({ id: connectorId, ok: true, tools: existingTools, source: 'preserved' });
+            } else {
+              // Exists but not connected or 0 tools — try to restart
+              log.info(`[MCP Deploy] Connector "${connectorId}" exists in ADAS Core (status: ${status}) — restarting`);
+              const startResult = await startConnectorInADAS(connectorId, { transport: existing.transport || 'stdio' });
+              const toolCount = startResult?.tools?.length || 0;
+              connectorResults.push({ id: connectorId, ok: toolCount > 0, tools: toolCount, source: 'restarted' });
+            }
+            continue;
+          }
+        } catch (err) {
+          log.warn(`[MCP Deploy] Could not check ADAS Core for connector "${connectorId}": ${err.message}`);
+        }
+        // Not found anywhere — report error
         if (!connectorResults.find(r => r.id === connectorId)) {
           connectorResults.push({ id: connectorId, ok: false, error: 'unknown connector' });
         }

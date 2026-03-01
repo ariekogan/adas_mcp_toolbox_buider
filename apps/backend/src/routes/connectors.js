@@ -115,6 +115,20 @@ router.post('/connect', async (req, res) => {
       syncedToADAS: adasSynced
     });
 
+    // Also register in the imported connector catalog so getAllPrebuiltConnectors()
+    // can find it during skill redeploy (deploySkillToADAS uses this catalog).
+    // Without this, connectors registered via /connect get skipped during redeploy
+    // because they're not in PREBUILT_CONNECTORS or importedConnectorsByTenant.
+    registerImportedConnector(result.id, {
+      name: name || command,
+      transport: type || 'stdio',
+      command,
+      args: args || [],
+      env: env || {},
+      category: 'custom',
+      layer: 'tenant',
+    });
+
     const response = {
       success: true,
       connection: result,

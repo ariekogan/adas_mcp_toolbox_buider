@@ -21,6 +21,7 @@ import { isSearchAvailable } from "./services/webSearch.js";
 import { warmCoreSettings } from "./services/llm/adapter.js";
 import mcpManager from "./services/mcpConnector.js";
 import connectorState from "./store/connectorState.js";
+import { registerImportedConnector } from "./routes/connectors.js";
 
 const app = express();
 
@@ -177,6 +178,17 @@ app.listen(port, "0.0.0.0", () => {
             args: conn.args,
             env: conn.env,
             name: conn.name
+          });
+          // Also register in imported catalog so getAllPrebuiltConnectors() finds it
+          // during skill redeploy (deploySkillToADAS uses this catalog).
+          registerImportedConnector(conn.id, {
+            name: conn.name,
+            transport: 'stdio',
+            command: conn.command,
+            args: conn.args || [],
+            env: conn.env || {},
+            category: 'custom',
+            layer: 'tenant',
           });
           log.info(`[Startup] Reconnected: ${conn.name} (${conn.id})`);
         } catch (err) {
