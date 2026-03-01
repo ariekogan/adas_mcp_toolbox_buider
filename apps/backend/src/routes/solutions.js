@@ -13,6 +13,7 @@ import { processSolutionMessage } from '../services/solutionConversation.js';
 import { validateSolution, validateSecurity, validateSolutionQuality } from '@adas/skill-validator';
 import { getSkillSlug, deploySkillToADAS } from '../services/exportDeploy.js';
 import adasCore from '../services/adasCoreClient.js';
+import { getCurrentTenant } from '../utils/tenantContext.js';
 import skillsRouter from './skills.js';
 import validationRouter from "./solutionsValidation.js";
 
@@ -374,6 +375,52 @@ router.get('/:id/health', async (req, res, next) => {
       adasReachable = true;
     }
 
+    // ── UI plugin asset verification ──────────────────────────────
+    // For each healthy connector, try calling ui.listPlugins to check
+    // if it's UI-capable. If it is, verify that the HTML assets actually
+    // exist on ADAS Core's /mcp-store (reachable via /mcp-ui endpoint).
+    const uiAssetHealth = [];
+    const tenant = getCurrentTenant();
+    for (const ch of connectorHealth) {
+      if (!ch.healthy) continue;
+      try {
+        const rawPlugins = await adasCore.callConnectorTool(ch.id, 'ui.listPlugins', {});
+        // Parse MCP content format
+        let plugins = rawPlugins;
+        if (rawPlugins?.content?.[0]?.type === 'text') {
+          try { plugins = JSON.parse(rawPlugins.content[0].text); } catch {}
+        }
+        if (!Array.isArray(plugins) || plugins.length === 0) continue;
+
+        for (const plugin of plugins) {
+          const pluginId = plugin.id || plugin.name || 'unknown';
+          // Resolve iframeUrl from either render.iframeUrl or flat iframeUrl
+          const iframeUrl = plugin.render?.iframeUrl || plugin.iframeUrl;
+          if (!iframeUrl) {
+            issues.push({ severity: 'error', connector: ch.id, message: `UI plugin "${pluginId}" manifest has no iframeUrl` });
+            uiAssetHealth.push({ plugin: pluginId, connector: ch.id, ok: false, issue: 'no iframeUrl in manifest' });
+            continue;
+          }
+
+          // HTTP HEAD the iframeUrl via ADAS Core's /mcp-ui serving route
+          const check = await adasCore.checkUiAsset(tenant, ch.id, iframeUrl);
+          if (!check.exists) {
+            issues.push({
+              severity: 'error',
+              connector: ch.id,
+              message: `UI plugin "${pluginId}" asset NOT FOUND on disk: ${iframeUrl} (HTTP ${check.status || 'N/A'}). ` +
+                `Upload ui-dist files via mcp_store or manually place in /mcp-store/${tenant}/${ch.id}/ui-dist/`,
+            });
+            uiAssetHealth.push({ plugin: pluginId, connector: ch.id, ok: false, iframeUrl, issue: `asset missing (${check.status || check.error})` });
+          } else {
+            uiAssetHealth.push({ plugin: pluginId, connector: ch.id, ok: true, iframeUrl });
+          }
+        }
+      } catch {
+        // Connector doesn't have ui.listPlugins tool — not UI-capable, skip
+      }
+    }
+
     // Helper: match a skill ref by original ID or internal (remapped) ID
     const findSkill = (sid) => skillHealth.find(s => s.id === sid || s.internal_id === sid);
 
@@ -421,6 +468,7 @@ router.get('/:id/health', async (req, res, next) => {
       all_connectors_healthy: allConnectorsHealthy,
       skills: skillHealth,
       connectors: connectorHealth,
+      ...(uiAssetHealth.length > 0 ? { ui_plugins: uiAssetHealth } : {}),
       issues,
       error_count: errorCount,
       warning_count: warningCount,

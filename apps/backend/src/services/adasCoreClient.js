@@ -239,6 +239,25 @@ async function uploadMcpCode(connectorId, files) {
 // ═══════════════════════════════════════════════════════════════
 
 /**
+ * Check if a UI plugin asset exists on ADAS Core's /mcp-store.
+ * Makes an HTTP HEAD request to the /mcp-ui/:tenant/:connectorId/* serving route.
+ * Returns { exists: bool, status: number } — no auth needed (static file route).
+ */
+async function checkUiAsset(tenant, connectorId, assetPath) {
+  const cleanPath = assetPath.replace(/^\//, '');
+  const url = `${BASE_URL}/mcp-ui/${tenant}/${connectorId}/${cleanPath}`;
+  try {
+    const res = await fetch(url, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(5000),
+    });
+    return { exists: res.ok, status: res.status };
+  } catch (err) {
+    return { exists: false, error: err.message };
+  }
+}
+
+/**
  * Check if ADAS Core is reachable.
  */
 async function isAvailable() {
@@ -411,6 +430,7 @@ export default {
   callConnectorTool,
   uploadMcpCode,
   isAvailable,
+  checkUiAsset,
   // External Agent API — jobs, testing, insights
   listJobs,
   getJobDetails,
@@ -443,6 +463,7 @@ export {
   callConnectorTool,
   uploadMcpCode,
   isAvailable,
+  checkUiAsset,
   // External Agent API — jobs, testing, insights
   listJobs,
   getJobDetails,

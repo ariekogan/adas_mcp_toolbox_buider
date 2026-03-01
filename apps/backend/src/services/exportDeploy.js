@@ -499,20 +499,53 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
         // Convention check: iframeUrl should start with /ui/ for consistent resolution
         const followsConvention = iframeUrl.startsWith('/ui/') || iframeUrl.startsWith('http');
         if (!followsConvention) {
-          uiVerification.push({
-            plugin: pluginId, connector: connId,
-            ok: true, // Still works (auto-corrected at runtime), but warn
-            warning: `iframeUrl "${iframeUrl}" does not follow /ui/<path> convention. ` +
-              `Recommend: "/ui/${iframeUrl.replace(/^\//, '')}" for consistent URL resolution.`,
-          });
           log.warn(`[MCP Deploy] POST-DEPLOY UI: Plugin "${pluginId}" iframeUrl "${iframeUrl}" ` +
             `does not follow /ui/<path> convention — will be auto-corrected at runtime but should be fixed`);
-        } else {
+        }
+
+        // ── HTTP asset existence check ──
+        // Verify the actual HTML file exists on ADAS Core's disk.
+        // This catches the case where the manifest is correct but
+        // the ui-dist files were never uploaded (the fleet bug).
+        let assetExists = false;
+        try {
+          const { getCurrentTenant } = await import('../utils/tenantContext.js');
+          const tenant = getCurrentTenant();
+          const assetCheck = await adasCore.checkUiAsset(tenant, connId, iframeUrl);
+          assetExists = assetCheck.exists;
+          if (!assetExists) {
+            log.error(`[MCP Deploy] POST-DEPLOY UI: Plugin "${pluginId}" asset NOT FOUND at ${iframeUrl} ` +
+              `(HTTP ${assetCheck.status || assetCheck.error}). ` +
+              `Upload ui-dist files via mcp_store or place in /mcp-store/${tenant}/${connId}/ui-dist/`);
+            uiVerification.push({
+              plugin: pluginId, connector: connId,
+              ok: false,
+              issue: `UI asset file not found on disk: ${iframeUrl}. ` +
+                `Include ui-dist files in mcp_store or upload them separately.`,
+              iframeUrl,
+            });
+          } else {
+            uiVerification.push({
+              plugin: pluginId, connector: connId,
+              ok: true, iframeUrl,
+              ...(followsConvention ? {} : {
+                warning: `iframeUrl "${iframeUrl}" does not follow /ui/<path> convention. ` +
+                  `Recommend: "/ui/${iframeUrl.replace(/^\//, '')}" for consistent URL resolution.`,
+              }),
+            });
+            log.info(`[MCP Deploy] POST-DEPLOY UI: Plugin "${pluginId}" verified — iframeUrl: ${iframeUrl} ✓ asset exists`);
+          }
+        } catch (assetErr) {
+          // Non-fatal: can't verify, but warn
+          log.warn(`[MCP Deploy] POST-DEPLOY UI: Could not verify asset for "${pluginId}": ${assetErr.message}`);
           uiVerification.push({
             plugin: pluginId, connector: connId,
             ok: true, iframeUrl,
+            warning: `Could not verify asset exists: ${assetErr.message}`,
+            ...(followsConvention ? {} : {
+              warning: `iframeUrl convention issue + could not verify asset: ${assetErr.message}`,
+            }),
           });
-          log.info(`[MCP Deploy] POST-DEPLOY UI: Plugin "${pluginId}" verified — iframeUrl: ${iframeUrl}`);
         }
       } catch (err) {
         uiVerification.push({
