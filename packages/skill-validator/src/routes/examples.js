@@ -855,7 +855,16 @@ function buildExampleSolution() {
         // command + args auto-resolved from mcp_store files
       ],
       mcp_store: {
-        _note: 'Optional: connector source code. Key = connector id, value = array of { path, content }',
+        _note: 'Optional: connector source code. Key = connector id, value = array of { path, content }. For UI-capable connectors, include ui-dist/ files alongside server code — Core serves them at /mcp-ui/<tenant>/<connector-id>/<path>.',
+        _ui_dist_convention: 'To deploy UI plugin assets, include files with paths like "ui-dist/<plugin-id>/<version>/index.html" in the mcp_store array. These are uploaded to Core and served as static assets. Without them, the health check reports "UI plugin asset NOT FOUND".',
+        _example: {
+          'my-ui-connector': [
+            { path: 'server.js', content: '// MCP server code...' },
+            { path: 'package.json', content: '{ "name": "my-ui-connector", "version": "1.0.0", "type": "module" }' },
+            { path: 'ui-dist/my-dashboard/1.0.0/index.html', content: '<!DOCTYPE html><html>...</html>' },
+            { path: 'ui-dist/my-dashboard/1.0.0/styles.css', content: '/* dashboard styles */' },
+          ],
+        },
       },
     },
   };
