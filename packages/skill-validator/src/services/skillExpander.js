@@ -71,13 +71,28 @@ function deriveIntentId(toolName) {
 
 /**
  * Generate example user phrases from tool description.
+ * Uses the full tool description when available for more natural language.
  */
 function generateExamples(intentId, toolDesc) {
-  const id = intentId.replace(/_/g, ' ');
+  const action = intentId.replace(/_/g, ' ');
+  const desc = (toolDesc || '').trim();
+
+  // Use description if available and meaningfully different from just the action word
+  if (desc && desc.toLowerCase() !== action.toLowerCase() && desc.length > action.length) {
+    const lower = desc.charAt(0).toLowerCase() + desc.slice(1);
+    return [
+      desc.charAt(0).toUpperCase() + desc.slice(1),  // "Create a task"
+      `I need to ${lower}`,                            // "I need to create a task"
+      `Can you ${lower}?`,                              // "Can you create a task?"
+      `Please ${lower}`,                                // "Please create a task"
+    ];
+  }
+
+  // Fallback for missing/short description
   return [
-    `I want to ${id}`,
-    `Can you help me ${id}?`,
-    `I need to ${id}`,
+    `I want to ${action}`,
+    `Can you help me ${action}?`,
+    `I need to ${action}`,
   ];
 }
 
@@ -478,3 +493,6 @@ function deriveGoals(minimal) {
     `Enable ${t.description?.toLowerCase().replace(/\.$/, '') || t.name}`
   );
 }
+
+// Named exports for testing (internal helpers)
+export { generateExamples, deriveIntentId };
