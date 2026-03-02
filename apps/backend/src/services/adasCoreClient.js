@@ -350,6 +350,18 @@ async function startChat({ goal, skillSlug, actorId }) {
 }
 
 /**
+ * Test pipeline: runs intent detection + first planner iteration WITHOUT executing tools.
+ * Returns decision trace for debugging.
+ */
+async function testPipeline({ message, skillSlug, actorId }) {
+  return request('/api/test-pipeline', {
+    method: 'POST',
+    body: { message, skillSlug, ...(actorId ? { actorId } : {}) },
+    timeout: 30000,
+  });
+}
+
+/**
  * Get job insight analysis — timing, toolStats, bottleneck, signals, recommendations.
  */
 async function getInsightJob(jobId, level = 0) {
@@ -437,6 +449,7 @@ export default {
   getJob,
   startChat,
   abortJob,
+  testPipeline,
   getInsightJob,
   listConversations,
   getConnectorSource,
@@ -470,6 +483,7 @@ export {
   getJob,
   startChat,
   abortJob,
+  testPipeline,
   getInsightJob,
   listConversations,
   getConnectorSource,

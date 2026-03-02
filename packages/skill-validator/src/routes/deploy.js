@@ -1355,6 +1355,28 @@ router.post('/solutions/:solutionId/skills/:skillId/test', async (req, res) => {
 });
 
 /**
+ * POST /deploy/solutions/:solutionId/skills/:skillId/test-pipeline — Test decision pipeline only
+ * Body: { message: string }
+ */
+router.post('/solutions/:solutionId/skills/:skillId/test-pipeline', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const skillId = encodeURIComponent(req.params.skillId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}/test-pipeline`, {
+      method: 'POST',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Test pipeline error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * GET /deploy/solutions/:solutionId/skills/:skillId/test/:jobId — Poll test progress
  */
 router.get('/solutions/:solutionId/skills/:skillId/test/:jobId', async (req, res) => {

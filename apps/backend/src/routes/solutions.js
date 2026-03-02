@@ -1147,6 +1147,44 @@ router.post('/:id/skills/:skillId/test', async (req, res, next) => {
 });
 
 /**
+ * POST /api/solutions/:id/skills/:skillId/test-pipeline — Test the decision pipeline only.
+ * Runs intent detection + first planner iteration WITHOUT executing tools.
+ * Returns decision trace for debugging intent classification and planning.
+ */
+router.post('/:id/skills/:skillId/test-pipeline', async (req, res, next) => {
+  try {
+    const { message } = req.body;
+    if (!message) {
+      return res.status(400).json({ ok: false, error: 'message is required' });
+    }
+
+    // Resolve skill slug
+    let skillSlug;
+    try {
+      const skill = await skillsStore.load(req.params.id, req.params.skillId);
+      skillSlug = skill.slug || skill.id;
+    } catch {
+      skillSlug = req.params.skillId;
+    }
+
+    const testActorId = `pipeline-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const result = await adasCore.testPipeline({
+      message,
+      skillSlug,
+      actorId: testActorId,
+    });
+
+    res.json(result);
+  } catch (err) {
+    if (err.status === 502 || err.message?.includes('fetch failed')) {
+      return res.status(502).json({ ok: false, error: 'ADAS Core unreachable', details: err.message });
+    }
+    next(err);
+  }
+});
+
+/**
  * GET /api/solutions/:id/skills/:skillId/test/:jobId — Poll test progress
  * Returns progress derived from in-memory job snapshot (same data Job Progress UI shows).
  */
