@@ -67,12 +67,13 @@ function buildIndex() {
       '11. POST /deploy/solutions/:id/skills/:skillId/redeploy — after PATCH, redeploy just that skill (regenerates MCP server, pushes to A-Team Core)',
       '--- Operate & Debug ---',
       '12. POST /deploy/solutions/:id/skills/:skillId/test — test a skill (sync: wait for result, or async: true to get job_id immediately)',
-      '13. GET /deploy/solutions/:id/skills/:skillId/test/:jobId — poll async test progress (iteration, steps, pending questions)',
-      '14. DELETE /deploy/solutions/:id/skills/:skillId/test/:jobId — abort a running test',
-      '15. GET /deploy/solutions/:id/logs — view execution logs (job traces, tool calls, errors)',
-      '16. GET /deploy/solutions/:id/metrics — analyze execution metrics (timing, bottlenecks, signals)',
-      '17. GET /deploy/solutions/:id/diff — compare Builder definitions vs what is deployed in Core',
-      '18. GET /deploy/solutions/:id/connectors/:connectorId/source — inspect connector source code',
+      '13. POST /deploy/solutions/:id/skills/:skillId/test-pipeline — test decision pipeline only (intent + planning, NO tool execution). Returns intent classification, first planned action, and timing.',
+      '14. GET /deploy/solutions/:id/skills/:skillId/test/:jobId — poll async test progress (iteration, steps, pending questions)',
+      '15. DELETE /deploy/solutions/:id/skills/:skillId/test/:jobId — abort a running test',
+      '16. GET /deploy/solutions/:id/logs — view execution logs (job traces, tool calls, errors)',
+      '17. GET /deploy/solutions/:id/metrics — analyze execution metrics (timing, bottlenecks, signals)',
+      '18. GET /deploy/solutions/:id/diff — compare Builder definitions vs what is deployed in Core',
+      '19. GET /deploy/solutions/:id/connectors/:connectorId/source — inspect connector source code',
     ],
     endpoints: {
       '/spec/enums': {
@@ -143,6 +144,7 @@ function buildIndex() {
       // Developer Tools
       'GET /deploy/solutions/:solutionId/logs': 'Execution logs — recent jobs with step traces, tool calls, errors, timing. Query: ?skill_id=X&limit=10&job_id=X',
       'POST /deploy/solutions/:solutionId/skills/:skillId/test': 'Test a skill — sync (wait for result) or async (Body: { message, async: true } returns job_id immediately)',
+      'POST /deploy/solutions/:solutionId/skills/:skillId/test-pipeline': 'Test decision pipeline only — runs intent detection + first planner iteration WITHOUT executing tools. Returns intent classification, planned action, and timing. Body: { message }',
       'GET /deploy/solutions/:solutionId/skills/:skillId/test/:jobId': 'Poll async test progress — iteration, steps, pending_question, result, elapsed_ms',
       'DELETE /deploy/solutions/:solutionId/skills/:skillId/test/:jobId': 'Abort a running test',
       'GET /deploy/solutions/:solutionId/metrics': 'Execution metrics — timing, bottlenecks, tool stats, signals. Query: ?job_id=X or ?skill_id=X',

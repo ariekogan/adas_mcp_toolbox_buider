@@ -107,6 +107,7 @@ app.listen(PORT, () => {
   console.log(`  --- Developer Tools ---`);
   console.log(`  GET  /deploy/solutions/:id/logs   — Execution logs`);
   console.log(`  POST /deploy/solutions/:id/skills/:sk/test — Test a skill (sync or async)`);
+  console.log(`  POST /deploy/solutions/:id/skills/:sk/test-pipeline — Test decision pipeline only (no tool exec)`);
   console.log(`  GET  /deploy/solutions/:id/skills/:sk/test/:jid — Poll test progress`);
   console.log(`  DELETE /deploy/solutions/:id/skills/:sk/test/:jid — Abort test`);
   console.log(`  GET  /deploy/solutions/:id/metrics — Execution metrics`);
