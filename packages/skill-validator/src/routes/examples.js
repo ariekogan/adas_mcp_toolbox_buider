@@ -349,14 +349,18 @@ function buildExampleSkill() {
     },
 
     // ── Engine ──
+    // max_iterations controls how many tool calls the agent can make per job.
+    // Tune based on skill complexity:
+    //   Simple CRUD/lookup: 8-12 | Standard workflows: 15-20
+    //   Code analysis: 20-30    | Deep research: 30+
     engine: {
       model: 'claude-sonnet-4-20250514',
       temperature: 0.3,
       rv2: {
-        max_iterations: 8,
+        max_iterations: 8,  // Low for this simple order-support skill
         iteration_timeout_ms: 30000,
         allow_parallel_tools: false,
-        on_max_iterations: 'fail',
+        on_max_iterations: 'fail',  // 'ask_user' for interactive, 'fail' for batch
       },
       hlr: {
         enabled: true,

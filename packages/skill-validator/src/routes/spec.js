@@ -697,19 +697,33 @@ function buildSkillSpec() {
       engine: {
         type: 'object', required: false,
         auto_expandable: true,
-        description: 'AI model and reasoning configuration. Uses sensible defaults (Claude Sonnet, temp 0.3, 10 iterations) if omitted.',
+        description: 'AI model and reasoning configuration. Uses sensible defaults (Claude Sonnet, temp 0.3, 10 iterations) if omitted. The most impactful setting is max_iterations — tune it based on your skill\'s complexity.',
+        guidance: {
+          max_iterations_by_skill_type: {
+            'Simple CRUD / lookup': '8-12 iterations',
+            'Standard workflows': '15-20 iterations',
+            'Code analysis / investigation': '20-30 iterations',
+            'Deep research / multi-step orchestration': '30-50 iterations',
+          },
+          tips: [
+            'If jobs frequently hit ENGINE_BUDGET_EXHAUSTED, increase rv2.max_iterations.',
+            'The platform default is 16 iterations if not configured. Always set it explicitly for production skills.',
+            'Higher limits increase cost but allow the agent to complete complex multi-step tasks.',
+            'Use on_max_iterations: "ask_user" for interactive skills, "fail" for batch/automated skills.',
+          ],
+        },
         fields: {
           model: { type: 'string', required: false, description: 'LLM model (e.g., "claude-sonnet-4-20250514")' },
           temperature: { type: 'number', required: false, description: 'LLM temperature (0.0-1.0)' },
-          max_iterations: { type: 'number', required: false, description: 'Shorthand for rv2.max_iterations' },
+          max_iterations: { type: 'number', required: false, description: 'Shorthand for rv2.max_iterations. Controls how many tool calls the agent can make per job. Tune based on task complexity.' },
           max_replans: { type: 'number', required: false, description: 'Shorthand for hlr.replanning.max_replans' },
           rv2: {
-            type: 'object', description: 'Runtime verification v2',
+            type: 'object', description: 'Runtime verification v2 — controls iteration budget, timeouts, and behavior at limits.',
             fields: {
-              max_iterations: { type: 'number', description: 'Max tool calls per job (default: 10)' },
+              max_iterations: { type: 'number', description: 'Max tool calls per job (default: 10, platform fallback: 16). Simple lookups need 8-12, investigations need 20-30, deep analysis 30+.' },
               iteration_timeout_ms: { type: 'number', description: 'Timeout per iteration in ms (default: 30000)' },
               allow_parallel_tools: { type: 'boolean', description: 'Allow parallel tool execution (default: false)' },
-              on_max_iterations: { type: 'enum', values: ['escalate', 'fail', 'ask_user'] },
+              on_max_iterations: { type: 'enum', values: ['escalate', 'fail', 'ask_user'], description: 'What happens when max_iterations is reached: "ask_user" pauses for input, "fail" stops with error, "escalate" triggers handoff.' },
             },
           },
           hlr: {
