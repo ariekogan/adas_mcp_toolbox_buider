@@ -95,34 +95,32 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
   const exportPath = await skillsStore.getExportPath(solutionId, skillId, version);
   const fs = await import('fs/promises');
   const path = await import('path');
+
+  // Always regenerate MCP server from the current skill definition.
+  // This ensures tools added/removed via tools_push are always reflected
+  // in the deployed server. generateMCPSimple is template-based (no LLM),
+  // so regeneration is instant and safe to run on every deploy.
+  log.info(`[MCP Deploy] Regenerating MCP server for ${skillId} from current skill definition`);
+  if (onProgress) onProgress('generating_mcp', 'Generating MCP...');
+
+  try {
+    const genFiles = await generateMCPSimple(skill);
+    const fileList = Object.entries(genFiles).map(([name, content]) => ({ name, content }));
+    await skillsStore.saveExport(solutionId, skillId, version, fileList);
+
+    skill.phase = "EXPORTED";
+    skill.lastExportedAt = new Date().toISOString();
+    skill.lastExportType = "mcp-simple";
+    await skillsStore.save(skill);
+
+    log.info(`[MCP Deploy] Generated MCP for ${skillId}: ${fileList.map(f => f.name).join(', ')}`);
+  } catch (genErr) {
+    log.error(`[MCP Deploy] MCP generation failed for ${skillId}: ${genErr.message}`);
+    throw Object.assign(new Error(`MCP generation failed: ${genErr.message}`), { code: 'GEN_FAILED' });
+  }
+
   let files = await fs.readdir(exportPath);
   let serverFile = files.find(f => f === 'server.py' || f === 'mcp_server.py');
-
-  // Auto-generate MCP if server.py is missing
-  if (!serverFile) {
-    log.info(`[MCP Deploy] No server.py in export for ${skillId} — auto-generating MCP`);
-    if (onProgress) onProgress('generating_mcp', 'Generating MCP...');
-
-    try {
-      const genFiles = await generateMCPSimple(skill);
-      const fileList = Object.entries(genFiles).map(([name, content]) => ({ name, content }));
-      await skillsStore.saveExport(solutionId, skillId, version, fileList);
-
-      skill.phase = "EXPORTED";
-      skill.lastExportedAt = new Date().toISOString();
-      skill.lastExportType = "mcp-simple";
-      await skillsStore.save(skill);
-
-      log.info(`[MCP Deploy] Auto-generated MCP for ${skillId}: ${fileList.map(f => f.name).join(', ')}`);
-
-      // Re-read after generation
-      files = await fs.readdir(exportPath);
-      serverFile = files.find(f => f === 'server.py' || f === 'mcp_server.py');
-    } catch (genErr) {
-      log.error(`[MCP Deploy] MCP generation failed for ${skillId}: ${genErr.message}`);
-      throw Object.assign(new Error(`MCP generation failed: ${genErr.message}`), { code: 'GEN_FAILED' });
-    }
-  }
 
   if (!serverFile) {
     throw Object.assign(new Error('No server.py found even after generation'), { code: 'NO_SERVER' });
