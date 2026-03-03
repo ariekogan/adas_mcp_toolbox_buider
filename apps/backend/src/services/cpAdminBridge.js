@@ -464,6 +464,25 @@ export async function retentionCleanup(params = {}) {
   return callAdminApi("retentionCleanup", params);
 }
 
+// ── Routing Config ──
+
+/**
+ * Get routing config (channels, rules, default skills, policies) from Core MongoDB.
+ * @returns {Promise<{ ok: boolean, config: { channels, policies } }>}
+ */
+export async function getRoutingConfig() {
+  return callAdminApi("getRoutingConfig");
+}
+
+/**
+ * Update routing config (partial deep-merge) in Core MongoDB.
+ * @param {object} params - { channels?, policies? }
+ * @returns {Promise<{ ok: boolean, config: { channels, policies } }>}
+ */
+export async function updateRoutingConfig(params = {}) {
+  return callAdminApi("updateRoutingConfig", params);
+}
+
 export default {
   // Actor
   listActors,
@@ -505,4 +524,7 @@ export default {
   provisionSkillActor,
   // Retention
   retentionCleanup,
+  // Routing Config
+  getRoutingConfig,
+  updateRoutingConfig,
 };

@@ -11,8 +11,6 @@
 
 import { Router } from "express";
 import { v4 as uuidv4 } from "uuid";
-import fs from "fs/promises";
-import path from "path";
 import {
   listEmailAliases,
   retentionCleanup,
@@ -22,47 +20,43 @@ import {
   setTelegramConfig,
   getTelegramConfig,
   testTelegramConnection,
+  getRoutingConfig,
+  updateRoutingConfig,
 } from "../services/cpAdminBridge.js";
 
 const router = Router();
-
-// ============================================
-// Storage Path
-// ============================================
-
-import { getMemoryRoot } from "../utils/tenantContext.js";
-function getTenantFile() { return path.join(getMemoryRoot(), "tenant.json"); }
 
 // ============================================
 // Helper Functions
 // ============================================
 
 /**
- * Load tenant config from disk
+ * Load tenant routing config from Core MongoDB via cpAdminBridge.
  * @returns {Promise<Object|null>}
  */
 async function loadTenantConfig() {
   try {
-    const data = await fs.readFile(getTenantFile(), "utf-8");
-    return JSON.parse(data);
+    const result = await getRoutingConfig();
+    if (!result?.ok || !result.config) return null;
+    const cfg = result.config;
+    // Empty config means not configured yet
+    if (!cfg.channels && !cfg.policies) return null;
+    return cfg;
   } catch (err) {
-    if (err.code === "ENOENT") {
-      return null;
-    }
-    throw err;
+    console.error("[tenant] Failed to load routing config from Core:", err.message);
+    return null;
   }
 }
 
 /**
- * Save tenant config to disk
+ * Save tenant routing config to Core MongoDB via cpAdminBridge.
  * @param {Object} config
  */
 async function saveTenantConfig(config) {
-  // Ensure directory exists
-  await fs.mkdir(path.dirname(getTenantFile()), { recursive: true });
-  await fs.writeFile(getTenantFile(), JSON.stringify(config, null, 2));
-  // Note: Actual routing is handled by CORE, not DAL
-  // DAL just persists the config for UI and deploys it with skills
+  await updateRoutingConfig({
+    channels: config.channels || {},
+    policies: config.policies || {},
+  });
 }
 
 /**
@@ -112,21 +106,8 @@ function createDefaultTenantConfig() {
   };
 }
 
-// ============================================
-// Initialize on startup
-// ============================================
-
-(async () => {
-  try {
-    const config = await loadTenantConfig();
-    if (config) {
-      console.log("[tenant] Loaded tenant config on startup");
-      // Note: Routing is handled by CORE, DAL just stores the config
-    }
-  } catch (err) {
-    console.error("[tenant] Failed to load tenant config on startup:", err.message);
-  }
-})();
+// Note: Routing config is stored in Core MongoDB (adas_{tenant}.secrets, _id: "routing")
+// Builder reads/writes via cpAdminBridge (cp.admin_api methods).
 
 // ============================================
 // Tenant Config Endpoints
