@@ -48,7 +48,11 @@ router.get('/', async (req, res, next) => {
 
     // Load the solution to get linked_skills
     const solution = await solutionsStore.load(solutionId);
-    const linkedSkillIds = new Set(solution?.linked_skills || []);
+    // Fall back to solution.skills[].id if linked_skills is empty
+    const linked = solution?.linked_skills?.length
+      ? solution.linked_skills
+      : (solution?.skills || []).map(s => s.id).filter(Boolean);
+    const linkedSkillIds = new Set(linked);
 
     // Get all skills and filter by linked_skills
     const allSkills = await skillsStore.list();
