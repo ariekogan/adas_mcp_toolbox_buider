@@ -676,6 +676,126 @@ function buildExampleConnectorUI() {
       },
     },
 
+    // ── CROSS-CONNECTOR DATA ACCESS (UI plugins calling other connectors) ──
+    // When a UI plugin needs data from ANOTHER connector (not its own),
+    // use the postMessage bridge to call that connector directly.
+    //
+    // CRITICAL: The target connector MUST be registered in ADAS Core
+    // (via POST /api/mcp-store/upload + POST /api/connectors).
+    // Deploying only via the Skill Builder API is NOT sufficient — the
+    // ADAS frontend app maintains its own connector registry.
+    _cross_connector_data_access: {
+      _note: 'UI plugins can call ANY connector registered in ADAS Core, not just their own. This is the standard pattern for dashboards that aggregate data from multiple sources.',
+
+      when_to_use: 'Your UI connector serves the dashboard, but the DATA lives in separate connectors (e.g., task-board-mcp, orders-mcp). On the platform, connectors have isolated filesystems — you CANNOT read sibling connector files directly.',
+
+      architecture: {
+        ui_connector: 'Serves the dashboard HTML + provides ui.listPlugins/ui.getPlugin tools',
+        data_connectors: 'Separate connectors that own the data (e.g., task-board-mcp, orders-mcp)',
+        bridge: 'PluginHost relays postMessage calls from iframe → ADAS Core → target connector',
+      },
+
+      // ── PostMessage Protocol ──
+      // The iframe sends messages to the parent (PluginHost), which proxies
+      // them to the ADAS backend's /api/connectors/:id/call endpoint.
+      postmessage_protocol: {
+        _step_1_wait_for_init: {
+          _note: 'PluginHost sends an init message when the iframe is ready. WAIT for this before making any MCP calls.',
+          message_format: '{ source: "adas-host", message: { type: "init", payload: { skillSlug, tenant, connectorId } } }',
+          code: `window.addEventListener("message", (ev) => {
+  const d = ev.data || {};
+  if (d.source !== "adas-host") return;
+  const msg = d.message;
+  if (msg?.type === "init") {
+    hostReady = true;
+    loadData(); // Now safe to make MCP calls
+  }
+});`,
+        },
+
+        _step_2_send_mcp_call: {
+          _note: 'To call a tool on ANY connector, send a postMessage with this exact format.',
+          message_format: {
+            source: 'adas-plugin',
+            message: {
+              action: 'mcp-call',
+              payload: {
+                requestId: 'req_1_<timestamp>',
+                toolName: 'cp.fe_api',
+                args: {
+                  method: 'mcpProxy',
+                  params: {
+                    connectorId: '<TARGET_CONNECTOR_ID>',
+                    tool: '<TOOL_NAME>',
+                    args: { /* tool arguments */ },
+                  },
+                },
+              },
+            },
+          },
+          code: `function mcpCall(tool, args, connectorId) {
+  const requestId = "req_" + (++counter) + "_" + Date.now();
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("timeout")), 15000);
+    pendingCalls.set(requestId, {
+      resolve: (r) => { clearTimeout(timeout); resolve(unwrapResult(r)); },
+      reject:  (e) => { clearTimeout(timeout); reject(e); },
+    });
+    window.parent.postMessage({
+      source: "adas-plugin",
+      message: {
+        action: "mcp-call",
+        payload: {
+          requestId,
+          toolName: "cp.fe_api",
+          args: { method: "mcpProxy", params: { connectorId, tool, args } },
+        },
+      },
+    }, "*");
+  });
+}`,
+        },
+
+        _step_3_receive_result: {
+          _note: 'Results arrive as postMessage from PluginHost. Unwrap the MCP content wrapper (may be double-wrapped).',
+          message_format: '{ source: "adas-host", message: { type: "mcp-result", payload: { requestId, result, error } } }',
+          unwrap_code: `function unwrapResult(raw) {
+  if (raw?.content?.[0]?.type === "text") {
+    try { raw = JSON.parse(raw.content[0].text); } catch {}
+  }
+  // Second pass for double-wrapped responses
+  if (raw?.content?.[0]?.type === "text") {
+    try { raw = JSON.parse(raw.content[0].text); } catch {}
+  }
+  return raw;
+}`,
+        },
+      },
+
+      // ── Example: Dashboard calling two data connectors ──
+      usage_example: `// Dashboard UI calls task-board-mcp and knowledge-mcp directly:
+const [tasks, docs] = await Promise.all([
+  mcpCall("tasks.list", {}, "task-board-mcp"),
+  mcpCall("knowledge.list_docs", {}, "project-knowledge-mcp"),
+]);`,
+
+      // ── Connector Registration Requirement ──
+      connector_registration: {
+        _critical: 'Target connectors MUST be registered in ADAS Core. If they are only deployed via the Skill Builder API, the ADAS frontend cannot reach them and calls return 404.',
+        registration_steps: [
+          '1. Upload source: POST /api/mcp-store/upload { connectorId, files: [{path, content}], installDeps: true }',
+          '2. Register: POST /api/connectors { id, name, transport: "stdio", config: { command: "node", args: ["/mcp-store/<tenant>/<id>/server.js"] } }',
+          '3. Connect: POST /api/connectors/<id>/connect',
+        ],
+        common_mistake: 'Deploying via ateam_build_and_run registers connectors on A-Team Core (Skill Builder), but NOT in the ADAS frontend app. You need BOTH.',
+      },
+
+      // ── Data Isolation Warning ──
+      data_isolation: {
+        _note: 'On the platform, each connector gets its own DATA_DIR at /tenants/<tenant>/connector-data/<connector-id>/. Connectors CANNOT read each other\'s files. Use cross-connector MCP calls instead.',
+      },
+    },
+
     // File structure for a UI-capable connector:
     _file_structure_reference: {
       '/mcp-store/ecommerce-dashboard-mcp/': [

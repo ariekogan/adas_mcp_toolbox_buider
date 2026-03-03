@@ -738,6 +738,44 @@ router.post('/solution', async (req, res) => {
     const importData = await importResp.json();
     const packageName = importData.package?.name || manifest.name;
 
+    // ── Verify connectors are registered in ADAS Core ──
+    // Skills may reference connectors that exist in the Skill Builder but are
+    // NOT registered in the ADAS frontend app. UI plugins calling unregistered
+    // connectors will get 404 errors. Emit warnings for any missing ones.
+    try {
+      const adasCoreUrl = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+      const connectorListResp = await fetch(`${adasCoreUrl}/api/connectors`, {
+        headers: sbHeaders(req),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (connectorListResp.ok) {
+        const registeredConnectors = await connectorListResp.json();
+        const registeredIds = new Set(
+          (Array.isArray(registeredConnectors) ? registeredConnectors : registeredConnectors.connectors || [])
+            .map(c => c.id)
+        );
+        // Check all connectors used by skills
+        const allSkillConnectors = new Set();
+        for (const s of expandedSkills) {
+          for (const cId of (s.connectors || [])) {
+            allSkillConnectors.add(cId);
+          }
+        }
+        for (const cId of allSkillConnectors) {
+          if (!registeredIds.has(cId)) {
+            deployWarnings.push({
+              connector_id: cId,
+              warning: `Connector "${cId}" is used by a skill but is NOT registered in ADAS Core. UI plugins calling this connector will get 404 errors. Register it via POST /api/mcp-store/upload + POST /api/connectors.`,
+            });
+            console.warn(`[Deploy] ⚠ Connector "${cId}" not registered in ADAS Core`);
+          }
+        }
+      }
+    } catch (e) {
+      // Non-fatal — don't block deployment if ADAS Core is unreachable
+      console.warn(`[Deploy] Could not verify connectors in ADAS Core: ${e.message}`);
+    }
+
     // ── Deploy to ADAS Core via Skill Builder ──
     const deployResult = await consumeDeploySSE(packageName, req);
 
