@@ -317,6 +317,8 @@ export default function TenantChannelsPage({ onClose }) {
   // Telegram config state
   const [telegramBotConfig, setTelegramBotConfig] = useState({ botName: '', botToken: '' });
   const [telegramConfigured, setTelegramConfigured] = useState(false);
+  const [telegramUseGlobal, setTelegramUseGlobal] = useState(false);
+  const [telegramSource, setTelegramSource] = useState('tenant');
   const [telegramSaving, setTelegramSaving] = useState(false);
   const [telegramTesting, setTelegramTesting] = useState(false);
   const [telegramTestResult, setTelegramTestResult] = useState(null);
@@ -422,12 +424,14 @@ export default function TenantChannelsPage({ onClose }) {
   const loadTelegramConfig = async () => {
     try {
       const result = await api.getTelegramBotConfig();
-      if (result.ok && result.configured && result.config) {
+      if (result.ok && result.config) {
         setTelegramBotConfig({
           botName: result.config.botName || '',
           botToken: ''
         });
-        setTelegramConfigured(true);
+        setTelegramConfigured(result.configured);
+        setTelegramUseGlobal(result.config.useGlobalTelegramSettings || false);
+        setTelegramSource(result.config.source || 'tenant');
       }
     } catch (err) {
       console.error('Failed to load telegram config:', err);
@@ -1132,56 +1136,95 @@ export default function TenantChannelsPage({ onClose }) {
                     Telegram bot credentials from @BotFather
                   </div>
 
-                  <StatusBadge configured={telegramConfigured} />
-                  <MsgBox msg={telegramMsg} />
+                  {telegramUseGlobal ? (
+                    <>
+                      {/* Global settings — read-only */}
+                      <div style={{ padding: '10px 12px', background: 'rgba(210, 153, 34, 0.1)', border: '1px solid rgba(210, 153, 34, 0.3)', borderRadius: '6px', marginBottom: '12px' }}>
+                        <div style={{ fontSize: '12px', fontWeight: '600', color: '#d29922', marginBottom: '4px' }}>
+                          Global System Settings
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          This tenant uses the system-wide Telegram bot. Manage it in System Admin.
+                        </div>
+                      </div>
 
-                  <div style={{ marginBottom: '10px' }}>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Bot Name</label>
-                    <input
-                      type="text"
-                      value={telegramBotConfig.botName}
-                      onChange={(e) => { setTelegramBotConfig(p => ({ ...p, botName: e.target.value })); setTelegramMsg(null); }}
-                      placeholder="e.g., MyAssistantBot"
-                      style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
+                      {telegramConfigured && (
+                        <div style={{ marginBottom: '12px' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Bot Name</div>
+                          <div style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', opacity: 0.6, cursor: 'default' }}>
+                            {telegramBotConfig.botName || '—'}
+                          </div>
+                        </div>
+                      )}
 
-                  <div style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Bot Token</label>
-                    <input
-                      type="password"
-                      value={telegramBotConfig.botToken}
-                      onChange={(e) => { setTelegramBotConfig(p => ({ ...p, botToken: e.target.value })); setTelegramMsg(null); }}
-                      placeholder={telegramConfigured ? '(unchanged)' : 'Enter bot token from @BotFather'}
-                      style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
-                    />
-                    {telegramConfigured && (
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Leave blank to keep existing token</div>
-                    )}
-                  </div>
+                      <StatusBadge configured={telegramConfigured} />
+                      <MsgBox msg={telegramMsg} />
 
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      onClick={handleSaveTelegramConfig}
-                      disabled={telegramSaving || (!telegramBotConfig.botToken && !telegramConfigured)}
-                      style={{
-                        ...styles.addBtn, flex: 1, textAlign: 'center',
-                        opacity: (telegramSaving || (!telegramBotConfig.botToken && !telegramConfigured)) ? 0.5 : 1,
-                        cursor: (telegramSaving || (!telegramBotConfig.botToken && !telegramConfigured)) ? 'not-allowed' : 'pointer'
-                      }}
-                    >
-                      {telegramSaving ? 'Saving...' : 'Save'}
-                    </button>
-                    {telegramConfigured && (
-                      <button
-                        onClick={handleTestTelegram}
-                        disabled={telegramTesting}
-                        style={{ ...styles.cancelBtn, opacity: telegramTesting ? 0.5 : 1, cursor: telegramTesting ? 'not-allowed' : 'pointer' }}
-                      >
-                        {telegramTesting ? 'Testing...' : 'Test Connection'}
-                      </button>
-                    )}
-                  </div>
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                        <button
+                          onClick={handleTestTelegram}
+                          disabled={telegramTesting}
+                          style={{ ...styles.cancelBtn, opacity: telegramTesting ? 0.5 : 1, cursor: telegramTesting ? 'not-allowed' : 'pointer' }}
+                        >
+                          {telegramTesting ? 'Testing...' : 'Test Connection'}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Per-tenant settings — editable */}
+                      <StatusBadge configured={telegramConfigured} />
+                      <MsgBox msg={telegramMsg} />
+
+                      <div style={{ marginBottom: '10px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Bot Name</label>
+                        <input
+                          type="text"
+                          value={telegramBotConfig.botName}
+                          onChange={(e) => { setTelegramBotConfig(p => ({ ...p, botName: e.target.value })); setTelegramMsg(null); }}
+                          placeholder="e.g., MyAssistantBot"
+                          style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+
+                      <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Bot Token</label>
+                        <input
+                          type="password"
+                          value={telegramBotConfig.botToken}
+                          onChange={(e) => { setTelegramBotConfig(p => ({ ...p, botToken: e.target.value })); setTelegramMsg(null); }}
+                          placeholder={telegramConfigured ? '(unchanged)' : 'Enter bot token from @BotFather'}
+                          style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
+                        />
+                        {telegramConfigured && (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Leave blank to keep existing token</div>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          onClick={handleSaveTelegramConfig}
+                          disabled={telegramSaving || (!telegramBotConfig.botToken && !telegramConfigured)}
+                          style={{
+                            ...styles.addBtn, flex: 1, textAlign: 'center',
+                            opacity: (telegramSaving || (!telegramBotConfig.botToken && !telegramConfigured)) ? 0.5 : 1,
+                            cursor: (telegramSaving || (!telegramBotConfig.botToken && !telegramConfigured)) ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {telegramSaving ? 'Saving...' : 'Save'}
+                        </button>
+                        {telegramConfigured && (
+                          <button
+                            onClick={handleTestTelegram}
+                            disabled={telegramTesting}
+                            style={{ ...styles.cancelBtn, opacity: telegramTesting ? 0.5 : 1, cursor: telegramTesting ? 'not-allowed' : 'pointer' }}
+                          >
+                            {telegramTesting ? 'Testing...' : 'Test Connection'}
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
 
                   {/* Test Results */}
                   {telegramTestResult && (
