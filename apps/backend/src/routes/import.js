@@ -31,6 +31,7 @@ import {
   syncConnectorToADAS,
   startConnectorInADAS,
   uploadMcpCodeToADAS,
+  deleteConnectorFromADAS,
   deleteAllConnectorsFromADAS,
   deleteAllSkillsFromADAS
 } from '../services/adasConnectorSync.js';
@@ -1136,15 +1137,27 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
       }
     }
 
-    // ── Phase 0.5: Clean ADAS Core (one solution per tenant) ────────
-    // Wipe all existing connectors and skills from ADAS Core before
-    // deploying the current package so ADAS matches Skill Builder exactly.
+    // ── Phase 0.5: Clean ADAS Core ────────────────────────────────
+    // Selective cleanup: only delete connectors we're about to re-deploy.
+    // This preserves existing connectors when doing a skills-only redeploy
+    // (no mcp_store). Skills are always wiped since they're always in the package.
     sendEvent('cleanup_progress', { status: 'starting', message: 'Cleaning ADAS Core...' });
     try {
-      await deleteAllConnectorsFromADAS();
+      if (pkg.mcps.length > 0) {
+        for (const mcp of pkg.mcps) {
+          try {
+            await deleteConnectorFromADAS(mcp.id);
+            console.log(`[Deploy] Deleted connector "${mcp.id}" from ADAS Core (will re-register)`);
+          } catch (e) {
+            // Connector might not exist yet — that's fine
+            console.log(`[Deploy] Connector "${mcp.id}" not in ADAS Core (skip delete): ${e.message}`);
+          }
+        }
+      } else {
+        console.log('[Deploy] No connectors in package — preserving existing ADAS Core connectors');
+      }
       await deleteAllSkillsFromADAS();
       sendEvent('cleanup_progress', { status: 'done', message: 'ADAS Core cleaned' });
-      console.log('[Deploy] Cleaned all connectors and skills from ADAS Core before deploy-all');
     } catch (err) {
       sendEvent('cleanup_progress', { status: 'warning', message: `Cleanup warning (non-fatal): ${err.message}` });
       console.warn('[Deploy] ADAS cleanup failed (continuing):', err.message);
