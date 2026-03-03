@@ -309,6 +309,8 @@ export default function TenantChannelsPage({ onClose }) {
     imapHost: 'imap.gmail.com', imapPort: 993
   });
   const [emailConfigured, setEmailConfigured] = useState(false);
+  const [emailUseGlobal, setEmailUseGlobal] = useState(false);
+  const [emailSource, setEmailSource] = useState('tenant');
   const [emailSaving, setEmailSaving] = useState(false);
   const [emailTesting, setEmailTesting] = useState(false);
   const [emailTestResult, setEmailTestResult] = useState(null);
@@ -365,7 +367,7 @@ export default function TenantChannelsPage({ onClose }) {
   const loadEmailConfig = async () => {
     try {
       const result = await api.getEmailConfig();
-      if (result.ok && result.configured && result.config) {
+      if (result.ok && result.config) {
         setEmailCreds({
           emailUser: result.config.emailUser || '',
           emailPass: '',
@@ -374,7 +376,9 @@ export default function TenantChannelsPage({ onClose }) {
           imapHost: result.config.imapHost || 'imap.gmail.com',
           imapPort: result.config.imapPort || 993
         });
-        setEmailConfigured(true);
+        setEmailConfigured(result.configured);
+        setEmailUseGlobal(result.config.useGlobalEmailSettings || false);
+        setEmailSource(result.config.source || 'tenant');
       }
     } catch (err) {
       console.error('Failed to load email config:', err);
@@ -857,82 +861,121 @@ export default function TenantChannelsPage({ onClose }) {
                     Gmail SMTP/IMAP credentials for sending and receiving email
                   </div>
 
-                  <StatusBadge configured={emailConfigured} />
-                  <MsgBox msg={emailMsg} />
-
-                  <div style={{ marginBottom: '10px' }}>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Gmail Address</label>
-                    <input
-                      type="email"
-                      value={emailCreds.emailUser}
-                      onChange={(e) => { setEmailCreds(p => ({ ...p, emailUser: e.target.value })); setEmailMsg(null); }}
-                      placeholder="your.email@gmail.com"
-                      style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-
-                  <div style={{ marginBottom: '10px' }}>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>App Password</label>
-                    <input
-                      type="password"
-                      value={emailCreds.emailPass}
-                      onChange={(e) => { setEmailCreds(p => ({ ...p, emailPass: e.target.value })); setEmailMsg(null); }}
-                      placeholder={emailConfigured ? '(unchanged)' : 'Enter app password'}
-                      style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
-                    />
-                    {emailConfigured && (
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Leave blank to keep existing password</div>
-                    )}
-                  </div>
-
-                  <details style={{ marginBottom: '12px' }}>
-                    <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>Advanced Settings</summary>
-                    <div style={{ paddingLeft: '12px' }}>
-                      <div style={{ display: 'flex', gap: '10px', marginBottom: '8px' }}>
-                        <div style={{ flex: 2 }}>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>SMTP Host</label>
-                          <input type="text" value={emailCreds.smtpHost} onChange={(e) => setEmailCreds(p => ({ ...p, smtpHost: e.target.value }))} style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px' }} />
+                  {emailUseGlobal ? (
+                    <>
+                      {/* Global settings — read-only */}
+                      <div style={{ padding: '10px 12px', background: 'rgba(210, 153, 34, 0.1)', border: '1px solid rgba(210, 153, 34, 0.3)', borderRadius: '6px', marginBottom: '12px' }}>
+                        <div style={{ fontSize: '12px', fontWeight: '600', color: '#d29922', marginBottom: '4px' }}>
+                          Global System Settings
                         </div>
-                        <div style={{ flex: 1 }}>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Port</label>
-                          <input type="number" value={emailCreds.smtpPort} onChange={(e) => setEmailCreds(p => ({ ...p, smtpPort: parseInt(e.target.value) || 587 }))} style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px' }} />
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          This tenant uses the system-wide email credentials. Manage them in System Admin.
                         </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '10px' }}>
-                        <div style={{ flex: 2 }}>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>IMAP Host</label>
-                          <input type="text" value={emailCreds.imapHost} onChange={(e) => setEmailCreds(p => ({ ...p, imapHost: e.target.value }))} style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px' }} />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Port</label>
-                          <input type="number" value={emailCreds.imapPort} onChange={(e) => setEmailCreds(p => ({ ...p, imapPort: parseInt(e.target.value) || 993 }))} style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px' }} />
-                        </div>
-                      </div>
-                    </div>
-                  </details>
 
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      onClick={handleSaveEmailConfig}
-                      disabled={emailSaving || !emailCreds.emailUser || (!emailCreds.emailPass && !emailConfigured)}
-                      style={{
-                        ...styles.addBtn, flex: 1, textAlign: 'center',
-                        opacity: (emailSaving || !emailCreds.emailUser || (!emailCreds.emailPass && !emailConfigured)) ? 0.5 : 1,
-                        cursor: (emailSaving || !emailCreds.emailUser || (!emailCreds.emailPass && !emailConfigured)) ? 'not-allowed' : 'pointer'
-                      }}
-                    >
-                      {emailSaving ? 'Saving...' : 'Save'}
-                    </button>
-                    {emailConfigured && (
-                      <button
-                        onClick={handleTestEmail}
-                        disabled={emailTesting}
-                        style={{ ...styles.cancelBtn, opacity: emailTesting ? 0.5 : 1, cursor: emailTesting ? 'not-allowed' : 'pointer' }}
-                      >
-                        {emailTesting ? 'Testing...' : 'Test Connection'}
-                      </button>
-                    )}
-                  </div>
+                      {emailConfigured && (
+                        <div style={{ marginBottom: '12px' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Email Account</div>
+                          <div style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', opacity: 0.6, cursor: 'default' }}>
+                            {emailCreds.emailUser || '\u2014'}
+                          </div>
+                        </div>
+                      )}
+
+                      <StatusBadge configured={emailConfigured} />
+                      <MsgBox msg={emailMsg} />
+
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                        <button
+                          onClick={handleTestEmail}
+                          disabled={emailTesting}
+                          style={{ ...styles.cancelBtn, opacity: emailTesting ? 0.5 : 1, cursor: emailTesting ? 'not-allowed' : 'pointer' }}
+                        >
+                          {emailTesting ? 'Testing...' : 'Test Connection'}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Per-tenant settings — editable */}
+                      <StatusBadge configured={emailConfigured} />
+                      <MsgBox msg={emailMsg} />
+
+                      <div style={{ marginBottom: '10px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Gmail Address</label>
+                        <input
+                          type="email"
+                          value={emailCreds.emailUser}
+                          onChange={(e) => { setEmailCreds(p => ({ ...p, emailUser: e.target.value })); setEmailMsg(null); }}
+                          placeholder="your.email@gmail.com"
+                          style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+
+                      <div style={{ marginBottom: '10px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>App Password</label>
+                        <input
+                          type="password"
+                          value={emailCreds.emailPass}
+                          onChange={(e) => { setEmailCreds(p => ({ ...p, emailPass: e.target.value })); setEmailMsg(null); }}
+                          placeholder={emailConfigured ? '(unchanged)' : 'Enter app password'}
+                          style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box' }}
+                        />
+                        {emailConfigured && (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Leave blank to keep existing password</div>
+                        )}
+                      </div>
+
+                      <details style={{ marginBottom: '12px' }}>
+                        <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>Advanced Settings</summary>
+                        <div style={{ paddingLeft: '12px' }}>
+                          <div style={{ display: 'flex', gap: '10px', marginBottom: '8px' }}>
+                            <div style={{ flex: 2 }}>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>SMTP Host</label>
+                              <input type="text" value={emailCreds.smtpHost} onChange={(e) => setEmailCreds(p => ({ ...p, smtpHost: e.target.value }))} style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px' }} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Port</label>
+                              <input type="number" value={emailCreds.smtpPort} onChange={(e) => setEmailCreds(p => ({ ...p, smtpPort: parseInt(e.target.value) || 587 }))} style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px' }} />
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '10px' }}>
+                            <div style={{ flex: 2 }}>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>IMAP Host</label>
+                              <input type="text" value={emailCreds.imapHost} onChange={(e) => setEmailCreds(p => ({ ...p, imapHost: e.target.value }))} style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px' }} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Port</label>
+                              <input type="number" value={emailCreds.imapPort} onChange={(e) => setEmailCreds(p => ({ ...p, imapPort: parseInt(e.target.value) || 993 }))} style={{ ...styles.input, maxWidth: 'none', width: '100%', boxSizing: 'border-box', fontSize: '12px', padding: '6px 8px' }} />
+                            </div>
+                          </div>
+                        </div>
+                      </details>
+
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          onClick={handleSaveEmailConfig}
+                          disabled={emailSaving || !emailCreds.emailUser || (!emailCreds.emailPass && !emailConfigured)}
+                          style={{
+                            ...styles.addBtn, flex: 1, textAlign: 'center',
+                            opacity: (emailSaving || !emailCreds.emailUser || (!emailCreds.emailPass && !emailConfigured)) ? 0.5 : 1,
+                            cursor: (emailSaving || !emailCreds.emailUser || (!emailCreds.emailPass && !emailConfigured)) ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {emailSaving ? 'Saving...' : 'Save'}
+                        </button>
+                        {emailConfigured && (
+                          <button
+                            onClick={handleTestEmail}
+                            disabled={emailTesting}
+                            style={{ ...styles.cancelBtn, opacity: emailTesting ? 0.5 : 1, cursor: emailTesting ? 'not-allowed' : 'pointer' }}
+                          >
+                            {emailTesting ? 'Testing...' : 'Test Connection'}
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
 
                   {emailTestResult && (
                     <div style={{ marginTop: '12px', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: '6px' }}>
