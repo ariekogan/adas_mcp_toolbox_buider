@@ -738,10 +738,12 @@ router.post('/solution', async (req, res) => {
     const importData = await importResp.json();
     const packageName = importData.package?.name || manifest.name;
 
-    // ── Verify connectors are registered in ADAS Core ──
-    // Skills may reference connectors that exist in the Skill Builder but are
-    // NOT registered in the ADAS frontend app. UI plugins calling unregistered
-    // connectors will get 404 errors. Emit warnings for any missing ones.
+    // ── Deploy to ADAS Core via Skill Builder ──
+    const deployResult = await consumeDeploySSE(packageName, req);
+
+    // ── Verify connectors are registered in ADAS Core (post-deploy) ──
+    // Check AFTER deploy-all so connectors from mcp_store are already registered.
+    // Only warn about connectors that are genuinely still missing.
     try {
       const adasCoreUrl = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
       const connectorListResp = await fetch(`${adasCoreUrl}/api/connectors`, {
@@ -775,9 +777,6 @@ router.post('/solution', async (req, res) => {
       // Non-fatal — don't block deployment if ADAS Core is unreachable
       console.warn(`[Deploy] Could not verify connectors in ADAS Core: ${e.message}`);
     }
-
-    // ── Deploy to ADAS Core via Skill Builder ──
-    const deployResult = await consumeDeploySSE(packageName, req);
 
     res.json({
       ok: deployResult.ok,
