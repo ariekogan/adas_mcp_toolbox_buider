@@ -273,9 +273,15 @@ async function create(solutionId, name, settings = {}, template = null, skillId 
   }
   if (!base) throw new Error(`Cannot create slug from skill name: "${name}"`);
   let slug = base;
-  let suffix = 2;
-  while (await fileExists(path.join(getMemoryRoot(), slug, 'skill.json'))) {
-    slug = `${base}-${suffix++}`;
+  // Only auto-suffix when deriving slug from name (not when explicitly provided).
+  // When skillId is explicit, the caller (findExistingSkillForSkill) already
+  // verified no usable duplicate exists — silently renaming to "dev-2" etc.
+  // hides the conflict and causes deploy mismatches.
+  if (!skillId) {
+    let suffix = 2;
+    while (await fileExists(path.join(getMemoryRoot(), slug, 'skill.json'))) {
+      slug = `${base}-${suffix++}`;
+    }
   }
   const slugDir = path.join(getMemoryRoot(), slug);
 

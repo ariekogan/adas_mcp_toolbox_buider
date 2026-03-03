@@ -531,8 +531,13 @@ async function findExistingSkillForSkill(solutionId, originalSkillId, skillName)
       console.log(`[Import] Found existing skill by ID: ${originalSkillId}`);
       return skill;
     }
-  } catch {
-    // Skill doesn't exist with that ID
+  } catch (err) {
+    // Only swallow "not found" errors — re-throw unexpected failures
+    // (e.g., corrupt JSON) so they don't silently cause slug collisions
+    const msg = err?.message || '';
+    if (!msg.includes('not found') && !msg.includes('ENOENT') && !msg.includes('no such file')) {
+      console.warn(`[Import] Unexpected error loading skill "${originalSkillId}": ${msg}`);
+    }
   }
 
   // 2. Backward compat: search for legacy skill_ prefix directories or original_skill_id field
