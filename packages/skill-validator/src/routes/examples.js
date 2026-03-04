@@ -72,7 +72,7 @@ function buildExampleSkill() {
     description: 'Handles customer order inquiries — status checks, order lookups, and issue escalation for an e-commerce platform.',
     version: '1.0.0',
     phase: 'TOOL_DEFINITION',
-    connectors: ['orders-mcp'],
+    connectors: ['orders-mcp', 'telegram-mcp'],
 
     // ── Problem ──
     problem: {
@@ -303,6 +303,28 @@ function buildExampleSkill() {
         },
         security: { classification: 'pii_read' },
       },
+
+      // ── Proactive Messaging Tool ──
+      // This tool enables the skill to send outbound notifications via Telegram.
+      // Used by schedule triggers (below) to alert humans about stale orders or daily summaries.
+      {
+        id: 'tool-telegram-send',
+        id_status: 'permanent',
+        name: 'telegram.send_message',
+        description: 'Send a Telegram message for proactive notifications. Use during trigger-driven execution for important updates (stale orders, daily summaries). Do NOT use during normal user conversations — replies are handled automatically by the platform.',
+        inputs: [
+          { name: 'chat_id', type: 'number', required: true, description: 'Telegram chat ID of the recipient' },
+          { name: 'text', type: 'string', required: true, description: 'Message text (supports Markdown formatting)' },
+          { name: 'parse_mode', type: 'string', required: false, description: 'Message format: "Markdown" or "HTML" (default: plain text)' },
+        ],
+        output: {
+          type: 'object',
+          description: 'Telegram API response with ok status and message_id',
+        },
+        source: { type: 'mcp_bridge', connection_id: 'telegram-mcp', mcp_tool: 'send_message' },
+        policy: { allowed: 'always' },
+        security: { classification: 'public' },
+      },
     ],
 
     // ── Policy ──
@@ -402,14 +424,24 @@ function buildExampleSkill() {
       },
     ],
 
-    // ── Triggers ──
+    // ── Triggers (Proactive Messaging Pattern) ──
+    // Triggers are the ONLY way a skill can act proactively (without a user message).
+    // Pattern: connector (telegram-mcp) + tool (send_message) + trigger (schedule) = outbound notifications
     triggers: [
+      {
+        id: 'check-stale-orders',
+        type: 'schedule',
+        enabled: true,
+        concurrency: 1,
+        prompt: 'Check for orders that may need attention:\n\n1. Call orders.order.search with status="pending" to find pending orders\n2. For each order older than 2 hours: send a Telegram notification to chat_id 12345678 with the order ID, customer email, and how long it has been pending\n3. Use Markdown parse_mode for Telegram messages. Keep messages concise — 2-3 lines per order.\n4. If no stale orders found, do nothing — do NOT send a "no issues" message.',
+        every: 'PT15M',
+      },
       {
         id: 'daily-order-summary',
         type: 'schedule',
-        enabled: false,
+        enabled: true,
         concurrency: 1,
-        prompt: 'Generate a summary of all open support tickets related to orders from the last 24 hours.',
+        prompt: 'Generate a daily summary of order activity:\n\n1. Call orders.order.search for each status (pending, shipped, delivered, cancelled) to get counts\n2. Send ONE Telegram message to chat_id 12345678 with the summary: total orders by status, any notable issues\n3. Use Markdown parse_mode. Format as a clean summary with emoji status indicators.\n4. Keep it brief — max 10 lines.',
         every: 'P1D',
       },
     ],

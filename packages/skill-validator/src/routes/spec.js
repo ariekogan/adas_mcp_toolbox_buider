@@ -627,13 +627,36 @@ function buildSkillSpec() {
       // ── Triggers ──
       triggers: {
         type: 'array', required: false,
-        description: 'Automation triggers that activate this skill periodically or on events',
+        description: 'Automation triggers that activate this skill periodically or on events. Triggers are the ONLY way a skill can act proactively (without a user message). The trigger-runner service fires them on schedule or in response to events, creating a job where the skill executes the trigger prompt autonomously using all its linked tools.',
+        guide: {
+          how_it_works: [
+            '1. The trigger-runner service checks enabled triggers on their schedule (every) or listens for events (event)',
+            '2. When a trigger fires, it creates a new job for the skill with the trigger prompt as the goal',
+            '3. The skill executes autonomously — it can use ALL its linked connector tools (read data, send messages, update records)',
+            '4. concurrency=1 (default) means only one instance runs at a time — next fire waits for current to finish',
+            '5. The trigger prompt should be specific: what to check, what action to take, what to report',
+          ],
+          schedule_examples: {
+            'PT1M': 'Every 1 minute (use sparingly — only for time-critical monitoring)',
+            'PT5M': 'Every 5 minutes (good for polling task boards, inboxes)',
+            'PT15M': 'Every 15 minutes (good for circuit-breaker / health checks)',
+            'PT1H': 'Every 1 hour',
+            'P1D': 'Every 24 hours (good for daily digests, summaries)',
+          },
+          prompt_tips: [
+            'Be explicit about what to check and what action to take — vague prompts produce unreliable results',
+            'Name the tools the skill should use (e.g., "call tasks.list to get all tasks")',
+            'Define conditions for action vs. doing nothing (e.g., "only notify if status=done AND no NOTIFIED comment")',
+            'For notifications: specify the chat_id/email, message format, and when NOT to notify',
+            'Use idempotency markers to prevent duplicate notifications (e.g., "add a NOTIFIED comment after sending, skip tasks that already have one")',
+          ],
+        },
         item_schema: {
-          id: { type: 'string', required: true },
-          type: { type: 'enum', values: VALID_TRIGGER_TYPES, required: true },
+          id: { type: 'string', required: true, description: 'Unique trigger ID within this skill' },
+          type: { type: 'enum', values: VALID_TRIGGER_TYPES, required: true, description: '"schedule" for periodic execution, "event" for event-driven activation' },
           enabled: { type: 'boolean', required: false, default: true },
-          concurrency: { type: 'number', required: false, default: 1, description: 'Max parallel jobs' },
-          prompt: { type: 'string', required: true, description: 'Goal prompt for the triggered job' },
+          concurrency: { type: 'number', required: false, default: 1, description: 'Max parallel jobs. Use 1 for triggers that modify state to avoid race conditions' },
+          prompt: { type: 'string', required: true, description: 'Goal prompt for the triggered job — this is what the skill will execute when the trigger fires' },
           input: { type: 'object', required: false, description: 'Arbitrary data passed to triggerContext' },
           every: { type: 'string', required: false, description: 'ISO 8601 duration (schedule triggers only, e.g., "PT2M", "PT1H", "P1D")' },
           event: { type: 'string', required: false, description: 'Event type name (event triggers only, e.g., "email.received")' },
@@ -1078,6 +1101,17 @@ function buildSkillSpec() {
             strip_fields: ['<field.path.to.strip>'],
           },
         ],
+        triggers: [
+          {
+            _note: 'Optional: schedule triggers for proactive behavior (notifications, monitoring, periodic checks). Remove if not needed.',
+            id: '<trigger-id>',
+            type: 'schedule',
+            enabled: true,
+            concurrency: 1,
+            prompt: '<Specific instructions: what to check, which tools to use, when to act, when to skip. Include idempotency logic.>',
+            every: 'PT5M',
+          },
+        ],
       },
     },
 
@@ -1089,7 +1123,8 @@ function buildSkillSpec() {
         '2. GET /spec/skill — study the schema, validation rules, and system tools',
         '3. GET /spec/examples/skill — see a complete working example that passes validation',
         '4. Define your connectors — what external systems (MCP servers) does your agent need? Write the connector source code (Node.js/Python MCP server) that implements real business logic (database access, API calls, UI dashboards)',
-        '5. Build the skill definition following this order: problem → scenarios → role → intents → tools → policy → engine → grant_mappings (if issuing grants) → access_policy → response_filters',
+        '5. Build the skill definition following this order: problem → scenarios → role → intents → tools → policy → engine → triggers (optional) → grant_mappings (if issuing grants) → access_policy → response_filters',
+        '5b. (Optional) For proactive behavior: add schedule triggers with specific prompts. If the skill needs to send notifications, link a messaging connector (telegram-mcp, gmail-mcp) and add the corresponding send tool (telegram.send_message, gmail.send_email). See key_concepts.proactive_messaging for the full pattern.',
         '6. POST /validate/skill with { "skill": <your definition> } — fix all errors before proceeding',
         '7. POST /deploy/solution — deploy everything at once (connectors + skills). The Skill Builder auto-generates Python MCP servers from your skill tool definitions. You do NOT need to write slugs or Python MCP code for skills — only connector implementations.',
       ],
@@ -1126,6 +1161,12 @@ function buildSkillSpec() {
         'Omitting grant_mappings when a skill issues grants — if your skill verifies identity or produces claims consumed by other skills, add grant_mappings',
         'Trying to write Python MCP server code for skills — the Skill Builder auto-generates it from your tool definitions. Only connector source code (real business logic) needs to be written by you.',
         'Providing slug or mcpServer in deploy requests — these are computed automatically. Just provide skill definitions with tools.',
+        // ── TRIGGER & PROACTIVE MESSAGING MISTAKES ──
+        'Trigger prompt too vague (e.g., "check for updates") — be explicit about what to check, which tools to use, and what action to take. The skill has no context beyond the prompt.',
+        'Missing messaging connector in skill.connectors[] — the skill cannot use send_message or send_email unless the connector (telegram-mcp, gmail-mcp) is linked to the skill',
+        'No idempotency in trigger prompt — without markers like "skip if already NOTIFIED", the trigger will re-send the same notification every time it fires',
+        'Setting concurrency > 1 for triggers that modify state — concurrent trigger jobs can create race conditions. Use concurrency=1 (default) unless the trigger is read-only',
+        'Schedule trigger with very short interval (PT1M) and slow/complex prompt — if execution takes longer than the interval, jobs queue up. Match interval to expected execution time',
       ],
       key_concepts: {
         connector_runtime: 'A-Team Core runs connector MCP servers on Node.js 22.x with full ESM support. Recommended: use @modelcontextprotocol/sdk with StdioServerTransport — it is the simplest and most reliable approach. Make sure package.json has "type": "module" and lists @modelcontextprotocol/sdk + zod as dependencies. Alternative: implement raw JSON-RPC over stdio with readline if you prefer zero dependencies. See the connector examples for both patterns.',
@@ -1156,6 +1197,29 @@ function buildSkillSpec() {
         grant_economy: 'Grants are verified claims that flow between skills. A skill issues grants via grant_mappings (tool output → grant). Another skill requires grants via access_policy. Security contracts enforce this at the solution level.',
         workflow_steps: 'Workflow steps are tool NAMES (not IDs). Example: ["orders.order.get", "sys.emitUserMessage"]. System tools are valid step targets.',
         access_policy_effects: '"allow" = permit unconditionally, "deny" = block, "constrain" = inject values into tool inputs (e.g., force customer_id from grant). Use "*" in tools array to cover all tools.',
+        proactive_messaging: {
+          description: 'Skills can send outbound messages (Telegram, email, etc.) proactively via schedule triggers. This is the ONLY way skills initiate contact — all other skill execution is reactive (triggered by user messages).',
+          pattern: [
+            '1. Link a messaging connector to the skill (e.g., telegram-mcp, gmail-mcp) — add to skill.connectors[]',
+            '2. Define a send tool on the skill (e.g., telegram.send_message) with source.connection_id pointing to the messaging connector',
+            '3. Create a schedule trigger with a prompt that instructs the skill to check state and send messages when conditions are met',
+            '4. The trigger-runner fires the trigger on schedule → skill checks data → calls send tool if conditions match → skips if nothing to report',
+          ],
+          example_use_cases: [
+            'Notify human PM when a task is stuck (3+ QA failures) — circuit-breaker trigger every 15min',
+            'Send task completion summaries — poll trigger checks for status=done every 5min',
+            'Daily digest emails — P1D trigger summarizes activity and sends via gmail-mcp',
+            'Alert on anomalies — PT5M trigger monitors metrics and sends Telegram on threshold breach',
+          ],
+          important_notes: [
+            'Proactive triggers use the same tools as normal skill execution — no special API needed',
+            'The messaging connector MUST be in skill.connectors[] (linked) for the skill to see its tools',
+            'Use idempotency: add markers (e.g., comments, flags) to prevent sending the same notification twice',
+            'Replies to proactive messages are routed automatically by the platform — no extra config needed',
+            'HTTP transport connectors (telegram-mcp, gmail-mcp) run as external services, not spawned by the Builder. Add them to _connectors/state.json with transport: "http" and endpoint.',
+          ],
+          see_example: 'GET /spec/examples/skill — the Order Support Agent example includes schedule triggers with Telegram notifications',
+        },
       },
     },
   };
@@ -1304,8 +1368,35 @@ function buildWorkflows() {
           ],
         },
         {
-          id: 'MOCK_TESTING',
+          id: 'TRIGGERS_SETUP',
           order: 7,
+          label: 'Triggers & Proactive Messaging (Optional)',
+          goal: 'Set up schedule or event triggers for proactive skill execution — sending notifications, monitoring state, running periodic checks',
+          what_to_ask: [
+            'Does this skill need to act proactively (without a user message)?',
+            'What should it check, and how often? (e.g., stale tasks every 15min, daily summary)',
+            'Should it send notifications (Telegram, email)? To whom (chat_id, email address)?',
+            'What conditions should trigger a notification vs. doing nothing?',
+          ],
+          what_to_build: {
+            'triggers[]': 'Schedule or event triggers with specific prompts, intervals, and concurrency settings',
+            'connectors': 'Add messaging connectors (telegram-mcp, gmail-mcp) to skill.connectors[] if sending notifications',
+            'tools': 'Add send tools (telegram.send_message, gmail.send_email) mapped to messaging connectors via source.connection_id',
+          },
+          exit_criteria: 'Triggers are defined with specific prompts, or explicitly skipped (most skills don\'t need triggers)',
+          tips: [
+            'Most skills do NOT need triggers — only add them for proactive behavior',
+            'The trigger prompt is the most important part — it tells the skill exactly what to do when triggered',
+            'Always include idempotency logic in the prompt (e.g., "skip tasks that already have a NOTIFIED comment")',
+            'For Telegram notifications: you need the target chat_id and telegram-mcp connector linked to the skill',
+            'For email: you need gmail-mcp connector linked and the target email address',
+            'Test the trigger prompt with ateam_test_skill first — send it as a test message to verify the skill does the right thing before enabling the schedule',
+            'The proactive_messaging pattern: connector (telegram-mcp) + tool (send_message) + trigger (schedule with prompt) = outbound notifications',
+          ],
+        },
+        {
+          id: 'MOCK_TESTING',
+          order: 8,
           label: 'Mock Testing',
           goal: 'Add mock data for tools and test scenarios without real backends',
           what_to_ask: [
@@ -1324,7 +1415,7 @@ function buildWorkflows() {
         },
         {
           id: 'READY_TO_EXPORT',
-          order: 8,
+          order: 9,
           label: 'Ready to Export',
           goal: 'Final validation gate — all checks must pass',
           what_to_do: [
@@ -1346,7 +1437,7 @@ function buildWorkflows() {
         },
         {
           id: 'EXPORTED',
-          order: 9,
+          order: 10,
           label: 'Exported / Deployed',
           goal: 'Skill is deployed and running',
           what_to_do: [
