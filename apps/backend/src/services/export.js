@@ -42,7 +42,10 @@ ${escapedYaml}
 
 ${toolFunctions}
 
-@mcp.tool()
+@mcp.tool(
+    annotations={"readOnlyHint": True},
+    meta={"platform": True, "planner_visible": False}
+)
 def get_skill_definition() -> dict:
     """Get the complete skill definition YAML for ADAS Core installation.
 
@@ -57,7 +60,10 @@ def get_skill_definition() -> dict:
         "version": "${version}"
     }
 
-@mcp.tool()
+@mcp.tool(
+    annotations={"readOnlyHint": True},
+    meta={"platform": True, "planner_visible": False}
+)
 def health_check() -> dict:
     """Check server health."""
     return {"status": "healthy", "server": "${escapedName}"}
