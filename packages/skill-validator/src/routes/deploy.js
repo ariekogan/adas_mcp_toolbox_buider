@@ -49,6 +49,7 @@ import { expandSkill } from '../services/skillExpander.js';
 const router = Router();
 
 const SKILL_BUILDER_URL = (process.env.SKILL_BUILDER_URL || 'http://localhost:4000').replace(/\/$/, '');
+const VOICE_BACKEND_URL = (process.env.VOICE_BACKEND_URL || 'http://voice-backend:4000').replace(/\/$/, '');
 
 /** Build headers for Skill Builder requests, forwarding tenant + API key from the incoming request */
 function sbHeaders(req) {
@@ -58,6 +59,105 @@ function sbHeaders(req) {
   const apiKey = req.headers['x-api-key'];
   if (apiKey) h['X-API-KEY'] = apiKey;
   return h;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Voice Config Push — deploy voice settings to voice-backend
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Push voice configuration from the solution definition to the voice-backend.
+ * Called after ADAS Core deploy succeeds.
+ *
+ * Maps solution.voice fields to voice-backend REST endpoints:
+ *   - verification → POST /api/voice-verification/config
+ *   - phones       → POST /api/voice-verification/phones (each)
+ *   - prompt       → POST /api/voice-prompt
+ *   - skills       → POST /api/voice-skills/selection
+ *
+ * @param {Object} voice - solution.voice config block
+ * @param {Array}  skills - expanded skill definitions (for slug mapping)
+ * @param {Object} req - Express request (for tenant header)
+ * @returns {Object} { summary, warnings }
+ */
+async function pushVoiceConfig(voice, skills, req) {
+  const tenant = req.headers['x-adas-tenant'] || 'default';
+  const headers = { 'Content-Type': 'application/json', 'X-ADAS-TENANT': tenant };
+  const warnings = [];
+  const summary = { enabled: !!voice.enabled };
+
+  const voiceFetch = (path, body) =>
+    fetch(`${VOICE_BACKEND_URL}/api/${path}`, {
+      method: 'POST', headers, body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    }).then(r => r.json()).catch(e => {
+      warnings.push(`Voice API ${path} failed: ${e.message}`);
+      return { ok: false };
+    });
+
+  // ── 1. Verification config ──
+  if (voice.verification) {
+    const verConfig = {
+      enabled: voice.verification.enabled !== false,
+      method: voice.verification.method || 'phone_lookup',
+      maxAttempts: voice.verification.maxAttempts || 3,
+      onFailure: voice.verification.onFailure || 'hangup',
+      skipRecentMinutes: voice.verification.skipRecentMinutes || 0,
+      securityQuestion: voice.verification.securityQuestion || { question: '', answer: '', answerMatchMode: 'case_insensitive' },
+      customSkill: voice.verification.customSkill || { skillSlug: '' },
+    };
+    const r = await voiceFetch('voice-verification/config', verConfig);
+    summary.verification = r.ok ? 'saved' : 'failed';
+  }
+
+  // ── 2. Known phones ──
+  if (voice.knownPhones && Array.isArray(voice.knownPhones)) {
+    let added = 0;
+    for (const phone of voice.knownPhones) {
+      const r = await voiceFetch('voice-verification/phones', {
+        number: phone.number, label: phone.label || '',
+      });
+      if (r.ok) added++;
+    }
+    summary.phones_added = added;
+  }
+
+  // ── 3. Prompt customizations ──
+  if (voice.prompt) {
+    const promptPayload = {};
+    if (voice.language) promptPayload.language = voice.language;
+    if (voice.persona) promptPayload.persona = voice.persona;
+    if (voice.welcome) promptPayload.welcome = voice.welcome;
+    if (voice.prompt.behaviorRules) promptPayload.behavior_rules = voice.prompt.behaviorRules;
+    if (voice.prompt.informationGathering) promptPayload.information_gathering = voice.prompt.informationGathering;
+
+    if (Object.keys(promptPayload).length > 0) {
+      const r = await voiceFetch('voice-prompt', promptPayload);
+      summary.prompt = r.ok ? 'saved' : 'failed';
+    }
+  } else {
+    // Top-level shortcuts (language, persona, welcome without nested prompt)
+    const promptPayload = {};
+    if (voice.language) promptPayload.language = voice.language;
+    if (voice.persona) promptPayload.persona = voice.persona;
+    if (voice.welcome) promptPayload.welcome = voice.welcome;
+    if (Object.keys(promptPayload).length > 0) {
+      const r = await voiceFetch('voice-prompt', promptPayload);
+      summary.prompt = r.ok ? 'saved' : 'failed';
+    }
+  }
+
+  // ── 4. Skill voice selection/ordering ──
+  if (voice.skillOverrides && Array.isArray(voice.skillOverrides)) {
+    const enabled = voice.skillOverrides.filter(s => s.voiceEnabled !== false).map(s => s.slug);
+    const disabled = voice.skillOverrides.filter(s => s.voiceEnabled === false).map(s => s.slug);
+    if (enabled.length > 0 || disabled.length > 0) {
+      const r = await voiceFetch('voice-skills/selection', { enabled, disabled });
+      summary.skill_selection = r.ok ? 'saved' : 'failed';
+    }
+  }
+
+  return { summary, warnings };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -778,6 +878,18 @@ router.post('/solution', async (req, res) => {
       console.warn(`[Deploy] Could not verify connectors in ADAS Core: ${e.message}`);
     }
 
+    // ── Push voice config to voice-backend (if solution has voice section) ──
+    let voiceDeploy = null;
+    if (solution.voice) {
+      voiceDeploy = await pushVoiceConfig(solution.voice, expandedSkills, req);
+      if (voiceDeploy.warnings?.length) {
+        for (const w of voiceDeploy.warnings) {
+          deployWarnings.push({ voice: true, warning: w });
+        }
+      }
+      console.log(`[Deploy] Voice config pushed: ${JSON.stringify(voiceDeploy.summary)}`);
+    }
+
     res.json({
       ok: deployResult.ok,
       solution_id: solution.id,
@@ -788,6 +900,7 @@ router.post('/solution', async (req, res) => {
         connectors: (importData.package?.mcps || []).length,
       },
       deploy: deployResult,
+      ...(voiceDeploy && { voice: voiceDeploy.summary }),
       ...(preValidation.errors?.length > 0 && { validation_errors: preValidation.errors }),
       ...(preValidation.warnings?.length > 0 && { validation_warnings: preValidation.warnings }),
       ...(deployWarnings.length > 0 && { deploy_warnings: deployWarnings }),
@@ -943,6 +1056,22 @@ router.patch('/solutions/:solutionId', async (req, res) => {
       signal: AbortSignal.timeout(15000),
     });
     const data = await resp.json();
+
+    // If the patch includes voice config, push it to voice-backend
+    const updates = req.body.state_update || req.body.updates || req.body;
+    if (updates.voice && typeof updates.voice === 'object') {
+      try {
+        const voiceResult = await pushVoiceConfig(updates.voice, [], req);
+        data.voice = voiceResult.summary;
+        if (voiceResult.warnings?.length) {
+          data.voice_warnings = voiceResult.warnings;
+        }
+      } catch (e) {
+        console.warn(`[Deploy] Voice config push on PATCH failed: ${e.message}`);
+        data.voice_warning = `Voice config push failed: ${e.message}`;
+      }
+    }
+
     res.status(resp.status).json(data);
   } catch (err) {
     console.error('[Deploy] Patch solution error:', err.message);

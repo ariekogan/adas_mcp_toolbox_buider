@@ -545,6 +545,71 @@ export function validateSolution(solution, context) {
     }
   }
 
+  // ─── 10. Voice channel configuration ─────────────────────
+  const voice = solution.voice;
+  if (voice) {
+    const VALID_METHODS = ['phone_lookup', 'security_question', 'custom_skill'];
+    const VALID_ON_FAILURE = ['hangup', 'continue_limited'];
+    const VALID_MATCH_MODES = ['case_insensitive', 'exact', 'contains'];
+
+    if (typeof voice.enabled !== 'undefined' && typeof voice.enabled !== 'boolean') {
+      errors.push({ check: 'voice_enabled_type', message: 'voice.enabled must be a boolean' });
+    }
+
+    if (voice.verification) {
+      const v = voice.verification;
+      if (v.method && !VALID_METHODS.includes(v.method)) {
+        errors.push({
+          check: 'voice_verification_method',
+          message: `voice.verification.method "${v.method}" is invalid. Must be one of: ${VALID_METHODS.join(', ')}`,
+        });
+      }
+      if (v.onFailure && !VALID_ON_FAILURE.includes(v.onFailure)) {
+        errors.push({
+          check: 'voice_verification_on_failure',
+          message: `voice.verification.onFailure "${v.onFailure}" is invalid. Must be one of: ${VALID_ON_FAILURE.join(', ')}`,
+        });
+      }
+      if (v.method === 'security_question') {
+        if (!v.securityQuestion?.question) {
+          errors.push({ check: 'voice_security_question', message: 'voice.verification.securityQuestion.question is required when method is "security_question"' });
+        }
+        if (!v.securityQuestion?.answer) {
+          errors.push({ check: 'voice_security_answer', message: 'voice.verification.securityQuestion.answer is required when method is "security_question"' });
+        }
+        if (v.securityQuestion?.answerMatchMode && !VALID_MATCH_MODES.includes(v.securityQuestion.answerMatchMode)) {
+          errors.push({ check: 'voice_match_mode', message: `voice.verification.securityQuestion.answerMatchMode must be one of: ${VALID_MATCH_MODES.join(', ')}` });
+        }
+      }
+      if (v.method === 'custom_skill') {
+        if (!v.customSkill?.skillSlug) {
+          errors.push({ check: 'voice_custom_skill', message: 'voice.verification.customSkill.skillSlug is required when method is "custom_skill"' });
+        } else if (!skillIds.has(v.customSkill.skillSlug)) {
+          warnings.push({ check: 'voice_custom_skill_exists', message: `voice.verification.customSkill.skillSlug "${v.customSkill.skillSlug}" is not a skill in this solution` });
+        }
+      }
+      if (v.maxAttempts !== undefined && (typeof v.maxAttempts !== 'number' || v.maxAttempts < 1 || v.maxAttempts > 10)) {
+        errors.push({ check: 'voice_max_attempts', message: 'voice.verification.maxAttempts must be a number between 1 and 10' });
+      }
+    }
+
+    // Validate skill overrides reference real skills
+    if (voice.skillOverrides) {
+      for (const ov of voice.skillOverrides) {
+        if (ov.slug && !skillIds.has(ov.slug)) {
+          warnings.push({ check: 'voice_skill_override_exists', message: `voice.skillOverrides references skill "${ov.slug}" which is not in this solution` });
+        }
+      }
+    }
+
+    if (voice.enabled) {
+      // If voice is enabled, suggest adding voice routing
+      if (!routing.voice) {
+        warnings.push({ check: 'voice_routing', message: 'Voice is enabled but no routing.voice rule exists. Consider adding routing.voice.default_skill.' });
+      }
+    }
+  }
+
   // ─── Summary ───────────────────────────────────────────────
   return {
     valid: errors.length === 0,
@@ -557,6 +622,7 @@ export function validateSolution(solution, context) {
       channels: Object.keys(routing).length,
       platform_connectors: platformConnectors.length,
       security_contracts: securityContracts.length,
+      voice: voice?.enabled ? 'enabled' : voice ? 'disabled' : 'not_configured',
       error_count: errors.length,
       warning_count: warnings.length,
     },
