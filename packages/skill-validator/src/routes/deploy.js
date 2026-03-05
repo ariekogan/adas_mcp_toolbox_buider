@@ -1764,7 +1764,7 @@ router.get('/mcp-store', async (req, res) => {
 router.post('/voice-test', async (req, res) => {
   try {
     const tenant = req.headers['x-adas-tenant'] || 'default';
-    const { messages, phone_number, skill_slug, timeout_ms = 60000 } = req.body || {};
+    const { messages, phone_number, skill_slug, timeout_ms = 60000, model } = req.body || {};
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ ok: false, error: 'messages must be a non-empty array of strings' });
@@ -1774,6 +1774,7 @@ router.post('/voice-test', async (req, res) => {
       messages,
       ...(phone_number && { phoneNumber: phone_number }),
       ...(skill_slug && { skillSlug: skill_slug }),
+      ...(model && { model }),
       timeout_ms,
     };
 
