@@ -122,29 +122,18 @@ async function pushVoiceConfig(voice, skills, req) {
     summary.phones_added = added;
   }
 
-  // ── 3. Prompt customizations ──
+  // ── 3. Prompt customizations (via POST /api/voice-prompt/apply) ──
+  const promptPatch = {};
+  if (voice.language) promptPatch.language = voice.language;
+  if (voice.persona) promptPatch.persona = voice.persona;
+  if (voice.welcome) promptPatch.welcome = voice.welcome;
   if (voice.prompt) {
-    const promptPayload = {};
-    if (voice.language) promptPayload.language = voice.language;
-    if (voice.persona) promptPayload.persona = voice.persona;
-    if (voice.welcome) promptPayload.welcome = voice.welcome;
-    if (voice.prompt.behaviorRules) promptPayload.behavior_rules = voice.prompt.behaviorRules;
-    if (voice.prompt.informationGathering) promptPayload.information_gathering = voice.prompt.informationGathering;
-
-    if (Object.keys(promptPayload).length > 0) {
-      const r = await voiceFetch('voice-prompt', promptPayload);
-      summary.prompt = r.ok ? 'saved' : 'failed';
-    }
-  } else {
-    // Top-level shortcuts (language, persona, welcome without nested prompt)
-    const promptPayload = {};
-    if (voice.language) promptPayload.language = voice.language;
-    if (voice.persona) promptPayload.persona = voice.persona;
-    if (voice.welcome) promptPayload.welcome = voice.welcome;
-    if (Object.keys(promptPayload).length > 0) {
-      const r = await voiceFetch('voice-prompt', promptPayload);
-      summary.prompt = r.ok ? 'saved' : 'failed';
-    }
+    if (voice.prompt.behaviorRules) promptPatch.behavior_rules = voice.prompt.behaviorRules;
+    if (voice.prompt.informationGathering) promptPatch.information_gathering = voice.prompt.informationGathering;
+  }
+  if (Object.keys(promptPatch).length > 0) {
+    const r = await voiceFetch('voice-prompt/apply', { patch: promptPatch });
+    summary.prompt = r.ok ? 'saved' : 'failed';
   }
 
   // ── 4. Skill voice selection/ordering ──
