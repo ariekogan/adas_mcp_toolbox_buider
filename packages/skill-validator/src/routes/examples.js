@@ -935,6 +935,7 @@ function buildExampleSolution() {
     routing: {
       telegram: { default_skill: 'identity-assurance', description: 'All Telegram messages start at identity verification' },
       email: { default_skill: 'identity-assurance', description: 'All emails start at identity verification' },
+      voice: { default_skill: 'identity-assurance', description: 'Voice calls start at identity verification' },
     },
 
     // ── Platform Connectors ──
@@ -967,6 +968,38 @@ function buildExampleSolution() {
         validation: 'Customer identity must be verified before processing returns',
       },
     ],
+
+    // ── Voice Channel (optional) ──
+    voice: {
+      _note: 'Voice channel configuration. On deploy, these settings are automatically pushed to the voice backend. Remove this block entirely to skip voice setup.',
+      enabled: true,
+      language: 'en',
+      persona: {
+        name: 'E-Commerce Support',
+        style: 'friendly',
+      },
+      welcome: 'Hello! Welcome to our customer support. How can I help you today?',
+      prompt: {
+        behaviorRules: 'Always confirm order numbers before making changes. Never share other customers\' information.',
+        informationGathering: 'Ask for the customer email address first, then their order number if they have one.',
+      },
+      verification: {
+        enabled: true,
+        method: 'security_question',
+        securityQuestion: {
+          question: 'What is the email address on your account?',
+          answer: 'any',
+          answerMatchMode: 'contains',
+        },
+        maxAttempts: 3,
+        onFailure: 'hangup',
+        skipRecentMinutes: 60,
+      },
+      knownPhones: [
+        { number: '+14155551234', label: 'Support Desk' },
+        { number: '+14155555678', label: 'Returns Department' },
+      ],
+    },
 
     // ═══════════════════════════════════════════════════════════════════════
     // DEPLOY BODY EXAMPLE

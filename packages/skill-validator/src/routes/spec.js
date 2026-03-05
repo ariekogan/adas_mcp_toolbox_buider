@@ -1780,6 +1780,89 @@ function buildSolutionSpec() {
           response_filter: { type: 'string', required: false, description: 'Named response filter to apply' },
         },
       },
+
+      // ── Voice Channel ──
+      voice: {
+        type: 'object', required: false,
+        description: 'Voice channel configuration. Enables phone/web voice interactions for this solution. On deploy, voice settings are pushed to the voice backend automatically.',
+        fields: {
+          enabled: { type: 'boolean', required: false, description: 'Master toggle — enable or disable the voice channel for this solution' },
+          language: { type: 'string', required: false, description: 'Voice language (e.g., "en", "he", "es"). Default: "en"' },
+          persona: {
+            type: 'object', required: false,
+            description: 'Voice bot persona customization',
+            fields: {
+              name: { type: 'string', required: false, description: 'Bot name (e.g., "Clinic Assistant", "Fleet Manager")' },
+              style: { type: 'string', required: false, description: 'Conversation style (e.g., "professional", "friendly", "concise")' },
+            },
+          },
+          welcome: { type: 'string', required: false, description: 'Welcome message spoken when a caller connects' },
+          prompt: {
+            type: 'object', required: false,
+            description: 'Additional prompt customizations for the voice bot',
+            fields: {
+              behaviorRules: { type: 'string', required: false, description: 'Custom behavior rules appended to the voice system prompt' },
+              informationGathering: { type: 'string', required: false, description: 'Instructions for what information to collect from callers' },
+            },
+          },
+          verification: {
+            type: 'object', required: false,
+            description: 'Caller verification — require callers to verify identity before accessing skills',
+            fields: {
+              enabled: { type: 'boolean', required: false, description: 'Enable caller verification. Default: false' },
+              method: {
+                type: 'enum', required: false,
+                values: ['phone_lookup', 'security_question', 'custom_skill'],
+                description: 'phone_lookup = auto-verify known phone numbers, security_question = ask a question, custom_skill = delegate to a skill',
+              },
+              maxAttempts: { type: 'number', required: false, description: 'Max verification attempts before on-failure action (1-10). Default: 3' },
+              onFailure: {
+                type: 'enum', required: false,
+                values: ['hangup', 'continue_limited'],
+                description: 'What happens after max failed attempts. hangup = disconnect, continue_limited = allow limited access',
+              },
+              skipRecentMinutes: { type: 'number', required: false, description: 'Skip verification for recently verified callers (minutes). 0 = always verify. Default: 0' },
+              securityQuestion: {
+                type: 'object', required: false,
+                description: 'Required when method is "security_question"',
+                fields: {
+                  question: { type: 'string', required: true, description: 'The question to ask (e.g., "What is your company name?")' },
+                  answer: { type: 'string', required: true, description: 'Expected answer' },
+                  answerMatchMode: {
+                    type: 'enum', required: false,
+                    values: ['case_insensitive', 'exact', 'contains'],
+                    description: 'How to compare the caller answer. Default: "case_insensitive"',
+                  },
+                },
+              },
+              customSkill: {
+                type: 'object', required: false,
+                description: 'Required when method is "custom_skill"',
+                fields: {
+                  skillSlug: { type: 'string', required: true, description: 'Skill ID that handles verification (must be a skill in this solution)' },
+                },
+              },
+            },
+          },
+          knownPhones: {
+            type: 'array', required: false,
+            description: 'Pre-registered phone numbers for phone_lookup verification',
+            item_schema: {
+              number: { type: 'string', required: true, description: 'Phone number in E.164 format (e.g., "+14155551234")' },
+              label: { type: 'string', required: false, description: 'Human-readable label (e.g., "Support Desk", "Dr. Smith")' },
+            },
+          },
+          skillOverrides: {
+            type: 'array', required: false,
+            description: 'Per-skill voice configuration overrides (enable/disable specific skills for voice, set order)',
+            item_schema: {
+              slug: { type: 'string', required: true, description: 'Skill ID to override' },
+              enabled: { type: 'boolean', required: false, description: 'Whether this skill is available via voice' },
+              order: { type: 'number', required: false, description: 'Display/priority order' },
+            },
+          },
+        },
+      },
     },
 
     // ── Models ──
@@ -1834,6 +1917,15 @@ function buildSolutionSpec() {
         { name: 'contract_consumer_exists', description: 'Security contract consumer/provider skills exist', severity: 'error' },
         { name: 'no_orphan_skills', description: 'Every skill is reachable via routing or handoffs', severity: 'warning' },
         { name: 'no_circular_handoffs', description: 'No infinite loops in handoff chains', severity: 'error' },
+        { name: 'voice_enabled_type', description: 'voice.enabled must be a boolean', severity: 'error' },
+        { name: 'voice_verification_method', description: 'voice.verification.method must be phone_lookup, security_question, or custom_skill', severity: 'error' },
+        { name: 'voice_verification_on_failure', description: 'voice.verification.onFailure must be hangup or continue_limited', severity: 'error' },
+        { name: 'voice_security_question', description: 'Security question and answer required when method is security_question', severity: 'error' },
+        { name: 'voice_custom_skill', description: 'customSkill.skillSlug required when method is custom_skill', severity: 'error' },
+        { name: 'voice_max_attempts', description: 'voice.verification.maxAttempts must be 1-10', severity: 'error' },
+        { name: 'voice_routing', description: 'Voice enabled but no routing.voice defined', severity: 'warning' },
+        { name: 'voice_custom_skill_exists', description: 'customSkill.skillSlug must reference a skill in this solution', severity: 'warning' },
+        { name: 'voice_skill_override_exists', description: 'skillOverrides slugs must reference skills in this solution', severity: 'warning' },
       ],
     },
 
@@ -1913,6 +2005,24 @@ function buildSolutionSpec() {
             validation: '<Human-readable explanation of what this contract enforces>',
           },
         ],
+        // ── Voice Channel (optional) ──
+        voice: {
+          enabled: true,
+          language: 'en',
+          persona: { name: '<Bot Name>', style: 'professional' },
+          welcome: '<Welcome message for callers>',
+          verification: {
+            enabled: true,
+            method: 'security_question',
+            securityQuestion: {
+              question: '<Verification question>',
+              answer: '<Expected answer>',
+              answerMatchMode: 'case_insensitive',
+            },
+            maxAttempts: 3,
+            onFailure: 'hangup',
+          },
+        },
       },
     },
 
@@ -1927,8 +2037,9 @@ function buildSolutionSpec() {
         '5. Define handoffs: how do conversations transfer between skills? What grants propagate?',
         '6. Set up routing: which skill answers which channel? (telegram, email, api)',
         '7. Add security contracts: which grants protect which tools across skill boundaries?',
-        '8. POST /validate/solution with { "solution": <def>, "skills": [<skill1>, <skill2>] }',
-        '9. POST /deploy/solution with { solution, skills, connectors, mcp_store } — the Skill Builder imports everything, auto-generates Python MCP servers from skill tool definitions, and deploys to A-Team Core. No slug or Python MCP code needed for skills.',
+        '8. (Optional) Configure voice channel: add a voice{} block to the solution with persona, welcome message, verification settings, and known phones',
+        '9. POST /validate/solution with { "solution": <def>, "skills": [<skill1>, <skill2>] }',
+        '10. POST /deploy/solution with { solution, skills, connectors, mcp_store } — the Skill Builder imports everything, auto-generates Python MCP servers from skill tool definitions, and deploys to A-Team Core. If voice{} is present, voice config is pushed to the voice backend automatically. No slug or Python MCP code needed for skills.',
       ],
       naming_conventions: {
         solution_id: 'lowercase-kebab-case (e.g., "ecom-customer-service")',
@@ -1951,12 +2062,17 @@ function buildSolutionSpec() {
         'Defining stdio connectors without providing mcp_store code — if the connector server code is not pre-installed on A-Team Core, include it in the mcp_store field of the deploy payload. Without it, the connector will fail to start.',
         'Forgetting "type": "module" in package.json when using ESM imports or @modelcontextprotocol/sdk — Node.js 22.x supports ESM fully but needs the package.json declaration.',
         'Manually remapping skill IDs after deploy — ID remapping is now automatic. The deploy pipeline deep-replaces original IDs with internal dom_xxx IDs in grants, handoffs, routing, and security_contracts.',
+        'Setting voice.verification.method to "security_question" but omitting securityQuestion.question or securityQuestion.answer → validation error',
+        'Setting voice.verification.method to "custom_skill" but using a skillSlug not in the solution → validation warning',
+        'Forgetting to add routing.voice when voice.enabled is true → validation warning',
+        'Using voice.knownPhones without E.164 format — always include "+" country code (e.g., "+14155551234")',
       ],
       key_concepts: {
         skill_roles: 'gateway = entry point (identity/routing), worker = does the work, orchestrator = coordinates multiple workers, approval = authorizes actions',
         grant_lifecycle: '1. Skill calls tool → 2. grant_mapping extracts value from result → 3. Grant stored in conversation → 4. On handoff, grants_passed propagate → 5. Target skill access_policy checks grants → 6. Grant expires after ttl_seconds',
         handoff_mechanisms: '"handoff-controller-mcp" = live conversation transfer (user sees new skill), "internal-message" = async skill-to-skill (background coordination)',
         security_contracts: 'Cross-skill agreements: "skill X cannot use tools Y and Z unless skill W has issued grants A and B". Enforced at the solution level.',
+        voice_channel: 'Optional voice channel configuration. Enables phone/web voice interactions for the solution. Supports caller verification (phone lookup, security question, or custom skill), persona customization, and per-skill voice overrides. On deploy, voice settings are automatically pushed to the voice backend — no manual voice setup needed.',
       },
     },
   };
