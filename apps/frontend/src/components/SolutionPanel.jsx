@@ -1,12 +1,13 @@
 /**
  * SolutionPanel — Displays solution-level architecture
  *
- * Five tabs:
+ * Six tabs:
  *   1. Overview — Summary card + verification panel
  *   2. Users & Roles — User types, roles, admin privileges
  *   3. Team Map — SVG graph of skills, handoffs, and channel entries
  *   4. Architecture — Skills + connectors diagram with links
  *   5. Trust Rules — Verification requirements grouped by skill (Story Mode) + raw table (Advanced)
+ *   6. Voice Channel — Voice bot settings, prompt tuning, caller verification
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -14,6 +15,7 @@ import * as api from '../api/client';
 import SolutionSummaryCard from './SolutionSummaryCard';
 import SolutionVerificationPanel from './SolutionVerificationPanel';
 import IdentityConfigPanel from './IdentityConfigPanel';
+import VoiceChannelTab from './voice/VoiceChannelTab';
 
 // ═══════════════════════════════════════════════════════════════
 // Styles
@@ -166,7 +168,7 @@ function SvgIcon({ pathD, color, x, y, size = 14 }) {
   );
 }
 
-const TABS = ['Overview', 'Users & Roles', 'Team Map', 'Architecture', 'Trust Rules'];
+const TABS = ['Overview', 'Users & Roles', 'Team Map', 'Architecture', 'Trust Rules', 'Voice Channel'];
 
 // ═══════════════════════════════════════════════════════════════
 // Shared SVG Defs
@@ -416,6 +418,9 @@ export default function SolutionPanel({ solution, sidebarSkills = [], onNavigate
             setActiveTab('Team Map');
             setMapHighlight(skillIds);
           }} />
+        )}
+        {activeTab === 'Voice Channel' && (
+          <VoiceChannelTab />
         )}
       </div>
     </div>
