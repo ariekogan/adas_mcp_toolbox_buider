@@ -6,8 +6,9 @@ import {
   addKnownPhone,
   removeKnownPhone,
 } from "../../api/voiceVerificationApi.js";
+import voiceFetch from "../../api/voiceFetch.js";
 
-// ── Shared styles (same as TwilioSettings) ──
+// ── Styles (matching TwilioSettings tone) ──
 const fieldStyle = { display: "flex", flexDirection: "column", marginBottom: 12 };
 const labelStyle = { fontSize: 12, color: "#94a3b8", marginBottom: 4 };
 const inputStyle = {
@@ -17,10 +18,9 @@ const inputStyle = {
 const selectStyle = { ...inputStyle, cursor: "pointer" };
 const btnStyle = (variant) => ({
   padding: "8px 16px", borderRadius: 6, border: "none", cursor: "pointer",
-  fontSize: 13, fontWeight: 600, marginRight: 8,
-  background: variant === "primary" ? "#2563eb" : variant === "danger" ? "#dc2626" : "#334155",
+  fontSize: 13, fontWeight: 600, marginRight: 8, marginTop: 8,
+  background: variant === "primary" ? "#2563eb" : "#334155",
   color: "#fff",
-  opacity: variant === "disabled" ? 0.5 : 1,
 });
 const msgStyle = (ok) => ({
   padding: "8px 12px", borderRadius: 6, marginTop: 8, fontSize: 12,
@@ -28,14 +28,10 @@ const msgStyle = (ok) => ({
   color: ok ? "#4ade80" : "#f87171",
   border: ok ? "1px solid #166534" : "1px solid #991b1b",
 });
-const sectionStyle = {
-  marginTop: 16, padding: "12px 14px", borderRadius: 8,
-  background: "#0f1923", border: "1px solid #1e2d3d",
-};
-const radioStyle = { display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" };
+const hr = { border: "none", borderTop: "1px solid #2a3a4a", margin: "20px 0" };
+const sectionTitle = { fontSize: 13, fontWeight: 600, color: "#94a3b8", marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 };
 
 export default function CallerVerification() {
-  // ── Config form state ──
   const [config, setConfig] = useState({
     enabled: false,
     method: "phone_lookup",
@@ -45,17 +41,13 @@ export default function CallerVerification() {
     securityQuestion: { question: "", answer: "", answerMatchMode: "case_insensitive" },
     customSkill: { skillSlug: "" },
   });
-
-  // ── Phone list state ──
   const [phones, setPhones] = useState([]);
   const [newPhone, setNewPhone] = useState("");
   const [newLabel, setNewLabel] = useState("");
-
-  // ── UI state ──
+  const [skills, setSkills] = useState([]);
   const [msg, setMsg] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // ── Load on mount ──
   useEffect(() => {
     getVerificationConfig().then(r => {
       if (r?.ok && r.config) setConfig(c => ({ ...c, ...r.config }));
@@ -63,16 +55,17 @@ export default function CallerVerification() {
     getKnownPhones().then(r => {
       if (r?.ok && Array.isArray(r.phones)) setPhones(r.phones);
     }).catch(() => {});
+    voiceFetch("voice-skills/selection").then(r => r.json()).then(r => {
+      if (r?.ok && Array.isArray(r.allSkills)) setSkills(r.allSkills);
+    }).catch(() => {});
   }, []);
 
-  // ── Config helpers ──
   const setField = (key, value) => setConfig(c => ({ ...c, [key]: value }));
   const setSQ = (key, value) => setConfig(c => ({
     ...c,
     securityQuestion: { ...c.securityQuestion, [key]: value },
   }));
 
-  // ── Save config ──
   const onSave = async () => {
     setLoading(true); setMsg(null);
     try {
@@ -84,7 +77,6 @@ export default function CallerVerification() {
     setLoading(false);
   };
 
-  // ── Phone list actions ──
   const onAddPhone = async () => {
     if (!newPhone.trim()) return;
     const num = newPhone.trim().startsWith("+") ? newPhone.trim() : `+${newPhone.trim()}`;
@@ -109,27 +101,27 @@ export default function CallerVerification() {
   };
 
   return (
-    <div style={{ maxWidth: 520 }}>
-      <h3 style={{ margin: "0 0 4px", fontSize: 16, color: "#e6e6e6" }}>Caller Verification</h3>
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>Caller Verification</h2>
       <p style={{ margin: "0 0 16px", fontSize: 12, color: "#64748b" }}>
         Require callers to verify their identity before the voice bot executes skills.
       </p>
 
-      {/* ── Master toggle ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+      {/* Master toggle */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
         <label style={{ fontSize: 13, color: "#cbd5e1", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
           <input
             type="checkbox"
             checked={config.enabled}
             onChange={e => setField("enabled", e.target.checked)}
-            style={{ width: 16, height: 16, cursor: "pointer" }}
+            style={{ width: 15, height: 15, cursor: "pointer", accentColor: "#3b82f6" }}
           />
           Require caller verification
         </label>
         <span style={{
-          fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 4,
-          background: config.enabled ? "#0c2d1b" : "#1e293b",
-          color: config.enabled ? "#4ade80" : "#64748b",
+          fontSize: 10, fontWeight: 500, padding: "2px 6px", borderRadius: 3,
+          background: config.enabled ? "rgba(59,130,246,0.15)" : "#1e293b",
+          color: config.enabled ? "#7dd3fc" : "#475569",
         }}>
           {config.enabled ? "ON" : "OFF"}
         </span>
@@ -137,42 +129,32 @@ export default function CallerVerification() {
 
       {config.enabled && (
         <>
-          {/* ── Verification method ── */}
-          <div style={sectionStyle}>
-            <div style={{ ...labelStyle, marginBottom: 8, fontWeight: 600 }}>Verification Method</div>
+          <hr style={hr} />
 
-            <label style={radioStyle}>
-              <input type="radio" name="method" value="phone_lookup"
-                checked={config.method === "phone_lookup"} onChange={() => setField("method", "phone_lookup")} />
+          {/* Verification method */}
+          <div style={sectionTitle}>Method</div>
+
+          {[
+            { value: "phone_lookup", title: "Phone Lookup", desc: "Auto-verify if caller's phone is in known contacts" },
+            { value: "security_question", title: "Security Question", desc: "Ask a question, verify the answer" },
+            { value: "custom_skill", title: "Custom Skill", desc: "Route to a tenant skill for verification" },
+          ].map(m => (
+            <label key={m.value} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 10, cursor: "pointer" }}>
+              <input type="radio" name="method" value={m.value}
+                checked={config.method === m.value} onChange={() => setField("method", m.value)}
+                style={{ marginTop: 3, accentColor: "#3b82f6" }} />
               <div>
-                <div style={{ fontSize: 13, color: "#e6e6e6" }}>Phone Lookup</div>
-                <div style={{ fontSize: 11, color: "#64748b" }}>Auto-verify if caller's phone is in known contacts</div>
+                <div style={{ fontSize: 13, color: "#cbd5e1" }}>{m.title}</div>
+                <div style={{ fontSize: 11, color: "#64748b" }}>{m.desc}</div>
               </div>
             </label>
+          ))}
 
-            <label style={radioStyle}>
-              <input type="radio" name="method" value="security_question"
-                checked={config.method === "security_question"} onChange={() => setField("method", "security_question")} />
-              <div>
-                <div style={{ fontSize: 13, color: "#e6e6e6" }}>Security Question</div>
-                <div style={{ fontSize: 11, color: "#64748b" }}>Ask a question, verify the answer</div>
-              </div>
-            </label>
-
-            <label style={radioStyle}>
-              <input type="radio" name="method" value="custom_skill"
-                checked={config.method === "custom_skill"} onChange={() => setField("method", "custom_skill")} />
-              <div>
-                <div style={{ fontSize: 13, color: "#e6e6e6" }}>Custom Skill</div>
-                <div style={{ fontSize: 11, color: "#64748b" }}>Route to a tenant skill for verification</div>
-              </div>
-            </label>
-          </div>
-
-          {/* ── Method-specific config ── */}
+          {/* Security Question config */}
           {config.method === "security_question" && (
-            <div style={sectionStyle}>
-              <div style={{ ...labelStyle, fontWeight: 600, marginBottom: 8 }}>Security Question Config</div>
+            <>
+              <hr style={hr} />
+              <div style={sectionTitle}>Security Question</div>
               <div style={fieldStyle}>
                 <label style={labelStyle}>Question</label>
                 <input style={inputStyle} value={config.securityQuestion?.question || ""}
@@ -194,76 +176,89 @@ export default function CallerVerification() {
                   <option value="contains">Contains</option>
                 </select>
               </div>
-            </div>
+            </>
           )}
 
+          {/* Custom Skill config */}
           {config.method === "custom_skill" && (
-            <div style={sectionStyle}>
-              <div style={{ ...labelStyle, fontWeight: 600, marginBottom: 8 }}>Custom Skill Config</div>
+            <>
+              <hr style={hr} />
+              <div style={sectionTitle}>Custom Skill</div>
               <div style={fieldStyle}>
-                <label style={labelStyle}>Skill Slug</label>
-                <input style={inputStyle} value={config.customSkill?.skillSlug || ""}
-                  onChange={e => setConfig(c => ({ ...c, customSkill: { ...c.customSkill, skillSlug: e.target.value } }))}
-                  placeholder="e.g. identity-verifier" />
+                <label style={labelStyle}>Verification Skill</label>
+                <select style={selectStyle}
+                  value={config.customSkill?.skillSlug || ""}
+                  onChange={e => setConfig(c => ({ ...c, customSkill: { ...c.customSkill, skillSlug: e.target.value } }))}>
+                  <option value="">-- Select a skill --</option>
+                  {skills.map(s => (
+                    <option key={s.slug} value={s.slug}>{s.name} ({s.slug})</option>
+                  ))}
+                </select>
+                {skills.length === 0 && (
+                  <div style={{ fontSize: 11, color: "#475569", marginTop: 4 }}>No skills found for this tenant.</div>
+                )}
               </div>
-            </div>
+            </>
           )}
 
-          {/* ── General settings ── */}
-          <div style={sectionStyle}>
-            <div style={{ ...labelStyle, fontWeight: 600, marginBottom: 8 }}>Settings</div>
-            <div style={{ display: "flex", gap: 12 }}>
-              <div style={{ ...fieldStyle, flex: 1 }}>
-                <label style={labelStyle}>Max Attempts</label>
-                <input type="number" style={inputStyle} min={1} max={10}
-                  value={config.maxAttempts} onChange={e => setField("maxAttempts", parseInt(e.target.value, 10) || 3)} />
-              </div>
-              <div style={{ ...fieldStyle, flex: 1 }}>
-                <label style={labelStyle}>On Failure</label>
-                <select style={selectStyle} value={config.onFailure} onChange={e => setField("onFailure", e.target.value)}>
-                  <option value="hangup">Hang Up</option>
-                  <option value="continue_limited">Continue (Limited)</option>
-                </select>
-              </div>
+          <hr style={hr} />
+
+          {/* General settings */}
+          <div style={sectionTitle}>Failure Handling</div>
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ ...fieldStyle, flex: 1 }}>
+              <label style={labelStyle}>Max Attempts</label>
+              <input type="number" style={inputStyle} min={1} max={10}
+                value={config.maxAttempts} onChange={e => setField("maxAttempts", parseInt(e.target.value, 10) || 3)} />
             </div>
-            <div style={fieldStyle}>
-              <label style={labelStyle}>Skip for recently verified (minutes, 0 = disabled)</label>
-              <input type="number" style={inputStyle} min={0} max={10080}
-                value={config.skipRecentMinutes} onChange={e => setField("skipRecentMinutes", parseInt(e.target.value, 10) || 0)} />
+            <div style={{ ...fieldStyle, flex: 1 }}>
+              <label style={labelStyle}>On Failure</label>
+              <select style={selectStyle} value={config.onFailure} onChange={e => setField("onFailure", e.target.value)}>
+                <option value="hangup">Hang Up</option>
+                <option value="continue_limited">Continue (Limited)</option>
+              </select>
             </div>
           </div>
+          <div style={fieldStyle}>
+            <label style={labelStyle}>Skip for recently verified (minutes, 0 = disabled)</label>
+            <input type="number" style={inputStyle} min={0} max={10080}
+              value={config.skipRecentMinutes} onChange={e => setField("skipRecentMinutes", parseInt(e.target.value, 10) || 0)} />
+          </div>
 
-          {/* ── Known Phone Numbers (always shown — useful for all methods via skipRecent) ── */}
-          <div style={sectionStyle}>
-            <div style={{ ...labelStyle, fontWeight: 600, marginBottom: 8 }}>Known Phone Numbers</div>
-            {phones.length === 0 && (
-              <div style={{ fontSize: 12, color: "#475569", fontStyle: "italic", marginBottom: 8 }}>No phones added yet.</div>
-            )}
-            {phones.map(p => (
-              <div key={p.number} style={{
-                display: "flex", alignItems: "center", gap: 8, padding: "6px 0",
-                borderBottom: "1px solid #1e2d3d", fontSize: 13,
-              }}>
-                <span style={{ color: "#e6e6e6", fontFamily: "monospace", flex: 1 }}>{p.number}</span>
-                <span style={{ color: "#64748b", flex: 1 }}>{p.label || "—"}</span>
-                <button onClick={() => onRemovePhone(p.number)} style={{
-                  background: "none", border: "none", color: "#f87171", cursor: "pointer",
-                  fontSize: 14, padding: "2px 6px",
-                }}>✕</button>
-              </div>
-            ))}
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <input style={{ ...inputStyle, flex: 1 }} value={newPhone}
-                onChange={e => setNewPhone(e.target.value)} placeholder="+972501234567" />
-              <input style={{ ...inputStyle, flex: 1 }} value={newLabel}
-                onChange={e => setNewLabel(e.target.value)} placeholder="Label (optional)" />
-              <button onClick={onAddPhone} style={btnStyle("primary")} disabled={!newPhone.trim()}>Add</button>
+          <hr style={hr} />
+
+          {/* Known Phone Numbers */}
+          <div style={sectionTitle}>Known Phone Numbers</div>
+          {phones.length === 0 && (
+            <div style={{ fontSize: 12, color: "#475569", fontStyle: "italic", marginBottom: 8 }}>No phones added yet.</div>
+          )}
+          {phones.map(p => (
+            <div key={p.number} style={{
+              display: "flex", alignItems: "center", gap: 8, padding: "5px 0",
+              borderBottom: "1px solid #1e293b", fontSize: 13,
+            }}>
+              <span style={{ color: "#cbd5e1", fontFamily: "monospace", flex: 1 }}>{p.number}</span>
+              <span style={{ color: "#64748b", flex: 1 }}>{p.label || "\u2014"}</span>
+              <button onClick={() => onRemovePhone(p.number)} style={{
+                background: "none", border: "none", color: "#64748b", cursor: "pointer",
+                fontSize: 13, padding: "2px 6px",
+              }}
+                onMouseEnter={e => e.target.style.color = "#f87171"}
+                onMouseLeave={e => e.target.style.color = "#64748b"}
+              >{"\u2715"}</button>
             </div>
+          ))}
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <input style={{ ...inputStyle, flex: 1 }} value={newPhone}
+              onChange={e => setNewPhone(e.target.value)} placeholder="+972501234567" />
+            <input style={{ ...inputStyle, flex: 1 }} value={newLabel}
+              onChange={e => setNewLabel(e.target.value)} placeholder="Label (optional)" />
+            <button onClick={onAddPhone} style={{ ...btnStyle(), marginTop: 0 }} disabled={!newPhone.trim()}>Add</button>
           </div>
         </>
       )}
 
-      {/* ── Save + Status ── */}
+      {/* Save + Status */}
       <div style={{ marginTop: 16 }}>
         <button onClick={onSave} disabled={loading} style={btnStyle("primary")}>
           {loading ? "Saving..." : "Save Settings"}
