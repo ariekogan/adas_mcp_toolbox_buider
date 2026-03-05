@@ -1747,6 +1747,51 @@ router.get('/mcp-store', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// VOICE SIMULATION (text-based E2E testing)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/voice-test
+ *
+ * Proxy to voice-backend /api/voice-simulate/batch.
+ * Runs a full voice conversation simulation with text messages.
+ * Returns the complete conversation transcript with verification status,
+ * tool calls, and skill execution results.
+ *
+ * Body: { messages: string[], phone_number?: string, skill_slug?: string, timeout_ms?: number }
+ */
+router.post('/voice-test', async (req, res) => {
+  try {
+    const tenant = req.headers['x-adas-tenant'] || 'default';
+    const { messages, phone_number, skill_slug, timeout_ms = 60000 } = req.body || {};
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ ok: false, error: 'messages must be a non-empty array of strings' });
+    }
+
+    const body = {
+      messages,
+      ...(phone_number && { phoneNumber: phone_number }),
+      ...(skill_slug && { skillSlug: skill_slug }),
+      timeout_ms,
+    };
+
+    const r = await fetch(`${VOICE_BACKEND_URL}/api/voice-simulate/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-ADAS-TENANT': tenant },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(Math.min(timeout_ms * messages.length + 30000, 600000)),
+    });
+
+    const data = await r.json();
+    res.json(data);
+  } catch (e) {
+    console.error('[Deploy] voice-test error:', e.message);
+    res.status(502).json({ ok: false, error: `Voice simulation failed: ${e.message}` });
+  }
+});
+
 export default router;
 
 // ═══════════════════════════════════════════════════════════════════════════

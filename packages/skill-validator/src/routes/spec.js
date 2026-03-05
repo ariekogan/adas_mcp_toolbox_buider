@@ -74,6 +74,8 @@ function buildIndex() {
       '17. GET /deploy/solutions/:id/metrics — analyze execution metrics (timing, bottlenecks, signals)',
       '18. GET /deploy/solutions/:id/diff — compare Builder definitions vs what is deployed in Core',
       '19. GET /deploy/solutions/:id/connectors/:connectorId/source — inspect connector source code',
+      '--- Voice Testing ---',
+      '20. POST /deploy/voice-test — simulate a voice conversation (text-based E2E test). Send { messages: ["Hello", "Acme", "Check vehicle 7"], phone_number?: "+14155551234" }. Returns full conversation with verification status, tool calls, and skill results.',
     ],
     endpoints: {
       '/spec/enums': {
