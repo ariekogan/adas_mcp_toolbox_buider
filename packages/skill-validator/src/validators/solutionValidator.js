@@ -8,6 +8,8 @@
  * @module validators/solutionValidator
  */
 
+import vm from 'node:vm';
+
 /**
  * Validate a solution definition
  * @param {Object} solution - Solution object
@@ -393,7 +395,6 @@ export function validateSolution(solution, context) {
             .replace(/^\s*export\s+(async\s+)?(function|class|const|let|var)\s/gm, '$1$2 ');
 
           // Use Node's vm.Script to syntax-check without executing
-          const vm = await import('node:vm');
           new vm.Script(neutralized, { filename: `${connector.id}/server.js` });
         } catch (e) {
           if (e instanceof SyntaxError) {
