@@ -241,7 +241,9 @@ router.post('/validate/solution', async (req, res) => {
     });
 
     // Phase 1: Structural validation (cross-skill contracts)
-    const context = (connectors || mcp_store) ? { skills: expandedSkills, connectors: connectors || [], mcp_store: mcp_store || {} } : undefined;
+    // Always pass context with skills so the validator can resolve skill IDs
+    // from separately-passed skills (not just solution.skills)
+    const context = { skills: expandedSkills, connectors: connectors || [], mcp_store: mcp_store || {} };
     const structural = validateSolution(solution, context);
 
     // Phase 2: LLM quality scoring
