@@ -250,7 +250,11 @@ export function validateSolution(solution, context) {
     const fullSkills = context.skills || [];
     const connectors = context.connectors || [];
     const mcpStore = context.mcp_store || {};
-    const connectorIds = new Set(connectors.map(c => c.id));
+    // Build connector ID set from BOTH the separately-passed connectors array
+    // AND solution.platform_connectors (which is where they're declared in the schema).
+    // This ensures validation works even if callers only pass connectors in the solution.
+    const platformConnectorIds = (solution.platform_connectors || []).map(c => c.id);
+    const connectorIds = new Set([...connectors.map(c => c.id), ...platformConnectorIds]);
 
     // 8a. Check MCP bridge tools reference valid connectors
     for (const skill of fullSkills) {
