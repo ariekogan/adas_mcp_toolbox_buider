@@ -103,7 +103,7 @@ async function pushVoiceConfig(voice, skills, req) {
       maxAttempts: voice.verification.maxAttempts || 3,
       onFailure: voice.verification.onFailure || 'hangup',
       skipRecentMinutes: voice.verification.skipRecentMinutes || 0,
-      securityQuestion: voice.verification.securityQuestion || { question: '', answer: '', answerMatchMode: 'case_insensitive' },
+      securityQuestion: voice.verification.securityQuestion || { question: '', answer: '', answerMatchMode: 'smart' },
       customSkill: voice.verification.customSkill || { skillSlug: '' },
     };
     const r = await voiceFetch('voice-verification/config', verConfig);

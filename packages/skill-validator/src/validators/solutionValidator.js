@@ -550,7 +550,7 @@ export function validateSolution(solution, context) {
   if (voice) {
     const VALID_METHODS = ['phone_lookup', 'security_question', 'custom_skill'];
     const VALID_ON_FAILURE = ['hangup', 'continue_limited'];
-    const VALID_MATCH_MODES = ['case_insensitive', 'exact', 'contains'];
+    const VALID_MATCH_MODES = ['case_insensitive', 'exact', 'contains', 'smart'];
 
     if (typeof voice.enabled !== 'undefined' && typeof voice.enabled !== 'boolean') {
       errors.push({ check: 'voice_enabled_type', message: 'voice.enabled must be a boolean' });

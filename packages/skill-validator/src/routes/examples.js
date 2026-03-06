@@ -989,7 +989,7 @@ function buildExampleSolution() {
         securityQuestion: {
           question: 'What is the email address on your account?',
           answer: 'any',
-          answerMatchMode: 'contains',
+          answerMatchMode: 'smart',
         },
         maxAttempts: 3,
         onFailure: 'hangup',

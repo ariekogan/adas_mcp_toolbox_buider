@@ -38,7 +38,7 @@ export default function CallerVerification() {
     maxAttempts: 3,
     onFailure: "hangup",
     skipRecentMinutes: 0,
-    securityQuestion: { question: "", answer: "", answerMatchMode: "case_insensitive" },
+    securityQuestion: { question: "", answer: "", answerMatchMode: "smart" },
     customSkill: { skillSlug: "" },
   });
   const [phones, setPhones] = useState([]);
@@ -169,8 +169,9 @@ export default function CallerVerification() {
               </div>
               <div style={fieldStyle}>
                 <label style={labelStyle}>Match Mode</label>
-                <select style={selectStyle} value={config.securityQuestion?.answerMatchMode || "case_insensitive"}
+                <select style={selectStyle} value={config.securityQuestion?.answerMatchMode || "smart"}
                   onChange={e => setSQ("answerMatchMode", e.target.value)}>
+                  <option value="smart">Smart (LLM semantic match)</option>
                   <option value="case_insensitive">Case Insensitive</option>
                   <option value="exact">Exact Match</option>
                   <option value="contains">Contains</option>
