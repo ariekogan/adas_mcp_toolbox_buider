@@ -318,7 +318,7 @@ function buildEnums() {
       data_type: VALID_DATA_TYPES,
 
       // Communication style
-      tone: ['formal', 'casual', 'technical'],
+      tone: ['formal', 'casual', 'technical', 'warm'],
       verbosity: ['concise', 'balanced', 'detailed'],
 
       // Tool configuration
@@ -443,7 +443,7 @@ function buildSkillSpec() {
           communication_style: {
             type: 'object', required: false,
             fields: {
-              tone: { type: 'enum', values: ['formal', 'casual', 'technical'], description: 'Communication tone' },
+              tone: { type: 'enum', values: ['formal', 'casual', 'technical', 'warm'], description: 'Communication tone' },
               verbosity: { type: 'enum', values: ['concise', 'balanced', 'detailed'], description: 'Response detail level' },
             },
           },

@@ -28,7 +28,7 @@ export const COVERAGE = [
 
   // Role
   { section: 'role', field: 'role', check: 'Section exists', type: 'schema' },
-  { section: 'role', field: 'role.communication_style.tone', check: 'Valid enum (formal/casual/technical)', type: 'schema' },
+  { section: 'role', field: 'role.communication_style.tone', check: 'Valid enum (formal/casual/technical/warm)', type: 'schema' },
   { section: 'role', field: 'role.communication_style.verbosity', check: 'Valid enum (concise/balanced/detailed)', type: 'schema' },
 
   // Intents
@@ -300,7 +300,7 @@ function validateRole(role) {
   }
 
   if (role.communication_style) {
-    const validTones = ['formal', 'casual', 'technical'];
+    const validTones = ['formal', 'casual', 'technical', 'warm'];
     const validVerbosities = ['concise', 'balanced', 'detailed'];
 
     if (role.communication_style.tone && !validTones.includes(role.communication_style.tone)) {

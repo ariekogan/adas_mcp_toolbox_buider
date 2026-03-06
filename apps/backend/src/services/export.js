@@ -94,10 +94,11 @@ function generateToolFunction(tool) {
 
   const params = sortedInputs.map(inp => {
     const typeHint = pythonType(inp.type);
+    const paramName = sanitizeParamName(inp.name);
     if (inp.required === false) {
-      return `${inp.name}: ${typeHint} = None`;
+      return `${paramName}: ${typeHint} = None`;
     }
-    return `${inp.name}: ${typeHint}`;
+    return `${paramName}: ${typeHint}`;
   }).join(", ");
   
   // Generate docstring
@@ -191,8 +192,8 @@ function generateInputKey(inputs) {
   if (!inputs || inputs.length === 0) {
     return '"{}"';
   }
-  
-  const parts = inputs.map(inp => `"${inp.name}": ${inp.name}`).join(", ");
+
+  const parts = inputs.map(inp => `"${inp.name}": ${sanitizeParamName(inp.name)}`).join(", ");
   return `str({${parts}})`;
 }
 
@@ -223,6 +224,17 @@ function pythonType(type) {
 }
 
 /**
+ * Python reserved words — cannot be used as parameter names
+ */
+const PYTHON_KEYWORDS = new Set([
+  'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await',
+  'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except',
+  'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is',
+  'lambda', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'try',
+  'while', 'with', 'yield',
+]);
+
+/**
  * Sanitize a name to be a valid Python identifier
  */
 function sanitizePythonName(name) {
@@ -234,6 +246,23 @@ function sanitizePythonName(name) {
     sanitized = '_' + sanitized;
   }
   return sanitized || "unnamed_tool";
+}
+
+/**
+ * Sanitize a parameter name to be a valid Python identifier.
+ * Appends underscore to Python reserved words (PEP 8 convention).
+ */
+function sanitizeParamName(name) {
+  if (!name) return "param";
+  let sanitized = name.replace(/[.\s-]+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+  if (/^[0-9]/.test(sanitized)) {
+    sanitized = '_' + sanitized;
+  }
+  // Append underscore to Python reserved words (e.g., from -> from_, class -> class_)
+  if (PYTHON_KEYWORDS.has(sanitized)) {
+    sanitized = sanitized + '_';
+  }
+  return sanitized || "param";
 }
 
 /**
