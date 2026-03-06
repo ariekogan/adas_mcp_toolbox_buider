@@ -17,6 +17,49 @@
 import adasCore from './adasCoreClient.js';
 
 /**
+ * Parse stderr from a crashed connector to extract the actual error message.
+ * Node.js stderr typically has the error on the first line(s), followed by
+ * a stack trace (`  at ...` lines). ADAS Core may truncate stderr from the
+ * beginning, losing the actual error. This function tries to find it.
+ *
+ * @param {string} stderr - Raw stderr string
+ * @returns {{ summary: string, truncated: boolean }}
+ */
+function parseConnectorError(stderr) {
+  if (!stderr) return { summary: 'No error output captured', truncated: false };
+
+  const lines = stderr.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // Detect truncation: if the first line starts mid-word (no uppercase start,
+  // no known error prefix), stderr was likely truncated from the beginning
+  const first = lines[0] || '';
+  const looksComplete = /^[A-Z\[]/.test(first) || /Error/.test(first) || /^node:/.test(first) || /^\//.test(first);
+  const truncated = !looksComplete && lines.length > 0;
+
+  // Collect all non-stack-trace lines as the error summary
+  const errorLines = [];
+  for (const line of lines) {
+    // Skip stack trace lines
+    if (/^\s*at\s+/.test(line)) continue;
+    // Skip Node.js internal module path fragments (truncated stack frames)
+    if (/^(ternal|ernal|rnal|nal|al|l)\/modules\//.test(line)) continue;
+    // Skip "Node.js vXX" version lines
+    if (/^Node\.js v/.test(line)) continue;
+    errorLines.push(line);
+  }
+
+  if (errorLines.length > 0) {
+    return { summary: errorLines.join(' | '), truncated };
+  }
+
+  // All lines were stack trace — return first line as-is
+  return {
+    summary: truncated ? `[truncated] ${first}` : first,
+    truncated,
+  };
+}
+
+/**
  * Sync a connector configuration to ADAS.
  * Creates or updates the connector in ADAS ConnectorRegistry.
  *
@@ -150,16 +193,28 @@ export async function startConnectorInADAS(connectorId, opts = {}) {
 
       if (isStdio) {
         // For stdio connectors, 0 tools = failure
-        const errMsg = diagnostic.stderr || diagnostic.error || 'No tools discovered';
-        console.error(`[ADASSync] Connector "${connectorId}" FAILED (stdio, 0 tools): ${errMsg}`);
+        // Parse stderr to extract the actual error (not just truncated stack trace)
+        const parsed = parseConnectorError(diagnostic.stderr);
+        const errorSummary = parsed.summary || diagnostic.error || 'No tools discovered';
+        const rawStderr = diagnostic.stderr || diagnostic.error || 'No error output captured';
+
+        console.error(`[ADASSync] Connector "${connectorId}" FAILED (stdio, 0 tools):`);
+        console.error(`[ADASSync]   Error: ${errorSummary}`);
+        if (parsed.truncated) {
+          console.error(`[ADASSync]   (stderr appears truncated — actual error may be missing)`);
+        }
+        console.error(`[ADASSync]   Raw stderr: ${rawStderr}`);
+
+        // Include parsed error in diagnostic for API consumers
+        diagnostic.errorSummary = errorSummary;
+        diagnostic.stderrTruncated = parsed.truncated;
 
         return {
           ...data,
           ok: false,
           tools: [],
           error: 'connector_start_failed',
-          message: `Connector "${connectorId}" started but discovered 0 tools. ` +
-            `This usually means the MCP server crashed on startup or the entry point is missing.`,
+          message: `Connector "${connectorId}" crashed on startup: ${errorSummary}`,
           diagnostic,
         };
       } else {

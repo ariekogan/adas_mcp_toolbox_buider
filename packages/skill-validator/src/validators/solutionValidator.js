@@ -29,7 +29,11 @@ export function validateSolution(solution, context) {
   const platformConnectors = solution.platform_connectors || [];
   const securityContracts = solution.security_contracts || [];
 
-  const skillIds = new Set(skills.map(s => s.id));
+  // Build skillIds from BOTH solution.skills AND context.skills (the deploy pipeline
+  // passes full skill definitions separately in context.skills)
+  const contextSkills = context?.skills || [];
+  const allSkillIds = [...skills.map(s => s.id), ...contextSkills.map(s => s.id)];
+  const skillIds = new Set(allSkillIds);
 
   // ─── 0. Identity configuration ─────────────────────────────
   const actorTypes = identity.actor_types || [];
@@ -369,6 +373,39 @@ export function validateSolution(solution, context) {
               fix: `Change the path to "/mcp-store/${connector.id}/..." or omit command/args to let the system auto-resolve.`,
             });
           }
+        }
+      }
+
+      // 8b-5: JavaScript syntax validation for connector server code
+      // Catches syntax errors (mismatched braces/parens, typos) before deployment
+      // so broken code never reaches ADAS Core.
+      if (serverCode && serverCode.length > 0) {
+        try {
+          // Neutralize ESM syntax to make it parseable as a Script:
+          // - import declarations → comments
+          // - export default → plain expression
+          // - export { ... } → comments
+          // - export function/class/const → plain declarations
+          const neutralized = serverCode
+            .replace(/^\s*import\s+.*$/gm, '/* import */')
+            .replace(/^\s*export\s+default\s+/gm, '  ')
+            .replace(/^\s*export\s+\{[^}]*\}\s*;?\s*$/gm, '/* export */')
+            .replace(/^\s*export\s+(async\s+)?(function|class|const|let|var)\s/gm, '$1$2 ');
+
+          // Use Node's vm.Script to syntax-check without executing
+          const vm = await import('node:vm');
+          new vm.Script(neutralized, { filename: `${connector.id}/server.js` });
+        } catch (e) {
+          if (e instanceof SyntaxError) {
+            const location = e.message || 'unknown error';
+            errors.push({
+              check: 'connector_syntax_error',
+              message: `Connector "${connector.id}" server code has a JavaScript syntax error: ${location}. The connector will crash on startup if deployed.`,
+              connector: connector.id,
+              fix: `Fix the syntax error in your server.js before deploying. Check for mismatched braces, parentheses, or brackets.`,
+            });
+          }
+          // Non-SyntaxError exceptions (e.g., vm import failure) — skip silently
         }
       }
     }
