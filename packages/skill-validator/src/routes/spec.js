@@ -1878,13 +1878,14 @@ function buildSolutionSpec() {
           '4. Grant stored in conversation context with optional TTL',
           '5. On handoff, grants listed in grants_passed propagate to target skill',
           '6. Grants listed in grants_dropped are removed from context',
-          '7. Target skill access_policy checks required grants before tool execution',
-          '8. Grants expire after ttl_seconds (if set)',
+          '7. Target skill access_policy checks required grants before tool execution — tools that would be denied are hidden from the LLM planner entirely (it cannot see or select them)',
+          '8. When grants are acquired (e.g., after identity verification), previously hidden tools become visible automatically on the next iteration',
+          '9. Grants expire after ttl_seconds (if set) — expired grants cause tools to become hidden again',
         ],
         key_concepts: {
           grant: 'A verified claim (key-value pair) attached to a conversation',
           grant_mapping: 'Rule that auto-issues a grant when a tool returns successfully',
-          access_policy: 'Declarative rules that check grants before allowing tool execution',
+          access_policy: 'Declarative rules that check grants before allowing tool execution. Two enforcement layers: (1) planner-level — tools with deny effect due to missing grants are removed from the LLM catalog so it cannot even see them, (2) execution-level — tools are blocked at call time as defense-in-depth. Effect "constrain" keeps tools visible but injects args and filters responses.',
           security_contract: 'Cross-skill agreement defining which grants are required for which tools',
         },
       },
@@ -1895,6 +1896,39 @@ function buildSolutionSpec() {
           'internal-message': 'Async skill-to-skill message. Does not redirect the user conversation. Used for background coordination.',
         },
         grant_propagation: 'On handoff, grants_passed are forwarded to target skill context. grants_dropped are removed. This ensures the target has exactly the grants it needs.',
+        platform_tools: {
+          description: 'The handoff-controller-mcp platform connector exposes 4 tools. The source skill (from) must have handoff-controller-mcp in its connectors list to access these tools.',
+          tools: {
+            'handoff.transfer': {
+              description: 'Create a handoff session — transfer conversation to another skill with verified grants',
+              required_args: {
+                channel_type: 'telegram | email | slack | api | web | voice',
+                channel_id: 'Channel-specific user identifier (chat_id, email address, etc.)',
+                to_skill: 'Target skill slug to hand off to',
+                grants: 'Verified grants object to propagate (e.g., { "ecom.customer_id": "C-123" })',
+              },
+              optional_args: {
+                summary: 'What happened before handoff',
+                original_goal: 'User\'s original request before verification',
+                ttl_seconds: 'Session TTL (default: 3600, min: 60, max: 86400)',
+              },
+              note: 'from_skill is auto-injected by the platform — do not pass it manually',
+            },
+            'handoff.session.get': {
+              description: 'Check if an active handoff session exists for a channel+id. Used by routing layer.',
+              args: 'channel_type, channel_id',
+            },
+            'handoff.session.end': {
+              description: 'End an active handoff session. After ending, messages route to default skill.',
+              args: 'id (session ID) OR channel_type + channel_id',
+            },
+            'handoff.session.list': {
+              description: 'List handoff sessions with optional filters (channel, skill, status)',
+              args: 'channel_type?, channel_id?, from_skill?, to_skill?, status? (active|expired|ended), limit?',
+            },
+          },
+        },
+        routing_priority: 'When a handoff session is active, routing priority is: 1. Explicit rules → 2. Active handoff session → 3. Per-channel default_skill → 4. Global default_skill',
       },
       quality_scoring: {
         description: 'How solution quality is assessed via LLM (POST /validate/solution)',
@@ -2089,11 +2123,13 @@ function buildSolutionSpec() {
         'Setting voice.verification.method to "custom_skill" but using a skillSlug not in the solution → validation warning',
         'Forgetting to add routing.voice when voice.enabled is true → validation warning',
         'Using voice.knownPhones without E.164 format — always include "+" country code (e.g., "+14155551234")',
+        'Defining a handoff from a skill but not adding handoff-controller-mcp to that skill\'s connectors list — the skill literally cannot see handoff.transfer and will loop trying to find a handoff tool. The source skill (from) MUST have handoff-controller-mcp in its connectors.',
+        'Expecting tools to fail at runtime when grants are missing — since platform v1.4, denied tools are completely hidden from the LLM planner. The LLM cannot see, select, or attempt to use them. Design your skill knowing that grant-protected tools will appear/disappear dynamically as grants are acquired.',
       ],
       key_concepts: {
         skill_roles: 'gateway = entry point (identity/routing), worker = does the work, orchestrator = coordinates multiple workers, approval = authorizes actions',
-        grant_lifecycle: '1. Skill calls tool → 2. grant_mapping extracts value from result → 3. Grant stored in conversation → 4. On handoff, grants_passed propagate → 5. Target skill access_policy checks grants → 6. Grant expires after ttl_seconds',
-        handoff_mechanisms: '"handoff-controller-mcp" = live conversation transfer (user sees new skill), "internal-message" = async skill-to-skill (background coordination)',
+        grant_lifecycle: '1. Skill calls tool → 2. grant_mapping extracts value from result → 3. Grant stored in conversation → 4. On handoff, grants_passed propagate → 5. Target skill access_policy checks grants — denied tools are HIDDEN from the LLM (it cannot see or select them), constrained tools remain visible with modified args/response → 6. When grants are acquired, hidden tools become visible on the next iteration → 7. Grants expire after ttl_seconds',
+        handoff_mechanisms: '"handoff-controller-mcp" = live conversation transfer. The source skill (from) MUST have handoff-controller-mcp in its connectors list. The skill calls handoff.transfer(channel_type, channel_id, to_skill, grants) to create a session. Platform then routes subsequent messages to the target skill. "internal-message" = async skill-to-skill (background coordination, no user redirect).',
         security_contracts: 'Cross-skill agreements: "skill X cannot use tools Y and Z unless skill W has issued grants A and B". Enforced at the solution level.',
         voice_channel: 'Optional voice channel configuration. Enables phone/web voice interactions for the solution. Supports caller verification (phone lookup, security question, or custom skill), persona customization, and per-skill voice overrides. On deploy, voice settings are automatically pushed to the voice backend — no manual voice setup needed.',
         ui_plugins: 'Connectors with ui_capable: true serve interactive dashboards in iframes. Plugin HTML goes in ui-dist/ within mcp_store, communicates via postMessage protocol. Platform handles serving (/mcp-ui/), routing, and tool call bridging — no infrastructure setup needed. See GET /spec/examples/connector-ui for the full protocol and code examples.',
