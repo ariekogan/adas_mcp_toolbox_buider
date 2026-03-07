@@ -761,6 +761,26 @@ router.post('/solution', async (req, res) => {
       return c;
     });
 
+    // ── Auto-inject handoff-controller-mcp for handoff source skills ──
+    const handoffs = solution.handoffs || [];
+    const handoffSourceSkills = new Set();
+    for (const h of handoffs) {
+      if (h.mechanism === 'handoff-controller-mcp' && h.from) {
+        handoffSourceSkills.add(h.from);
+      }
+    }
+    if (handoffSourceSkills.size > 0) {
+      for (const s of expandedSkills) {
+        if (handoffSourceSkills.has(s.id)) {
+          const conns = s.connectors || [];
+          if (!conns.includes('handoff-controller-mcp')) {
+            s.connectors = [...conns, 'handoff-controller-mcp'];
+            console.log(`[Deploy] Auto-injected handoff-controller-mcp into skill "${s.id}" (handoff source)`);
+          }
+        }
+      }
+    }
+
     // ── Build the manifest ──
     const manifest = {
       name: solution.id,
