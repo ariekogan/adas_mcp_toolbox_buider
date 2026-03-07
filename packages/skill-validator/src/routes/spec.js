@@ -946,6 +946,7 @@ function buildSkillSpec() {
         'sys.finalizePlan': 'Finalize and polish the agent response with persona application',
         'sys.emitUserMessage': 'Send a message to the user mid-workflow (e.g., ask for OTP code)',
         'sys.handoffToSkill': 'Transfer the conversation to another skill (TERMINAL). Built-in, zero config — always available. Args: to_skill (required), grants, summary, original_goal, ttl_seconds. Platform auto-injects channel context.',
+        'sys.focusUiPlugin': 'Bring a UI plugin into focus in the user\'s context panel. Fire-and-forget. Args: plugin_id (required, full plugin ID e.g. "mcp:connector-id:plugin-name"). Use this to show a dashboard or visualization to the user.',
         'sys.dispatch_skill_job': 'Dispatch a job to another skill (async, non-terminal)',
         'sys.approval.record': 'Record an approval decision',
         'ui.listPlugins': 'List available UI plugins from a connector',
@@ -1317,7 +1318,7 @@ function buildWorkflows() {
           tips: [
             'Map each scenario step to a tool',
             'Use naming convention: connector-prefix.resource.action (e.g., orders.order.get)',
-            'Don\'t forget system tools (sys.askUser, sys.emitUserMessage, sys.handoffToSkill) for user interaction and handoffs',
+            'Don\'t forget system tools (sys.askUser, sys.emitUserMessage, sys.handoffToSkill, sys.focusUiPlugin) for user interaction, handoffs, and UI control',
           ],
         },
         {
@@ -1367,7 +1368,7 @@ function buildWorkflows() {
           tips: [
             'Guardrails should be specific and actionable',
             'Workflow steps use tool NAMES not IDs',
-            'System tools (sys.askUser, sys.emitUserMessage, sys.handoffToSkill) are valid workflow steps',
+            'System tools (sys.askUser, sys.emitUserMessage, sys.handoffToSkill, sys.focusUiPlugin) are valid workflow steps',
           ],
         },
         {
@@ -1935,6 +1936,39 @@ function buildSolutionSpec() {
         postmessage_protocol: 'See GET /spec/examples/connector-ui for the complete postMessage protocol with code examples (init, mcp-call, mcp-result)',
         cross_connector_calls: 'Plugins can call tools on ANY registered connector, not just their own. Pass the target connectorId in the mcpProxy params.',
         see_example: 'GET /spec/examples/connector-ui — complete working example with postMessage code, tool response formats, wrong-example warnings, and file structure',
+        planner_integration: {
+          description: 'How plugins expose interactive commands to the AI planner — the planner can call plugin commands as tools and focus plugins in the UI',
+          capabilities_commands: [
+            'Plugin manifests can declare capabilities.commands[] — an array of named commands the plugin handles.',
+            'Each command has: name (string), description (string), input_schema (JSON Schema for args).',
+            'Example: { name: "highlight_order", description: "Highlight a specific order in the dashboard", input_schema: { type: "object", properties: { order_id: { type: "string" } }, required: ["order_id"] } }',
+          ],
+          virtual_tools: [
+            'The platform auto-generates planner-visible virtual tools from capabilities.commands.',
+            'Tool naming: ui.{short_id}.{command_name} — e.g. ui.ecom_dash.highlight_order',
+            'short_id comes from the skill\'s ui_plugins declaration: ui_plugins: [{ id: "mcp:connector-id:plugin-name", short_id: "ecom_dash" }]',
+            'These virtual tools are auto-pinned for the planner — the LLM always sees them and can call them.',
+          ],
+          how_commands_execute: [
+            '1. Planner calls the virtual tool (e.g. ui.ecom_dash.highlight_order({ order_id: "O-123" }))',
+            '2. Backend emits SSE plugin_command event to the connected frontend',
+            '3. Frontend auto-switches the context panel to the target plugin (focus)',
+            '4. Plugin iframe receives the command via postMessage',
+            '5. Plugin executes the command and POSTs the result back',
+            '6. Backend unblocks the tool call with the result — job continues',
+          ],
+          focus_plugin: {
+            description: 'Use sys.focusUiPlugin to bring a plugin into focus without sending a command.',
+            usage: 'sys.focusUiPlugin({ plugin_id: "mcp:connector-id:plugin-name" })',
+            note: 'Fire-and-forget — does not wait for the plugin to respond. Use this when you want to show a dashboard to the user without triggering a specific command. Plugin commands (capabilities.commands) auto-focus the plugin as a side effect.',
+          },
+          skill_declaration: [
+            'To use UI plugin commands, the skill must declare the plugin in its ui_plugins array:',
+            'ui_plugins: [{ id: "mcp:connector-id:plugin-name", short_id: "ecom_dash" }]',
+            'The short_id is used for virtual tool naming (ui.{short_id}.{command_name}).',
+            'If short_id is omitted, it defaults to the last segment of the plugin ID with hyphens replaced by underscores.',
+          ],
+        },
       },
     },
 
@@ -2116,7 +2150,7 @@ function buildSolutionSpec() {
         handoff_mechanisms: '"handoff-controller-mcp" = live conversation transfer. The skill calls sys.handoffToSkill(to_skill, grants) — a built-in platform tool, no connector wiring needed. Add it to the skill\'s bootstrap_tools to pin it for the planner. Platform auto-injects channel context and creates a routing session. Subsequent messages are routed to the target skill. "internal-message" = async skill-to-skill (background coordination, no user redirect).',
         security_contracts: 'Cross-skill agreements: "skill X cannot use tools Y and Z unless skill W has issued grants A and B". Enforced at the solution level.',
         voice_channel: 'Optional voice channel configuration. Enables phone/web voice interactions for the solution. Supports caller verification (phone lookup, security question, or custom skill), persona customization, and per-skill voice overrides. On deploy, voice settings are automatically pushed to the voice backend — no manual voice setup needed.',
-        ui_plugins: 'Connectors with ui_capable: true serve interactive dashboards in iframes. Plugin HTML goes in ui-dist/ within mcp_store, communicates via postMessage protocol. Platform handles serving (/mcp-ui/), routing, and tool call bridging — no infrastructure setup needed. See GET /spec/examples/connector-ui for the full protocol and code examples.',
+        ui_plugins: 'Connectors with ui_capable: true serve interactive dashboards in iframes. Plugin HTML goes in ui-dist/ within mcp_store, communicates via postMessage protocol. Platform handles serving (/mcp-ui/), routing, and tool call bridging. Plugins can declare capabilities.commands[] which become planner-visible virtual tools (ui.{short_id}.{command_name}). Declare plugins in skill ui_plugins array with short_id for tool naming. Use sys.focusUiPlugin to bring a plugin into focus. See GET /spec/examples/connector-ui for the full protocol and code examples.',
       },
     },
   };
