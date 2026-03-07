@@ -629,7 +629,7 @@ function buildSkillSpec() {
       // ── Triggers ──
       triggers: {
         type: 'array', required: false,
-        description: 'Automation triggers that activate this skill periodically or on events. Triggers are the ONLY way a skill can act proactively (without a user message). The trigger-runner service fires them on schedule or in response to events, creating a job where the skill executes the trigger prompt autonomously using all its linked tools.',
+        description: 'Automation triggers that activate this skill periodically or on events. Triggers are the ONLY way a skill can act proactively (without a user message). The trigger-runner service fires them on schedule or in response to events, creating a job where the skill executes the trigger prompt autonomously using all its linked tools. These are STATIC triggers — defined at build time. For DYNAMIC triggers created at runtime by the agent (e.g., user says "remind me at 9 AM"), see sys.trigger system tool in the solution spec dynamic_triggers section.',
         guide: {
           how_it_works: [
             '1. The trigger-runner service checks enabled triggers on their schedule (every) or listens for events (event)',
@@ -638,6 +638,7 @@ function buildSkillSpec() {
             '4. concurrency=1 (default) means only one instance runs at a time — next fire waits for current to finish',
             '5. The trigger prompt should be specific: what to check, what action to take, what to report',
           ],
+          dynamic_triggers_note: 'For triggers created at RUNTIME by the AI agent (not at build time), use the sys.trigger system tool. It supports cron expressions, ISO 8601 intervals, and one-shot datetime schedules. Add sys.trigger to the skill\'s bootstrap_tools to make it available. See solution spec dynamic_triggers section for full documentation.',
           schedule_examples: {
             'PT1M': 'Every 1 minute (use sparingly — only for time-critical monitoring)',
             'PT5M': 'Every 5 minutes (good for polling task boards, inboxes)',
@@ -947,6 +948,7 @@ function buildSkillSpec() {
         'sys.emitUserMessage': 'Send a message to the user mid-workflow (e.g., ask for OTP code)',
         'sys.handoffToSkill': 'Transfer the conversation to another skill (TERMINAL). Built-in, zero config — always available. Args: to_skill (required), grants, summary, original_goal, ttl_seconds. Platform auto-injects channel context.',
         'sys.focusUiPlugin': 'Bring a UI plugin into focus in the user\'s context panel. Fire-and-forget. Args: plugin_id (required, full plugin ID e.g. "mcp:connector-id:plugin-name"). Use this to show a dashboard or visualization to the user.',
+        'sys.trigger': 'Create, list, update, or delete dynamic schedule triggers at runtime. Allows skills to programmatically set up recurring (cron/every) or one-shot (once) triggers. Args: action (required: create|list|update|delete|pause|resume), trigger_id, schedule, prompt, skill_slug, description, input, concurrency, timezone, auto_delete. Cross-skill: a skill can create triggers targeting other skills.',
         'sys.dispatch_skill_job': 'Dispatch a job to another skill (async, non-terminal)',
         'sys.approval.record': 'Record an approval decision',
         'ui.listPlugins': 'List available UI plugins from a connector',
@@ -1128,7 +1130,7 @@ function buildSkillSpec() {
         '3. GET /spec/examples/skill — see a complete working example that passes validation',
         '4. Define your connectors — what external systems (MCP servers) does your agent need? Write the connector source code (Node.js/Python MCP server) that implements real business logic (database access, API calls, UI dashboards)',
         '5. Build the skill definition following this order: problem → scenarios → role → intents → tools → policy → engine → triggers (optional) → grant_mappings (if issuing grants) → access_policy → response_filters',
-        '5b. (Optional) For proactive behavior: add schedule triggers with specific prompts. If the skill needs to send notifications, link a messaging connector (telegram-mcp, gmail-mcp) and add the corresponding send tool (telegram.send_message, gmail.send_email). See key_concepts.proactive_messaging for the full pattern.',
+        '5b. (Optional) For proactive behavior: add static schedule triggers with specific prompts, OR add sys.trigger to bootstrap_tools so the agent can create dynamic triggers at runtime (cron, interval, or one-shot). If the skill needs to send notifications, link a messaging connector (telegram-mcp, gmail-mcp). See key_concepts.proactive_messaging and solution spec dynamic_triggers for the full pattern.',
         '6. POST /validate/skill with { "skill": <your definition> } — fix all errors before proceeding',
         '7. POST /deploy/solution — deploy everything at once (connectors + skills). The Skill Builder auto-generates Python MCP servers from your skill tool definitions. You do NOT need to write slugs or Python MCP code for skills — only connector implementations.',
       ],
@@ -1171,6 +1173,11 @@ function buildSkillSpec() {
         'No idempotency in trigger prompt — without markers like "skip if already NOTIFIED", the trigger will re-send the same notification every time it fires',
         'Setting concurrency > 1 for triggers that modify state — concurrent trigger jobs can create race conditions. Use concurrency=1 (default) unless the trigger is read-only',
         'Schedule trigger with very short interval (PT1M) and slow/complex prompt — if execution takes longer than the interval, jobs queue up. Match interval to expected execution time',
+        // ── DYNAMIC TRIGGER MISTAKES ──
+        'Trying to define sys.trigger in the tools array — sys.trigger is a built-in platform system tool. Just add "sys.trigger" to bootstrap_tools to pin it for the planner.',
+        'Forgetting timezone for cron triggers — "cron:0 9 * * *" fires at 9 AM UTC. If the user is in a different timezone, pass timezone: "Asia/Jerusalem" (or appropriate IANA timezone).',
+        'Creating one-shot triggers without auto_delete — the trigger stays in the database after firing. Use auto_delete: true (default for once:) to clean up automatically.',
+        'Wrong schedule format — must be "cron:<expr>", "every:<duration>", or "once:<datetime>". Missing the type prefix (e.g., just "0 15 * * *" instead of "cron:0 15 * * *") will fail.',
       ],
       key_concepts: {
         connector_runtime: 'A-Team Core runs connector MCP servers on Node.js 22.x with full ESM support. Recommended: use @modelcontextprotocol/sdk with StdioServerTransport — it is the simplest and most reliable approach. Make sure package.json has "type": "module" and lists @modelcontextprotocol/sdk + zod as dependencies. Alternative: implement raw JSON-RPC over stdio with readline if you prefer zero dependencies. See the connector examples for both patterns.',
@@ -1202,11 +1209,12 @@ function buildSkillSpec() {
         workflow_steps: 'Workflow steps are tool NAMES (not IDs). Example: ["orders.order.get", "sys.emitUserMessage"]. System tools are valid step targets.',
         access_policy_effects: '"allow" = permit unconditionally, "deny" = block, "constrain" = inject values into tool inputs (e.g., force customer_id from grant). Use "*" in tools array to cover all tools.',
         proactive_messaging: {
-          description: 'Skills can send outbound messages (Telegram, email, etc.) proactively via schedule triggers. This is the ONLY way skills initiate contact — all other skill execution is reactive (triggered by user messages).',
+          description: 'Skills can send outbound messages (Telegram, email, etc.) proactively via triggers. Two ways to create triggers: (1) static triggers defined in skill YAML (deployed with the skill), (2) dynamic triggers created at runtime by the agent calling sys.trigger (e.g., user says "remind me tomorrow at 9 AM"). This is the ONLY way skills initiate contact — all other skill execution is reactive (triggered by user messages).',
           pattern: [
             '1. Link a messaging connector to the skill (e.g., telegram-mcp, gmail-mcp) — add to skill.connectors[]',
             '2. Define a send tool on the skill (e.g., telegram.send_message) with source.connection_id pointing to the messaging connector',
-            '3. Create a schedule trigger with a prompt that instructs the skill to check state and send messages when conditions are met',
+            '3a. STATIC: Create a schedule trigger in the skill triggers[] array with a prompt and interval (every: "PT5M")',
+            '3b. DYNAMIC: The agent calls sys.trigger at runtime to create triggers on demand — supports cron expressions, ISO 8601 intervals, and one-shot datetime schedules. See solution spec dynamic_triggers section for full details.',
             '4. The trigger-runner fires the trigger on schedule → skill checks data → calls send tool if conditions match → skips if nothing to report',
           ],
           example_use_cases: [
@@ -1214,6 +1222,8 @@ function buildSkillSpec() {
             'Send task completion summaries — poll trigger checks for status=done every 5min',
             'Daily digest emails — P1D trigger summarizes activity and sends via gmail-mcp',
             'Alert on anomalies — PT5M trigger monitors metrics and sends Telegram on threshold breach',
+            '"Remind me tomorrow at 9 AM" — agent calls sys.trigger with once: schedule, fires once and auto-deletes',
+            '"Turn on AC every day at 15:00" — agent calls sys.trigger with cron:0 15 * * * schedule',
           ],
           important_notes: [
             'Proactive triggers use the same tools as normal skill execution — no special API needed',
@@ -1318,7 +1328,7 @@ function buildWorkflows() {
           tips: [
             'Map each scenario step to a tool',
             'Use naming convention: connector-prefix.resource.action (e.g., orders.order.get)',
-            'Don\'t forget system tools (sys.askUser, sys.emitUserMessage, sys.handoffToSkill, sys.focusUiPlugin) for user interaction, handoffs, and UI control',
+            'Don\'t forget system tools (sys.askUser, sys.emitUserMessage, sys.handoffToSkill, sys.focusUiPlugin, sys.trigger) for user interaction, handoffs, UI control, and dynamic trigger management',
           ],
         },
         {
@@ -1368,29 +1378,32 @@ function buildWorkflows() {
           tips: [
             'Guardrails should be specific and actionable',
             'Workflow steps use tool NAMES not IDs',
-            'System tools (sys.askUser, sys.emitUserMessage, sys.handoffToSkill, sys.focusUiPlugin) are valid workflow steps',
+            'System tools (sys.askUser, sys.emitUserMessage, sys.handoffToSkill, sys.focusUiPlugin, sys.trigger) are valid workflow steps',
           ],
         },
         {
           id: 'TRIGGERS_SETUP',
           order: 7,
           label: 'Triggers & Proactive Messaging (Optional)',
-          goal: 'Set up schedule or event triggers for proactive skill execution — sending notifications, monitoring state, running periodic checks',
+          goal: 'Set up schedule or event triggers for proactive skill execution — sending notifications, monitoring state, running periodic checks. Two approaches: STATIC triggers (defined here, fixed at deploy) and DYNAMIC triggers (agent creates at runtime via sys.trigger).',
           what_to_ask: [
             'Does this skill need to act proactively (without a user message)?',
             'What should it check, and how often? (e.g., stale tasks every 15min, daily summary)',
             'Should it send notifications (Telegram, email)? To whom (chat_id, email address)?',
             'What conditions should trigger a notification vs. doing nothing?',
+            'Should users be able to create triggers dynamically? (e.g., "remind me at 9 AM", "check X every 5 minutes") — if yes, add sys.trigger to bootstrap_tools',
           ],
           what_to_build: {
-            'triggers[]': 'Schedule or event triggers with specific prompts, intervals, and concurrency settings',
+            'triggers[]': 'STATIC: Schedule or event triggers with specific prompts, intervals, and concurrency settings (fixed at deploy time)',
+            'bootstrap_tools': 'DYNAMIC: Add "sys.trigger" to bootstrap_tools if the agent should create triggers at runtime (user-requested schedules, reminders, monitoring)',
             'connectors': 'Add messaging connectors (telegram-mcp, gmail-mcp) to skill.connectors[] if sending notifications',
             'tools': 'Add send tools (telegram.send_message, gmail.send_email) mapped to messaging connectors via source.connection_id',
           },
-          exit_criteria: 'Triggers are defined with specific prompts, or explicitly skipped (most skills don\'t need triggers)',
+          exit_criteria: 'Triggers are defined with specific prompts, or explicitly skipped (most skills don\'t need triggers). If dynamic triggers are needed, sys.trigger is in bootstrap_tools.',
           tips: [
             'Most skills do NOT need triggers — only add them for proactive behavior',
             'The trigger prompt is the most important part — it tells the skill exactly what to do when triggered',
+            'STATIC vs DYNAMIC: use static triggers for predictable, always-on schedules (e.g., "check orders every 5 min"). Use dynamic (sys.trigger) for user-requested schedules ("remind me tomorrow", "turn on AC at 3 PM daily")',
             'Always include idempotency logic in the prompt (e.g., "skip tasks that already have a NOTIFIED comment")',
             'For Telegram notifications: you need the target chat_id and telegram-mcp connector linked to the skill',
             'For email: you need gmail-mcp connector linked and the target email address',
@@ -1914,6 +1927,104 @@ function buildSolutionSpec() {
           note: 'No connector wiring needed. No mcp_bridge tool definitions. Add sys.handoffToSkill to bootstrap_tools so the planner always has it available. Just define handoffs in the solution and the skill can call sys.handoffToSkill.',
         },
         routing_priority: 'When a handoff session is active, routing priority is: 1. Explicit rules → 2. Active handoff session → 3. Per-channel default_skill → 4. Global default_skill',
+      },
+      dynamic_triggers: {
+        description: 'How skills create, manage, and delete triggers at runtime using sys.trigger. This extends static triggers (defined in skill YAML) with dynamic triggers that the AI agent itself can create during conversations.',
+        overview: [
+          'Static triggers are defined in the skill definition (triggers[]) and deployed with the skill — they are fixed.',
+          'Dynamic triggers are created at runtime by the AI agent calling sys.trigger — they are stored in MongoDB and loaded alongside static triggers.',
+          'Use dynamic triggers when the user asks for scheduled tasks: "remind me tomorrow at 9 AM", "check my email every 5 minutes", "turn on the AC every day at 15:00".',
+          'The trigger-runner service loads both static and dynamic triggers and fires them on their schedules.',
+        ],
+        system_tool: {
+          name: 'sys.trigger',
+          description: 'Built-in platform tool — always available to every skill, no connector wiring needed. Add it to bootstrap_tools to ensure the planner always sees it.',
+          actions: {
+            create: {
+              description: 'Create a new dynamic trigger',
+              required_args: ['trigger_id', 'schedule', 'prompt'],
+              optional_args: ['skill_slug', 'description', 'input', 'concurrency', 'timezone', 'auto_delete'],
+              example: 'sys.trigger({ action: "create", trigger_id: "daily-ac-on", schedule: "cron:0 15 * * *", prompt: "Turn on the AC and set to 24 degrees", timezone: "Asia/Jerusalem", description: "Daily AC activation" })',
+            },
+            list: {
+              description: 'List dynamic triggers for a skill',
+              optional_args: ['skill_slug'],
+              note: 'Defaults to the calling skill. Use skill_slug to list triggers for another skill.',
+              example: 'sys.trigger({ action: "list" })',
+            },
+            update: {
+              description: 'Update fields on an existing dynamic trigger',
+              required_args: ['trigger_id'],
+              optional_args: ['schedule', 'prompt', 'description', 'input', 'concurrency', 'timezone', 'enabled'],
+              example: 'sys.trigger({ action: "update", trigger_id: "daily-ac-on", schedule: "cron:0 16 * * *" })',
+            },
+            delete: {
+              description: 'Delete a dynamic trigger',
+              required_args: ['trigger_id'],
+              example: 'sys.trigger({ action: "delete", trigger_id: "daily-ac-on" })',
+            },
+            pause: {
+              description: 'Disable a trigger without deleting it (sets enabled: false)',
+              required_args: ['trigger_id'],
+            },
+            resume: {
+              description: 'Re-enable a paused trigger (sets enabled: true)',
+              required_args: ['trigger_id'],
+            },
+          },
+          schedule_format: {
+            description: 'The schedule argument uses a type:value format',
+            types: {
+              'cron:<expr>': 'Standard 5-field cron expression. Example: "cron:0 15 * * *" = every day at 15:00. "cron:*/5 * * * *" = every 5 minutes. "cron:0 9 * * 1-5" = weekdays at 9 AM.',
+              'every:<duration>': 'ISO 8601 duration for recurring intervals. Minimum PT1M. Example: "every:PT5M" = every 5 minutes. "every:PT1H" = every hour. "every:P1D" = every day.',
+              'once:<datetime>': 'ISO 8601 datetime for one-shot execution. Must be in the future. Example: "once:2026-03-08T09:00:00". Fires once, then auto-deletes if auto_delete is true (default for one-shot).',
+            },
+          },
+          args: {
+            trigger_id: { type: 'string', required: true, description: 'Unique trigger ID. Alphanumeric + hyphens, 3-60 chars. Example: "daily-ac-on", "reminder-dentist-mar8"' },
+            schedule: { type: 'string', required: true, description: 'Schedule in type:value format. See schedule_format.' },
+            prompt: { type: 'string', required: true, description: 'Goal prompt for the triggered job — what the skill will execute when the trigger fires.' },
+            skill_slug: { type: 'string', required: false, description: 'Target skill slug. Defaults to the calling skill. Use this for cross-skill triggers (e.g., orchestrator creating triggers for worker skills).' },
+            description: { type: 'string', required: false, description: 'Human-readable description of what this trigger does.' },
+            input: { type: 'object', required: false, description: 'Arbitrary structured data passed to the trigger context.' },
+            concurrency: { type: 'number', required: false, default: 1, description: 'Max parallel jobs. Use 1 for state-modifying triggers.' },
+            timezone: { type: 'string', required: false, default: 'UTC', description: 'IANA timezone for cron scheduling. Example: "Asia/Jerusalem", "America/New_York".' },
+            auto_delete: { type: 'boolean', required: false, description: 'Delete trigger after execution. Defaults to true for once: schedules, false otherwise.' },
+          },
+          returns: '{ ok, trigger_id, schedule_type, schedule_value, ... } — action-specific fields',
+          limits: {
+            max_per_skill: 20,
+            min_interval: 'PT1M (every: schedule type)',
+            once_must_be_future: 'once: datetime must be in the future',
+          },
+          cross_skill: {
+            description: 'A skill can create triggers that target a different skill by passing skill_slug.',
+            example: 'An orchestrator skill can set up monitoring triggers for worker skills: sys.trigger({ action: "create", trigger_id: "check-orders", skill_slug: "order-support", schedule: "every:PT15M", prompt: "Check for stuck orders" })',
+            note: 'The trigger fires on the TARGET skill — it creates a job for that skill, not the calling skill.',
+          },
+          note: 'No connector wiring needed. Add sys.trigger to bootstrap_tools so the planner always has it available. After any mutation (create/update/delete/pause/resume), the platform automatically signals the trigger-runner to reload.',
+        },
+        use_cases: [
+          '"Remind me tomorrow at 9 AM about the dentist" → sys.trigger({ action: "create", trigger_id: "reminder-dentist", schedule: "once:2026-03-08T09:00:00", prompt: "Remind the user about their dentist appointment", auto_delete: true })',
+          '"Turn on the AC every day at 15:00" → sys.trigger({ action: "create", trigger_id: "daily-ac-on", schedule: "cron:0 15 * * *", prompt: "Turn on the AC and set temperature to 24", timezone: "Asia/Jerusalem" })',
+          '"Check for emails from boss@company.com every 5 minutes" → sys.trigger({ action: "create", trigger_id: "check-boss-emails", schedule: "every:PT5M", prompt: "Check inbox for emails from boss@company.com and notify me of any new ones" })',
+          '"Stop the daily AC trigger" → sys.trigger({ action: "delete", trigger_id: "daily-ac-on" })',
+          '"Pause my email checks" → sys.trigger({ action: "pause", trigger_id: "check-boss-emails" })',
+          '"What triggers do I have?" → sys.trigger({ action: "list" })',
+        ],
+        important_notes: [
+          'Dynamic triggers are persisted in MongoDB — they survive restarts and redeploys.',
+          'Static triggers (from skill YAML) and dynamic triggers coexist. If a dynamic trigger has the same key as a static one, the static one takes precedence.',
+          'One-shot triggers (once:) fire exactly once. With auto_delete: true (the default for once:), they are automatically cleaned up after execution.',
+          'The trigger prompt is critical — it tells the skill exactly what to do. Be specific: name the tools to use, the conditions to check, the actions to take.',
+          'Dynamic triggers show in the Triggers UI plugin with a purple "Dynamic" badge and can be managed from there.',
+        ],
+        common_mistakes: [
+          'Vague trigger prompt — "check stuff" is useless. Be explicit: "Call inbox.list to check for unread emails from boss@company.com. If found, send a Telegram notification with the subject and sender."',
+          'Forgetting timezone for cron — "cron:0 9 * * *" fires at 9 AM UTC. If the user is in Jerusalem, use timezone: "Asia/Jerusalem".',
+          'Creating too many short-interval triggers — max 20 per skill, and short intervals (PT1M) consume resources. Use longer intervals when possible.',
+          'Not using auto_delete for one-shot reminders — without it, the trigger stays in the database after firing (harmless but cluttery).',
+        ],
       },
       quality_scoring: {
         description: 'How solution quality is assessed via LLM (POST /validate/solution)',
