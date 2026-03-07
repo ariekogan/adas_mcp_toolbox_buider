@@ -1562,9 +1562,10 @@ function buildWorkflows() {
           },
           exit_criteria: 'All inter-skill flows have handoff definitions',
           tips: [
-            'handoff-controller-mcp = live conversation transfer (user keeps chatting, different skill answers)',
+            'handoff-controller-mcp = live conversation transfer — the platform provides sys.handoffToSkill as a built-in tool, no connector wiring needed',
             'internal-message = async skill-to-skill (background coordination)',
             'Every handoff needs a unique id',
+            'Skills automatically see sys.handoffToSkill — zero configuration required from the builder',
           ],
         },
         {
@@ -1890,43 +1891,25 @@ function buildSolutionSpec() {
         },
       },
       handoff_flow: {
-        description: 'How conversations transfer between skills',
+        description: 'How conversations transfer between skills. Handoff is a first-class platform capability — zero configuration needed from builders.',
         mechanisms: {
-          'handoff-controller-mcp': 'Live conversation transfer via platform MCP. Source skill calls handoff.transfer with target_skill, grants, and context. Platform routes subsequent messages to target skill.',
+          'handoff-controller-mcp': 'Live conversation transfer. The skill calls sys.handoffToSkill(to_skill, grants) — a built-in system tool always available to every skill. Platform creates a session and routes subsequent messages to the target skill.',
           'internal-message': 'Async skill-to-skill message. Does not redirect the user conversation. Used for background coordination.',
         },
         grant_propagation: 'On handoff, grants_passed are forwarded to target skill context. grants_dropped are removed. This ensures the target has exactly the grants it needs.',
-        platform_tools: {
-          description: 'The handoff-controller-mcp platform connector exposes 4 tools. The source skill (from) must have handoff-controller-mcp in its connectors list to access these tools.',
-          tools: {
-            'handoff.transfer': {
-              description: 'Create a handoff session — transfer conversation to another skill with verified grants',
-              required_args: {
-                channel_type: 'telegram | email | slack | api | web | voice',
-                channel_id: 'Channel-specific user identifier (chat_id, email address, etc.)',
-                to_skill: 'Target skill slug to hand off to',
-                grants: 'Verified grants object to propagate (e.g., { "ecom.customer_id": "C-123" })',
-              },
-              optional_args: {
-                summary: 'What happened before handoff',
-                original_goal: 'User\'s original request before verification',
-                ttl_seconds: 'Session TTL (default: 3600, min: 60, max: 86400)',
-              },
-              note: 'from_skill is auto-injected by the platform — do not pass it manually',
-            },
-            'handoff.session.get': {
-              description: 'Check if an active handoff session exists for a channel+id. Used by routing layer.',
-              args: 'channel_type, channel_id',
-            },
-            'handoff.session.end': {
-              description: 'End an active handoff session. After ending, messages route to default skill.',
-              args: 'id (session ID) OR channel_type + channel_id',
-            },
-            'handoff.session.list': {
-              description: 'List handoff sessions with optional filters (channel, skill, status)',
-              args: 'channel_type?, channel_id?, from_skill?, to_skill?, status? (active|expired|ended), limit?',
-            },
+        system_tool: {
+          description: 'sys.handoffToSkill is a built-in platform tool — always available to every skill, no connector wiring or bootstrap_tools needed. The skill planner sees it automatically and calls it to transfer conversations.',
+          name: 'sys.handoffToSkill',
+          args: {
+            to_skill: { type: 'string', required: true, description: 'Target skill slug to hand off to' },
+            grants: { type: 'object', required: false, description: 'Verified grants to pass (e.g., { "ecom.customer_id": "C-123" })' },
+            summary: { type: 'string', required: false, description: 'What happened before handoff' },
+            original_goal: { type: 'string', required: false, description: 'User\'s original request' },
+            ttl_seconds: { type: 'number', required: false, description: 'Session TTL in seconds (default: 3600, max: 86400)' },
           },
+          returns: '{ ok, handoff_session_id, status, to_skill, from_skill, grants_passed, expires_at }',
+          auto_injected: 'channel_type, channel_id, from_skill, and idempotency_key are auto-injected by the platform from the job context — the skill never needs to provide them.',
+          note: 'No connector wiring needed. No bootstrap_tools. No mcp_bridge tool definitions. Just define handoffs in the solution and the skill can call sys.handoffToSkill.',
         },
         routing_priority: 'When a handoff session is active, routing priority is: 1. Explicit rules → 2. Active handoff session → 3. Per-channel default_skill → 4. Global default_skill',
       },
@@ -2105,7 +2088,7 @@ function buildSolutionSpec() {
         'Orphan skills not reachable via routing or handoffs → validation warning',
         'Circular handoff chains (A → B → A) → validation error',
         'Routing target skills that do not exist in the solution → validation error',
-        'Forgetting to declare handoff-controller-mcp as a platform connector',
+        'Forgetting to declare handoff-controller-mcp as a platform connector — still needed in the solution definition, but skills do NOT need it in their connectors list',
         'Security contract provider/consumer referencing non-existent skills',
         'Using "grants_propagated" instead of "grants_passed" in handoffs — the correct field name is grants_passed',
         'Using { tool, skill } in security_contracts instead of { name, consumer, provider, for_tools } — see the template and example for the correct schema',
@@ -2123,13 +2106,13 @@ function buildSolutionSpec() {
         'Setting voice.verification.method to "custom_skill" but using a skillSlug not in the solution → validation warning',
         'Forgetting to add routing.voice when voice.enabled is true → validation warning',
         'Using voice.knownPhones without E.164 format — always include "+" country code (e.g., "+14155551234")',
-        'Defining a handoff from a skill but not adding handoff-controller-mcp to that skill\'s connectors list — the skill literally cannot see handoff.transfer and will loop trying to find a handoff tool. The source skill (from) MUST have handoff-controller-mcp in its connectors.',
+        'Trying to manually wire handoff.transfer as a connector tool — use sys.handoffToSkill instead, it is a built-in platform tool always available to every skill. No connectors list, no bootstrap_tools, no mcp_bridge needed.',
         'Expecting tools to fail at runtime when grants are missing — since platform v1.4, denied tools are completely hidden from the LLM planner. The LLM cannot see, select, or attempt to use them. Design your skill knowing that grant-protected tools will appear/disappear dynamically as grants are acquired.',
       ],
       key_concepts: {
         skill_roles: 'gateway = entry point (identity/routing), worker = does the work, orchestrator = coordinates multiple workers, approval = authorizes actions',
         grant_lifecycle: '1. Skill calls tool → 2. grant_mapping extracts value from result → 3. Grant stored in conversation → 4. On handoff, grants_passed propagate → 5. Target skill access_policy checks grants — denied tools are HIDDEN from the LLM (it cannot see or select them), constrained tools remain visible with modified args/response → 6. When grants are acquired, hidden tools become visible on the next iteration → 7. Grants expire after ttl_seconds',
-        handoff_mechanisms: '"handoff-controller-mcp" = live conversation transfer. The source skill (from) MUST have handoff-controller-mcp in its connectors list. The skill calls handoff.transfer(channel_type, channel_id, to_skill, grants) to create a session. Platform then routes subsequent messages to the target skill. "internal-message" = async skill-to-skill (background coordination, no user redirect).',
+        handoff_mechanisms: '"handoff-controller-mcp" = live conversation transfer. The skill calls sys.handoffToSkill(to_skill, grants) — a built-in platform tool always available, zero configuration needed. Platform auto-injects channel context and creates a routing session. Subsequent messages are routed to the target skill. "internal-message" = async skill-to-skill (background coordination, no user redirect).',
         security_contracts: 'Cross-skill agreements: "skill X cannot use tools Y and Z unless skill W has issued grants A and B". Enforced at the solution level.',
         voice_channel: 'Optional voice channel configuration. Enables phone/web voice interactions for the solution. Supports caller verification (phone lookup, security question, or custom skill), persona customization, and per-skill voice overrides. On deploy, voice settings are automatically pushed to the voice backend — no manual voice setup needed.',
         ui_plugins: 'Connectors with ui_capable: true serve interactive dashboards in iframes. Plugin HTML goes in ui-dist/ within mcp_store, communicates via postMessage protocol. Platform handles serving (/mcp-ui/), routing, and tool call bridging — no infrastructure setup needed. See GET /spec/examples/connector-ui for the full protocol and code examples.',
