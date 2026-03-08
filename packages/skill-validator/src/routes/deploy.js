@@ -887,6 +887,134 @@ router.post('/solution', async (req, res) => {
       console.warn(`[Deploy] Could not verify connectors in ADAS Core: ${e.message}`);
     }
 
+    // ── Auto-deploy UI plugin assets directly to ADAS Core ──────────
+    // When skills have ui_plugins, ensure mcp_store files (including ui-dist/)
+    // are uploaded directly to Core AND connectors are registered/connected.
+    // This bypasses the Skill Builder → Core pipeline which can fail to place
+    // ui-dist files correctly, eliminating the need for manual uploads.
+    let uiPluginDeploy = null;
+    const uiPluginSkills = expandedSkills.filter(s => s.ui_plugins?.length > 0);
+    if (uiPluginSkills.length > 0 && mcp_store && Object.keys(mcp_store).length > 0) {
+      const adasCoreUrl = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+      const tenant = req.headers['x-adas-tenant'];
+      uiPluginDeploy = { connectors: [], assets: [] };
+
+      // Collect connector IDs used by UI plugins
+      const uiConnectorIds = new Set();
+      for (const skill of uiPluginSkills) {
+        for (const plugin of skill.ui_plugins) {
+          if (plugin.connector_id) uiConnectorIds.add(plugin.connector_id);
+        }
+      }
+
+      for (const connId of uiConnectorIds) {
+        const files = mcp_store[connId];
+        if (!files?.length) continue;
+
+        const hasUiDist = files.some(f => f.path.startsWith('ui-dist/'));
+        if (!hasUiDist) {
+          console.log(`[Deploy UI] Connector "${connId}" has no ui-dist/ files in mcp_store, skipping direct upload`);
+          continue;
+        }
+
+        try {
+          // Step 1: Upload mcp_store files directly to Core (includes ui-dist/)
+          console.log(`[Deploy UI] Uploading ${files.length} files for UI connector "${connId}" directly to Core`);
+          const uploadResp = await fetch(`${adasCoreUrl}/api/mcp-store/upload`, {
+            method: 'POST',
+            headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ connectorId: connId, files, installDeps: true }),
+            signal: AbortSignal.timeout(360000),
+          });
+
+          if (!uploadResp.ok) {
+            const errText = await uploadResp.text().catch(() => uploadResp.statusText);
+            throw new Error(`mcp-store upload failed (${uploadResp.status}): ${errText}`);
+          }
+          const uploadData = await uploadResp.json().catch(() => ({}));
+          console.log(`[Deploy UI] Uploaded files for "${connId}": ${uploadData.filesWritten?.length || '?'} written, build=${uploadData.buildRan || false}`);
+
+          // Step 2: Ensure connector is registered in Core
+          const connDef = (connectors || []).find(c => c.id === connId);
+          if (connDef) {
+            try {
+              await fetch(`${adasCoreUrl}/api/connectors`, {
+                method: 'POST',
+                headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+                body: JSON.stringify(connDef),
+                signal: AbortSignal.timeout(10000),
+              });
+            } catch { /* may already exist */ }
+          }
+
+          // Step 3: Connect connector
+          try {
+            await fetch(`${adasCoreUrl}/api/connectors/${encodeURIComponent(connId)}/connect`, {
+              method: 'POST',
+              headers: sbHeaders(req),
+              signal: AbortSignal.timeout(30000),
+            });
+          } catch { /* non-fatal */ }
+
+          uiPluginDeploy.connectors.push({ id: connId, ok: true, files_uploaded: files.length });
+
+          // Step 4: Verify UI assets exist on Core
+          if (tenant) {
+            for (const skill of uiPluginSkills) {
+              for (const plugin of (skill.ui_plugins || [])) {
+                if (plugin.connector_id !== connId) continue;
+                // Check for ui-dist files matching the plugin
+                const pluginId = plugin.id?.split(':').pop() || plugin.short_id;
+                if (!pluginId) continue;
+                const uiDistFile = files.find(f =>
+                  f.path.startsWith(`ui-dist/${pluginId}/`) && f.path.endsWith('/index.html')
+                );
+                if (uiDistFile) {
+                  const assetUrl = `${adasCoreUrl}/mcp-ui/${tenant}/${connId}/${uiDistFile.path}`;
+                  try {
+                    const headResp = await fetch(assetUrl, {
+                      method: 'HEAD',
+                      signal: AbortSignal.timeout(5000),
+                    });
+                    uiPluginDeploy.assets.push({
+                      plugin: pluginId, connector: connId,
+                      ok: headResp.ok, status: headResp.status,
+                      path: uiDistFile.path,
+                    });
+                    if (headResp.ok) {
+                      console.log(`[Deploy UI] ✓ Asset verified: ${uiDistFile.path}`);
+                    } else {
+                      console.warn(`[Deploy UI] ✗ Asset NOT found (${headResp.status}): ${uiDistFile.path}`);
+                      deployWarnings.push({
+                        connector_id: connId,
+                        warning: `UI plugin "${pluginId}" asset uploaded but not accessible at ${uiDistFile.path} (HTTP ${headResp.status}). May need Core restart or path fix.`,
+                      });
+                    }
+                  } catch (e) {
+                    console.warn(`[Deploy UI] Could not verify asset ${uiDistFile.path}: ${e.message}`);
+                  }
+                }
+              }
+            }
+          }
+
+        } catch (err) {
+          console.error(`[Deploy UI] Direct Core upload for "${connId}" failed: ${err.message}`);
+          uiPluginDeploy.connectors.push({ id: connId, ok: false, error: err.message });
+          deployWarnings.push({
+            connector_id: connId,
+            warning: `Direct Core upload for UI connector "${connId}" failed: ${err.message}. UI plugins may not work.`,
+          });
+        }
+      }
+
+      if (uiPluginDeploy.connectors.length > 0) {
+        const ok = uiPluginDeploy.connectors.filter(c => c.ok).length;
+        const failed = uiPluginDeploy.connectors.filter(c => !c.ok).length;
+        console.log(`[Deploy UI] Direct Core upload complete: ${ok} ok, ${failed} failed`);
+      }
+    }
+
     // ── Push voice config to voice-backend (if solution has voice section) ──
     let voiceDeploy = null;
     if (solution.voice) {
@@ -910,6 +1038,7 @@ router.post('/solution', async (req, res) => {
       },
       deploy: deployResult,
       ...(voiceDeploy && { voice: voiceDeploy.summary }),
+      ...(uiPluginDeploy && { ui_plugin_deploy: uiPluginDeploy }),
       ...(preValidation.errors?.length > 0 && { validation_errors: preValidation.errors }),
       ...(preValidation.warnings?.length > 0 && { validation_warnings: preValidation.warnings }),
       ...(deployWarnings.length > 0 && { deploy_warnings: deployWarnings }),
