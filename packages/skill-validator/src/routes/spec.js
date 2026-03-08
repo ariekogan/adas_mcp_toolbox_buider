@@ -2080,6 +2080,43 @@ function buildSolutionSpec() {
             'If short_id is omitted, it defaults to the last segment of the plugin ID with hyphens replaced by underscores.',
           ],
         },
+        mobile_compatibility: {
+          description: 'CRITICAL: Mobile apps do NOT relay mcpProxy calls from plugin iframes. Plugins that depend on live MCP calls will timeout on mobile.',
+          root_cause: [
+            'The A-Team mobile app renders plugin iframes but does NOT support the postMessage → mcpProxy relay that the web PluginHost provides.',
+            'Any postMessage mcp-call from an iframe will timeout silently on mobile — the mobile PluginHost either lacks this relay or has a broken path for it.',
+            'This means: plugins that require live MCP data to render will show blank/loading states forever on mobile.',
+          ],
+          required_pattern: [
+            '1. EMBED DEFAULT DATA directly in the plugin HTML — hardcoded sample/default values that render immediately on load.',
+            '2. Render the UI immediately using embedded data — the plugin must be visually complete without any MCP calls.',
+            '3. SILENTLY attempt live MCP calls in the background (try/catch, no error UI on failure).',
+            '4. If live data arrives (desktop/web), upgrade the UI with real data. If it fails (mobile), the user still sees the embedded default view.',
+            '5. NEVER block rendering on MCP calls. NEVER show error states for failed mcpProxy calls.',
+          ],
+          why_this_works: 'Desktop/web gets live data upgrade. Mobile renders immediately with embedded defaults. No errors either way. This is the same pattern used by all working mobile plugins (e.g., GPT-clinic).',
+          anti_patterns: [
+            'WRONG: Show a loading spinner and wait for mcpProxy to return data before rendering.',
+            'WRONG: Display error messages when mcpProxy calls fail.',
+            'WRONG: Make the entire UI conditional on receiving an init message from the host.',
+            'WRONG: Assume postMessage relay will work on all platforms.',
+          ],
+          code_example: `// CORRECT: Embed defaults, render immediately, upgrade silently
+const DEFAULT_DATA = { orders: 42, revenue: "$12,340", status: "healthy" };
+let data = DEFAULT_DATA;
+renderDashboard(data); // Render immediately with defaults
+
+// Silently try live data in background
+async function tryLiveData() {
+  try {
+    const live = await mcpCall("analytics.orders.summary", {}, "orders-mcp");
+    if (live) { data = live; renderDashboard(data); } // Upgrade UI
+  } catch { /* Silent — mobile will hit this, that's OK */ }
+}
+if (hostReady) tryLiveData();`,
+          validation: 'The solution validator checks ui-dist/ HTML files for this pattern and warns if mcpProxy calls are made without embedded fallback data.',
+          see_example: 'GET /spec/examples/connector-ui — _mobile_compatibility section',
+        },
       },
     },
 
@@ -2107,6 +2144,7 @@ function buildSolutionSpec() {
         { name: 'voice_routing', description: 'Voice enabled but no routing.voice defined', severity: 'warning' },
         { name: 'voice_custom_skill_exists', description: 'customSkill.skillSlug must reference a skill in this solution', severity: 'warning' },
         { name: 'voice_skill_override_exists', description: 'skillOverrides slugs must reference skills in this solution', severity: 'warning' },
+        { name: 'ui_connector_mobile_compat', description: 'UI plugin HTML makes mcpProxy calls without embedded fallback data — will timeout on mobile', severity: 'warning' },
       ],
     },
 
@@ -2246,6 +2284,7 @@ function buildSolutionSpec() {
         'Setting ui_capable: true but forgetting to implement ui.listPlugins and ui.getPlugin tools in the connector — both are required for plugin discovery',
         'Plugin iframeUrl must use /ui/ prefix (e.g., /ui/my-dashboard/1.0.0/index.html) — platform transforms this to /mcp-ui/ at serving time. Using /mcp-ui/ directly in the connector will break.',
         'Plugin HTML files must be in ui-dist/{pluginId}/{version}/ inside the connector mcp_store — not in a root-level directory',
+        'Plugin HTML that depends on mcpProxy calls to render — mobile apps do NOT relay mcpProxy from iframes. Always embed default data in the HTML and render immediately. Try live MCP calls silently in the background. See GET /spec/examples/connector-ui → _mobile_compatibility.',
         'Building custom proxy endpoints to serve plugins or call connector tools — the platform provides /mcp-ui/ serving and /api/connectors/:id/call out of the box',
         'Manually remapping skill IDs after deploy — ID remapping is now automatic. The deploy pipeline deep-replaces original IDs with internal dom_xxx IDs in grants, handoffs, routing, and security_contracts.',
         'Setting voice.verification.method to "security_question" but omitting securityQuestion.question or securityQuestion.answer → validation error',
@@ -2261,7 +2300,7 @@ function buildSolutionSpec() {
         handoff_mechanisms: '"handoff-controller-mcp" = live conversation transfer. The skill calls sys.handoffToSkill(to_skill, grants) — a built-in platform tool, no connector wiring needed. Add it to the skill\'s bootstrap_tools to pin it for the planner. Platform auto-injects channel context and creates a routing session. Subsequent messages are routed to the target skill. "internal-message" = async skill-to-skill (background coordination, no user redirect).',
         security_contracts: 'Cross-skill agreements: "skill X cannot use tools Y and Z unless skill W has issued grants A and B". Enforced at the solution level.',
         voice_channel: 'Optional voice channel configuration. Enables phone/web voice interactions for the solution. Supports caller verification (phone lookup, security question, or custom skill), persona customization, and per-skill voice overrides. On deploy, voice settings are automatically pushed to the voice backend — no manual voice setup needed.',
-        ui_plugins: 'Connectors with ui_capable: true serve interactive dashboards in iframes. Plugin HTML goes in ui-dist/ within mcp_store, communicates via postMessage protocol. Platform handles serving (/mcp-ui/), routing, and tool call bridging. Plugins can declare capabilities.commands[] which become planner-visible virtual tools (ui.{short_id}.{command_name}). Declare plugins in skill ui_plugins array with short_id for tool naming. Use sys.focusUiPlugin to bring a plugin into focus. See GET /spec/examples/connector-ui for the full protocol and code examples.',
+        ui_plugins: 'Connectors with ui_capable: true serve interactive dashboards in iframes. Plugin HTML goes in ui-dist/ within mcp_store, communicates via postMessage protocol. Platform handles serving (/mcp-ui/), routing, and tool call bridging. Plugins can declare capabilities.commands[] which become planner-visible virtual tools (ui.{short_id}.{command_name}). Declare plugins in skill ui_plugins array with short_id for tool naming. Use sys.focusUiPlugin to bring a plugin into focus. MOBILE: Plugin iframes MUST embed default data and render immediately — mobile apps do NOT relay mcpProxy calls. Try live MCP calls silently in background only. See GET /spec/examples/connector-ui for the full protocol, code examples, and mobile compatibility pattern.',
       },
     },
   };

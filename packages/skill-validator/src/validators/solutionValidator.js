@@ -582,6 +582,45 @@ export function validateSolution(solution, context) {
               }
             }
           }
+
+          // ── Mobile compatibility check ──
+          // UI plugin HTML files that make mcpProxy calls without embedded fallback data
+          // will timeout on mobile (mobile PluginHost does NOT relay mcpProxy).
+          // Check ui-dist HTML files for the "embed first, upgrade silently" pattern.
+          const htmlFiles = storeFiles.filter(f => f.path.startsWith('ui-dist/') && f.path.endsWith('.html') && f.content);
+          for (const htmlFile of htmlFiles) {
+            const html = htmlFile.content;
+            const makesMcpCalls = html.includes('mcpProxy') || html.includes('mcp-call') || html.includes('mcpCall');
+            if (makesMcpCalls) {
+              // Check for embedded default/fallback data pattern
+              const hasDefaults = /\b(DEFAULT|DEFAULTS|FALLBACK|defaultData|fallbackData|EMBEDDED|embeddedData|SAMPLE_DATA|sampleData)\b/i.test(html);
+              // Check for immediate render before MCP calls (render called outside async/try)
+              const hasImmediateRender = /render\w*\s*\(/.test(html);
+              // Check for silent failure pattern (try/catch around MCP calls)
+              const hasSilentFailure = /try\s*\{[\s\S]*?mcpCall|try\s*\{[\s\S]*?mcpProxy|catch\s*(\(\w*\))?\s*\{[\s\S]{0,100}?(\/\/|\/\*)\s*(silent|ignore|mobile|fail)/i.test(html);
+
+              if (!hasDefaults) {
+                warnings.push({
+                  check: 'ui_connector_mobile_compat',
+                  message: `UI plugin "${htmlFile.path}" in connector "${connector.id}" makes mcpProxy/MCP calls but has no embedded default data. ` +
+                    `Mobile apps do NOT relay mcpProxy calls — the plugin will show blank/loading state on mobile. ` +
+                    `Embed default data (e.g., const DEFAULTS = {...}) and render immediately before attempting MCP calls.`,
+                  connector: connector.id,
+                  fix: 'Add embedded default data constants and render them immediately on page load. Try live MCP calls silently in the background. See GET /spec/examples/connector-ui → _mobile_compatibility.',
+                  docs: 'GET /spec/examples/connector-ui → _mobile_compatibility',
+                });
+              } else if (!hasSilentFailure) {
+                warnings.push({
+                  check: 'ui_connector_mobile_compat',
+                  message: `UI plugin "${htmlFile.path}" in connector "${connector.id}" has default data but mcpProxy calls may not fail silently. ` +
+                    `Wrap all mcpCall/mcpProxy calls in try/catch with silent failure — mobile users should never see MCP timeout errors.`,
+                  connector: connector.id,
+                  fix: 'Wrap mcpProxy calls in try/catch and suppress errors silently. Example: try { const live = await mcpCall(...); render(live); } catch { /* silent — mobile fails here, OK */ }',
+                  docs: 'GET /spec/examples/connector-ui → _mobile_compatibility',
+                });
+              }
+            }
+          }
         }
       }
     }

@@ -828,13 +828,133 @@ const [tasks, docs] = await Promise.all([
       },
     },
 
+    // ── MOBILE COMPATIBILITY — CRITICAL ──
+    // The A-Team mobile app does NOT relay mcpProxy calls from plugin iframes.
+    // Plugins that depend on live MCP calls will timeout on mobile.
+    // Follow the "embed first, upgrade silently" pattern.
+    _mobile_compatibility: {
+      _critical: 'Mobile PluginHost does NOT support postMessage → mcpProxy relay. Any mcpCall() from an iframe will TIMEOUT on mobile. Your plugin MUST render without any MCP calls.',
+
+      problem: [
+        'Web dashboard has a full PluginHost that relays postMessage → mcpProxy → ADAS Core → connector tools.',
+        'Mobile app\'s PluginHost either does not support this relay or has a broken/slow path — every mcpProxy call times out.',
+        'Result: plugins that wait for MCP data before rendering show blank/loading states forever on mobile.',
+      ],
+
+      required_pattern: 'Embed default data directly in the HTML. Render immediately on load. Try live MCP calls silently in the background. Desktop gets live data upgrade, mobile stays with embedded data. No errors either way.',
+
+      code_example: {
+        _note: 'This is the CORRECT pattern for a mobile-compatible plugin. Embed defaults, render instantly, silently upgrade with live data when available.',
+        html: `<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-Commerce Overview</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #f8f9fa; }
+    .card { background: white; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .metric { font-size: 24px; font-weight: 700; color: #1a73e8; }
+    .label { font-size: 12px; color: #666; text-transform: uppercase; }
+    .live-badge { display: none; font-size: 10px; color: #34a853; }
+  </style>
+</head><body>
+
+<div class="card">
+  <div class="label">Total Orders</div>
+  <div class="metric" id="orders">142</div>
+</div>
+<div class="card">
+  <div class="label">Revenue</div>
+  <div class="metric" id="revenue">$28,450</div>
+</div>
+<div class="card">
+  <div class="label">Avg Order Value</div>
+  <div class="metric" id="avg">$200.35</div>
+</div>
+<div class="live-badge" id="liveBadge">● LIVE</div>
+
+<script>
+// ── 1. EMBEDDED DEFAULT DATA — renders immediately, works on mobile ──
+const DEFAULTS = { orders: 142, revenue: "$28,450", avg: "$200.35" };
+
+function render(d) {
+  document.getElementById("orders").textContent = d.orders;
+  document.getElementById("revenue").textContent = d.revenue;
+  document.getElementById("avg").textContent = d.avg;
+}
+
+// Render IMMEDIATELY with defaults — no MCP calls needed
+render(DEFAULTS);
+
+// ── 2. POSTMESSAGE BRIDGE — only works on web, silently fails on mobile ──
+let hostReady = false;
+let counter = 0;
+const pending = new Map();
+
+window.addEventListener("message", (ev) => {
+  const d = ev.data || {};
+  if (d.source !== "adas-host") return;
+  const msg = d.message;
+  if (msg?.type === "init") { hostReady = true; tryLiveData(); }
+  if (msg?.type === "mcp-result") {
+    const p = pending.get(msg.payload?.requestId);
+    if (p) { pending.delete(msg.payload.requestId); p.resolve(unwrap(msg.payload.result)); }
+  }
+});
+
+function unwrap(raw) {
+  if (raw?.content?.[0]?.type === "text") try { raw = JSON.parse(raw.content[0].text); } catch {}
+  if (raw?.content?.[0]?.type === "text") try { raw = JSON.parse(raw.content[0].text); } catch {}
+  return raw;
+}
+
+function mcpCall(tool, args, connectorId) {
+  const requestId = "req_" + (++counter) + "_" + Date.now();
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("timeout")), 10000);
+    pending.set(requestId, {
+      resolve: (r) => { clearTimeout(timeout); resolve(r); },
+      reject:  (e) => { clearTimeout(timeout); reject(e); },
+    });
+    window.parent.postMessage({
+      source: "adas-plugin",
+      message: { action: "mcp-call", payload: { requestId, toolName: "cp.fe_api",
+        args: { method: "mcpProxy", params: { connectorId, tool, args } } } },
+    }, "*");
+  });
+}
+
+// ── 3. SILENTLY try live data — upgrade UI if successful, ignore if not ──
+async function tryLiveData() {
+  try {
+    const live = await mcpCall("analytics.orders.summary", {}, "ecommerce-dashboard-mcp");
+    if (live) {
+      render(live);
+      document.getElementById("liveBadge").style.display = "block"; // Show live indicator
+    }
+  } catch {
+    // Silent failure — mobile will hit this, desktop won't. Both are fine.
+  }
+}
+</script>
+</body></html>`,
+      },
+
+      anti_patterns: [
+        'WRONG: Show loading spinner and block rendering until mcpProxy returns.',
+        'WRONG: Display error toasts/banners when mcpProxy calls fail.',
+        'WRONG: Require init message from host before rendering ANY content.',
+        'WRONG: Assume postMessage relay works on all platforms (web, mobile, embedded).',
+      ],
+    },
+
     // File structure for a UI-capable connector:
     _file_structure_reference: {
       '/mcp-store/ecommerce-dashboard-mcp/': [
         'server.js          — MCP server (exposes tools + ui.listPlugins/ui.getPlugin)',
         'package.json',
         'ui-dist/            — Static UI assets served by A-Team Core',
-        'ui-dist/ecom-overview/1.0.0/index.html  — Self-contained dashboard',
+        'ui-dist/ecom-overview/1.0.0/index.html  — Self-contained dashboard (with embedded defaults for mobile)',
       ],
     },
   };
