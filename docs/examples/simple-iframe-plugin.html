@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simple Iframe Plugin Example</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      padding: 16px;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 8px;
+      font-size: 20px;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 12px;
+      margin-bottom: 20px;
+    }
+
+    .section {
+      background: white;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      border: 1px solid #ddd;
+    }
+
+    .section-title {
+      color: #333;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .list {
+      list-style: none;
+    }
+
+    .list-item {
+      padding: 12px;
+      margin-bottom: 8px;
+      background: #f9f9f9;
+      border-radius: 6px;
+      border-left: 3px solid #007AFF;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .list-item.critical {
+      border-left-color: #FF3B30;
+    }
+
+    .list-item.high {
+      border-left-color: #FF9500;
+    }
+
+    .list-item-title {
+      color: #333;
+      font-weight: 500;
+    }
+
+    .list-item-priority {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: #e8e8e8;
+      color: #666;
+    }
+
+    .list-item-priority.critical {
+      background: #FF3B30;
+      color: white;
+    }
+
+    .list-item-priority.high {
+      background: #FF9500;
+      color: white;
+    }
+
+    .loading {
+      text-align: center;
+      color: #666;
+      padding: 24px;
+      font-size: 12px;
+    }
+
+    .error {
+      background: #FFE8E8;
+      color: #C2185B;
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+
+    .button {
+      background: #007AFF;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    .button:hover {
+      background: #0051CC;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #999;
+      padding: 32px 16px;
+      font-size: 13px;
+    }
+
+    .empty-state-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    .status-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 3px;
+      margin-left: 8px;
+    }
+
+    .status-badge.todo {
+      background: #F0F0F0;
+      color: #666;
+    }
+
+    .status-badge.in-progress {
+      background: #E3F2FD;
+      color: #1976D2;
+    }
+
+    .status-badge.done {
+      background: #E8F5E9;
+      color: #388E3C;
+    }
+
+    .footer {
+      text-align: center;
+      color: #999;
+      font-size: 11px;
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid #ddd;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📋 Task Board</h1>
+    <p class="subtitle">Simple iframe plugin example</p>
+
+    <div class="section">
+      <div class="section-title">Status</div>
+      <div id="status">
+        <div class="loading">Initializing...</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Tasks</div>
+      <div id="tasks">
+        <div class="loading">Loading tasks...</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Actions</div>
+      <div class="button-group">
+        <button class="button" onclick="reloadTasks()">🔄 Reload</button>
+        <button class="button" onclick="createTask()">➕ New Task</button>
+      </div>
+    </div>
+
+    <div class="footer">
+      Plugin ID: <span id="plugin-id">unknown</span>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * SIMPLE IFRAME PLUGIN EXAMPLE
+     *
+     * This example demonstrates:
+     * 1. Listening for the 'init' message from the host
+     * 2. Calling connector tools via postMessage
+     * 3. Handling responses and errors
+     * 4. Rendering data to the UI
+     */
+
+    class TaskBoardPlugin {
+      constructor() {
+        this.pluginId = null;
+        this.connectorId = null;
+        this.pendingRequests = new Map();
+        this.setupListeners();
+      }
+
+      /**
+       * Step 1: Listen for messages from the host
+       */
+      setupListeners() {
+        window.addEventListener('message', (event) => {
+          const { source, message } = event.data || {};
+
+          if (source === 'adas-host') {
+            if (message?.type === 'init') {
+              this.onInit(message.payload);
+            } else if (message?.type === 'tool.response') {
+              this.onToolResponse(message.payload);
+            }
+          }
+        });
+      }
+
+      /**
+       * Step 2: Initialize when host sends init message
+       */
+      onInit(payload) {
+        this.pluginId = payload.pluginId || 'unknown';
+        this.connectorId = payload.connectorId || 'unknown';
+
+        document.getElementById('plugin-id').textContent = this.pluginId;
+        document.getElementById('status').innerHTML = `
+          <div style="color: #666; font-size: 12px;">
+            <div>Plugin: <code style="font-size: 11px;">${this.pluginId}</code></div>
+            <div>Connector: <code style="font-size: 11px;">${this.connectorId}</code></div>
+            <div style="margin-top: 8px; color: #4CAF50; font-weight: 500;">✓ Connected</div>
+          </div>
+        `;
+
+        console.log('✓ Plugin initialized:', this.pluginId);
+        this.loadTasks();
+      }
+
+      /**
+       * Step 3: Load tasks by calling a connector tool
+       */
+      async loadTasks() {
+        try {
+          const response = await this.callTool('tasks.list', {
+            filter: 'all',
+            limit: 20
+          });
+
+          this.renderTasks(response.tasks || []);
+        } catch (error) {
+          this.showError(error.message);
+        }
+      }
+
+      /**
+       * Step 4: Call connector tool via postMessage
+       */
+      callTool(toolName, args) {
+        return new Promise((resolve, reject) => {
+          const correlationId = `req_${Math.random().toString(36).slice(2, 9)}`;
+
+          // Set a timeout in case the tool never responds
+          const timeout = setTimeout(() => {
+            this.pendingRequests.delete(correlationId);
+            reject(new Error(`Tool "${toolName}" timed out (15s)`));
+          }, 15000);
+
+          // Store the resolve/reject handlers
+          this.pendingRequests.set(correlationId, {
+            resolve: (result) => {
+              clearTimeout(timeout);
+              resolve(result);
+            },
+            reject: (error) => {
+              clearTimeout(timeout);
+              reject(error);
+            }
+          });
+
+          // Send the tool call to the host
+          console.log(`→ Calling tool: ${toolName}`, args);
+
+          window.parent.postMessage({
+            source: 'adas-plugin',
+            pluginId: this.pluginId,
+            message: {
+              type: 'tool.call',
+              toolName,
+              args,
+              correlationId
+            }
+          }, '*');
+        });
+      }
+
+      /**
+       * Step 5: Handle tool response from host
+       */
+      onToolResponse(payload) {
+        const { correlationId, result, error } = payload;
+        const request = this.pendingRequests.get(correlationId);
+
+        if (!request) {
+          console.warn('Received response for unknown correlation ID:', correlationId);
+          return;
+        }
+
+        this.pendingRequests.delete(correlationId);
+
+        if (error) {
+          console.error('✗ Tool error:', error);
+          request.reject(new Error(error));
+        } else {
+          console.log('← Tool result:', result);
+          request.resolve(result);
+        }
+      }
+
+      /**
+       * Render tasks to the UI
+       */
+      renderTasks(tasks) {
+        const container = document.getElementById('tasks');
+
+        if (!tasks || tasks.length === 0) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-state-icon">📭</div>
+              <div>No tasks found</div>
+            </div>
+          `;
+          return;
+        }
+
+        container.innerHTML = `
+          <ul class="list">
+            ${tasks.map(task => `
+              <li class="list-item ${task.priority || ''}">
+                <div>
+                  <div class="list-item-title">${this.escapeHtml(task.title || 'Untitled')}</div>
+                  <div style="font-size: 11px; color: #999; margin-top: 4px;">
+                    ${task.assignee ? `👤 ${this.escapeHtml(task.assignee)}` : ''}
+                    ${task.tags ? task.tags.map(t => `<span style="margin-left: 6px; color: #007AFF;">#${this.escapeHtml(t)}</span>`).join('') : ''}
+                  </div>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  ${task.priority ? `<div class="list-item-priority ${task.priority}">${task.priority.toUpperCase()}</div>` : ''}
+                  <div class="status-badge ${(task.status || 'todo').replace('_', '-')}">${(task.status || 'todo').toUpperCase()}</div>
+                </div>
+              </li>
+            `).join('')}
+          </ul>
+        `;
+      }
+
+      /**
+       * Show error message
+       */
+      showError(message) {
+        const container = document.getElementById('tasks');
+        container.innerHTML = `
+          <div class="error">
+            <strong>⚠️ Error:</strong> ${this.escapeHtml(message)}
+          </div>
+          <div class="empty-state">
+            <p>Failed to load tasks. Check the connector logs.</p>
+          </div>
+        `;
+      }
+
+      escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      }
+    }
+
+    // Initialize plugin when page loads
+    const plugin = new TaskBoardPlugin();
+
+    // Expose reload function to buttons
+    function reloadTasks() {
+      document.getElementById('tasks').innerHTML = '<div class="loading">Loading tasks...</div>';
+      plugin.loadTasks();
+    }
+
+    // Expose create task function (would call a different tool)
+    function createTask() {
+      alert('Create task would call: tasks.create() tool');
+      // Example: plugin.callTool('tasks.create', { title: 'New Task' });
+    }
+
+    console.log('✓ Plugin script loaded. Waiting for host init message...');
+  </script>
+</body>
+</html>
