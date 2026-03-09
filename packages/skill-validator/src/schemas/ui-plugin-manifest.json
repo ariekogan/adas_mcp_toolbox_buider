@@ -1,0 +1,177 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "A-Team UI Plugin Manifest",
+  "description": "Schema for UI plugin manifests returned by MCP connectors via ui.getPlugin()",
+  "type": "object",
+  "required": ["id", "name", "version", "render"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^mcp:[a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+$",
+      "description": "Unique plugin identifier. Format: 'mcp:<connector-id>:<plugin-name>'"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "Display name"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version (X.Y.Z format)"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Brief description of the plugin"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["ui", "service", "hybrid"],
+      "default": "ui",
+      "description": "'ui' = visual dashboard, 'service' = headless, 'hybrid' = both"
+    },
+    "render": {
+      "type": "object",
+      "required": ["mode"],
+      "description": "Rendering configuration (polymorphic by mode)",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["iframe", "react-native", "adaptive"],
+          "description": "'iframe' = web only, 'react-native' = mobile only, 'adaptive' = both"
+        },
+        "iframeUrl": {
+          "type": "string",
+          "description": "For mode='iframe' only. Path like /ui/{pluginId}/{version}/index.html"
+        },
+        "component": {
+          "type": "string",
+          "description": "For mode='react-native' only. Registered component name"
+        },
+        "external": {
+          "type": "boolean",
+          "default": false,
+          "description": "For iframe only. Allow cross-origin embedding"
+        },
+        "iframe": {
+          "type": "object",
+          "description": "For mode='adaptive' only. Web-specific config",
+          "properties": {
+            "iframeUrl": {
+              "type": "string",
+              "description": "Path like /ui/{pluginId}/{version}/index.html"
+            },
+            "external": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "required": ["iframeUrl"]
+        },
+        "reactNative": {
+          "type": "object",
+          "description": "For mode='adaptive' only. Mobile-specific config",
+          "properties": {
+            "component": {
+              "type": "string",
+              "description": "Registered component name"
+            },
+            "bundleId": {
+              "type": "string",
+              "description": "Optional separate bundle identifier"
+            }
+          },
+          "required": ["component"]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "iframe" } } },
+          "then": { "required": ["iframeUrl"] }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "react-native" } } },
+          "then": { "required": ["component"] }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "adaptive" } } },
+          "then": { "required": ["iframe", "reactNative"] }
+        }
+      ]
+    },
+    "capabilities": {
+      "type": "object",
+      "description": "Native device capabilities requested",
+      "properties": {
+        "haptics": {
+          "type": "boolean",
+          "description": "Vibration/haptic feedback"
+        },
+        "camera": {
+          "type": "boolean",
+          "description": "Camera access"
+        },
+        "location": {
+          "type": "boolean",
+          "description": "GPS/location services"
+        },
+        "storage": {
+          "type": "boolean",
+          "description": "Local file system access"
+        },
+        "notifications": {
+          "type": "boolean",
+          "description": "Push notifications"
+        }
+      }
+    },
+    "channels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Communication channels the plugin listens to"
+    },
+    "commands": {
+      "type": "array",
+      "description": "Commands the plugin handles",
+      "items": {
+        "type": "object",
+        "required": ["name", "description"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$",
+            "description": "Command identifier (lowercase_underscore only)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description"
+          },
+          "input_schema": {
+            "type": "object",
+            "description": "JSON Schema for command arguments",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["object"],
+                "description": "Must be 'object'"
+              },
+              "properties": {
+                "type": "object",
+                "description": "Field definitions"
+              },
+              "required": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Required field names"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
