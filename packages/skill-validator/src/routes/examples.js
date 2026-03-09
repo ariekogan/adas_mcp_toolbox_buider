@@ -23,6 +23,8 @@ const CACHE_HEADERS = { 'Cache-Control': 'public, max-age=86400' };
 export const EXAMPLE_SKILL = buildExampleSkill();
 export const EXAMPLE_CONNECTOR = buildExampleConnector();
 export const EXAMPLE_CONNECTOR_UI = buildExampleConnectorUI();
+export const EXAMPLE_UI_PLUGIN_IFRAME = buildExampleUIPluginIframe();
+export const EXAMPLE_UI_PLUGIN_NATIVE = buildExampleUIPluginNative();
 export const EXAMPLE_SOLUTION = buildExampleSolution();
 
 const INDEX = {
@@ -40,6 +42,14 @@ const INDEX = {
       method: 'GET',
       description: 'UI-capable connector with dashboard plugins (ui_capable: true)',
     },
+    '/spec/examples/ui-plugin-iframe': {
+      method: 'GET',
+      description: 'Complete working iframe UI plugin example — HTML+JavaScript with postMessage protocol',
+    },
+    '/spec/examples/ui-plugin-native': {
+      method: 'GET',
+      description: 'Complete working React Native UI plugin example — TypeScript with Plugin SDK',
+    },
     '/spec/examples/solution': {
       method: 'GET',
       description: 'Full "E-Commerce Customer Service" solution — 3 skills, grants, handoffs, routing',
@@ -55,6 +65,8 @@ router.get('/', (_req, res) => res.set(CACHE_HEADERS).json(INDEX));
 router.get('/skill', (_req, res) => res.set(CACHE_HEADERS).json(EXAMPLE_SKILL));
 router.get('/connector', (_req, res) => res.set(CACHE_HEADERS).json(EXAMPLE_CONNECTOR));
 router.get('/connector-ui', (_req, res) => res.set(CACHE_HEADERS).json(EXAMPLE_CONNECTOR_UI));
+router.get('/ui-plugin-iframe', (_req, res) => res.set(CACHE_HEADERS).json(EXAMPLE_UI_PLUGIN_IFRAME));
+router.get('/ui-plugin-native', (_req, res) => res.set(CACHE_HEADERS).json(EXAMPLE_UI_PLUGIN_NATIVE));
 router.get('/solution', (_req, res) => res.set(CACHE_HEADERS).json(EXAMPLE_SOLUTION));
 
 export default router;
@@ -1175,6 +1187,343 @@ function buildExampleSolution() {
           ],
         },
       },
+    },
+  };
+}
+
+function buildExampleUIPluginIframe() {
+  return {
+    _title: 'Complete Iframe UI Plugin Example',
+    _description: 'A fully working HTML+JavaScript UI plugin that communicates with connector tools via postMessage protocol.',
+    _platform: 'Web (browser, iframe)',
+    _location: 'In connector mcp_store: ui-dist/{pluginId}/{version}/index.html',
+
+    // ── Plugin Manifest ──
+    manifest: {
+      id: 'mcp:task-connector:task-board',
+      name: 'Task Board',
+      version: '1.0.0',
+      description: 'Interactive task board with real-time updates',
+      render: {
+        mode: 'iframe',
+        iframeUrl: '/ui/task-board/1.0.0/index.html',
+      },
+      commands: [
+        {
+          name: 'highlight_task',
+          description: 'Highlight a specific task in the board',
+          input_schema: {
+            type: 'object',
+            properties: {
+              task_id: { type: 'string', description: 'The task ID to highlight' },
+              color: { type: 'string', enum: ['red', 'blue', 'green'] },
+            },
+            required: ['task_id'],
+          },
+        },
+      ],
+    },
+
+    // ── HTML Source Code ──
+    html_source: {
+      _note: 'This is the exact HTML file served at /ui/task-board/1.0.0/index.html. Use this as a template for your own iframe plugins.',
+      _critical: 'Key points: (1) postMessage listener must be FIRST in <head> BEFORE other scripts, (2) Plugin sends { source: "adas-plugin", pluginId: "...", message: { type: "tool.call", toolName: "...", args: {...}, correlationId: "..." } }, (3) Listen for { source: "adas-host", message: { type: "tool.response", payload: { correlationId: "...", result: {...} } } }',
+      file: 'ui-dist/task-board/1.0.0/index.html',
+      content: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task Board Plugin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; padding: 16px; }
+    .container { max-width: 600px; margin: 0 auto; }
+    .board { display: flex; gap: 16px; margin: 20px 0; overflow-x: auto; }
+    .column { background: white; border-radius: 8px; padding: 16px; flex: 0 0 300px; }
+    .column-title { font-weight: 600; margin-bottom: 12px; }
+    .task { background: #f9f9f9; padding: 12px; margin-bottom: 8px; border-radius: 6px; border-left: 3px solid #007AFF; cursor: pointer; }
+    .task:hover { background: #f0f0f0; }
+    .task.highlighted { background: #FFF3E0; border-left-color: #FF9500; }
+  </style>
+</head>
+<body>
+  <!-- CRITICAL: postMessage listener MUST be first -->
+  <script>
+    class TaskBoardPlugin {
+      constructor() {
+        this.pluginId = null;
+        this.tasks = { todo: [], inprogress: [], done: [] };
+        this.pendingRequests = new Map();
+        this.setupListeners();
+      }
+
+      setupListeners() {
+        window.addEventListener('message', (event) => {
+          const { source, message } = event.data || {};
+          if (source === 'adas-host') {
+            if (message?.type === 'init') this.onInit(message.payload);
+            else if (message?.type === 'tool.response') this.onToolResponse(message.payload);
+          }
+        });
+      }
+
+      onInit(payload) {
+        this.pluginId = payload.pluginId;
+        this.loadTasks();
+      }
+
+      async loadTasks() {
+        const result = await this.callTool('tasks.list', { status: 'all' });
+        this.tasks = { todo: [], inprogress: [], done: [] };
+        (result.tasks || []).forEach(task => {
+          const status = task.status || 'todo';
+          if (this.tasks[status]) this.tasks[status].push(task);
+        });
+        this.render();
+      }
+
+      callTool(toolName, args) {
+        return new Promise((resolve, reject) => {
+          const correlationId = 'req_' + Math.random().toString(36).slice(2, 9);
+          const timeout = setTimeout(() => {
+            this.pendingRequests.delete(correlationId);
+            reject(new Error(\`Tool "\${toolName}" timed out\`));
+          }, 15000);
+
+          this.pendingRequests.set(correlationId, {
+            resolve: (result) => { clearTimeout(timeout); resolve(result); },
+            reject: (error) => { clearTimeout(timeout); reject(error); }
+          });
+
+          window.parent.postMessage({
+            source: 'adas-plugin',
+            pluginId: this.pluginId,
+            message: { type: 'tool.call', toolName, args, correlationId }
+          }, '*');
+        });
+      }
+
+      onToolResponse(payload) {
+        const { correlationId, result, error } = payload;
+        const request = this.pendingRequests.get(correlationId);
+        if (!request) return;
+        this.pendingRequests.delete(correlationId);
+        if (error) request.reject(new Error(error));
+        else request.resolve(result);
+      }
+
+      highlightTask(taskId, color) {
+        const el = document.querySelector(\`[data-task-id="\${taskId}"]\`);
+        if (el) {
+          document.querySelectorAll('.task').forEach(t => t.classList.remove('highlighted'));
+          el.classList.add('highlighted');
+        }
+      }
+
+      render() {
+        const board = document.getElementById('board');
+        board.innerHTML = \`
+          <div class="column">
+            <div class="column-title">To Do (\${this.tasks.todo.length})</div>
+            \${this.tasks.todo.map(t => \`
+              <div class="task" data-task-id="\${t.id}" onclick="plugin.highlightTask('\${t.id}', 'blue')">
+                \${t.title}
+              </div>
+            \`).join('')}
+          </div>
+          <div class="column">
+            <div class="column-title">In Progress (\${this.tasks.inprogress.length})</div>
+            \${this.tasks.inprogress.map(t => \`
+              <div class="task" data-task-id="\${t.id}" onclick="plugin.highlightTask('\${t.id}', 'blue')">
+                \${t.title}
+              </div>
+            \`).join('')}
+          </div>
+          <div class="column">
+            <div class="column-title">Done (\${this.tasks.done.length})</div>
+            \${this.tasks.done.map(t => \`
+              <div class="task" data-task-id="\${t.id}" onclick="plugin.highlightTask('\${t.id}', 'blue')">
+                \${t.title}
+              </div>
+            \`).join('')}
+          </div>
+        \`;
+      }
+    }
+
+    const plugin = new TaskBoardPlugin();
+  </script>
+
+  <div class="container">
+    <h1>📋 Task Board</h1>
+    <div class="board" id="board">
+      <div class="column"><div class="column-title">Loading...</div></div>
+    </div>
+  </div>
+</body>
+</html>`,
+    },
+  };
+}
+
+function buildExampleUIPluginNative() {
+  return {
+    _title: 'Complete React Native UI Plugin Example',
+    _description: 'A fully working TypeScript React Native component using Plugin SDK to call connector tools.',
+    _platform: 'Mobile (React Native)',
+    _location: 'In ateam-mobile: src/plugins/{name}/index.tsx',
+
+    // ── Plugin Manifest ──
+    manifest: {
+      id: 'mcp:task-connector:task-board-mobile',
+      name: 'Task Board Mobile',
+      version: '1.0.0',
+      description: 'Mobile-optimized task board with haptic feedback',
+      type: 'ui',
+      render: {
+        mode: 'react-native',
+        component: 'TaskBoardMobile',
+      },
+      capabilities: {
+        haptics: true,
+      },
+      commands: [
+        {
+          name: 'focus_task',
+          description: 'Scroll to and highlight a task',
+          input_schema: {
+            type: 'object',
+            properties: {
+              task_id: { type: 'string' },
+            },
+            required: ['task_id'],
+          },
+        },
+      ],
+    },
+
+    // ── TypeScript Source Code ──
+    source: {
+      _note: 'This is the exact component registered with PluginSDK.register(). Use as template for native plugins.',
+      _critical: 'Key patterns: (1) Use PluginSDK.register() with component name, (2) Accept { bridge, native, theme } props, (3) Use const api = useApi(bridge) for all tool calls, (4) Always wrap api.call() in try/catch, (5) Use theme tokens for styling, (6) Call native.haptics for feedback',
+      file: 'src/plugins/task-board-mobile/index.tsx',
+      content: `import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  Pressable,
+  ActivityIndicator,
+  StyleSheet,
+  RefreshControl,
+} from 'react-native';
+import { PluginSDK, useApi } from '../../plugin-sdk';
+import type { PluginProps } from '../../plugin-sdk/types';
+
+interface Task {
+  id: string;
+  title: string;
+  status: 'todo' | 'inprogress' | 'done';
+  priority?: 'high' | 'medium' | 'low';
+}
+
+export default PluginSDK.register('task-board-mobile', {
+  type: 'ui',
+  version: '1.0.0',
+  capabilities: { haptics: true },
+
+  Component({ bridge, native, theme }: PluginProps) {
+    const api = useApi(bridge);
+    const [tasks, setTasks] = useState<Task[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [refreshing, setRefreshing] = useState(false);
+
+    useEffect(() => {
+      loadTasks();
+    }, []);
+
+    async function loadTasks(isRefresh = false) {
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+
+      try {
+        const result = await api.call('tasks.list', { status: 'all' });
+        setTasks(result.tasks || []);
+        setError(null);
+      } catch (err: any) {
+        setError(err.message);
+        native.haptics.error();
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+
+    if (loading) {
+      return (
+        <View style={[s.center, { backgroundColor: theme.colors.bg }]}>
+          <ActivityIndicator size="large" color={theme.colors.accent} />
+        </View>
+      );
+    }
+
+    if (error) {
+      return (
+        <View style={[s.errorContainer, { backgroundColor: theme.colors.bg }]}>
+          <Text style={{ color: theme.colors.error }}>Error: {error}</Text>
+          <Pressable onPress={() => loadTasks()}>
+            <Text style={{ color: theme.colors.accent }}>Retry</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={tasks}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item: task }) => (
+          <Pressable
+            style={[s.taskCard, { backgroundColor: theme.colors.surface }]}
+            onPress={() => native.haptics.selection()}
+          >
+            <View style={[s.statusDot, { backgroundColor: task.status === 'done' ? theme.colors.success : theme.colors.accent }]} />
+            <Text style={[s.taskTitle, { color: theme.colors.text }]}>{task.title}</Text>
+            {task.priority && (
+              <Text style={[s.badge, { color: theme.colors.textMuted }]}>
+                {task.priority.toUpperCase()}
+              </Text>
+            )}
+          </Pressable>
+        )}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadTasks(true)}
+            tintColor={theme.colors.accent}
+          />
+        }
+      />
+    );
+  },
+});
+
+const s = StyleSheet.create({
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  errorContainer: { flex: 1, padding: 20, justifyContent: 'center' },
+  taskCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 12 },
+  taskTitle: { flex: 1, fontSize: 14, fontWeight: '500' },
+  badge: { fontSize: 10, fontWeight: '600', paddingHorizontal: 6 },
+});`,
     },
   };
 }
