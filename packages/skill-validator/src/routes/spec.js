@@ -1883,6 +1883,88 @@ function buildSolutionSpec() {
           },
         },
       },
+
+      // ── UI Plugins ──
+      ui_plugins: {
+        type: 'array', required: false,
+        description: 'UI plugins served by ui_capable connectors. These are interactive dashboards that communicate with connector tools via postMessage (web) or plugin SDK (mobile).',
+        item_schema: {
+          id: { type: 'string', required: true, description: 'Unique plugin identifier. Format: "mcp:<connector-id>:<plugin-name>"' },
+          name: { type: 'string', required: true, description: 'Display name (1-100 characters)' },
+          version: { type: 'string', required: true, description: 'Semantic version (X.Y.Z format)' },
+          description: { type: 'string', required: false, description: 'Brief description (1-500 characters)' },
+          type: {
+            type: 'enum', required: false,
+            values: ['ui', 'service', 'hybrid'],
+            description: '"ui" = visual dashboard, "service" = headless/background, "hybrid" = both. Default: "ui"',
+          },
+          render: {
+            type: 'object', required: true,
+            description: 'Rendering configuration (polymorphic by mode)',
+            polymorphic_by: 'mode',
+            fields: {
+              mode: {
+                type: 'enum', required: true,
+                values: ['iframe', 'react-native', 'adaptive'],
+                description: '"iframe" = web-only, "react-native" = mobile-only, "adaptive" = both platforms',
+              },
+              iframeUrl: {
+                type: 'string', required: false,
+                description: 'Required for mode="iframe" or mode="adaptive". Format: "/ui/{pluginId}/{version}/index.html". File MUST exist in connector mcp_store.',
+              },
+              component: {
+                type: 'string', required: false,
+                description: 'Required for mode="react-native" or mode="adaptive". Registered component name (must match PluginSDK.register(name, {...}))',
+              },
+              external: {
+                type: 'boolean', required: false,
+                description: 'For iframe only. If true, iframe can be embedded on external domains. Default: false (SAMEORIGIN)',
+              },
+              reactNative: {
+                type: 'object', required: false,
+                description: 'For mode="adaptive" only. React Native configuration',
+                fields: {
+                  component: { type: 'string', required: true, description: 'Component name' },
+                  bundleId: { type: 'string', required: false, description: 'Future: separate bundle identifier' },
+                },
+              },
+            },
+          },
+          capabilities: {
+            type: 'object', required: false,
+            description: 'Native device capabilities this plugin requests',
+            fields: {
+              haptics: { type: 'boolean', required: false, description: 'Vibration/haptic feedback (Android/iOS only)' },
+              camera: { type: 'boolean', required: false, description: 'Camera access (native only)' },
+              location: { type: 'boolean', required: false, description: 'GPS/location services (native only)' },
+              storage: { type: 'boolean', required: false, description: 'Local file system access (native) or localStorage/IndexedDB (web)' },
+              notifications: { type: 'boolean', required: false, description: 'Push notifications (native) or browser notifications (web)' },
+            },
+          },
+          channels: {
+            type: 'string[]', required: false,
+            description: 'Communication channels the plugin listens to. Example: ["order-updates", "payment-status"]',
+          },
+          commands: {
+            type: 'array', required: false,
+            description: 'Commands the plugin handles. These become virtual tools visible to the AI planner (e.g., ui.order-dashboard.highlight_order)',
+            item_schema: {
+              name: { type: 'string', required: true, description: 'Command identifier (lowercase_underscore only)' },
+              description: { type: 'string', required: true, description: 'Human-readable description' },
+              input_schema: {
+                type: 'object', required: false,
+                description: 'JSON Schema for command arguments',
+                fields: {
+                  type: { type: 'string', required: true, description: '"object"' },
+                  properties: { type: 'object', required: true, description: 'Field definitions' },
+                  required: { type: 'string[]', required: false, description: 'Required field names' },
+                  additionalProperties: { type: 'boolean', required: false },
+                },
+              },
+            },
+          },
+        },
+      },
     },
 
     // ── Models ──
@@ -2304,7 +2386,21 @@ if (hostReady) tryLiveData();`,
         handoff_mechanisms: '"handoff-controller-mcp" = live conversation transfer. The skill calls sys.handoffToSkill(to_skill, grants) — a built-in platform tool, no connector wiring needed. Add it to the skill\'s bootstrap_tools to pin it for the planner. Platform auto-injects channel context and creates a routing session. Subsequent messages are routed to the target skill. "internal-message" = async skill-to-skill (background coordination, no user redirect).',
         security_contracts: 'Cross-skill agreements: "skill X cannot use tools Y and Z unless skill W has issued grants A and B". Enforced at the solution level.',
         voice_channel: 'Optional voice channel configuration. Enables phone/web voice interactions for the solution. Supports caller verification (phone lookup, security question, or custom skill), persona customization, and per-skill voice overrides. On deploy, voice settings are automatically pushed to the voice backend — no manual voice setup needed.',
-        ui_plugins: 'Connectors with ui_capable: true serve interactive dashboards in iframes. Plugin HTML goes in ui-dist/ within mcp_store, communicates via postMessage protocol. Platform handles serving (/mcp-ui/), routing, and tool call bridging. Plugins can declare capabilities.commands[] which become planner-visible virtual tools (ui.{short_id}.{command_name}). Declare plugins in skill ui_plugins array with short_id for tool naming. Use sys.focusUiPlugin to bring a plugin into focus. MOBILE: Plugin iframes MUST embed default data and render immediately — mobile apps do NOT relay mcpProxy calls. Try live MCP calls silently in background only. See GET /spec/examples/connector-ui for the full protocol, code examples, and mobile compatibility pattern.',
+        ui_plugins: {
+          overview: 'UI plugins are interactive dashboards served by ui_capable connectors. They communicate with connector tools and become part of the solution\'s conversational experience.',
+          modes: {
+            iframe: 'Web-only. HTML+JavaScript in ui-dist/{pluginId}/{version}/index.html. Uses postMessage protocol to call connector tools. Served at /mcp-ui/{tenant}/{connectorId}/...',
+            react_native: 'Mobile-only. React Native component registered with PluginSDK.register(). Uses useApi(bridge).call() hook to invoke connector tools. Compiled into ateam-mobile app.',
+            adaptive: 'Both platforms. Declare both iframe and react-native configs. Platform routes automatically based on client platform.',
+          },
+          capabilities: 'declare.capabilities for native features (haptics, camera, location, storage, notifications). Web-based iframes ignore native capabilities.',
+          commands: 'plugins can define commands[] which become virtual tools visible to the AI planner. Example: { name: "highlight_order", description: "Highlight order in dashboard", input_schema: {...} } becomes tool ui.plugin-id.highlight_order that the planner can call.',
+          deployment: 'Plugin files must be in connector mcp_store under ui-dist/{pluginId}/{version}/index.html. Platform serves at /mcp-ui/{tenant}/{connectorId}/{iframeUrl}.',
+          protocol_web: 'postMessage protocol (web/iframe only). Plugin sends: { source: "adas-plugin", pluginId: "...", message: { type: "tool.call", toolName: "...", args: {...}, correlationId: "..." } }. Receives: { source: "adas-host", message: { type: "tool.response", payload: { correlationId: "...", result: {...} } } }',
+          protocol_mobile: 'Plugin SDK protocol (React Native). Use const api = useApi(bridge); await api.call(toolName, args). Result is auto-unwrapped. Errors throw exceptions. 15-second timeout.',
+          focus: 'Use sys.focusUiPlugin(plugin_id, args?) to bring a plugin into user focus. AI planner can call this system tool to show the UI at key moments in the conversation.',
+          validation: 'See docs/UI_PLUGIN_MANIFEST_SCHEMA.md for complete validation rules, error messages, and examples. Use GET /spec/solution.ui_plugins_manifest_validation_schema for programmatic validation.',
+        },
       },
     },
   };
