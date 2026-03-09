@@ -1,0 +1,76 @@
+{
+  "id": "mcp:analytics-connector:dashboard",
+  "name": "Analytics Dashboard",
+  "version": "1.0.0",
+  "description": "Real-time analytics dashboard with KPI metrics and trend analysis. Shows revenue, customer metrics, and performance trends.",
+  "type": "ui",
+  "render": {
+    "mode": "react-native",
+    "component": "analytics-dashboard"
+  },
+  "capabilities": {
+    "haptics": false,
+    "camera": false,
+    "location": false,
+    "storage": true,
+    "notifications": false
+  },
+  "channels": [
+    "dashboard-updates",
+    "metric-alerts"
+  ],
+  "commands": [
+    {
+      "name": "refresh_metrics",
+      "description": "Force refresh all metrics immediately",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "enum": ["day", "week", "month"],
+            "description": "Time period for metrics"
+          }
+        }
+      }
+    },
+    {
+      "name": "highlight_metric",
+      "description": "Highlight a specific metric card in the dashboard",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "metric_label": {
+            "type": "string",
+            "description": "The metric card label to highlight (e.g., 'Total Revenue')"
+          },
+          "highlight_color": {
+            "type": "string",
+            "enum": ["red", "blue", "green", "yellow"],
+            "description": "Color to highlight with"
+          }
+        },
+        "required": ["metric_label"]
+      }
+    },
+    {
+      "name": "export_data",
+      "description": "Export current metrics as JSON or CSV",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": ["json", "csv"],
+            "description": "Export format"
+          },
+          "include_chart_data": {
+            "type": "boolean",
+            "description": "Include chart time-series data"
+          }
+        },
+        "required": ["format"]
+      }
+    }
+  ]
+}
