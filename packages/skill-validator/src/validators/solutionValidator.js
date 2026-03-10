@@ -626,6 +626,110 @@ export function validateSolution(solution, context) {
     }
   }
 
+  // ─── 9b. Functional Connector Validation ──────────────────
+  // Functional connectors are background services for mobile/native environments.
+  const functionalConnectors = solution.functional_connectors || [];
+  const VALID_PERMISSIONS = ['calendar', 'contacts', 'location', 'battery', 'connectivity', 'notifications', 'biometrics', 'camera', 'microphone', 'storage'];
+  const VALID_FC_TYPES = ['background', 'service'];
+
+  for (const fc of functionalConnectors) {
+    // Validate id format
+    if (!fc.id || !/^[a-z0-9\-]+$/.test(fc.id)) {
+      errors.push({
+        check: 'fc_invalid_id',
+        message: `Functional connector ID "${fc.id}" is invalid. Must be lowercase alphanumeric with hyphens only.`,
+        connector: fc.id,
+      });
+    }
+
+    // Validate required fields
+    if (!fc.name) {
+      errors.push({
+        check: 'fc_missing_name',
+        message: `Functional connector "${fc.id}" is missing required field: name`,
+        connector: fc.id,
+      });
+    }
+
+    if (!fc.module) {
+      errors.push({
+        check: 'fc_missing_module',
+        message: `Functional connector "${fc.id}" is missing required field: module (NPM package path). Example: "@mobile-pa/device-bridge"`,
+        connector: fc.id,
+      });
+    }
+
+    // Validate module format
+    if (fc.module && !/^@?[a-z0-9\-]+(\/@?[a-z0-9\-]+)?$/.test(fc.module)) {
+      errors.push({
+        check: 'fc_invalid_module',
+        message: `Functional connector "${fc.id}" has invalid module format "${fc.module}". Must be a valid NPM package path. Examples: "@mobile-pa/device-bridge", "my-package"`,
+        connector: fc.id,
+      });
+    }
+
+    // Validate type enum
+    if (fc.type && !VALID_FC_TYPES.includes(fc.type)) {
+      errors.push({
+        check: 'fc_invalid_type',
+        message: `Functional connector "${fc.id}" has invalid type "${fc.type}". Must be one of: ${VALID_FC_TYPES.join(', ')}`,
+        connector: fc.id,
+      });
+    }
+
+    // Validate permissions
+    if (fc.permissions && Array.isArray(fc.permissions)) {
+      for (const perm of fc.permissions) {
+        if (!VALID_PERMISSIONS.includes(perm)) {
+          errors.push({
+            check: 'fc_invalid_permission',
+            message: `Functional connector "${fc.id}" requests invalid permission "${perm}". Must be one of: ${VALID_PERMISSIONS.join(', ')}`,
+            connector: fc.id,
+          });
+        }
+      }
+    }
+
+    // Validate autoStart is boolean
+    if (typeof fc.autoStart !== 'undefined' && typeof fc.autoStart !== 'boolean') {
+      errors.push({
+        check: 'fc_invalid_autostart',
+        message: `Functional connector "${fc.id}" has invalid autoStart value. Must be boolean.`,
+        connector: fc.id,
+      });
+    }
+
+    // Validate backgroundSync is boolean
+    if (typeof fc.backgroundSync !== 'undefined' && typeof fc.backgroundSync !== 'boolean') {
+      errors.push({
+        check: 'fc_invalid_background_sync',
+        message: `Functional connector "${fc.id}" has invalid backgroundSync value. Must be boolean.`,
+        connector: fc.id,
+      });
+    }
+
+    // Warn if permissions are requested but autoStart is false
+    if (!fc.autoStart && fc.permissions && fc.permissions.length > 0) {
+      warnings.push({
+        check: 'fc_permissions_ignored',
+        message: `Functional connector "${fc.id}" declares permissions but autoStart is false. Permissions will not be requested unless connector is manually initialized.`,
+        connector: fc.id,
+      });
+    }
+
+    // Info: If backgroundSync is true, warn about minimum intervals
+    if (fc.backgroundSync) {
+      if (fc.type === 'ui') {
+        warnings.push({
+          check: 'fc_background_sync_with_ui',
+          message: `Functional connector "${fc.id}" has backgroundSync enabled but type is "ui" (visual). Background sync only works for headless connectors.`,
+          connector: fc.id,
+          fix: 'Change type to "background" or "service" if background syncing is intended.',
+        });
+      }
+    }
+  }
+
   // ─── 10. Voice channel configuration ─────────────────────
   const voice = solution.voice;
   if (voice) {

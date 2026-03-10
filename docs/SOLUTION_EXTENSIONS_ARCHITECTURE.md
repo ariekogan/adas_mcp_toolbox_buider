@@ -475,14 +475,157 @@ Example: If adding "notification-channels" extension type
 
 ---
 
+## Phase 4: Functional Connectors (Background Services)
+
+**Status:** Available in spec and validation; mobile app loader in development.
+
+### What Are Functional Connectors?
+
+Functional connectors are **solution-owned background services for mobile/native environments**. Unlike UI plugins (which render visual components), functional connectors:
+
+- Run headless (no UI)
+- Execute continuously or on-demand
+- Handle device data collection, offline sync, background tasks
+- Require native capabilities (location, calendar, contacts, battery, notifications)
+- Start automatically when the mobile app selects the solution's tenant
+
+### Example: Device-Bridge
+
+The mobile-pa solution includes **device-bridge**, a functional connector that:
+
+1. **Collects** real device data (calendar, contacts, location, battery, notifications)
+2. **Syncs** this data to a Cloud Relay service every 60 seconds
+3. **Polls** for actions from A-Team backend
+4. **Executes** actions (send SMS, create calendar event, navigate, set DND)
+
+Device-bridge runs continuously after tenant selection, feeding real device context into PA skills.
+
+### Declaration in solution.json
+
+```javascript
+{
+  functional_connectors: [
+    {
+      id: "device-bridge",
+      name: "Device Data Bridge",
+      description: "Real-time device data collection and relay sync",
+      module: "@mobile-pa/device-bridge",           // NPM package
+      type: "background",                            // or "service"
+      autoStart: true,                               // Start on tenant selection
+      permissions: ["calendar", "contacts", "location", "notifications"],
+      backgroundSync: true,                          // Enable background tasks
+      config: {                                      // Passed to constructor
+        deviceIdPrefix: "ateam-mobile-"
+      }
+    }
+  ]
+}
+```
+
+### Mobile App Loading Flow
+
+```
+1. User selects "mobile-pa" tenant in TenantPicker
+   ↓
+2. Mobile app discovers functional connectors:
+   GET /api/solutions/{tenantId}/functional-connectors
+   ↓
+3. For each connector with autoStart: true:
+   - Load module from node_modules: import('@mobile-pa/device-bridge')
+   - Instantiate: new DeviceBridge(config)
+   - Request permissions (show system dialogs)
+   - Start syncing: bridge.startSync()
+   ↓
+4. Connector runs in background continuously
+   Phone → Device Data → Relay → A-Team Skills
+   ↓
+5. On logout or tenant switch:
+   - Stop connector: bridge.stopSync()
+   - Clear instance
+```
+
+### Supported Capabilities
+
+| Capability | iOS | Android | Requires Permission |
+|---|---|---|---|
+| calendar | ✅ | ✅ | Yes |
+| contacts | ✅ | ✅ | Yes |
+| location | ✅ | ✅ | Yes (always-on) |
+| battery | ✅ | ✅ | No |
+| connectivity | ✅ | ✅ | No |
+| notifications | ✅ | ✅ | Yes |
+| biometrics | ✅ | ✅ | Yes |
+| camera | ✅ | ✅ | Yes |
+| storage | ✅ | ✅ | Yes |
+
+### Interface Contract
+
+All functional connectors must export a class matching:
+
+```typescript
+class FunctionalConnector {
+  constructor(config: { relayUrl, deviceId, apiKey, ... })
+
+  // Lifecycle
+  requestAllPermissions(): Promise<Map<string, boolean>>
+  startSync(): Promise<void>
+  stopSync(): void
+
+  // Optional
+  start(): Promise<void>
+  stop(): void
+  syncNow(): Promise<void>
+  getStatus(): { running: boolean, connectors: {...}, ... }
+}
+```
+
+### Why Separate from UI Plugins?
+
+| Aspect | UI Plugins | Functional Connectors |
+|---|---|---|
+| **Renders UI** | Yes | No |
+| **Lifecycle** | User navigates to Plugins tab | Auto-start on tenant select |
+| **Runs in background** | No | Yes |
+| **Needs permissions** | Optional | Often required |
+| **Persists data** | Via connector tools | May use device storage |
+| **Example** | Task board dashboard | Device data collection |
+
+### Deployment Via Skill Builder
+
+1. Define functional_connectors in solution.json
+2. Deploy: `POST /deploy/solution`
+3. Core stores metadata in MongoDB
+4. Mobile app fetches on tenant selection
+5. Mobile loads and initializes automatically
+
+No manual MCP setup, no DevOps required — same unified deployment pattern as UI plugins and backend connectors.
+
+### Future: Plugin SDK Integration
+
+Plugins can optionally access functional connector data directly:
+
+```typescript
+// In an iframe plugin:
+const connectors = useContext(FunctionalConnectorsContext);
+const deviceBridge = connectors.get('device-bridge');
+const location = await deviceBridge.getLastLocation();
+```
+
+This allows plugins to either:
+- Call skills that use connector data (indirect)
+- Access connector data directly (direct, lower latency)
+
+---
+
 ## References
 
 - **Core System:** ai-dev-assistant repository (connector loading)
 - **Mobile System:** ateam-mobile PLUGIN_SYSTEM_README.md (plugin loading)
+- **Mobile Loader:** ateam-mobile functional connector loader (in development)
 - **Public MCP:** Public A-Team API spec (extension definitions)
 - **Builder System:** This repository (UI + validation)
 - **Example:** EXAMPLE_AGENT_BUILD_PLUGIN.md (complete walkthrough)
 
 ---
 
-**This document defines the architectural principle that makes A-Team extensible across all layers: backend, frontend, and platform services.**
+**This document defines the architectural principle that makes A-Team extensible across all layers: backend (connectors), frontend (UI plugins), and mobile (functional connectors).**

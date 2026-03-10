@@ -1967,6 +1967,44 @@ function buildSolutionSpec() {
       },
     },
 
+    functional_connectors: {
+      type: 'array', required: false,
+      description: 'Background services and functional connectors for mobile/native environments. These run client-side without UI, handling device data collection, offline sync, background tasks, etc.',
+      item_schema: {
+        id: { type: 'string', required: true, pattern: '^[a-z0-9\\-]+$', description: 'Unique connector ID (lowercase, hyphens only). Example: "device-bridge"' },
+        name: { type: 'string', required: true, description: 'Display name (1-100 characters)' },
+        description: { type: 'string', required: false, description: 'What this connector does (1-500 characters)' },
+        module: {
+          type: 'string', required: true, pattern: '^@?[a-z0-9\\-]+(/[a-z0-9\\-]+)?$',
+          description: 'NPM module path. Examples: "@mobile-pa/device-bridge", "my-connector". Module must be pre-installed in mobile app.',
+        },
+        type: {
+          type: 'enum', required: false,
+          values: ['background', 'service'],
+          description: '"background" = runs continuously (location tracking, sync), "service" = runs on demand. Default: "background"',
+        },
+        autoStart: {
+          type: 'boolean', required: false,
+          description: 'Auto-start when tenant is selected (requires permissions). Default: true',
+        },
+        permissions: {
+          type: 'string[]', required: false,
+          description: 'Native capabilities required. Valid values: "calendar", "contacts", "location", "battery", "connectivity", "notifications". Example: ["calendar", "location"]',
+        },
+        backgroundSync: {
+          type: 'boolean', required: false,
+          description: 'Enable background task registration (allows sync even when app is backgrounded). Default: false. Requires expo-task-manager.',
+        },
+        config: {
+          type: 'object', required: false,
+          description: 'Runtime configuration passed to connector constructor. Keys depend on connector implementation.',
+          fields: {
+            // Flexible object — no fixed schema
+          },
+        },
+      },
+    },
+
     // ── Models ──
     models: {
       grant_economy: {

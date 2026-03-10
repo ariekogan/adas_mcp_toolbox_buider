@@ -1101,6 +1101,23 @@ function buildExampleSolution() {
       },
     ],
 
+    // ── Functional Connectors (optional, mobile/native only) ──
+    functional_connectors: [
+      {
+        id: 'device-bridge',
+        name: 'Device Data Bridge',
+        description: 'Real-time device data collection and relay sync for mobile clients. Collects calendar, contacts, location, battery, notifications.',
+        module: '@mobile-pa/device-bridge',
+        type: 'background',
+        autoStart: true,
+        permissions: ['calendar', 'contacts', 'location', 'battery', 'connectivity', 'notifications'],
+        backgroundSync: true,
+        config: {
+          deviceIdPrefix: 'ateam-mobile-',
+        },
+      },
+    ],
+
     // ── Voice Channel (optional) ──
     voice: {
       _note: 'Voice channel configuration. On deploy, these settings are automatically pushed to the voice backend. Remove this block entirely to skip voice setup.',
