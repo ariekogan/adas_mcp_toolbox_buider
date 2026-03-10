@@ -1151,6 +1151,65 @@ function buildExampleSolution() {
     },
 
     // ═══════════════════════════════════════════════════════════════════════
+    // GITHUB ITERATION WORKFLOW
+    // ═══════════════════════════════════════════════════════════════════════
+    // After the first deploy, connector code is auto-pushed to GitHub.
+    // Use this workflow to iterate without re-passing inline mcp_store.
+    _github_workflow_example: {
+      _note: 'After the first deploy, every solution has a GitHub repo. Use this workflow to iterate on connector code.',
+      step_1_first_deploy: {
+        _description: 'First deploy includes mcp_store (creates the GitHub repo)',
+        tool: 'ateam_build_and_run',
+        params: {
+          solution: '{ ... solution definition ... }',
+          skills: '[ ... skill definitions ... ]',
+          connectors: '[ { id: "orders-mcp", name: "Orders MCP", transport: "stdio" } ]',
+          mcp_store: { 'orders-mcp': [{ path: 'server.js', content: '// ... server code ...' }, { path: 'package.json', content: '{ "name": "orders-mcp", "type": "module" }' }] },
+        },
+        result: 'Solution deployed + auto-pushed to GitHub repo (tenant--solution-id)',
+      },
+      step_2_edit_code: {
+        _description: 'Edit connector code directly in GitHub',
+        tool: 'ateam_github_patch',
+        params: {
+          solution_id: 'ecom-customer-service',
+          files: [{ path: 'connectors/orders-mcp/server.js', content: '// ... updated server code ...' }],
+          message: 'fix: handle null order IDs gracefully',
+        },
+      },
+      step_3_redeploy_from_github: {
+        _description: 'Redeploy pulling connector code from GitHub (no mcp_store needed)',
+        tool: 'ateam_build_and_run',
+        params: {
+          solution: '{ ... solution definition ... }',
+          skills: '[ ... skill definitions ... ]',
+          github: true,
+        },
+        result: 'Connector code auto-pulled from GitHub, deployed to A-Team Core',
+      },
+      step_4_test: {
+        _description: 'Test the updated skill',
+        tool: 'ateam_test_skill',
+        params: {
+          solution_id: 'ecom-customer-service',
+          skill_id: 'order-support',
+          message: 'What is the status of order 12345?',
+        },
+      },
+      step_5_update_definitions: {
+        _description: 'To change skill definitions (not connector code), use ateam_patch',
+        tool: 'ateam_patch',
+        params: {
+          solution_id: 'ecom-customer-service',
+          target: 'skill',
+          skill_id: 'order-support',
+          updates: { 'problem.statement': 'Updated problem statement for order support' },
+        },
+        _note: 'Skill definitions live in the Builder, not in GitHub. ateam_patch updates them directly.',
+      },
+    },
+
+    // ═══════════════════════════════════════════════════════════════════════
     // DEPLOY BODY EXAMPLE
     // ═══════════════════════════════════════════════════════════════════════
     // POST /deploy/solution with this body. No slug or Python MCP code needed.

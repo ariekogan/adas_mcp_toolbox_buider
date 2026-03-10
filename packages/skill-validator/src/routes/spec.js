@@ -76,6 +76,15 @@ function buildIndex() {
       '19. GET /deploy/solutions/:id/connectors/:connectorId/source — inspect connector source code',
       '--- Voice Testing ---',
       '20. POST /deploy/voice-test — simulate a voice conversation (text-based E2E test). Send { messages: ["Hello", "Acme", "Check vehicle 7"], phone_number?: "+14155551234" }. Returns full conversation with verification status, tool calls, and skill results.',
+      '--- GitHub Version Control ---',
+      '21. Every successful deploy auto-pushes the full solution to a GitHub repo (tenant--solution-id). The repo is the source of truth for connector source code.',
+      '22. GET /deploy/solutions/:id/github/status — check repo existence and latest commit',
+      '23. GET /deploy/solutions/:id/github/log — view commit history',
+      '24. GET /deploy/solutions/:id/github/read?path=connectors/my-mcp/server.js — read a file from repo',
+      '25. PATCH /deploy/solutions/:id/github/patch — edit files in repo (single or multi-file). Body: { files: [{ path, content }] } or { path, content } for single file',
+      '26. POST /deploy/solutions/:id/github/pull-connectors — pull connector source from GitHub repo as mcp_store format (for github-first deploys)',
+      '--- GitHub-First Iteration Loop ---',
+      '27. After the first deploy, iterate on connector code via GitHub: PATCH /deploy/solutions/:id/github/patch to edit code → POST /deploy/solution with github:true to redeploy from repo (no inline mcp_store needed)',
     ],
     endpoints: {
       '/spec/enums': {
@@ -152,6 +161,14 @@ function buildIndex() {
       'GET /deploy/solutions/:solutionId/metrics': 'Execution metrics — timing, bottlenecks, tool stats, signals. Query: ?job_id=X or ?skill_id=X',
       'GET /deploy/solutions/:solutionId/connectors/:connectorId/source': 'Connector source code — read the MCP server files',
       'GET /deploy/solutions/:solutionId/diff': 'Diff Builder vs Core — shows undeployed, orphaned, or changed skills. Query: ?skill_id=X',
+      // GitHub Version Control
+      'GET /deploy/solutions/:solutionId/github/status': 'GitHub repo status — exists, latest commit, URL',
+      'GET /deploy/solutions/:solutionId/github/log': 'GitHub commit history — recent commits with message, author, date',
+      'GET /deploy/solutions/:solutionId/github/read': 'Read a file from GitHub repo — query: ?path=connectors/my-mcp/server.js',
+      'POST /deploy/solutions/:solutionId/github/push': 'Force-push current solution state to GitHub (normally auto-pushed on deploy)',
+      'PATCH /deploy/solutions/:solutionId/github/patch': 'Edit files in GitHub repo — single file { path, content } or multi-file { files: [{ path, content }] }',
+      'POST /deploy/solutions/:solutionId/github/pull': 'Pull full solution from GitHub and re-deploy (full round-trip)',
+      'POST /deploy/solutions/:solutionId/github/pull-connectors': 'Pull ONLY connector source files from GitHub as mcp_store format — used by github-first deploys',
       'GET /health': 'Health check',
     },
     deploy_guide: {
@@ -1133,6 +1150,12 @@ function buildSkillSpec() {
         '5b. (Optional) For proactive behavior: add static schedule triggers with specific prompts, OR add sys.trigger to bootstrap_tools so the agent can create dynamic triggers at runtime (cron, interval, or one-shot). If the skill needs to send notifications, link a messaging connector (telegram-mcp, gmail-mcp). See key_concepts.proactive_messaging and solution spec dynamic_triggers for the full pattern.',
         '6. POST /validate/skill with { "skill": <your definition> } — fix all errors before proceeding',
         '7. POST /deploy/solution — deploy everything at once (connectors + skills). The Skill Builder auto-generates Python MCP servers from your skill tool definitions. You do NOT need to write slugs or Python MCP code for skills — only connector implementations.',
+        '--- After First Deploy: GitHub Iteration ---',
+        '8. Every deploy auto-pushes to GitHub. The repo ({tenant}--{solution-id}) is the source of truth for connector code.',
+        '9. To edit connector code: ateam_github_patch with { files: [{ path: "connectors/{id}/server.js", content: "..." }] }',
+        '10. To redeploy from GitHub: ateam_build_and_run with github:true — connector code is auto-pulled from repo (no inline mcp_store needed)',
+        '11. To edit skill definitions: ateam_patch — definitions live in the Builder, not GitHub',
+        '12. To verify: ateam_test_skill or ateam_test_pipeline — test without connector changes too',
       ],
       naming_conventions: {
         skill_id: 'lowercase-kebab-case (e.g., "order-support", "identity-assurance")',
@@ -1178,6 +1201,11 @@ function buildSkillSpec() {
         'Forgetting timezone for cron triggers — "cron:0 9 * * *" fires at 9 AM UTC. If the user is in a different timezone, pass timezone: "Asia/Jerusalem" (or appropriate IANA timezone).',
         'Creating one-shot triggers without auto_delete — the trigger stays in the database after firing. Use auto_delete: true (default for once:) to clean up automatically.',
         'Wrong schedule format — must be "cron:<expr>", "every:<duration>", or "once:<datetime>". Missing the type prefix (e.g., just "0 15 * * *" instead of "cron:0 15 * * *") will fail.',
+        // ── GITHUB ITERATION MISTAKES ──
+        'Using github:true on the FIRST deploy — the GitHub repo does not exist yet. The first deploy MUST include mcp_store (inline connector code) to create the repo.',
+        'Passing mcp_store AND github:true together — pick one. If github:true, connector code is pulled from GitHub. If mcp_store is provided, it is used directly.',
+        'Editing skill definitions via GitHub — skill definitions (intents, tools, policy) live in the Builder, not in connector code. Use ateam_patch for definition changes, ateam_github_patch for connector code changes.',
+        'Forgetting to redeploy after ateam_github_patch — patching GitHub only updates the repo. You must call ateam_build_and_run(github:true) to redeploy with the new code.',
       ],
       key_concepts: {
         connector_runtime: 'A-Team Core runs connector MCP servers on Node.js 22.x with full ESM support. Recommended: use @modelcontextprotocol/sdk with StdioServerTransport — it is the simplest and most reliable approach. Make sure package.json has "type": "module" and lists @modelcontextprotocol/sdk + zod as dependencies. Alternative: implement raw JSON-RPC over stdio with readline if you prefer zero dependencies. See the connector examples for both patterns.',
@@ -1462,6 +1490,37 @@ function buildWorkflows() {
             'Verify deployment with adas_get_solution (view: "health")',
           ],
         },
+        {
+          id: 'GITHUB_ITERATION',
+          order: 11,
+          label: 'GitHub Iteration',
+          goal: 'Iterate on connector code and skill definitions using GitHub as the source of truth',
+          what_to_do: [
+            'After the first deploy, connector code is auto-pushed to a GitHub repo (tenant--solution-id)',
+            'To edit connector code: use ateam_github_patch (edits files in GitHub directly)',
+            'To redeploy from GitHub: use ateam_build_and_run with github:true (pulls connector code from repo, no inline mcp_store needed)',
+            'To update skill definitions (intents, tools, policy): use ateam_patch (no GitHub needed — definitions live in the Builder)',
+            'To test: use ateam_test_skill or ateam_test_pipeline',
+          ],
+          iteration_loop: [
+            '1. Edit connector code → ateam_github_patch({ files: [{ path: "connectors/my-mcp/server.js", content: "..." }] })',
+            '2. Redeploy from GitHub → ateam_build_and_run({ solution, skills, github: true }) — connector code auto-pulled from repo',
+            '3. Test → ateam_test_skill({ message: "test query" })',
+            '4. Fix & repeat until working',
+          ],
+          when_to_use_what: {
+            'ateam_github_patch': 'Edit connector source code (server.js, utils, package.json, UI assets)',
+            'ateam_patch': 'Edit skill definitions (intents, tools, policy, engine) or solution definitions (grants, handoffs, routing)',
+            'ateam_build_and_run(github:true)': 'Redeploy solution pulling latest connector code from GitHub',
+            'ateam_build_and_run(mcp_store)': 'First deploy or when you want to pass connector code inline',
+          },
+          tips: [
+            'The first deploy MUST include mcp_store (inline connector code) — this creates the GitHub repo',
+            'After that, use ateam_github_patch + ateam_build_and_run(github:true) for faster iteration',
+            'github:true only pulls connector source files — skill definitions are always passed in the build_and_run call',
+            'Check commit history with ateam_github_status or ateam_github_log to verify changes',
+          ],
+        },
       ],
       completeness_fields: [
         'problem — problem.statement >= 10 chars',
@@ -1638,6 +1697,48 @@ function buildWorkflows() {
           ],
         },
       ],
+    },
+
+    github_workflow: {
+      description: 'GitHub-first development workflow — how to iterate on solutions after the first deploy',
+      repo_structure: {
+        _note: 'Every solution gets a GitHub repo named {tenant}--{solution-id} (e.g., main--ecommerce-solution)',
+        layout: {
+          'solution.json': 'Full solution definition (identity, grants, handoffs, routing)',
+          'skills/{skill-id}/skill.json': 'Individual skill definitions',
+          'connectors/{connector-id}/server.js': 'Connector MCP server source code',
+          'connectors/{connector-id}/package.json': 'Connector dependencies',
+          'connectors/{connector-id}/ui-dist/': 'UI plugin assets (if ui_capable)',
+        },
+      },
+      first_deploy: {
+        description: 'The first deploy creates the GitHub repo automatically',
+        steps: [
+          '1. Build solution + skills + connector code',
+          '2. Call ateam_build_and_run with mcp_store containing connector source files',
+          '3. On success, the solution is auto-pushed to GitHub (Phase 5 of deploy)',
+          '4. The repo is now the source of truth for connector code',
+        ],
+      },
+      iteration_loop: {
+        description: 'After the first deploy, iterate using GitHub as the code source',
+        code_changes: [
+          '1. Edit connector code: ateam_github_patch({ files: [{ path: "connectors/my-mcp/server.js", content: "..." }] })',
+          '2. Redeploy: ateam_build_and_run({ solution, skills, github: true })',
+          '3. Test: ateam_test_skill({ message: "..." })',
+        ],
+        definition_changes: [
+          '1. Edit skill/solution definitions: ateam_patch({ target: "skill", updates: { ... } })',
+          '2. No GitHub needed — definitions live in the Builder, not in connector code',
+        ],
+      },
+      tools_reference: {
+        'ateam_github_patch': 'Edit connector files in GitHub repo. Use for server.js, package.json, UI assets.',
+        'ateam_github_status': 'Check if repo exists and get latest commit info.',
+        'ateam_github_log': 'View commit history to track changes.',
+        'ateam_github_read': 'Read a specific file from the repo (e.g., to review current connector code before editing).',
+        'ateam_build_and_run(github:true)': 'Deploy pulling connector code from GitHub instead of inline mcp_store.',
+      },
     },
 
     conversation_guide: {

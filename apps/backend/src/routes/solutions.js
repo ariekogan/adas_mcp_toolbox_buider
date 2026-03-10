@@ -1398,6 +1398,97 @@ router.get('/:id/diff', async (req, res, next) => {
   }
 });
 
+/**
+ * Get functional connectors for a solution
+ * GET /api/solutions/:id/functional-connectors
+ *
+ * Returns the functional_connectors array transformed into ConnectorDefinition format
+ * with bundle URLs resolved. Used by ateam-mobile to discover and load background services.
+ *
+ * Each connector is transformed from:
+ *   { id, package, config_keys, ... }
+ * To:
+ *   { id, bundle_url, config: { key1: '', key2: '', ... }, ... }
+ */
+router.get('/:id/functional-connectors', async (req, res, next) => {
+  try {
+    const solutionId = req.params.id;
+    const solution = await solutionsStore.load(solutionId);
+
+    if (!solution) {
+      return res.status(404).json({ error: 'Solution not found' });
+    }
+
+    const rawConnectors = solution.functional_connectors || [];
+
+    // Transform connectors from solution schema to mobile app ConnectorDefinition schema
+    const connectors = rawConnectors.map(raw => ({
+      id: raw.id,
+      package: raw.package,
+      description: raw.description,
+      capabilities: raw.capabilities || [],
+
+      // Bundle URL: resolve package name to CDN URL
+      // Format: @scope/package-name -> CDN URL
+      // For now: https://cdn.jsdelivr.net/npm/@scope/package-name/dist/connector.js
+      // TODO: Make configurable via environment variable
+      bundle_url: resolveBundleUrl(raw.package),
+
+      // Config template: create object with config_keys as empty values
+      // Mobile app will resolve these from environment/settings
+      config: createConfigTemplate(raw.config_keys || []),
+
+      // Optional mobile-specific settings
+      sync_interval: raw.sync_interval || 60_000, // 60s default
+    }));
+
+    res.json({
+      ok: true,
+      solution_id: solutionId,
+      connectors,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Resolve a package name to a bundle URL
+ * @param {string} packageName - e.g., '@mobile-pa/device-bridge'
+ * @returns {string} Bundle URL
+ */
+function resolveBundleUrl(packageName) {
+  if (!packageName) return null;
+
+  // Try environment variable override first
+  const envVar = `CONNECTOR_BUNDLE_${packageName.toUpperCase().replace(/[@/-]/g, '_')}`;
+  if (process.env[envVar]) {
+    return process.env[envVar];
+  }
+
+  // Default: jsdelivr CDN (can be overridden per package or globally)
+  const cdnBase = process.env.CONNECTOR_CDN_BASE || 'https://cdn.jsdelivr.net/npm';
+
+  // @scope/package-name -> @scope/package-name/dist/connector.js
+  const bundlePath = `${packageName}/dist/connector.js`;
+  return `${cdnBase}/${bundlePath}`;
+}
+
+/**
+ * Create configuration template from config keys
+ * @param {string[]} keys - Configuration key names
+ * @returns {object} Config object with keys as empty strings
+ */
+function createConfigTemplate(keys) {
+  const config = {};
+  if (Array.isArray(keys)) {
+    keys.forEach(key => {
+      config[key] = ''; // Mobile app will populate these
+    });
+  }
+  return config;
+}
+
 // Mount validation sub-router
 router.use("/", validationRouter);
 

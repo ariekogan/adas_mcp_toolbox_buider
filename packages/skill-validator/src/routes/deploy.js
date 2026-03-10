@@ -2147,6 +2147,69 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
   }
 });
 
+/**
+ * POST /deploy/solutions/:solutionId/github/pull-connectors
+ *
+ * Reads connector source files from the GitHub repo and returns them
+ * as an mcp_store object — ready to merge into a deploy request.
+ * This is the backend for build_and_run's github:true flag.
+ *
+ * Unlike github/pull (which does a full deploy), this just reads files.
+ */
+router.post('/solutions/:solutionId/github/pull-connectors', async (req, res) => {
+  try {
+    if (!github.isEnabled()) {
+      return res.status(503).json({ ok: false, error: 'GitHub integration disabled' });
+    }
+    const tenant = req.headers['x-adas-tenant'];
+    if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
+
+    const solId = req.params.solutionId;
+
+    // List all files in the repo
+    let allFiles;
+    try {
+      allFiles = await github.listFiles(tenant, solId);
+    } catch (err) {
+      return res.status(404).json({
+        ok: false,
+        error: `No GitHub repo found for solution "${solId}": ${err.message}`,
+        hint: 'Deploy the solution first (with mcp_store) to auto-create the GitHub repo.',
+      });
+    }
+
+    // Filter to connector files only
+    const connectorFiles = allFiles.filter(f => f.path.startsWith('connectors/'));
+    if (connectorFiles.length === 0) {
+      return res.json({ ok: true, mcp_store: {}, reason: 'No connector files in repo' });
+    }
+
+    // Group by connector ID and read content
+    const mcpStore = {};
+    for (const f of connectorFiles) {
+      const parts = f.path.split('/');
+      if (parts.length < 3) continue;
+      const connId = parts[1];
+      const filePath = parts.slice(2).join('/');
+      if (!mcpStore[connId]) mcpStore[connId] = [];
+      try {
+        const fileData = await github.readFile(tenant, solId, f.path);
+        mcpStore[connId].push({ path: filePath, content: fileData.content });
+      } catch { /* skip unreadable files */ }
+    }
+
+    res.json({
+      ok: true,
+      mcp_store: mcpStore,
+      connectors_found: Object.keys(mcpStore).length,
+      files_loaded: Object.values(mcpStore).reduce((sum, files) => sum + files.length, 0),
+    });
+  } catch (err) {
+    console.error('[GitHub] Pull connectors error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // VOICE SIMULATION (text-based E2E testing)
 // ═══════════════════════════════════════════════════════════════════════════
