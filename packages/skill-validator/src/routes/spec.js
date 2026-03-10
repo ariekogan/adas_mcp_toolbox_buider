@@ -30,6 +30,7 @@ const ENUMS = buildEnums();
 const SKILL_SPEC = buildSkillSpec();
 const SOLUTION_SPEC = buildSolutionSpec();
 const WORKFLOWS = buildWorkflows();
+const MOBILE_CONNECTOR_SPEC = buildMobileConnectorSpec();
 const INDEX = buildIndex();
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -41,6 +42,7 @@ router.get('/enums', (_req, res) => res.set(CACHE_HEADERS).json(ENUMS));
 router.get('/skill', (_req, res) => res.set(CACHE_HEADERS).json(SKILL_SPEC));
 router.get('/solution', (_req, res) => res.set(CACHE_HEADERS).json(SOLUTION_SPEC));
 router.get('/workflows', (_req, res) => res.set(CACHE_HEADERS).json(WORKFLOWS));
+router.get('/mobile-connector', (_req, res) => res.set(CACHE_HEADERS).json(MOBILE_CONNECTOR_SPEC));
 
 export default router;
 
@@ -102,6 +104,10 @@ function buildIndex() {
       '/spec/workflows': {
         method: 'GET',
         description: 'Builder workflows — the step-by-step state machines for building skills and solutions. Use this to guide users through the build process.',
+      },
+      '/spec/mobile-connector': {
+        method: 'GET',
+        description: 'Mobile connector specification — build functional connectors (background services) for ateam-mobile. Access device capabilities via Native Bridge SDK.',
       },
       '/spec/examples': {
         method: 'GET',
@@ -2544,3 +2550,73 @@ if (hostReady) tryLiveData();`,
     },
   };
 }
+
+/**
+ * Mobile Connector specification
+ * Enables AI agents to build functional connectors (background services) for mobile-pa
+ */
+function buildMobileConnectorSpec() {
+  return {
+    service: '@adas/mobile-connector-builder',
+    version: '1.0.0',
+    description: 'Build functional connectors (background services) for the mobile-pa solution. Connectors run in ateam-mobile app at runtime and access device capabilities via the Native Bridge SDK.',
+
+    overview: {
+      what_is_a_connector: 'A pure JavaScript module that runs in ateam-mobile app. Zero React Native, zero native modules. Uses ONLY bridge.* APIs to access device capabilities (calendar, location, contacts, battery, network, notifications, sms, maps, http, storage, permissions, device, log).',
+      when_to_build: 'Build when mobile-pa needs a background service that collects device data, syncs to cloud, polls for actions, or manages device state independently of UI.',
+      examples: 'device-bridge (collect & sync), battery-monitor, connectivity-tracker, notification-processor',
+      execution_model: 'Pure JavaScript in sandboxed scope — connector only sees bridge + config, no access to React Native or globals',
+    },
+
+    connector_interface: {
+      description: 'Every connector must export this interface',
+      required_fields: ['id', 'name', 'version', 'onStart'],
+      optional_hooks: ['onSync', 'onForeground', 'onAction', 'onStop'],
+    },
+
+    bridge_apis: {
+      description: '13 namespaces for device capabilities. All async, pure JS.',
+      available: ['calendar', 'contacts', 'location', 'battery', 'network', 'notifications', 'sms', 'maps', 'http', 'storage', 'permissions', 'device', 'log'],
+      details: 'See MOBILE_CONNECTOR_DEVELOPER_GUIDE.md for complete API reference with examples',
+    },
+
+    declaration: {
+      description: 'Declare connector in mobile-pa solution.json',
+      example_fields: {
+        id: 'device-bridge',
+        type: 'service',
+        package: '@mobile-pa/device-bridge',
+        capabilities: ['calendar', 'contacts', 'location', 'battery', 'connectivity', 'notifications'],
+        config_keys: ['relay_url', 'device_id', 'api_key'],
+        sync_interval: 60000,
+      },
+    },
+
+    build_deploy_cycle: {
+      step_1: 'Build: npm run build:connector — compile to dist/connector.js',
+      step_2: 'Publish: npm publish — push @mobile-pa/your-connector to npm',
+      step_3: 'Declare: Add to solution.json functional_connectors[]',
+      step_4: 'Deploy: Solution deploy triggers Builder API endpoint',
+      step_5: 'Load: Mobile app discovers connectors, loads at runtime',
+    },
+
+    references: {
+      public_guide: 'MOBILE_CONNECTOR_DEVELOPER_GUIDE.md — Quick start for AI agents (573 lines)',
+      full_spec: 'mobile/NATIVE_BRIDGE_SDK_SPEC.md — Complete specification (936 lines)',
+      working_example: 'mobile/packages/device-bridge/src/dynamic-connector.ts — Real connector (412 lines)',
+      bridge_types: 'ateam-mobile/src/bridge/types.ts — TypeScript interfaces',
+      runtime: 'ateam-mobile/src/runtime/connector-runtime.ts — Sandbox and execution',
+    },
+
+    learning_path: [
+      '1. Read this spec (/spec/mobile-connector)',
+      '2. Read MOBILE_CONNECTOR_DEVELOPER_GUIDE.md for quick reference and patterns',
+      '3. Study mobile/packages/device-bridge/src/dynamic-connector.ts for working example',
+      '4. Build your connector using bridge.* APIs only',
+      '5. Test with mobile app on device (or simulator)',
+      '6. Declare in solution.json and deploy',
+    ],
+  };
+}
+
+export default router;
