@@ -45,6 +45,8 @@ import path from 'node:path';
 import { Router } from 'express';
 import { validateSolution } from '../validators/solutionValidator.js';
 import { expandSkill } from '../services/skillExpander.js';
+import * as github from '../services/githubService.js';
+import { buildRepoFiles } from '../services/githubRepoBuilder.js';
 
 const router = Router();
 
@@ -1893,6 +1895,255 @@ router.get('/mcp-store', async (req, res) => {
   } catch (err) {
     console.error('[Deploy] mcp-store list error:', err.message);
     res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GITHUB INTEGRATION — Version control for solutions
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/solutions/:solutionId/github/push — Push solution to GitHub
+ *
+ * Fetches export bundle + connector source, commits atomically.
+ * Auto-creates repo on first use.
+ */
+router.post('/solutions/:solutionId/github/push', async (req, res) => {
+  try {
+    if (!github.isEnabled()) {
+      return res.json({ ok: true, skipped: true, reason: 'GitHub integration disabled' });
+    }
+
+    const solId = req.params.solutionId;
+    const tenant = req.headers['x-adas-tenant'];
+    if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
+
+    const message = req.body?.message || `Deploy ${solId}`;
+
+    // 1. Fetch export bundle
+    const exportResp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/export`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!exportResp.ok) {
+      const text = await exportResp.text().catch(() => '');
+      return res.status(exportResp.status).json({ ok: false, error: `Export failed: ${text}` });
+    }
+    const exportBundle = await exportResp.json();
+
+    // 2. Fetch connector sources
+    const connectorSources = {};
+    const connectors = exportBundle.connectors || [];
+    for (const conn of connectors) {
+      const connId = conn.id || conn.name;
+      if (!connId) continue;
+      try {
+        const srcResp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/connectors/${encodeURIComponent(connId)}/source`, {
+          headers: sbHeaders(req),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (srcResp.ok) {
+          const srcData = await srcResp.json();
+          connectorSources[connId] = srcData.files || srcData;
+        }
+      } catch (err) {
+        console.warn(`[GitHub] Could not fetch source for connector ${connId}: ${err.message}`);
+      }
+    }
+
+    // 3. Build repo files
+    const files = buildRepoFiles(exportBundle, connectorSources);
+
+    // 4. Ensure repo exists
+    const repoInfo = await github.ensureRepo(tenant, solId,
+      exportBundle.solution?.description || `A-Team solution: ${solId}`);
+
+    // 5. Push files
+    const result = await github.pushFiles(tenant, solId, files, message);
+
+    res.json({
+      ok: true,
+      repo_url: repoInfo.repo_url,
+      repo_created: repoInfo.created,
+      ...result,
+    });
+  } catch (err) {
+    console.error('[GitHub] Push error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/github/status — Repo status
+ */
+router.get('/solutions/:solutionId/github/status', async (req, res) => {
+  try {
+    if (!github.isEnabled()) {
+      return res.json({ ok: true, enabled: false });
+    }
+    const tenant = req.headers['x-adas-tenant'];
+    if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
+
+    const status = await github.getRepoStatus(tenant, req.params.solutionId);
+    res.json({ ok: true, ...status });
+  } catch (err) {
+    console.error('[GitHub] Status error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/github/read?path=... — Read a file
+ */
+router.get('/solutions/:solutionId/github/read', async (req, res) => {
+  try {
+    if (!github.isEnabled()) {
+      return res.status(503).json({ ok: false, error: 'GitHub integration disabled' });
+    }
+    const tenant = req.headers['x-adas-tenant'];
+    if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
+
+    const filePath = req.query.path;
+    if (!filePath) return res.status(400).json({ ok: false, error: 'Missing ?path= parameter' });
+
+    const file = await github.readFile(tenant, req.params.solutionId, filePath);
+    res.json({ ok: true, ...file });
+  } catch (err) {
+    console.error('[GitHub] Read error:', err.message);
+    res.status(err.message.includes('404') ? 404 : 500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * POST /deploy/solutions/:solutionId/github/patch — Edit a file and commit
+ * Body: { path, content, message? }
+ */
+router.post('/solutions/:solutionId/github/patch', async (req, res) => {
+  try {
+    if (!github.isEnabled()) {
+      return res.status(503).json({ ok: false, error: 'GitHub integration disabled' });
+    }
+    const tenant = req.headers['x-adas-tenant'];
+    if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
+
+    const { path: filePath, content, message } = req.body || {};
+    if (!filePath) return res.status(400).json({ ok: false, error: 'Missing path in body' });
+    if (content === undefined) return res.status(400).json({ ok: false, error: 'Missing content in body' });
+
+    const result = await github.patchFile(tenant, req.params.solutionId, filePath, content, message);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[GitHub] Patch error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /deploy/solutions/:solutionId/github/log?limit=N — Commit history
+ */
+router.get('/solutions/:solutionId/github/log', async (req, res) => {
+  try {
+    if (!github.isEnabled()) {
+      return res.status(503).json({ ok: false, error: 'GitHub integration disabled' });
+    }
+    const tenant = req.headers['x-adas-tenant'];
+    if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
+
+    const limit = parseInt(req.query.limit) || 10;
+    const log = await github.getLog(tenant, req.params.solutionId, limit);
+    res.json({ ok: true, ...log });
+  } catch (err) {
+    console.error('[GitHub] Log error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * POST /deploy/solutions/:solutionId/github/pull — Deploy FROM GitHub
+ * Reads .ateam/export.json from the repo and feeds it into the deploy pipeline.
+ */
+router.post('/solutions/:solutionId/github/pull', async (req, res) => {
+  try {
+    if (!github.isEnabled()) {
+      return res.status(503).json({ ok: false, error: 'GitHub integration disabled' });
+    }
+    const tenant = req.headers['x-adas-tenant'];
+    if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
+
+    const solId = req.params.solutionId;
+
+    // 1. Read export.json from repo
+    let exportFile;
+    try {
+      exportFile = await github.readFile(tenant, solId, '.ateam/export.json');
+    } catch (err) {
+      return res.status(404).json({
+        ok: false,
+        error: `Could not read .ateam/export.json from repo: ${err.message}`,
+        hint: 'Push the solution to GitHub first with ateam_github_push.',
+      });
+    }
+
+    let bundle;
+    try {
+      bundle = JSON.parse(exportFile.content);
+    } catch {
+      return res.status(400).json({ ok: false, error: 'Invalid JSON in .ateam/export.json' });
+    }
+
+    // 2. Also read connector source files from repo
+    const connectorSources = {};
+    try {
+      const allFiles = await github.listFiles(tenant, solId);
+      const connectorFiles = allFiles.filter(f => f.path.startsWith('connectors/'));
+
+      // Group by connector ID
+      for (const f of connectorFiles) {
+        // connectors/<connectorId>/<filepath>
+        const parts = f.path.split('/');
+        if (parts.length < 3) continue;
+        const connId = parts[1];
+        const filePath = parts.slice(2).join('/');
+        if (!connectorSources[connId]) connectorSources[connId] = [];
+        // Read file content
+        try {
+          const fileData = await github.readFile(tenant, solId, f.path);
+          connectorSources[connId].push({ path: filePath, content: fileData.content });
+        } catch { /* skip unreadable files */ }
+      }
+    } catch (err) {
+      console.warn(`[GitHub] Could not list repo files: ${err.message}`);
+    }
+
+    // 3. Deploy via the solution import endpoint
+    const deployBody = {
+      solution: bundle.solution,
+      skills: bundle.skills,
+      connectors: bundle.connectors,
+    };
+
+    // Add connector sources as mcp_store
+    if (Object.keys(connectorSources).length > 0) {
+      deployBody.mcp_store = connectorSources;
+    }
+
+    const deployResp = await fetch(`${SKILL_BUILDER_URL}/api/import/solution`, {
+      method: 'POST',
+      headers: sbHeaders(req),
+      body: JSON.stringify(deployBody),
+      signal: AbortSignal.timeout(300000),
+    });
+
+    const deployData = await deployResp.json();
+    res.status(deployResp.status).json({
+      ok: deployData.ok !== false,
+      source: 'github',
+      repo_url: `https://github.com/${github.repoName(tenant, solId)}`,
+      ...deployData,
+    });
+  } catch (err) {
+    console.error('[GitHub] Pull error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
