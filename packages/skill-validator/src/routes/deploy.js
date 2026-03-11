@@ -1029,15 +1029,16 @@ router.post('/solution', async (req, res) => {
       console.log(`[Deploy] Voice config pushed: ${JSON.stringify(voiceDeploy.summary)}`);
     }
 
-    // ── Auto-push to GitHub (if enabled) ──
+    // ── Ensure GitHub repo exists (on first deploy only) ──
+    // Auto-push only on first deploy (repo creation). Subsequent updates require explicit ateam_github_push.
     let githubDeploy = null;
     if (github.isEnabled()) {
       try {
         const tenant = req.headers['x-adas-tenant'];
         if (!tenant) {
-          console.warn('[GitHub] No X-ADAS-TENANT header, skipping auto-push');
+          console.warn('[GitHub] No X-ADAS-TENANT header, skipping GitHub repo setup');
         } else {
-          console.log(`[GitHub] Auto-pushing solution "${solution.id}" to GitHub repo "${tenant}--${solution.id}"`);
+          console.log(`[GitHub] Ensuring solution repo exists: "${tenant}--${solution.id}"`);
 
           // 1. Ensure repo exists (creates if not found)
           const repoInfo = await github.ensureRepo(
@@ -1045,57 +1046,73 @@ router.post('/solution', async (req, res) => {
             solution.id,
             solution.description || `A-Team solution: ${solution.id}`
           );
-          console.log(`[GitHub] Repo ready: ${repoInfo.repo_url} (created=${repoInfo.created})`);
 
-          // 2. Build export bundle
-          const exportBundle = {
-            solution,
-            skills: expandedSkills,
-            connectors: resolvedConnectors,
-            timestamp: new Date().toISOString(),
-          };
+          // Only auto-push if repo was just created (first deploy)
+          if (repoInfo.created) {
+            console.log(`[GitHub] ✓ Repo created: ${repoInfo.repo_url}. Auto-pushing initial files...`);
 
-          // 3. Build connector sources from mcp_store
-          const connectorSources = {};
-          if (mcp_store && Object.keys(mcp_store).length > 0) {
-            for (const [connId, files] of Object.entries(mcp_store)) {
-              connectorSources[connId] = files || [];
+            // 2. Build export bundle
+            const exportBundle = {
+              solution,
+              skills: expandedSkills,
+              connectors: resolvedConnectors,
+              timestamp: new Date().toISOString(),
+            };
+
+            // 3. Build connector sources from mcp_store
+            const connectorSources = {};
+            if (mcp_store && Object.keys(mcp_store).length > 0) {
+              for (const [connId, files] of Object.entries(mcp_store)) {
+                connectorSources[connId] = files || [];
+              }
             }
+
+            // 4. Build repo files
+            const repoFiles = buildRepoFiles(exportBundle, connectorSources);
+            console.log(`[GitHub] Built ${repoFiles.length} files for initial push`);
+
+            // 5. Push to GitHub
+            const pushResult = await github.pushFiles(
+              tenant,
+              solution.id,
+              repoFiles,
+              `Initial deployment: ${solution.id} v${solution.version || '1.0.0'}`
+            );
+
+            githubDeploy = {
+              ok: true,
+              repo_url: repoInfo.repo_url,
+              repo_created: true,
+              repo_name: repoInfo.full_name,
+              commit_sha: pushResult.commit_sha,
+              commit_url: pushResult.commit_url,
+              files_committed: pushResult.files_committed,
+              message: 'Initial files pushed to GitHub. Use ateam_github_push to update in future deploys.',
+            };
+
+            console.log(`[GitHub] ✓ Pushed ${pushResult.files_committed} files to ${repoInfo.repo_url} (commit: ${pushResult.commit_sha.substring(0, 7)})`);
+          } else {
+            // Repo already exists - no auto-push, require explicit ateam_github_push
+            githubDeploy = {
+              ok: true,
+              repo_url: repoInfo.repo_url,
+              repo_created: false,
+              repo_name: repoInfo.full_name,
+              message: 'Repo already exists. To update GitHub with latest changes, use: ateam_github_push(solution_id)',
+            };
+
+            console.log(`[GitHub] Repo exists: ${repoInfo.repo_url}. Skipping auto-push. Use ateam_github_push to update.`);
           }
-
-          // 4. Build repo files
-          const repoFiles = buildRepoFiles(exportBundle, connectorSources);
-          console.log(`[GitHub] Built ${repoFiles.length} files for repo push`);
-
-          // 5. Push to GitHub
-          const pushResult = await github.pushFiles(
-            tenant,
-            solution.id,
-            repoFiles,
-            `Deploy: ${solution.id} v${solution.version || '1.0.0'}`
-          );
-
-          githubDeploy = {
-            ok: true,
-            repo_url: repoInfo.repo_url,
-            repo_created: repoInfo.created,
-            repo_name: repoInfo.full_name,
-            commit_sha: pushResult.commit_sha,
-            commit_url: pushResult.commit_url,
-            files_committed: pushResult.files_committed,
-          };
-
-          console.log(`[GitHub] ✓ Pushed ${pushResult.files_committed} files to ${repoInfo.repo_url} (commit: ${pushResult.commit_sha.substring(0, 7)})`);
         }
       } catch (err) {
-        console.error(`[GitHub] Auto-push failed: ${err.message}`);
+        console.error(`[GitHub] Repo setup failed: ${err.message}`);
         githubDeploy = {
           ok: false,
           error: err.message,
         };
         deployWarnings.push({
           github: true,
-          warning: `Auto-push to GitHub failed: ${err.message}. Use ateam_github_push to retry manually.`,
+          warning: `GitHub repo setup failed: ${err.message}. Use ateam_github_push to set up or update manually.`,
         });
       }
     }
