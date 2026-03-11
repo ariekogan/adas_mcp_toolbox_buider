@@ -1053,22 +1053,30 @@ router.post('/solution', async (req, res) => {
 
             // 2. Build export bundle
             const exportBundle = {
-              solution,
-              skills: expandedSkills,
-              connectors: resolvedConnectors,
+              solution: solution || {},
+              skills: Array.isArray(expandedSkills) ? expandedSkills : [],
+              connectors: Array.isArray(resolvedConnectors) ? resolvedConnectors : [],
               timestamp: new Date().toISOString(),
             };
 
             // 3. Build connector sources from mcp_store
             const connectorSources = {};
-            if (mcp_store && Object.keys(mcp_store).length > 0) {
+            if (mcp_store && typeof mcp_store === 'object' && Object.keys(mcp_store).length > 0) {
               for (const [connId, files] of Object.entries(mcp_store)) {
-                connectorSources[connId] = files || [];
+                if (Array.isArray(files)) {
+                  connectorSources[connId] = files;
+                }
               }
             }
 
             // 4. Build repo files
-            const repoFiles = buildRepoFiles(exportBundle, connectorSources);
+            let repoFiles = [];
+            try {
+              repoFiles = buildRepoFiles(exportBundle, connectorSources);
+            } catch (buildErr) {
+              console.error(`[GitHub] buildRepoFiles failed: ${buildErr.message}`);
+              throw new Error(`Failed to build repo files: ${buildErr.message}`);
+            }
             console.log(`[GitHub] Built ${repoFiles.length} files for initial push`);
 
             // 5. Push to GitHub
