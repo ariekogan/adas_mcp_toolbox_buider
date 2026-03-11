@@ -1,0 +1,158 @@
+/**
+ * Deploy Routes
+ *
+ * POST /api/deploy/solution
+ * Deploys a complete solution with all skills and connectors to A-Team Core.
+ *
+ * Accepts:
+ * - solution: solution definition (id, name, identity, grants, handoffs, routing)
+ * - skills[]: array of skill definitions
+ * - connectors[]: array of connector metadata
+ * - mcp_store: optional connector source code (key -> array of {path, content})
+ */
+
+import { Router } from 'express';
+import solutionsStore from '../store/solutions.js';
+import skillsStore from '../store/skills.js';
+import { deploySkillToADAS, deployIdentityToADAS } from '../services/exportDeploy.js';
+import fs from 'fs';
+import path from 'path';
+
+const router = Router();
+
+/**
+ * POST /api/deploy/solution
+ * Deploy a complete solution to A-Team Core
+ */
+router.post('/solution', async (req, res, next) => {
+  try {
+    const log = req.app.locals.log;
+    const { solution, skills = [], connectors = [], mcp_store = {}, github = false } = req.body;
+
+    if (!solution || !solution.id) {
+      return res.status(400).json({ ok: false, error: 'Missing solution.id' });
+    }
+
+    if (!Array.isArray(skills)) {
+      return res.status(400).json({ ok: false, error: 'skills must be an array' });
+    }
+
+    log.info(`[Deploy] Starting deployment of solution "${solution.id}"...`);
+    log.info(`[Deploy] GitHub mode: ${github ? 'enabled (will pull from GitHub)' : 'disabled (using inline mcp_store)'}`);
+    log.info(`[Deploy] Skills: ${skills.length}, Connectors: ${connectors.length}`);
+
+    // Step 1: Save solution to Skill Builder
+    try {
+      log.info(`[Deploy] Saving solution "${solution.id}" to Skill Builder...`);
+      await solutionsStore.save(solution.id, solution);
+      log.info(`[Deploy] Solution saved successfully`);
+    } catch (err) {
+      log.error(`[Deploy] Failed to save solution: ${err.message}`);
+      return res.status(500).json({
+        ok: false,
+        error: 'Failed to save solution to Skill Builder',
+        details: err.message
+      });
+    }
+
+    // Step 2: Save skills to Skill Builder
+    const savedSkills = [];
+    for (const skill of skills) {
+      if (!skill.id) {
+        log.warn(`[Deploy] Skipping skill with no id`);
+        continue;
+      }
+      try {
+        log.info(`[Deploy] Saving skill "${skill.id}"...`);
+        await skillsStore.save(solution.id, skill.id, skill);
+        savedSkills.push(skill.id);
+        log.info(`[Deploy] Skill "${skill.id}" saved`);
+      } catch (err) {
+        log.error(`[Deploy] Failed to save skill "${skill.id}": ${err.message}`);
+        // Continue with other skills
+      }
+    }
+
+    // Step 3: Save connector source code (mcp_store) if provided
+    if (Object.keys(mcp_store).length > 0) {
+      try {
+        log.info(`[Deploy] Saving connector source code from mcp_store...`);
+        const connectorDir = path.join(process.env.TENANTS_ROOT || '/memory', 'connectors');
+        if (!fs.existsSync(connectorDir)) {
+          fs.mkdirSync(connectorDir, { recursive: true });
+        }
+
+        for (const [connectorId, files] of Object.entries(mcp_store)) {
+          const connPath = path.join(connectorDir, connectorId);
+          fs.mkdirSync(connPath, { recursive: true });
+
+          for (const file of files) {
+            const filePath = path.join(connPath, file.path);
+            const fileDir = path.dirname(filePath);
+            fs.mkdirSync(fileDir, { recursive: true });
+            fs.writeFileSync(filePath, file.content, 'utf-8');
+            log.info(`[Deploy] Saved connector file: ${connectorId}/${file.path}`);
+          }
+        }
+      } catch (err) {
+        log.warn(`[Deploy] Failed to save connector source code: ${err.message}`);
+        // Continue even if mcp_store save fails
+      }
+    }
+
+    // Step 4: Deploy to ADAS Core
+    try {
+      log.info(`[Deploy] Deploying to A-Team Core...`);
+
+      // Deploy identity
+      log.info(`[Deploy] Deploying solution identity...`);
+      const identityResult = await deployIdentityToADAS(solution);
+      log.info(`[Deploy] Identity deployed`, identityResult);
+
+      // Deploy each skill
+      const deployedSkills = [];
+      for (const skill of skills) {
+        if (!savedSkills.includes(skill.id)) continue;
+        try {
+          log.info(`[Deploy] Deploying skill "${skill.id}" to A-Team Core...`);
+          const result = await deploySkillToADAS(solution.id, skill.id);
+          deployedSkills.push({ id: skill.id, status: 'deployed', result });
+          log.info(`[Deploy] Skill "${skill.id}" deployed successfully`);
+        } catch (err) {
+          log.error(`[Deploy] Failed to deploy skill "${skill.id}": ${err.message}`);
+          deployedSkills.push({ id: skill.id, status: 'failed', error: err.message });
+        }
+      }
+
+      log.info(`[Deploy] Deployment complete. ${deployedSkills.filter(s => s.status === 'deployed').length}/${deployedSkills.length} skills deployed`);
+
+      // Return success response
+      return res.json({
+        ok: true,
+        solution_id: solution.id,
+        solution_name: solution.name,
+        solution_version: solution.version,
+        skills_deployed: deployedSkills.filter(s => s.status === 'deployed').length,
+        skills_total: deployedSkills.length,
+        skills: deployedSkills,
+        message: `Solution "${solution.id}" deployed to A-Team Core`
+      });
+
+    } catch (err) {
+      log.error(`[Deploy] Failed to deploy to A-Team Core: ${err.message}`);
+      return res.status(500).json({
+        ok: false,
+        error: 'Deployment to A-Team Core failed',
+        details: err.message,
+        solution_id: solution.id,
+        skills_deployed: 0
+      });
+    }
+
+  } catch (err) {
+    req.app.locals.log.error(`[Deploy] Unexpected error: ${err.message}`);
+    return res.status(500).json({ ok: false, error: 'Internal server error', details: err.message });
+  }
+});
+
+export default router;
