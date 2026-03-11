@@ -1997,10 +1997,55 @@ function buildSolutionSpec() {
         },
       },
 
-      // ── UI Plugins ──
+      // ── UI Plugins (Web + React Native) ──
+      //
+      // UI Plugins provide RICH INTERACTIVE DASHBOARDS for both web and mobile.
+      // The same backend API supports both rendering modes simultaneously.
+      //
+      // MODES:
+      // • mode="iframe"        — Web-only (HTML/JavaScript in <iframe>)
+      // • mode="react-native"  — Mobile-only (React Native component)
+      // • mode="adaptive"      — Both platforms (different implementations per platform)
+      //
+      // SHARED CONCEPT: Skills request plugins via tools.ui.present(), which triggers
+      // the appropriate rendering based on platform (web gets iframe, mobile gets native component).
+      //
+      // UNIFIED DEPLOYMENT:
+      // Both web (iframe) and React Native plugins are deployed together via ateam_build_and_run.
+      // The system auto-validates, auto-uploads, and auto-verifies both types. Skills don't care
+      // which rendering mode is used — the skill-plugin contract is identical.
+      //
+      // EXAMPLE — UNIFIED SOLUTION:
+      // {
+      //   "ui_plugins": [
+      //     {
+      //       "id": "mcp:ecommerce-mcp:order-dashboard",
+      //       "render": {
+      //         "mode": "adaptive",
+      //         "iframeUrl": "/ui/order-dashboard/1.0.0/index.html",  // ← For web
+      //         "reactNative": { "component": "OrderDashboard" }      // ← For mobile
+      //       }
+      //     }
+      //   ]
+      // }
+      //
+      // WEB DEVELOPERS: See docs/UI_PLUGIN_ARCHITECTURE.md for HTML/React patterns
+      // MOBILE DEVELOPERS: See docs/REACT_NATIVE_UI_PLUGINS_ARCHITECTURE.md + example-plugins/
+      //
       ui_plugins: {
         type: 'array', required: false,
-        description: 'UI plugins served by ui_capable connectors. These are interactive dashboards that communicate with connector tools via postMessage (web) or plugin SDK (mobile).',
+        description: 'Interactive UI plugins for web (iframe) and mobile (React Native). Single skill request works on both platforms. Deployed together with auto-validation and auto-verification.',
+
+        // ← This description is VISIBLE in public API (GET /spec/solution)
+
+        key_concepts: {
+          'unified_plugin_spec': 'Both web (iframe) and React Native (native) plugins use THE SAME API. Skills request plugins via tools.ui.present() without caring which render mode—the platform handles it automatically.',
+          'render_modes': 'mode="iframe" for web-only (HTML in <iframe>), mode="react-native" for mobile-only (React Native component), mode="adaptive" for both platforms (different implementation per platform)',
+          'same_backend_apis': 'Both web and mobile plugins use identical skill-plugin APIs: props in, events out. Skills don\'t differentiate between render modes.',
+          'unified_deployment': 'Deploy both web and React Native plugins together via ateam_build_and_run. System auto-validates, uploads, tests, and verifies both types. Single verification response.',
+          'developer_guides': 'Web developers: docs/UI_PLUGIN_ARCHITECTURE.md | Mobile developers: docs/REACT_NATIVE_UI_PLUGINS_ARCHITECTURE.md + example-plugins/',
+        },
+
         item_schema: {
           id: { type: 'string', required: true, description: 'Unique plugin identifier. Format: "mcp:<connector-id>:<plugin-name>"' },
           name: { type: 'string', required: true, description: 'Display name (1-100 characters)' },

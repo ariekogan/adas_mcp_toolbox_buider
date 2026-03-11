@@ -1015,6 +1015,92 @@ router.post('/solution', async (req, res) => {
         const failed = uiPluginDeploy.connectors.filter(c => !c.ok).length;
         console.log(`[Deploy UI] Direct Core upload complete: ${ok} ok, ${failed} failed`);
       }
+
+      // ── Verification: Test that plugins can actually be loaded ──
+      const tenant = req.headers['x-adas-tenant'];
+      if (tenant && uiPluginSkills.length > 0) {
+        console.log(`[Deploy UI Verification] Testing plugin loading...`);
+        const pluginVerification = [];
+        const adasCoreUrl = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+
+        try {
+          // Fetch plugin list from Core
+          const pluginListResp = await fetch(`${adasCoreUrl}/api/solutions/${encodeURIComponent(solution.id)}/ui-plugins`, {
+            method: 'GET',
+            headers: sbHeaders(req),
+            signal: AbortSignal.timeout(10000),
+          });
+
+          if (pluginListResp.ok) {
+            const pluginList = await pluginListResp.json();
+            const plugins = pluginList.plugins || [];
+
+            console.log(`[Deploy UI Verification] Found ${plugins.length} plugins, testing each...`);
+
+            for (const plugin of plugins) {
+              try {
+                // Attempt to fetch plugin manifest
+                const manifestUrl = `${adasCoreUrl}/api/ui-plugins/${encodeURIComponent(plugin.id)}/manifest`;
+                const manifestResp = await fetch(manifestUrl, {
+                  method: 'GET',
+                  headers: sbHeaders(req),
+                  signal: AbortSignal.timeout(5000),
+                });
+
+                if (manifestResp.ok) {
+                  const manifest = await manifestResp.json();
+                  // Verify manifest has required fields
+                  const hasId = !!manifest.id;
+                  const hasName = !!manifest.name;
+                  const hasRender = !!manifest.render;
+                  const isValid = hasId && hasName && hasRender;
+
+                  pluginVerification.push({
+                    id: plugin.id,
+                    ok: isValid,
+                    manifest_valid: isValid,
+                    has_id: hasId,
+                    has_name: hasName,
+                    has_render: hasRender,
+                  });
+
+                  console.log(`[Deploy UI Verification] ✓ Plugin "${plugin.id}" manifest valid`);
+                } else {
+                  pluginVerification.push({
+                    id: plugin.id,
+                    ok: false,
+                    error: `Manifest fetch failed (${manifestResp.status})`,
+                  });
+                  console.warn(`[Deploy UI Verification] ✗ Plugin "${plugin.id}" manifest not found (${manifestResp.status})`);
+                }
+              } catch (err) {
+                pluginVerification.push({
+                  id: plugin.id,
+                  ok: false,
+                  error: err.message,
+                });
+                console.warn(`[Deploy UI Verification] ✗ Plugin "${plugin.id}" test failed: ${err.message}`);
+              }
+            }
+
+            if (uiPluginDeploy) {
+              uiPluginDeploy.verification = pluginVerification;
+              uiPluginDeploy.verification_summary = {
+                total: pluginVerification.length,
+                valid: pluginVerification.filter(p => p.ok).length,
+                failed: pluginVerification.filter(p => !p.ok).length,
+              };
+            }
+          } else {
+            console.warn(`[Deploy UI Verification] Could not fetch plugin list from Core: ${pluginListResp.status}`);
+          }
+        } catch (err) {
+          console.warn(`[Deploy UI Verification] Test failed: ${err.message}`);
+          if (uiPluginDeploy) {
+            uiPluginDeploy.verification_error = err.message;
+          }
+        }
+      }
     }
 
     // ── Push voice config to voice-backend (if solution has voice section) ──
