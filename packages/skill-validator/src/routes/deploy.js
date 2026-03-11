@@ -1029,6 +1029,77 @@ router.post('/solution', async (req, res) => {
       console.log(`[Deploy] Voice config pushed: ${JSON.stringify(voiceDeploy.summary)}`);
     }
 
+    // ── Auto-push to GitHub (if enabled) ──
+    let githubDeploy = null;
+    if (github.isEnabled()) {
+      try {
+        const tenant = req.headers['x-adas-tenant'];
+        if (!tenant) {
+          console.warn('[GitHub] No X-ADAS-TENANT header, skipping auto-push');
+        } else {
+          console.log(`[GitHub] Auto-pushing solution "${solution.id}" to GitHub repo "${tenant}--${solution.id}"`);
+
+          // 1. Ensure repo exists (creates if not found)
+          const repoInfo = await github.ensureRepo(
+            tenant,
+            solution.id,
+            solution.description || `A-Team solution: ${solution.id}`
+          );
+          console.log(`[GitHub] Repo ready: ${repoInfo.repo_url} (created=${repoInfo.created})`);
+
+          // 2. Build export bundle
+          const exportBundle = {
+            solution,
+            skills: expandedSkills,
+            connectors: resolvedConnectors,
+            timestamp: new Date().toISOString(),
+          };
+
+          // 3. Build connector sources from mcp_store
+          const connectorSources = {};
+          if (mcp_store && Object.keys(mcp_store).length > 0) {
+            for (const [connId, files] of Object.entries(mcp_store)) {
+              connectorSources[connId] = files || [];
+            }
+          }
+
+          // 4. Build repo files
+          const repoFiles = buildRepoFiles(exportBundle, connectorSources);
+          console.log(`[GitHub] Built ${repoFiles.length} files for repo push`);
+
+          // 5. Push to GitHub
+          const pushResult = await github.pushFiles(
+            tenant,
+            solution.id,
+            repoFiles,
+            `Deploy: ${solution.id} v${solution.version || '1.0.0'}`
+          );
+
+          githubDeploy = {
+            ok: true,
+            repo_url: repoInfo.repo_url,
+            repo_created: repoInfo.created,
+            repo_name: repoInfo.full_name,
+            commit_sha: pushResult.commit_sha,
+            commit_url: pushResult.commit_url,
+            files_committed: pushResult.files_committed,
+          };
+
+          console.log(`[GitHub] ✓ Pushed ${pushResult.files_committed} files to ${repoInfo.repo_url} (commit: ${pushResult.commit_sha.substring(0, 7)})`);
+        }
+      } catch (err) {
+        console.error(`[GitHub] Auto-push failed: ${err.message}`);
+        githubDeploy = {
+          ok: false,
+          error: err.message,
+        };
+        deployWarnings.push({
+          github: true,
+          warning: `Auto-push to GitHub failed: ${err.message}. Use ateam_github_push to retry manually.`,
+        });
+      }
+    }
+
     res.json({
       ok: deployResult.ok,
       solution_id: solution.id,
@@ -1039,6 +1110,7 @@ router.post('/solution', async (req, res) => {
         connectors: (importData.package?.mcps || []).length,
       },
       deploy: deployResult,
+      ...(githubDeploy && { github: githubDeploy }),
       ...(voiceDeploy && { voice: voiceDeploy.summary }),
       ...(uiPluginDeploy && { ui_plugin_deploy: uiPluginDeploy }),
       ...(preValidation.errors?.length > 0 && { validation_errors: preValidation.errors }),
@@ -1049,6 +1121,7 @@ router.post('/solution', async (req, res) => {
         `GET /deploy/solutions/${solution.id}/health — verify skills deployed and connectors healthy`,
         `GET /deploy/solutions/${solution.id}/definition — read back the solution definition`,
         `GET /deploy/solutions/${solution.id}/skills — list deployed skills with internal IDs`,
+        ...(githubDeploy?.ok ? [`View on GitHub: ${githubDeploy.repo_url}`] : []),
       ],
     });
   } catch (err) {
