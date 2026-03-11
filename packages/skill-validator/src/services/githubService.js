@@ -269,3 +269,141 @@ export async function listFiles(tenant, solutionId) {
     .filter(t => t.type === 'blob')
     .map(t => ({ path: t.path, size: t.size }));
 }
+
+/**
+ * Push files to dev branch and create date-based version tag.
+ * Automatically cleans up old tags (keeps last X).
+ *
+ * @param {string} tenant
+ * @param {string} solutionId
+ * @param {Array<{ path, content }>} files
+ * @param {string} message - commit message
+ * @param {number} keepVersions - number of old versions to keep (default 10)
+ * @returns {{ branch: "dev", tag: "dev-YYYY-MM-DD-NNN", commit_sha, cleaned_tags: [] }}
+ */
+export async function pushToDev(tenant, solutionId, files, message = 'Update solution', keepVersions = 10) {
+  const name = repoName(tenant, solutionId);
+  const fullName = `${OWNER}/${name}`;
+  const branch = 'dev';
+
+  // 1. Get or create dev branch
+  let devSha = null;
+  try {
+    const ref = await gh('GET', `/repos/${fullName}/git/ref/heads/${branch}`);
+    devSha = ref.object.sha;
+  } catch {
+    // Dev branch doesn't exist — create it from main
+    try {
+      const mainRef = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
+      const mainSha = mainRef.object.sha;
+      await gh('POST', `/repos/${fullName}/git/refs`, {
+        ref: `refs/heads/${branch}`,
+        sha: mainSha,
+      });
+      devSha = mainSha;
+    } catch (err) {
+      throw new Error(`Cannot create dev branch: ${err.message}`);
+    }
+  }
+
+  // 2. Get current tree
+  const commit = await gh('GET', `/repos/${fullName}/git/commits/${devSha}`);
+  const treeSha = commit.tree.sha;
+
+  // 3. Create blobs for all files
+  const treeItems = [];
+  for (const file of files) {
+    const blob = await gh('POST', `/repos/${fullName}/git/blobs`, {
+      content: file.content,
+      encoding: 'utf-8',
+    });
+    treeItems.push({
+      path: file.path,
+      mode: '100644',
+      type: 'blob',
+      sha: blob.sha,
+    });
+  }
+
+  // 4. Create tree
+  const tree = await gh('POST', `/repos/${fullName}/git/trees`, {
+    base_tree: treeSha,
+    tree: treeItems,
+  });
+
+  // 5. Create commit
+  const newCommit = await gh('POST', `/repos/${fullName}/git/commits`, {
+    message,
+    tree: tree.sha,
+    parents: [devSha],
+  });
+
+  // 6. Update dev branch ref
+  await gh('PATCH', `/repos/${fullName}/git/refs/heads/${branch}`, {
+    sha: newCommit.sha,
+  });
+
+  // 7. Create date-based version tag
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+
+  // Get existing tags for today to determine counter
+  let tagCounter = 1;
+  try {
+    const tags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
+    const todayTags = tags.filter(t => t.ref.startsWith(`refs/tags/dev-${dateStr}-`));
+    if (todayTags.length > 0) {
+      const lastTag = todayTags[todayTags.length - 1];
+      const lastCounter = parseInt(lastTag.ref.split('-').pop());
+      tagCounter = lastCounter + 1;
+    }
+  } catch { /* no tags yet */ }
+
+  const tagName = `dev-${dateStr}-${String(tagCounter).padStart(3, '0')}`;
+
+  // Create annotated tag
+  await gh('POST', `/repos/${fullName}/git/tags`, {
+    tag: tagName,
+    message: `Development version: ${tagName}`,
+    object: newCommit.sha,
+    type: 'commit',
+  });
+
+  // Create ref for the tag
+  await gh('POST', `/repos/${fullName}/git/refs`, {
+    ref: `refs/tags/${tagName}`,
+    sha: newCommit.sha,
+  });
+
+  // 8. Clean up old tags (keep last X)
+  const cleanedTags = [];
+  try {
+    const allTags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
+    const devTags = allTags
+      .filter(t => t.ref.startsWith('refs/tags/dev-'))
+      .sort()
+      .reverse(); // newest first
+
+    // Delete old tags
+    for (let i = keepVersions; i < devTags.length; i++) {
+      const oldTag = devTags[i].ref.replace('refs/tags/', '');
+      try {
+        await gh('DELETE', `/repos/${fullName}/git/refs/tags/${oldTag}`);
+        cleanedTags.push(oldTag);
+      } catch (err) {
+        console.warn(`Could not delete tag ${oldTag}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    console.warn(`Error cleaning up tags: ${err.message}`);
+  }
+
+  return {
+    branch,
+    tag: tagName,
+    commit_sha: newCommit.sha,
+    commit_url: `https://github.com/${fullName}/commit/${newCommit.sha}`,
+    dev_branch_url: `https://github.com/${fullName}/tree/${branch}`,
+    cleaned_tags: cleanedTags,
+  };
+}
