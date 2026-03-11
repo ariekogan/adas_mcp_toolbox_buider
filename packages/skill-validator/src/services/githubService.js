@@ -407,3 +407,240 @@ export async function pushToDev(tenant, solutionId, files, message = 'Update sol
     cleaned_tags: cleanedTags,
   };
 }
+
+/**
+ * Promote a dev version to main (production).
+ *
+ * Strategy:
+ * 1. Find the target commit (from tag or latest dev)
+ * 2. Merge dev → main via merge commit
+ * 3. Create production tag on main
+ * 4. Return merge result
+ *
+ * @param {string} tenant
+ * @param {string} solutionId
+ * @param {string} tagName - Optional: specific dev tag to promote (e.g., "dev-2026-03-11-005")
+ *                          If omitted, uses latest dev tag
+ * @returns {{ promoted: true, tag, main_branch_url, merge_commit_sha, ... }}
+ */
+export async function promote(tenant, solutionId, tagName = null) {
+  const name = repoName(tenant, solutionId);
+  const fullName = `${OWNER}/${name}`;
+
+  // 1. Find target commit SHA
+  let targetSha = null;
+  let resolvedTag = tagName;
+
+  if (tagName) {
+    // Use the specified tag
+    try {
+      const tagRef = await gh('GET', `/repos/${fullName}/git/refs/tags/${tagName}`);
+      targetSha = tagRef.object.sha;
+
+      // If tag is annotated, get the commit SHA
+      if (tagRef.object.type === 'tag') {
+        const tagObj = await gh('GET', `/repos/${fullName}/git/tags/${tagRef.object.sha}`);
+        targetSha = tagObj.object.sha;
+      }
+    } catch (err) {
+      throw new Error(`Tag not found: ${tagName}. Cannot promote.`);
+    }
+  } else {
+    // Find latest dev tag
+    try {
+      const tags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
+      const devTags = tags
+        .filter(t => t.ref.startsWith('refs/tags/dev-'))
+        .sort()
+        .reverse(); // newest first
+
+      if (devTags.length === 0) {
+        throw new Error('No dev tags found. Deploy to dev branch first.');
+      }
+
+      const latestTagRef = devTags[0];
+      resolvedTag = latestTagRef.ref.replace('refs/tags/', '');
+
+      // Get the commit SHA from the tag
+      const tagObj = await gh('GET', `/repos/${fullName}/git/tags/${latestTagRef.object.sha}`);
+      targetSha = tagObj.object.sha;
+    } catch (err) {
+      throw new Error(`Cannot find latest dev tag: ${err.message}`);
+    }
+  }
+
+  // 2. Get main branch current state
+  let mainSha = null;
+  try {
+    const mainRef = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
+    mainSha = mainRef.object.sha;
+  } catch {
+    throw new Error('Main branch not found. Create it first.');
+  }
+
+  // 3. Create merge commit (main ← dev)
+  const mergeMessage = `Promote: merge ${resolvedTag} to main`;
+  let mergeCommit = null;
+
+  try {
+    const result = await gh('POST', `/repos/${fullName}/merges`, {
+      base: 'main',
+      head: resolvedTag, // Can reference tag by name directly
+      commit_message: mergeMessage,
+    });
+
+    if (result.status === 409) {
+      // Merge conflict
+      throw new Error(`Merge conflict detected. Resolve manually on GitHub.`);
+    }
+
+    mergeCommit = result;
+  } catch (err) {
+    // If tag-based merge fails, try commit-based merge
+    try {
+      const result = await gh('POST', `/repos/${fullName}/merges`, {
+        base: 'main',
+        head: targetSha, // Use commit SHA directly
+        commit_message: mergeMessage,
+      });
+
+      mergeCommit = result;
+    } catch (mergeErr) {
+      throw new Error(`Merge failed: ${mergeErr.message}`);
+    }
+  }
+
+  // 4. Get new main ref (merge might not have created a commit if ff-only)
+  let mainHeadSha = mainSha;
+  try {
+    const updatedMainRef = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
+    mainHeadSha = updatedMainRef.object.sha;
+  } catch { /* keep old value */ }
+
+  // 5. Create production tag on main
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+
+  let prodTagCounter = 1;
+  try {
+    const tags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
+    const todayProdTags = tags.filter(t => t.ref.startsWith(`refs/tags/prod-${dateStr}-`));
+    if (todayProdTags.length > 0) {
+      const lastTag = todayProdTags[todayProdTags.length - 1];
+      const lastCounter = parseInt(lastTag.ref.split('-').pop());
+      prodTagCounter = lastCounter + 1;
+    }
+  } catch { /* no tags yet */ }
+
+  const prodTagName = `prod-${dateStr}-${String(prodTagCounter).padStart(3, '0')}`;
+
+  try {
+    // Create annotated tag on main
+    await gh('POST', `/repos/${fullName}/git/tags`, {
+      tag: prodTagName,
+      message: `Production release: ${prodTagName} (promoted from ${resolvedTag})`,
+      object: mainHeadSha,
+      type: 'commit',
+    });
+
+    // Create ref for the tag
+    await gh('POST', `/repos/${fullName}/git/refs`, {
+      ref: `refs/tags/${prodTagName}`,
+      sha: mainHeadSha,
+    });
+  } catch (err) {
+    console.warn(`Could not create production tag ${prodTagName}: ${err.message}`);
+  }
+
+  // 6. Return result
+  return {
+    promoted: true,
+    source_tag: resolvedTag,
+    prod_tag: prodTagName,
+    merge_commit_sha: mergeCommit?.sha || mainHeadSha,
+    merge_commit_url: mergeCommit?.html_url || `https://github.com/${fullName}/commit/${mainHeadSha}`,
+    main_branch_url: `https://github.com/${fullName}/tree/main`,
+    promoted_at: new Date().toISOString(),
+    repo_url: `https://github.com/${fullName}`,
+  };
+}
+
+/**
+ * List all available dev versions (tags) for a solution.
+ *
+ * @param {string} tenant
+ * @param {string} solutionId
+ * @returns {{ versions: Array<{ tag, date, counter, commit_sha }> }}
+ */
+export async function listDevVersions(tenant, solutionId) {
+  const name = repoName(tenant, solutionId);
+  const fullName = `${OWNER}/${name}`;
+
+  try {
+    const tags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
+    const devTags = tags
+      .filter(t => t.ref.startsWith('refs/tags/dev-'))
+      .sort()
+      .reverse(); // newest first
+
+    const versions = devTags.map(t => {
+      const tagName = t.ref.replace('refs/tags/', '');
+      const parts = tagName.split('-'); // dev-YYYY-MM-DD-NNN
+      return {
+        tag: tagName,
+        date: `${parts[1]}-${parts[2]}-${parts[3]}`, // YYYY-MM-DD
+        counter: parseInt(parts[4]),
+        commit_sha: t.object.sha,
+      };
+    });
+
+    return { versions };
+  } catch (err) {
+    throw new Error(`Cannot list dev versions: ${err.message}`);
+  }
+}
+
+/**
+ * Rollback main to a previous production tag.
+ *
+ * ⚠️ DESTRUCTIVE — resets main to a specific commit.
+ *
+ * @param {string} tenant
+ * @param {string} solutionId
+ * @param {string} tagName - Prod tag to rollback to (e.g., "prod-2026-03-10-001")
+ * @returns {{ rolled_back: true, tag, main_commit_sha, ... }}
+ */
+export async function rollback(tenant, solutionId, tagName) {
+  const name = repoName(tenant, solutionId);
+  const fullName = `${OWNER}/${name}`;
+
+  // 1. Get the rollback target commit
+  let targetSha = null;
+  try {
+    const tagRef = await gh('GET', `/repos/${fullName}/git/refs/tags/${tagName}`);
+    const tagObj = await gh('GET', `/repos/${fullName}/git/tags/${tagRef.object.sha}`);
+    targetSha = tagObj.object.sha;
+  } catch {
+    throw new Error(`Tag not found: ${tagName}`);
+  }
+
+  // 2. Update main ref to the target commit
+  try {
+    await gh('PATCH', `/repos/${fullName}/git/refs/heads/main`, {
+      sha: targetSha,
+      force: true,
+    });
+  } catch (err) {
+    throw new Error(`Cannot rollback: ${err.message}`);
+  }
+
+  // 3. Return result
+  return {
+    rolled_back: true,
+    tag: tagName,
+    main_commit_sha: targetSha,
+    main_branch_url: `https://github.com/${fullName}/tree/main`,
+    rolled_back_at: new Date().toISOString(),
+    warning: 'Main branch has been reset. Use with caution.',
+  };
+}

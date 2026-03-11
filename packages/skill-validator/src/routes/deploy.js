@@ -2366,6 +2366,145 @@ router.post('/voice-test', async (req, res) => {
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════
+// GitHub Version Promotion & Management
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /solutions/:solutionId/promote
+ * Promote a dev version to main (production).
+ *
+ * Request body:
+ * {
+ *   "tag": "dev-2026-03-11-005"  // Optional: specific dev tag to promote
+ *                                 // If omitted, promotes latest dev tag
+ * }
+ */
+router.post('/solutions/:solutionId/promote', async (req, res) => {
+  try {
+    const tenant = _td(req).tenant;
+    if (!tenant) {
+      return res.status(400).json({ ok: false, error: 'Tenant not found' });
+    }
+
+    const { solutionId } = req.params;
+    const { tag: specifiedTag } = req.body || {};
+
+    if (!solutionId) {
+      return res.status(400).json({ ok: false, error: 'Solution ID required' });
+    }
+
+    // Check GitHub is enabled
+    if (!github.isEnabled()) {
+      return res.status(503).json({ ok: false, error: 'GitHub integration not configured' });
+    }
+
+    // Promote dev to main
+    const result = await github.promote(tenant, solutionId, specifiedTag);
+
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error('[Deploy] promote error:', e.message);
+    res.status(400).json({ ok: false, error: `Promotion failed: ${e.message}` });
+  }
+});
+
+/**
+ * GET /solutions/:solutionId/versions/dev
+ * List all available dev versions (tags) for a solution.
+ *
+ * Response:
+ * {
+ *   "ok": true,
+ *   "versions": [
+ *     {"tag": "dev-2026-03-11-005", "date": "2026-03-11", "counter": 5, "commit_sha": "..."},
+ *     ...
+ *   ]
+ * }
+ */
+router.get('/solutions/:solutionId/versions/dev', async (req, res) => {
+  try {
+    const tenant = _td(req).tenant;
+    if (!tenant) {
+      return res.status(400).json({ ok: false, error: 'Tenant not found' });
+    }
+
+    const { solutionId } = req.params;
+
+    if (!solutionId) {
+      return res.status(400).json({ ok: false, error: 'Solution ID required' });
+    }
+
+    // Check GitHub is enabled
+    if (!github.isEnabled()) {
+      return res.status(503).json({ ok: false, error: 'GitHub integration not configured' });
+    }
+
+    // List versions
+    const result = await github.listDevVersions(tenant, solutionId);
+
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error('[Deploy] list-versions error:', e.message);
+    res.status(400).json({ ok: false, error: `Failed to list versions: ${e.message}` });
+  }
+});
+
+/**
+ * POST /solutions/:solutionId/rollback
+ * Rollback main branch to a previous production tag.
+ *
+ * ⚠️ DESTRUCTIVE — resets main to a specific commit.
+ *
+ * Request body:
+ * {
+ *   "tag": "prod-2026-03-10-001"  // Required: production tag to rollback to
+ * }
+ */
+router.post('/solutions/:solutionId/rollback', async (req, res) => {
+  try {
+    const tenant = _td(req).tenant;
+    if (!tenant) {
+      return res.status(400).json({ ok: false, error: 'Tenant not found' });
+    }
+
+    const { solutionId } = req.params;
+    const { tag } = req.body || {};
+
+    if (!solutionId) {
+      return res.status(400).json({ ok: false, error: 'Solution ID required' });
+    }
+
+    if (!tag) {
+      return res.status(400).json({ ok: false, error: 'Tag required for rollback' });
+    }
+
+    // Check GitHub is enabled
+    if (!github.isEnabled()) {
+      return res.status(503).json({ ok: false, error: 'GitHub integration not configured' });
+    }
+
+    // Confirm action (require explicit 'confirm' parameter)
+    const { confirm: confirmRollback } = req.body;
+    if (confirmRollback !== true) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Rollback requires explicit confirmation. Set confirm: true in request body.',
+        destructive: true,
+        warning: 'This will reset main branch to the specified tag. Current main will be lost.'
+      });
+    }
+
+    // Rollback
+    const result = await github.rollback(tenant, solutionId, tag);
+
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error('[Deploy] rollback error:', e.message);
+    res.status(400).json({ ok: false, error: `Rollback failed: ${e.message}` });
+  }
+});
+
 export default router;
 
 // ═══════════════════════════════════════════════════════════════════════════
