@@ -4,6 +4,12 @@
  * Uses raw fetch (no dependencies). All repos live under a single GitHub org/user.
  * Atomic multi-file commits via the Git Trees API.
  *
+ * Resilience features:
+ *   - 15s timeout on every GitHub API call (AbortSignal)
+ *   - Automatic retry (2 attempts) on 5xx and network errors with exponential backoff
+ *   - Parallel blob creation (batches of 5)
+ *   - Proper error discrimination in ensureRepo (404 vs other errors)
+ *
  * Env vars:
  *   GITHUB_PAT      — Fine-grained PAT with repos scope
  *   GITHUB_OWNER    — GitHub user or org (default: "ariekogan")
@@ -15,6 +21,11 @@ const OWNER = process.env.GITHUB_OWNER || 'ariekogan';
 const PAT = process.env.GITHUB_PAT || '';
 const ENABLED = process.env.GITHUB_ENABLED !== 'false';
 
+const GH_TIMEOUT_MS = 15_000;   // 15s per API call
+const GH_RETRIES = 2;           // total attempts = 2
+const GH_BACKOFF_MS = 1000;     // initial backoff between retries
+const BLOB_BATCH_SIZE = 5;      // parallel blob uploads
+
 function headers() {
   return {
     'Authorization': `Bearer ${PAT}`,
@@ -24,16 +35,86 @@ function headers() {
   };
 }
 
+/**
+ * Core GitHub API caller with timeout + retry.
+ */
 async function gh(method, path, body) {
-  const opts = { method, headers: headers() };
-  if (body !== undefined) opts.body = JSON.stringify(body);
-  const res = await fetch(`${GITHUB_API}${path}`, opts);
-  if (res.status === 204) return null;
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(`GitHub API ${method} ${path} → ${res.status}: ${data.message || JSON.stringify(data)}`);
+  let lastErr = null;
+
+  for (let attempt = 1; attempt <= GH_RETRIES; attempt++) {
+    try {
+      const opts = {
+        method,
+        headers: headers(),
+        signal: AbortSignal.timeout(GH_TIMEOUT_MS),
+      };
+      if (body !== undefined) opts.body = JSON.stringify(body);
+
+      const res = await fetch(`${GITHUB_API}${path}`, opts);
+
+      if (res.status === 204) return null;
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const err = new Error(`GitHub API ${method} ${path} → ${res.status}: ${data.message || JSON.stringify(data)}`);
+        err.status = res.status;
+
+        // Retry on 5xx (server errors), not on 4xx (client errors)
+        if (res.status >= 500 && attempt < GH_RETRIES) {
+          console.warn(`[GitHub] ${method} ${path} → ${res.status}, retry ${attempt}/${GH_RETRIES}...`);
+          lastErr = err;
+          await sleep(GH_BACKOFF_MS * attempt);
+          continue;
+        }
+        throw err;
+      }
+
+      return data;
+    } catch (err) {
+      // Network errors and timeouts — retry
+      if (err.name === 'TimeoutError' || err.name === 'AbortError' || err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') {
+        console.warn(`[GitHub] ${method} ${path} → ${err.name || err.code}, retry ${attempt}/${GH_RETRIES}...`);
+        lastErr = err;
+        if (attempt < GH_RETRIES) {
+          await sleep(GH_BACKOFF_MS * attempt);
+          continue;
+        }
+      }
+      // If it already has a status (our error from above), or it's the last attempt, throw
+      throw lastErr || err;
+    }
   }
-  return data;
+  throw lastErr;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/**
+ * Create blobs in parallel batches.
+ * @returns {Array<{ path, mode, type, sha }>} tree items
+ */
+async function createBlobsBatch(fullName, files) {
+  const treeItems = [];
+  for (let i = 0; i < files.length; i += BLOB_BATCH_SIZE) {
+    const batch = files.slice(i, i + BLOB_BATCH_SIZE);
+    const results = await Promise.all(
+      batch.map(async (file) => {
+        const blob = await gh('POST', `/repos/${fullName}/git/blobs`, {
+          content: file.content,
+          encoding: 'utf-8',
+        });
+        return {
+          path: file.path,
+          mode: '100644',
+          type: 'blob',
+          sha: blob.sha,
+        };
+      })
+    );
+    treeItems.push(...results);
+  }
+  return treeItems;
 }
 
 /** Build the repo name from tenant + solution ID. */
@@ -48,18 +129,23 @@ export function isEnabled() {
 
 /**
  * Ensure a repo exists under the owner. Creates if not found.
+ * Properly distinguishes 404 (not found) from other errors.
  * @returns {{ repo_url, created }} — created=true if newly created
  */
 export async function ensureRepo(tenant, solutionId, description = '') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  // Check if exists
+  // Check if exists — only treat 404 as "not found"
   try {
     const repo = await gh('GET', `/repos/${fullName}`);
     return { repo_url: repo.html_url, full_name: fullName, created: false };
-  } catch {
-    // Not found — create it
+  } catch (err) {
+    if (err.status !== 404) {
+      // Real error (auth, rate limit, network) — don't try to create
+      throw new Error(`Cannot check repo ${fullName}: ${err.message}`);
+    }
+    // 404 — repo doesn't exist, create it below
   }
 
   const repo = await gh('POST', '/user/repos', {
@@ -74,18 +160,7 @@ export async function ensureRepo(tenant, solutionId, description = '') {
 
 /**
  * Atomic multi-file commit via Git Trees API.
- *
- * 1. Get current HEAD SHA + tree SHA
- * 2. Create blobs for each file
- * 3. Create a new tree with all blobs
- * 4. Create a commit pointing to the new tree
- * 5. Update the ref (main branch)
- *
- * @param {string} tenant
- * @param {string} solutionId
- * @param {{ path: string, content: string }[]} files
- * @param {string} message — commit message
- * @returns {{ commit_sha, commit_url, files_committed }}
+ * Uses parallel blob creation for speed.
  */
 export async function pushFiles(tenant, solutionId, files, message = 'Update solution') {
   const name = repoName(tenant, solutionId);
@@ -102,20 +177,8 @@ export async function pushFiles(tenant, solutionId, files, message = 'Update sol
     throw new Error(`Cannot get HEAD for ${fullName}: ${err.message}`);
   }
 
-  // 2. Create blobs for all files
-  const treeItems = [];
-  for (const file of files) {
-    const blob = await gh('POST', `/repos/${fullName}/git/blobs`, {
-      content: file.content,
-      encoding: 'utf-8',
-    });
-    treeItems.push({
-      path: file.path,
-      mode: '100644',
-      type: 'blob',
-      sha: blob.sha,
-    });
-  }
+  // 2. Create blobs (parallel batches of 5)
+  const treeItems = await createBlobsBatch(fullName, files);
 
   // 3. Create tree
   const tree = await gh('POST', `/repos/${fullName}/git/trees`, {
@@ -273,13 +336,7 @@ export async function listFiles(tenant, solutionId) {
 /**
  * Push files to dev branch and create date-based version tag.
  * Automatically cleans up old tags (keeps last X).
- *
- * @param {string} tenant
- * @param {string} solutionId
- * @param {Array<{ path, content }>} files
- * @param {string} message - commit message
- * @param {number} keepVersions - number of old versions to keep (default 10)
- * @returns {{ branch: "dev", tag: "dev-YYYY-MM-DD-NNN", commit_sha, cleaned_tags: [] }}
+ * Uses parallel blob creation for speed.
  */
 export async function pushToDev(tenant, solutionId, files, message = 'Update solution', keepVersions = 10) {
   const name = repoName(tenant, solutionId);
@@ -310,20 +367,8 @@ export async function pushToDev(tenant, solutionId, files, message = 'Update sol
   const commit = await gh('GET', `/repos/${fullName}/git/commits/${devSha}`);
   const treeSha = commit.tree.sha;
 
-  // 3. Create blobs for all files
-  const treeItems = [];
-  for (const file of files) {
-    const blob = await gh('POST', `/repos/${fullName}/git/blobs`, {
-      content: file.content,
-      encoding: 'utf-8',
-    });
-    treeItems.push({
-      path: file.path,
-      mode: '100644',
-      type: 'blob',
-      sha: blob.sha,
-    });
-  }
+  // 3. Create blobs (parallel batches of 5)
+  const treeItems = await createBlobsBatch(fullName, files);
 
   // 4. Create tree
   const tree = await gh('POST', `/repos/${fullName}/git/trees`, {
@@ -343,11 +388,10 @@ export async function pushToDev(tenant, solutionId, files, message = 'Update sol
     sha: newCommit.sha,
   });
 
-  // 7. Create date-based version tag
+  // 7. Create date-based version tag (with retry on 422 conflict)
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
 
-  // Get existing tags for today to determine counter
   let tagCounter = 1;
   try {
     const tags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
@@ -359,23 +403,34 @@ export async function pushToDev(tenant, solutionId, files, message = 'Update sol
     }
   } catch { /* no tags yet */ }
 
-  const tagName = `dev-${dateStr}-${String(tagCounter).padStart(3, '0')}`;
+  // Retry tag creation on 422 (conflict from concurrent deploys)
+  let tagName = null;
+  for (let tagAttempt = 0; tagAttempt < 3; tagAttempt++) {
+    tagName = `dev-${dateStr}-${String(tagCounter + tagAttempt).padStart(3, '0')}`;
+    try {
+      await gh('POST', `/repos/${fullName}/git/tags`, {
+        tag: tagName,
+        message: `Development version: ${tagName}`,
+        object: newCommit.sha,
+        type: 'commit',
+      });
+      await gh('POST', `/repos/${fullName}/git/refs`, {
+        ref: `refs/tags/${tagName}`,
+        sha: newCommit.sha,
+      });
+      break; // success
+    } catch (err) {
+      if (err.status === 422 && tagAttempt < 2) {
+        console.warn(`[GitHub] Tag ${tagName} already exists, trying next counter...`);
+        continue;
+      }
+      console.warn(`[GitHub] Could not create tag ${tagName}: ${err.message}`);
+      tagName = null; // tag failed, but commit succeeded
+      break;
+    }
+  }
 
-  // Create annotated tag
-  await gh('POST', `/repos/${fullName}/git/tags`, {
-    tag: tagName,
-    message: `Development version: ${tagName}`,
-    object: newCommit.sha,
-    type: 'commit',
-  });
-
-  // Create ref for the tag
-  await gh('POST', `/repos/${fullName}/git/refs`, {
-    ref: `refs/tags/${tagName}`,
-    sha: newCommit.sha,
-  });
-
-  // 8. Clean up old tags (keep last X)
+  // 8. Clean up old tags (keep last X) — best effort, don't fail deploy
   const cleanedTags = [];
   try {
     const allTags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
@@ -400,7 +455,7 @@ export async function pushToDev(tenant, solutionId, files, message = 'Update sol
 
   return {
     branch,
-    tag: tagName,
+    tag: tagName || `dev-${dateStr}-???`,
     commit_sha: newCommit.sha,
     commit_url: `https://github.com/${fullName}/commit/${newCommit.sha}`,
     dev_branch_url: `https://github.com/${fullName}/tree/${branch}`,
@@ -410,18 +465,6 @@ export async function pushToDev(tenant, solutionId, files, message = 'Update sol
 
 /**
  * Promote a dev version to main (production).
- *
- * Strategy:
- * 1. Find the target commit (from tag or latest dev)
- * 2. Merge dev → main via merge commit
- * 3. Create production tag on main
- * 4. Return merge result
- *
- * @param {string} tenant
- * @param {string} solutionId
- * @param {string} tagName - Optional: specific dev tag to promote (e.g., "dev-2026-03-11-005")
- *                          If omitted, uses latest dev tag
- * @returns {{ promoted: true, tag, main_branch_url, merge_commit_sha, ... }}
  */
 export async function promote(tenant, solutionId, tagName = null) {
   const name = repoName(tenant, solutionId);
@@ -432,12 +475,10 @@ export async function promote(tenant, solutionId, tagName = null) {
   let resolvedTag = tagName;
 
   if (tagName) {
-    // Use the specified tag
     try {
       const tagRef = await gh('GET', `/repos/${fullName}/git/refs/tags/${tagName}`);
       targetSha = tagRef.object.sha;
 
-      // If tag is annotated, get the commit SHA
       if (tagRef.object.type === 'tag') {
         const tagObj = await gh('GET', `/repos/${fullName}/git/tags/${tagRef.object.sha}`);
         targetSha = tagObj.object.sha;
@@ -446,13 +487,12 @@ export async function promote(tenant, solutionId, tagName = null) {
       throw new Error(`Tag not found: ${tagName}. Cannot promote.`);
     }
   } else {
-    // Find latest dev tag
     try {
       const tags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
       const devTags = tags
         .filter(t => t.ref.startsWith('refs/tags/dev-'))
         .sort()
-        .reverse(); // newest first
+        .reverse();
 
       if (devTags.length === 0) {
         throw new Error('No dev tags found. Deploy to dev branch first.');
@@ -461,7 +501,6 @@ export async function promote(tenant, solutionId, tagName = null) {
       const latestTagRef = devTags[0];
       resolvedTag = latestTagRef.ref.replace('refs/tags/', '');
 
-      // Get the commit SHA from the tag
       const tagObj = await gh('GET', `/repos/${fullName}/git/tags/${latestTagRef.object.sha}`);
       targetSha = tagObj.object.sha;
     } catch (err) {
@@ -483,34 +522,24 @@ export async function promote(tenant, solutionId, tagName = null) {
   let mergeCommit = null;
 
   try {
-    const result = await gh('POST', `/repos/${fullName}/merges`, {
+    mergeCommit = await gh('POST', `/repos/${fullName}/merges`, {
       base: 'main',
-      head: resolvedTag, // Can reference tag by name directly
+      head: resolvedTag,
       commit_message: mergeMessage,
     });
-
-    if (result.status === 409) {
-      // Merge conflict
-      throw new Error(`Merge conflict detected. Resolve manually on GitHub.`);
-    }
-
-    mergeCommit = result;
-  } catch (err) {
-    // If tag-based merge fails, try commit-based merge
+  } catch {
     try {
-      const result = await gh('POST', `/repos/${fullName}/merges`, {
+      mergeCommit = await gh('POST', `/repos/${fullName}/merges`, {
         base: 'main',
-        head: targetSha, // Use commit SHA directly
+        head: targetSha,
         commit_message: mergeMessage,
       });
-
-      mergeCommit = result;
     } catch (mergeErr) {
       throw new Error(`Merge failed: ${mergeErr.message}`);
     }
   }
 
-  // 4. Get new main ref (merge might not have created a commit if ff-only)
+  // 4. Get new main ref
   let mainHeadSha = mainSha;
   try {
     const updatedMainRef = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
@@ -519,7 +548,7 @@ export async function promote(tenant, solutionId, tagName = null) {
 
   // 5. Create production tag on main
   const now = new Date();
-  const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+  const dateStr = now.toISOString().split('T')[0];
 
   let prodTagCounter = 1;
   try {
@@ -535,15 +564,12 @@ export async function promote(tenant, solutionId, tagName = null) {
   const prodTagName = `prod-${dateStr}-${String(prodTagCounter).padStart(3, '0')}`;
 
   try {
-    // Create annotated tag on main
     await gh('POST', `/repos/${fullName}/git/tags`, {
       tag: prodTagName,
       message: `Production release: ${prodTagName} (promoted from ${resolvedTag})`,
       object: mainHeadSha,
       type: 'commit',
     });
-
-    // Create ref for the tag
     await gh('POST', `/repos/${fullName}/git/refs`, {
       ref: `refs/tags/${prodTagName}`,
       sha: mainHeadSha,
@@ -552,7 +578,6 @@ export async function promote(tenant, solutionId, tagName = null) {
     console.warn(`Could not create production tag ${prodTagName}: ${err.message}`);
   }
 
-  // 6. Return result
   return {
     promoted: true,
     source_tag: resolvedTag,
@@ -567,10 +592,6 @@ export async function promote(tenant, solutionId, tagName = null) {
 
 /**
  * List all available dev versions (tags) for a solution.
- *
- * @param {string} tenant
- * @param {string} solutionId
- * @returns {{ versions: Array<{ tag, date, counter, commit_sha }> }}
  */
 export async function listDevVersions(tenant, solutionId) {
   const name = repoName(tenant, solutionId);
@@ -581,7 +602,7 @@ export async function listDevVersions(tenant, solutionId) {
     const devTags = tags
       .filter(t => t.ref.startsWith('refs/tags/dev-'))
       .sort()
-      .reverse(); // newest first
+      .reverse();
 
     const versions = devTags.map(t => {
       const tagName = t.ref.replace('refs/tags/', '');
@@ -602,19 +623,12 @@ export async function listDevVersions(tenant, solutionId) {
 
 /**
  * Rollback main to a previous production tag.
- *
- * ⚠️ DESTRUCTIVE — resets main to a specific commit.
- *
- * @param {string} tenant
- * @param {string} solutionId
- * @param {string} tagName - Prod tag to rollback to (e.g., "prod-2026-03-10-001")
- * @returns {{ rolled_back: true, tag, main_commit_sha, ... }}
+ * DESTRUCTIVE — resets main to a specific commit.
  */
 export async function rollback(tenant, solutionId, tagName) {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  // 1. Get the rollback target commit
   let targetSha = null;
   try {
     const tagRef = await gh('GET', `/repos/${fullName}/git/refs/tags/${tagName}`);
@@ -624,7 +638,6 @@ export async function rollback(tenant, solutionId, tagName) {
     throw new Error(`Tag not found: ${tagName}`);
   }
 
-  // 2. Update main ref to the target commit
   try {
     await gh('PATCH', `/repos/${fullName}/git/refs/heads/main`, {
       sha: targetSha,
@@ -634,7 +647,6 @@ export async function rollback(tenant, solutionId, tagName) {
     throw new Error(`Cannot rollback: ${err.message}`);
   }
 
-  // 3. Return result
   return {
     rolled_back: true,
     tag: tagName,
