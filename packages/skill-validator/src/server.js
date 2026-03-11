@@ -68,7 +68,11 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ ok: false, error: err.message });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
+  // Deploy pipeline can take 3+ minutes (validation + Core deploy + GitHub push + MCP upload)
+  server.timeout = 300_000;        // 5 min
+  server.keepAliveTimeout = 120_000; // 2 min
+  server.headersTimeout = 305_000;  // slightly above timeout
   console.log(`[A-Team Agent API] Running on port ${PORT}`);
   console.log(`[A-Team Agent API] Endpoints:`);
   console.log(`  GET  /spec                       — API index`);

@@ -141,8 +141,12 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: "Internal server error", message: err.message });
 });
 
-app.listen(port, "0.0.0.0", () => {
-  log.info(`Backend listening on http://0.0.0.0:${port}`);
+const server = app.listen(port, "0.0.0.0", () => {
+  // Deploy can take 3+ minutes (validation + Core deploy + GitHub push + MCP code upload)
+  server.timeout = 300_000;        // 5 min — max time for a request to complete
+  server.keepAliveTimeout = 120_000; // 2 min — keep connections alive between requests
+  server.headersTimeout = 305_000;  // slightly above timeout to prevent race
+  log.info(`Backend listening on http://0.0.0.0:${port} (timeout: 300s)`);
   log.info(`LLM Provider: ${process.env.LLM_PROVIDER || "openai"}`);
   log.info(`Memory Path: ${process.env.MEMORY_PATH || "/memory"}`);
   log.info(`Tenant: ${process.env.SB_TENANT || "main"}`);
