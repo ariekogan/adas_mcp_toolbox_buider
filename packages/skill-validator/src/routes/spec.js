@@ -2618,5 +2618,3 @@ function buildMobileConnectorSpec() {
     ],
   };
 }
-
-export default router;
