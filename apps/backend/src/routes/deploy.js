@@ -15,6 +15,9 @@ import { Router } from 'express';
 import solutionsStore from '../store/solutions.js';
 import skillsStore from '../store/skills.js';
 import { deploySkillToADAS, deployIdentityToADAS } from '../services/exportDeploy.js';
+import { syncConnectorToADAS, startConnectorInADAS, uploadMcpCodeToADAS } from '../services/adasConnectorSync.js';
+import { buildConnectorPayload } from '../utils/connectorPayload.js';
+import adasCore from '../services/adasCoreClient.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -100,6 +103,42 @@ router.post('/solution', async (req, res, next) => {
       }
     }
 
+    // Step 3.5: Register connectors in ADAS Core
+    // This ensures connectors exist before skill deployment tries to sync them.
+    const connectorResults = [];
+    if (connectors.length > 0 || Object.keys(mcp_store).length > 0) {
+      const connectorIds = new Set([
+        ...connectors.map(c => c.id).filter(Boolean),
+        ...Object.keys(mcp_store),
+      ]);
+      for (const connId of connectorIds) {
+        try {
+          const connMeta = connectors.find(c => c.id === connId) || { id: connId, name: connId };
+
+          // Upload source code to ADAS Core if in mcp_store
+          if (mcp_store[connId]) {
+            log.info(`[Deploy] Uploading source code for connector "${connId}"...`);
+            await adasCore.uploadMcpCode(connId, mcp_store[connId]);
+            log.info(`[Deploy] Source code uploaded for "${connId}"`);
+          }
+
+          // Sync connector registration
+          const payload = buildConnectorPayload({ ...connMeta, transport: connMeta.transport || 'stdio' });
+          await syncConnectorToADAS(payload);
+          log.info(`[Deploy] Connector "${connId}" registered in ADAS Core`);
+
+          // Start connector
+          const startResult = await startConnectorInADAS(connId, { transport: payload.transport || 'stdio' });
+          const toolCount = startResult?.tools?.length || 0;
+          connectorResults.push({ id: connId, ok: toolCount > 0, tools: toolCount });
+          log.info(`[Deploy] Connector "${connId}" started (${toolCount} tools)`);
+        } catch (err) {
+          log.warn(`[Deploy] Connector "${connId}" setup failed (non-fatal): ${err.message}`);
+          connectorResults.push({ id: connId, ok: false, error: err.message });
+        }
+      }
+    }
+
     // Step 4: Deploy to ADAS Core
     try {
       log.info(`[Deploy] Deploying to A-Team Core...`);
@@ -135,6 +174,7 @@ router.post('/solution', async (req, res, next) => {
         skills_deployed: deployedSkills.filter(s => s.status === 'deployed').length,
         skills_total: deployedSkills.length,
         skills: deployedSkills,
+        connectors: connectorResults.length > 0 ? connectorResults : undefined,
         message: `Solution "${solution.id}" deployed to A-Team Core`
       });
 
