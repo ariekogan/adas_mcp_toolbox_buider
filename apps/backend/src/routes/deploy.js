@@ -44,7 +44,7 @@ router.post('/solution', async (req, res, next) => {
     // Step 1: Save solution to Skill Builder
     try {
       log.info(`[Deploy] Saving solution "${solution.id}" to Skill Builder...`);
-      await solutionsStore.save(solution.id, solution);
+      await solutionsStore.save(solution);
       log.info(`[Deploy] Solution saved successfully`);
     } catch (err) {
       log.error(`[Deploy] Failed to save solution: ${err.message}`);
@@ -64,7 +64,7 @@ router.post('/solution', async (req, res, next) => {
       }
       try {
         log.info(`[Deploy] Saving skill "${skill.id}"...`);
-        await skillsStore.save(solution.id, skill.id, skill);
+        await skillsStore.save(skill);
         savedSkills.push(skill.id);
         log.info(`[Deploy] Skill "${skill.id}" saved`);
       } catch (err) {
