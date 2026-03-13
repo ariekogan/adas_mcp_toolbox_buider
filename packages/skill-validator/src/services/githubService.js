@@ -501,8 +501,14 @@ export async function promote(tenant, solutionId, tagName = null) {
       const latestTagRef = devTags[0];
       resolvedTag = latestTagRef.ref.replace('refs/tags/', '');
 
-      const tagObj = await gh('GET', `/repos/${fullName}/git/tags/${latestTagRef.object.sha}`);
-      targetSha = tagObj.object.sha;
+      if (latestTagRef.object.type === 'tag') {
+        // Annotated tag — dereference to get commit SHA
+        const tagObj = await gh('GET', `/repos/${fullName}/git/tags/${latestTagRef.object.sha}`);
+        targetSha = tagObj.object.sha;
+      } else {
+        // Lightweight tag — object.sha IS the commit SHA
+        targetSha = latestTagRef.object.sha;
+      }
     } catch (err) {
       throw new Error(`Cannot find latest dev tag: ${err.message}`);
     }
