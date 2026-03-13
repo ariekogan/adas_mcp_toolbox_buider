@@ -2483,10 +2483,8 @@ router.post('/voice-test', async (req, res) => {
  */
 router.post('/solutions/:solutionId/promote', async (req, res) => {
   try {
-    const tenant = _td(req).tenant;
-    if (!tenant) {
-      return res.status(400).json({ ok: false, error: 'Tenant not found' });
-    }
+    const tenant = requireTenant(req, res);
+    if (!tenant) return;
 
     const { solutionId } = req.params;
     const { tag: specifiedTag } = req.body || {};
@@ -2525,10 +2523,8 @@ router.post('/solutions/:solutionId/promote', async (req, res) => {
  */
 router.get('/solutions/:solutionId/versions/dev', async (req, res) => {
   try {
-    const tenant = _td(req).tenant;
-    if (!tenant) {
-      return res.status(400).json({ ok: false, error: 'Tenant not found' });
-    }
+    const tenant = requireTenant(req, res);
+    if (!tenant) return;
 
     const { solutionId } = req.params;
 
@@ -2564,10 +2560,8 @@ router.get('/solutions/:solutionId/versions/dev', async (req, res) => {
  */
 router.post('/solutions/:solutionId/rollback', async (req, res) => {
   try {
-    const tenant = _td(req).tenant;
-    if (!tenant) {
-      return res.status(400).json({ ok: false, error: 'Tenant not found' });
-    }
+    const tenant = requireTenant(req, res);
+    if (!tenant) return;
 
     const { solutionId } = req.params;
     const { tag } = req.body || {};
