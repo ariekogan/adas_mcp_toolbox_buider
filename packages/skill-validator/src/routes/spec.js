@@ -31,6 +31,7 @@ const SKILL_SPEC = buildSkillSpec();
 const SOLUTION_SPEC = buildSolutionSpec();
 const WORKFLOWS = buildWorkflows();
 const MOBILE_CONNECTOR_SPEC = buildMobileConnectorSpec();
+const UI_PLUGINS_SPEC = buildUIPluginsSpec();
 const INDEX = buildIndex();
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -43,6 +44,7 @@ router.get('/skill', (_req, res) => res.set(CACHE_HEADERS).json(SKILL_SPEC));
 router.get('/solution', (_req, res) => res.set(CACHE_HEADERS).json(SOLUTION_SPEC));
 router.get('/workflows', (_req, res) => res.set(CACHE_HEADERS).json(WORKFLOWS));
 router.get('/mobile-connector', (_req, res) => res.set(CACHE_HEADERS).json(MOBILE_CONNECTOR_SPEC));
+router.get('/ui-plugins', (_req, res) => res.set(CACHE_HEADERS).json(UI_PLUGINS_SPEC));
 
 export default router;
 
@@ -113,6 +115,10 @@ function buildIndex() {
       '/spec/mobile-connector': {
         method: 'GET',
         description: 'Mobile connector specification — build functional connectors (background services) for ateam-mobile. Access device capabilities via Native Bridge SDK.',
+      },
+      '/spec/ui-plugins': {
+        method: 'GET',
+        description: 'UI Plugins specification — build interactive dashboards for web (iframe) and mobile (React Native). Covers render modes, PluginSDK, bundle pipeline, and deployment.',
       },
       '/spec/examples': {
         method: 'GET',
@@ -2720,6 +2726,236 @@ function buildMobileConnectorSpec() {
       '4. Build your connector using bridge.* APIs only',
       '5. Test with mobile app on device (or simulator)',
       '6. Declare in solution.json and deploy',
+    ],
+  };
+}
+
+/**
+ * UI Plugins specification
+ * Complete guide for building interactive UI plugins for web (iframe) and mobile (React Native).
+ */
+function buildUIPluginsSpec() {
+  return {
+    service: '@adas/ui-plugins',
+    version: '1.0.0',
+    description: 'Build interactive UI plugins for A-Team solutions. Plugins are visual dashboards that skills can present to users. Supports web (iframe), mobile (React Native), or both (adaptive mode).',
+
+    overview: {
+      what_is_a_plugin: 'A UI plugin is an interactive dashboard served by a ui_capable connector. It communicates with connector MCP tools and becomes part of the solution\'s conversational experience. Skills present plugins via sys.focusUiPlugin().',
+      render_modes: {
+        iframe: 'Web-only. HTML+JavaScript served from connector\'s ui-dist/ folder. Uses postMessage protocol to call MCP tools.',
+        'react-native': 'Mobile-only. React Native component bundled as a downloadable .js file. Uses PluginSDK.register() and useApi() hook. Renders natively in ateam-mobile app.',
+        adaptive: 'Both platforms. Connector declares BOTH iframe and react-native configs. Platform auto-selects based on client: web gets iframe, mobile gets native RN component.',
+      },
+      unified_api: 'Both web and RN plugins use the SAME backend APIs. Skills request plugins via sys.focusUiPlugin() without caring which render mode — the platform handles routing automatically.',
+    },
+
+    manifest_schema: {
+      description: 'Plugin manifest returned by connector\'s ui.getPlugin tool. This is what the platform reads to discover and load plugins.',
+      fields: {
+        id: { type: 'string', required: true, description: 'Unique plugin identifier. Format: "mcp:<connector-id>:<plugin-name>"' },
+        name: { type: 'string', required: true, description: 'Display name (1-100 characters)' },
+        version: { type: 'string', required: true, description: 'Semantic version (X.Y.Z)' },
+        description: { type: 'string', required: false, description: 'Brief description (1-500 characters)' },
+        type: {
+          type: 'enum', required: false,
+          values: ['ui', 'service', 'hybrid'],
+          description: '"ui" = visual dashboard, "service" = headless, "hybrid" = both. Default: "ui"',
+        },
+        render: {
+          type: 'object', required: true,
+          description: 'Rendering configuration — polymorphic by mode',
+          fields: {
+            mode: {
+              type: 'enum', required: true,
+              values: ['iframe', 'react-native', 'adaptive'],
+              description: '"iframe" = web-only, "react-native" = mobile-only, "adaptive" = both platforms',
+            },
+            iframeUrl: {
+              type: 'string', required: false,
+              description: 'Required for mode="iframe" or "adaptive". Format: "/ui/{pluginId}/{version}/index.html". File must exist in connector mcp_store under ui-dist/.',
+            },
+            component: {
+              type: 'string', required: false,
+              description: 'Required for mode="react-native" or "adaptive". Registered component name — must match PluginSDK.register(name, {...})',
+            },
+            reactNative: {
+              type: 'object', required: false,
+              description: 'For mode="adaptive" only. React Native configuration.',
+              fields: {
+                component: { type: 'string', required: true, description: 'Component name matching PluginSDK.register()' },
+                bundleUrl: { type: 'string', required: false, description: 'Auto-generated by Core during deployment. URL: /api/solutions/{solutionId}/ui-plugins/{pluginId}/bundle.js' },
+              },
+            },
+          },
+        },
+        capabilities: {
+          type: 'object', required: false,
+          description: 'Native device capabilities this plugin requests (mobile only)',
+          fields: {
+            haptics: { type: 'boolean', description: 'Vibration/haptic feedback' },
+            camera: { type: 'boolean', description: 'Camera access' },
+            location: { type: 'boolean', description: 'GPS/location services' },
+            storage: { type: 'boolean', description: 'Local storage access' },
+            notifications: { type: 'boolean', description: 'Push notifications' },
+          },
+        },
+        commands: {
+          type: 'array', required: false,
+          description: 'Commands the plugin handles. Each becomes a virtual tool: ui.{short_id}.{command_name}',
+          item_schema: {
+            name: { type: 'string', required: true, description: 'Command identifier (lowercase_underscore)' },
+            description: { type: 'string', required: true, description: 'What this command does' },
+            input_schema: { type: 'object', required: false, description: 'JSON Schema for command arguments' },
+          },
+        },
+      },
+    },
+
+    react_native_plugin_guide: {
+      description: 'Complete guide for building React Native UI plugins that render natively in ateam-mobile.',
+
+      plugin_sdk: {
+        description: 'The Plugin SDK provides registration, API calls, theme tokens, and RN primitives. Plugins import everything from @adas/plugin-sdk.',
+        registration_pattern: 'PluginSDK.register("my-plugin", { component: MyComponent }) — returns the plugin object as default export.',
+        api_calls: 'const api = useApi(bridge); const result = await api.call("toolName", { args }). 15-second timeout, auto-unwrapped results.',
+        available_exports: [
+          'PluginSDK — { register, registerService }',
+          'useApi — hook for calling connector MCP tools',
+          'View, Text, ScrollView, FlatList, Pressable, TouchableOpacity, TextInput, Image, ActivityIndicator, Modal, Switch, StyleSheet, Animated, Platform, RefreshControl — RN primitives',
+          'Card, Badge, TabBar, ListItem, SearchBar, EmptyState, ErrorState, LoadingState, ActionButton — pre-built UI components',
+        ],
+        props: {
+          bridge: 'Communication bridge to host app — pass to useApi()',
+          native: 'Native capabilities object — native.haptics.selection(), native.haptics.impact("medium")',
+          theme: 'Theme tokens from host — { colors: { background, surface, text, ... }, spacing, borderRadius, ... }',
+        },
+      },
+
+      component_template: `import React, { useState, useEffect } from 'react';
+import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { PluginSDK, useApi } from '@adas/plugin-sdk';
+
+function MyDashboard({ bridge, native, theme }) {
+  const api = useApi(bridge);
+  const [data, setData] = useState([]);
+
+  useEffect(() => {
+    api.call('myConnector.listItems', {}).then(setData);
+  }, []);
+
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <FlatList data={data} renderItem={({ item }) => (
+        <Text style={{ color: theme.colors.text }}>{item.name}</Text>
+      )} />
+    </View>
+  );
+}
+
+export default PluginSDK.register('my-dashboard', { component: MyDashboard });`,
+
+      bundle_build_pipeline: {
+        description: 'How to build and deploy React Native plugin bundles. The mobile app downloads compiled bundles from Core API.',
+        overview: [
+          '1. Write your RN component in rn-src/index.tsx (in the connector directory)',
+          '2. Add esbuild config to compile it to rn-bundle/index.bundle.js (CommonJS format)',
+          '3. Add "build" script to package.json',
+          '4. Deploy via ateam_build_and_run — Core auto-runs npm install + npm run build',
+          '5. Core serves the bundle at /api/ui-plugins/{pluginId}/bundle.js',
+          '6. Mobile app downloads, caches (7-day TTL), and renders natively',
+        ],
+
+        esbuild_config: {
+          description: 'Create esbuild.config.mjs in your connector directory:',
+          file: `import * as esbuild from 'esbuild';
+
+await esbuild.build({
+  entryPoints: ['rn-src/index.tsx'],
+  bundle: true,
+  outfile: 'rn-bundle/index.bundle.js',
+  format: 'cjs',
+  platform: 'neutral',
+  target: 'es2020',
+  external: ['react', 'react-native', '@adas/plugin-sdk'],
+  jsx: 'transform',
+  jsxFactory: 'React.createElement',
+  jsxFragment: 'React.Fragment',
+  minify: false,
+});`,
+          critical_rules: [
+            'format MUST be "cjs" (CommonJS) — mobile app evaluates via module.exports',
+            'external MUST include react, react-native, @adas/plugin-sdk — host app provides these at runtime',
+            'jsx MUST be "transform" with classic React.createElement — most compatible with mobile eval',
+            'platform MUST be "neutral" — not node, not browser',
+            'outfile MUST be rn-bundle/index.bundle.js — Core serves from this exact path',
+          ],
+        },
+
+        package_json: {
+          description: 'Your connector package.json needs a build script and esbuild:',
+          example: {
+            scripts: { build: 'node esbuild.config.mjs' },
+            devDependencies: { esbuild: '^0.20.0' },
+          },
+          note: 'Core auto-runs "npm run build" after "npm install" during deployment. The bundle is produced automatically.',
+        },
+
+        connector_manifest: {
+          description: 'Your connector\'s ui.getPlugin tool must return the correct render config:',
+          iframe_only: '{ render: { mode: "iframe", iframeUrl: "/ui/my-plugin/1.0.0/index.html" } }',
+          native_only: '{ render: { mode: "react-native", component: "my-plugin" } }',
+          adaptive_both: '{ render: { mode: "adaptive", iframe: { iframeUrl: "/ui/my-plugin/1.0.0/index.html" }, reactNative: { component: "my-plugin" } } }',
+          note: 'bundleUrl is auto-generated by Core — do NOT hardcode it in the manifest.',
+        },
+
+        mobile_loading_flow: [
+          '1. Mobile app fetches plugin list from GET /api/solutions/{id}/ui-plugins',
+          '2. Checks pre-bundled registry (instant, <100ms)',
+          '3. Falls back to bundleUrl — downloads the .js bundle',
+          '4. Caches locally on device (7-day TTL)',
+          '5. Evaluates via CommonJS module wrapper',
+          '6. Renders the component with { bridge, native, theme } props',
+          'Next load: serves from disk cache (<200ms)',
+        ],
+      },
+    },
+
+    iframe_plugin_guide: {
+      description: 'Guide for building web-only iframe plugins.',
+      protocol: 'postMessage protocol. Plugin sends: { source: "adas-plugin", pluginId, message: { type: "tool.call", toolName, args, correlationId } }. Receives: { source: "adas-host", message: { type: "tool.response", payload: { correlationId, result } } }',
+      file_location: 'Place HTML/JS files in connector mcp_store at ui-dist/{pluginId}/{version}/index.html',
+      serving: 'Core serves at /mcp-ui/{tenant}/{connectorId}/{iframeUrl}',
+      see_example: 'GET /spec/examples/ui-plugin-iframe — complete working HTML+JS example',
+    },
+
+    deployment: {
+      description: 'Deploy plugins as part of your connector via ateam_build_and_run.',
+      steps: [
+        '1. Include plugin source files in mcp_store (ui-dist/ for iframe, rn-src/ for React Native)',
+        '2. Include esbuild.config.mjs and package.json with build script (for RN plugins)',
+        '3. Call ateam_build_and_run with mcp_store containing all connector files',
+        '4. Core auto-runs npm install + npm run build → produces rn-bundle/index.bundle.js',
+        '5. Connector starts → ui.listPlugins returns manifest → Core discovers and registers plugins',
+        '6. For iframe: verify asset accessible at /mcp-ui/{tenant}/{connectorId}/...',
+        '7. For RN: verify bundle accessible at /api/ui-plugins/{pluginId}/bundle.js',
+      ],
+      validation: 'System auto-validates plugin manifests on deploy. Errors are returned in the deploy response.',
+    },
+
+    examples: {
+      iframe: 'GET /spec/examples/ui-plugin-iframe — Complete HTML+JS task board plugin',
+      react_native: 'GET /spec/examples/ui-plugin-native — Complete RN plugin with PluginSDK',
+      connector_with_ui: 'GET /spec/examples/connector-ui — Connector that serves UI plugins',
+    },
+
+    learning_path: [
+      '1. Read this spec (/spec/ui-plugins) for overview and schema',
+      '2. Choose render mode: iframe (web-only), react-native (mobile-only), or adaptive (both)',
+      '3. Study the relevant example (GET /spec/examples/ui-plugin-iframe or /spec/examples/ui-plugin-native)',
+      '4. Build your plugin and connector',
+      '5. Deploy via ateam_build_and_run with mcp_store',
+      '6. Test: iframe loads in web UI, RN bundle loads in mobile app',
     ],
   };
 }
