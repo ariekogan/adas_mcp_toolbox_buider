@@ -2298,14 +2298,22 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
       deployBody.mcp_store = connectorSources;
     }
 
-    const deployResp = await fetch(`${SKILL_BUILDER_URL}/api/import/solution`, {
+    const deployResp = await fetch(`${SKILL_BUILDER_URL}/api/deploy/solution`, {
       method: 'POST',
       headers: sbHeaders(req),
       body: JSON.stringify(deployBody),
       signal: AbortSignal.timeout(300000),
     });
 
-    const deployData = await deployResp.json();
+    // Safe JSON parsing — deploy endpoint may return HTML on error
+    let deployData;
+    const ct = (deployResp.headers.get('content-type') || '');
+    if (ct.includes('application/json')) {
+      deployData = await deployResp.json().catch(() => ({ ok: false, error: `Deploy returned ${deployResp.status}` }));
+    } else {
+      const raw = await deployResp.text().catch(() => '');
+      deployData = { ok: false, error: `Deploy returned non-JSON (${deployResp.status}): ${raw.slice(0, 200)}` };
+    }
     res.status(deployResp.status).json({
       ok: deployData.ok !== false,
       source: 'github',

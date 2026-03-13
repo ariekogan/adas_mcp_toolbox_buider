@@ -56,10 +56,21 @@ async function request(endpoint, { method = 'GET', body, timeout = 15000, raw = 
 
   if (raw) return res;
 
-  const data = await res.json().catch(() => ({}));
+  // Parse response — check Content-Type to avoid parsing HTML as JSON
+  let data;
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    data = await res.json().catch(() => ({}));
+  } else {
+    const text = await res.text().catch(() => '');
+    data = { _raw: text.slice(0, 200) };
+  }
 
   if (!res.ok) {
-    const err = new Error(data.error || `ADAS Core ${method} ${endpoint} failed: HTTP ${res.status}`);
+    const msg = data.error
+      || data._raw
+      || `ADAS Core ${method} ${endpoint} failed: HTTP ${res.status}`;
+    const err = new Error(msg);
     err.status = res.status;
     err.data = data;
     throw err;
