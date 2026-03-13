@@ -106,7 +106,7 @@ router.post('/solution', async (req, res, next) => {
 
       // Deploy identity
       log.info(`[Deploy] Deploying solution identity...`);
-      const identityResult = await deployIdentityToADAS(solution);
+      const identityResult = await deployIdentityToADAS(solution.id, log);
       log.info(`[Deploy] Identity deployed`, identityResult);
 
       // Deploy each skill
@@ -115,7 +115,7 @@ router.post('/solution', async (req, res, next) => {
         if (!savedSkills.includes(skill.id)) continue;
         try {
           log.info(`[Deploy] Deploying skill "${skill.id}" to A-Team Core...`);
-          const result = await deploySkillToADAS(solution.id, skill.id);
+          const result = await deploySkillToADAS(solution.id, skill.id, log);
           deployedSkills.push({ id: skill.id, status: 'deployed', result });
           log.info(`[Deploy] Skill "${skill.id}" deployed successfully`);
         } catch (err) {
