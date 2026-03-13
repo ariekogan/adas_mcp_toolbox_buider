@@ -463,6 +463,9 @@ router.delete('/mcp-store/:connectorId', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.post('/connector', async (req, res) => {
+  const tenant = requireTenant(req, res);
+  if (!tenant) return;
+
   const { connector } = req.body;
 
   if (!connector?.id) {
@@ -544,6 +547,9 @@ router.post('/connector', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.post('/skill', async (req, res) => {
+  const tenant = requireTenant(req, res);
+  if (!tenant) return;
+
   const { skill, solution_id } = req.body;
 
   if (!skill?.id) {
@@ -614,6 +620,9 @@ router.post('/skill', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.post('/solution', async (req, res) => {
+  const tenant = requireTenant(req, res);
+  if (!tenant) return;
+
   const { solution, skills, connectors, mcp_store } = req.body;
 
   if (!solution?.id) {
