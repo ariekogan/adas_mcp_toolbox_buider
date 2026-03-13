@@ -53,6 +53,27 @@ const router = Router();
 const SKILL_BUILDER_URL = (process.env.SKILL_BUILDER_URL || 'http://localhost:4000').replace(/\/$/, '');
 const VOICE_BACKEND_URL = (process.env.VOICE_BACKEND_URL || 'http://voice-backend:4000').replace(/\/$/, '');
 
+const TENANT_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,28}[a-z0-9]$/;
+
+/**
+ * Extract and validate tenant from request header. Returns null + sends 400 if invalid.
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ * @returns {string|null} Tenant slug or null (response already sent)
+ */
+function requireTenant(req, res) {
+  const tenant = req.headers['x-adas-tenant'];
+  if (!tenant) {
+    res.status(400).json({ ok: false, error: 'X-ADAS-TENANT header required' });
+    return null;
+  }
+  if (!TENANT_SLUG_RE.test(tenant)) {
+    res.status(400).json({ ok: false, error: `Invalid tenant slug: "${tenant}"` });
+    return null;
+  }
+  return tenant;
+}
+
 /** Build headers for Skill Builder requests, forwarding tenant + API key from the incoming request */
 function sbHeaders(req) {
   const h = { 'Content-Type': 'application/json' };
@@ -83,7 +104,8 @@ function sbHeaders(req) {
  * @returns {Object} { summary, warnings }
  */
 async function pushVoiceConfig(voice, skills, req) {
-  const tenant = req.headers['x-adas-tenant'] || 'default';
+  const tenant = req.headers['x-adas-tenant'];
+  if (!tenant) throw new Error('X-ADAS-TENANT header required for voice config');
   const headers = { 'Content-Type': 'application/json', 'X-ADAS-TENANT': tenant };
   const warnings = [];
   const summary = { enabled: !!voice.enabled };
@@ -2405,7 +2427,8 @@ router.post('/solutions/:solutionId/github/pull-connectors', async (req, res) =>
  */
 router.post('/voice-test', async (req, res) => {
   try {
-    const tenant = req.headers['x-adas-tenant'] || 'default';
+    const tenant = requireTenant(req, res);
+    if (!tenant) return;
     const { messages, phone_number, skill_slug, timeout_ms = 60000, model } = req.body || {};
 
     if (!Array.isArray(messages) || messages.length === 0) {
