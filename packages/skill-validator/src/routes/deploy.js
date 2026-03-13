@@ -601,6 +601,17 @@ router.post('/solution', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Missing solution.name' });
   }
 
+  // Guard against accidental skill wipe: if solution declares skills in topology
+  // but the caller passes an empty skills array, reject the deploy.
+  const topologySkillCount = (solution.skills || []).length;
+  if (Array.isArray(skills) && skills.length === 0 && topologySkillCount > 0) {
+    return res.status(400).json({
+      ok: false,
+      error: `Solution "${solution.id}" declares ${topologySkillCount} skills in topology but skills array is empty. ` +
+             `This would wipe all deployed skills. Pass the full skill definitions or omit the skills parameter to update only the solution architecture.`,
+    });
+  }
+
   try {
     // Collect deploy-time warnings from entry-point analysis, compatibility checks, etc.
     const deployWarnings = [];

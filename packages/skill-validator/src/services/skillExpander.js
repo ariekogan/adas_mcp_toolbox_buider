@@ -186,7 +186,16 @@ export function expandSkill(minimal) {
 
   // ── Intents (auto-generate if not provided) ──
   if (minimal.intents) {
-    skill.intents = minimal.intents;
+    // Normalize: if intents is a flat array, wrap it as { supported: [...] }
+    if (Array.isArray(minimal.intents)) {
+      skill.intents = {
+        supported: minimal.intents,
+        thresholds: DEFAULT_THRESHOLDS,
+        out_of_domain: expandOutOfDomain(minimal.out_of_domain),
+      };
+    } else {
+      skill.intents = minimal.intents;
+    }
   } else {
     skill.intents = {
       supported: generateIntents(minimal.tools || [], skill.tools),
@@ -200,7 +209,7 @@ export function expandSkill(minimal) {
   if (minimal.policy?.workflows) {
     skill.policy = minimal.policy;
   } else {
-    const workflows = generateWorkflows(minimal.tools || [], skill.intents.supported);
+    const workflows = generateWorkflows(minimal.tools || [], skill.intents?.supported || []);
     skill.policy = {
       guardrails: expandGuardrails(minimal.guardrails),
       workflows,
@@ -214,7 +223,7 @@ export function expandSkill(minimal) {
   if (minimal.scenarios) {
     skill.scenarios = minimal.scenarios;
   } else {
-    skill.scenarios = generateScenarios(skill.intents.supported, skill.policy.workflows, skill.tools);
+    skill.scenarios = generateScenarios(skill.intents?.supported || [], skill.policy?.workflows || [], skill.tools);
     expanded.push('scenarios');
   }
 

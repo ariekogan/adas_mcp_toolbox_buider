@@ -263,7 +263,8 @@ export function validateSolution(solution, context) {
     // AND solution.platform_connectors (which is where they're declared in the schema).
     // This ensures validation works even if callers only pass connectors in the solution.
     const platformConnectorIds = (solution.platform_connectors || []).map(c => c.id);
-    const connectorIds = new Set([...connectors.map(c => c.id), ...platformConnectorIds]);
+    const solutionConnectorIds = (solution.solution_connectors || []).map(c => c.id);
+    const connectorIds = new Set([...connectors.map(c => c.id), ...platformConnectorIds, ...solutionConnectorIds]);
 
     // Check mcp_bridge tools reference declared connectors
     for (const skill of fullSkills) {
