@@ -1253,6 +1253,20 @@ function buildSkillSpec() {
           validation: 'The deploy pipeline scans connector source code for anti-patterns (web server code, port binding) and BLOCKS deployment if found.',
         },
         connector_storage: 'A-Team Core auto-injects a DATA_DIR environment variable into every stdio connector process, pointing to a tenant-scoped, connector-isolated directory. Use process.env.DATA_DIR to store SQLite databases, files, or any persistent data. No configuration needed — just read the env var in your connector code.',
+        multi_user_data_isolation: {
+          _CRITICAL: 'A-Team is multi-user. Multiple users (actors) share the same tenant. Connectors that store or retrieve per-user data MUST scope it by actorId.',
+          headers_passed_to_connectors: {
+            'X-ADAS-TENANT': 'Tenant/organization ID. Always present on every tool call.',
+            'X-ADAS-ACTOR': 'Actor/user ID. Present when the user is authenticated (which is almost always). This is the user who triggered the current request.',
+          },
+          how_to_read: {
+            stdio: 'Read process.env.ADAS_ACTOR_ID in your tool handler. A-Team Core sets it on every call.',
+            http: 'Read req.headers["x-adas-actor"] from the incoming HTTP request.',
+          },
+          storage_rule: 'Include actorId as part of every storage key, file path, or database query. Example: store at DATA_DIR/actors/{actorId}/data.json, or query WHERE actor_id = ?. See GET /spec/examples/connector for complete code examples with SQLite, JSON files, and external API patterns.',
+          tool_schema_rule: 'Tool schemas do NOT include actorId as a parameter. Actor identity flows transparently via headers — the LLM/planner never decides which user to query. This prevents one user from reading another user\'s data.',
+          see_full_guide: 'GET /spec/examples/connector → _multi_user_data_isolation section has complete working code examples for every pattern.',
+        },
         ui_capable_connectors: {
           _note: 'UI-capable connectors serve dashboard plugins via iframe. They MUST implement ui.listPlugins and ui.getPlugin tools.',
           required_tools: ['ui.listPlugins', 'ui.getPlugin'],

@@ -36,7 +36,7 @@ const INDEX = {
     },
     '/spec/examples/connector': {
       method: 'GET',
-      description: 'Standard stdio MCP connector for order management',
+      description: 'Standard stdio MCP connector for order management. Includes COMPLETE multi-user data isolation guide with code examples (SQLite, JSON files, external APIs).',
     },
     '/spec/examples/connector-ui': {
       method: 'GET',
@@ -484,6 +484,233 @@ function buildExampleConnector() {
       isolation: 'Each connector gets its own directory. Data is tenant-scoped and persisted across restarts.',
     },
 
+    // ═══════════════════════════════════════════════════════════════════
+    // MULTI-USER DATA ISOLATION — CRITICAL FOR ANY CONNECTOR THAT STORES USER DATA
+    // ═══════════════════════════════════════════════════════════════════
+    _multi_user_data_isolation: {
+      _note: 'CRITICAL: A-Team Core is multi-user. Multiple users share the same tenant. If your connector stores or retrieves per-user data, you MUST scope it by actorId. Without this, User A sees User B\'s data — a security violation.',
+
+      how_it_works: {
+        _step_1: 'A-Team Core passes two headers on EVERY tool call to your connector:',
+        headers: {
+          'X-ADAS-TENANT': 'Tenant ID — identifies the organization/workspace. Always present.',
+          'X-ADAS-ACTOR': 'Actor ID — identifies the specific user making the request. Present when user is authenticated (which is almost always).',
+        },
+        _step_2: 'Your connector reads these headers and uses them as keys for data storage/retrieval.',
+        _step_3: 'Data queries MUST include actorId in the filter/key so users only see their own data.',
+      },
+
+      when_you_need_this: [
+        'Your connector stores per-user preferences, history, or state',
+        'Your connector reads data from an external API scoped to a user (email, calendar, CRM contacts)',
+        'Your connector has any notion of "my data" vs "all data"',
+        'Your connector talks to a database, relay, or external service that holds user-specific records',
+      ],
+
+      when_you_do_NOT_need_this: [
+        'Your connector is stateless (e.g., a calculator, a weather API)',
+        'Your connector only reads shared/global data (e.g., product catalog, company policies)',
+        'All users in a tenant should see exactly the same data',
+      ],
+
+      // ── FOR STDIO CONNECTORS (uses process.env) ──
+      stdio_pattern: {
+        _note: 'Stdio connectors receive headers as environment variables on each tool call. A-Team Core sets ADAS_TENANT and ADAS_ACTOR_ID automatically.',
+        reading_context: `// How to get tenant and actor in a stdio connector:
+const TENANT = process.env.ADAS_TENANT;      // Always set by A-Team Core
+const ACTOR_ID = process.env.ADAS_ACTOR_ID;  // Set when user is authenticated
+
+// For MCP SDK connectors, also available via request context headers:
+// X-ADAS-TENANT and X-ADAS-ACTOR on every HTTP request (Streamable HTTP transport)`,
+
+        storage_example_sqlite: `// ═══ SQLite — scope data by actorId ═══
+import Database from "better-sqlite3";
+
+const db = new Database(path.join(DATA_DIR, "connector.db"));
+
+// Create table with actorId column
+db.exec(\`CREATE TABLE IF NOT EXISTS user_preferences (
+  actor_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (actor_id, key)
+)\`);
+
+// ✅ CORRECT — always filter by actorId
+function getPreference(actorId, key) {
+  return db.prepare("SELECT value FROM user_preferences WHERE actor_id = ? AND key = ?")
+    .get(actorId, key);
+}
+
+// ❌ WRONG — returns ALL users' data (security violation!)
+function getPreferenceBroken(key) {
+  return db.prepare("SELECT value FROM user_preferences WHERE key = ?").get(key);
+}`,
+
+        storage_example_json: `// ═══ JSON file — scope data by actorId ═══
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import path from "path";
+
+const DATA_DIR = process.env.DATA_DIR || "./data";
+
+// Each actor gets their own directory
+function actorDir(actorId) {
+  const dir = path.join(DATA_DIR, "actors", actorId);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+// ✅ CORRECT — each user's data is physically separated
+function saveUserData(actorId, data) {
+  writeFileSync(path.join(actorDir(actorId), "data.json"), JSON.stringify(data));
+}
+
+function loadUserData(actorId) {
+  try {
+    return JSON.parse(readFileSync(path.join(actorDir(actorId), "data.json"), "utf8"));
+  } catch { return null; }
+}`,
+
+        storage_example_external_api: `// ═══ External API — pass actorId to scope queries ═══
+
+// If your connector talks to an external service (relay, database, SaaS API),
+// pass actorId as a query param, header, or body field.
+
+async function fetchUserCalendar(actorId) {
+  const res = await fetch(
+    \`\${RELAY_URL}/api/device/\${deviceId}/data/calendar?actorId=\${encodeURIComponent(actorId)}\`,
+    { headers: { "X-ADAS-ACTOR": actorId } }
+  );
+  return res.json(); // Returns ONLY this user's calendar
+}
+
+// ❌ WRONG — no actorId = returns data for ALL users or wrong user
+async function fetchCalendarBroken() {
+  const res = await fetch(\`\${RELAY_URL}/api/device/\${deviceId}/data/calendar\`);
+  return res.json(); // Whose calendar is this??
+}`,
+      },
+
+      // ── FOR HTTP/STREAMABLE HTTP CONNECTORS ──
+      http_pattern: {
+        _note: 'HTTP connectors (Streamable HTTP transport) receive headers directly on every request.',
+        reading_headers: `// Express/Node.js HTTP connector:
+app.post("/mcp", (req, res) => {
+  const tenant = req.headers["x-adas-tenant"];   // Always present
+  const actorId = req.headers["x-adas-actor"];   // Present when user is authenticated
+
+  // Use AsyncLocalStorage to propagate context through your handler chain:
+  requestContext.run({ tenant, actorId }, () => {
+    handleMcpRequest(req, res);
+  });
+});
+
+// In your tool handler, retrieve context:
+function getCurrentActorId() {
+  return requestContext.getStore()?.actorId || null;
+}`,
+      },
+
+      // ── COMPLETE WORKING EXAMPLE: Multi-User Todo List Connector ──
+      complete_example: {
+        _note: 'A complete, working MCP connector that stores per-user todo lists. Copy this as a starting template for any multi-user connector.',
+        source: `import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import path from "path";
+
+const DATA_DIR = process.env.DATA_DIR || "./data";
+const server = new McpServer({ name: "todo-mcp", version: "1.0.0" });
+
+// ── Per-actor storage ──
+function actorFile(actorId) {
+  const dir = path.join(DATA_DIR, "actors", actorId);
+  mkdirSync(dir, { recursive: true });
+  return path.join(dir, "todos.json");
+}
+
+function loadTodos(actorId) {
+  try { return JSON.parse(readFileSync(actorFile(actorId), "utf8")); }
+  catch { return []; }
+}
+
+function saveTodos(actorId, todos) {
+  writeFileSync(actorFile(actorId), JSON.stringify(todos, null, 2));
+}
+
+// ── Get current actor from environment ──
+// A-Team Core sets ADAS_ACTOR_ID on every tool call.
+// For Streamable HTTP transport, read from X-ADAS-ACTOR header instead.
+function getActorId() {
+  return process.env.ADAS_ACTOR_ID || "default";
+}
+
+// ── Tools ──
+server.tool(
+  "todo.list",
+  "List all todos for the current user",
+  {},
+  async () => {
+    const actorId = getActorId();
+    const todos = loadTodos(actorId);
+    return {
+      content: [{ type: "text", text: JSON.stringify({ ok: true, actor: actorId, count: todos.length, todos }) }]
+    };
+  }
+);
+
+server.tool(
+  "todo.add",
+  "Add a todo for the current user",
+  { title: z.string(), priority: z.enum(["high", "medium", "low"]).optional() },
+  async ({ title, priority }) => {
+    const actorId = getActorId();
+    const todos = loadTodos(actorId);
+    const todo = { id: Date.now().toString(36), title, priority: priority || "medium", done: false, created: new Date().toISOString() };
+    todos.push(todo);
+    saveTodos(actorId, todos);
+    return {
+      content: [{ type: "text", text: JSON.stringify({ ok: true, actor: actorId, todo }) }]
+    };
+  }
+);
+
+server.tool(
+  "todo.complete",
+  "Mark a todo as done for the current user",
+  { id: z.string() },
+  async ({ id }) => {
+    const actorId = getActorId();
+    const todos = loadTodos(actorId);
+    const todo = todos.find(t => t.id === id);
+    if (!todo) return { content: [{ type: "text", text: JSON.stringify({ ok: false, error: "Todo not found" }) }], isError: true };
+    todo.done = true;
+    saveTodos(actorId, todos);
+    return {
+      content: [{ type: "text", text: JSON.stringify({ ok: true, actor: actorId, todo }) }]
+    };
+  }
+);
+
+// Start — A-Team Core manages the lifecycle
+const transport = new StdioServerTransport();
+await server.connect(transport);`,
+      },
+
+      // ── RULES ──
+      rules: [
+        'ALWAYS read X-ADAS-ACTOR header (HTTP) or ADAS_ACTOR_ID env (stdio) in tool handlers',
+        'NEVER store user data without actorId as part of the key/path',
+        'NEVER return data from one actor to another — always filter queries by actorId',
+        'If actorId is missing, use "default" as fallback — but log a warning (it means auth was skipped)',
+        'Tool schemas do NOT include actorId as a parameter — it flows transparently via headers, not via LLM args',
+        'The LLM/planner NEVER decides which actor to query — the platform enforces it automatically',
+        'Tenant isolation (X-ADAS-TENANT) and actor isolation (X-ADAS-ACTOR) are independent layers — respect both',
+      ],
+    },
+
     _runtime_compatibility: {
       _note: 'A-Team Core runs connectors on Node.js 22.x with full ESM support. The @modelcontextprotocol/sdk works great.',
       recommended_approach: 'Use the official @modelcontextprotocol/sdk with StdioServerTransport. This is the simplest and most reliable approach.',
@@ -626,6 +853,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 function buildExampleConnectorUI() {
   return {
     _note: 'A UI-capable connector serves both MCP tools AND visual dashboard plugins. Must implement ui.listPlugins and ui.getPlugin tools.',
+
+    _multi_user_data_isolation: {
+      _note: 'CRITICAL: Same rules as standard connectors. See GET /spec/examples/connector for the FULL multi-user isolation guide with complete code examples.',
+      summary: 'A-Team Core passes X-ADAS-TENANT and X-ADAS-ACTOR headers on every tool call. Your connector MUST read X-ADAS-ACTOR and scope all data queries by actorId. Without this, User A sees User B\'s data.',
+      in_ui_plugins: 'UI plugins (iframes) do NOT receive actor headers directly. They call MCP tools via postMessage → PluginHost → A-Team Core. The Core injects the correct actor context automatically. Your tool handler receives the header — the plugin does not need to know about it.',
+      rule: 'Actor isolation happens at the TOOL level, not the UI level. Your tools read the header, scope the query, return only that user\'s data. The UI just displays what the tool returns.',
+    },
 
     id: 'ecommerce-dashboard-mcp',
     name: 'E-Commerce Dashboard',
