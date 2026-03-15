@@ -146,6 +146,19 @@ router.post('/solution', async (req, res, next) => {
       const identityResult = await deployIdentityToADAS(solution.id, log);
       log.info(`[Deploy] Identity deployed`, identityResult);
 
+      // Deploy UI plugins (if any)
+      let uiPluginResult = null;
+      if (solution.ui_plugins && solution.ui_plugins.length > 0) {
+        try {
+          log.info(`[Deploy] Deploying ${solution.ui_plugins.length} UI plugin(s) to Core...`);
+          uiPluginResult = await adasCore.deployUiPlugins(solution.ui_plugins, { solutionId: solution.id });
+          log.info(`[Deploy] UI plugins deployed: ${uiPluginResult.count || solution.ui_plugins.length} plugin(s)`);
+        } catch (err) {
+          log.warn(`[Deploy] UI plugins deployment failed (non-fatal): ${err.message}`);
+          uiPluginResult = { ok: false, error: err.message };
+        }
+      }
+
       // Deploy each skill
       const deployedSkills = [];
       for (const skill of skills) {
@@ -173,6 +186,7 @@ router.post('/solution', async (req, res, next) => {
         skills_total: deployedSkills.length,
         skills: deployedSkills,
         connectors: connectorResults.length > 0 ? connectorResults : undefined,
+        ui_plugins: uiPluginResult || undefined,
         message: `Solution "${solution.id}" deployed to A-Team Core`
       });
 

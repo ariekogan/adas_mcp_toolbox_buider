@@ -410,6 +410,34 @@ async function getConnectorSource(connectorId) {
 // EXPORTS
 // ═══════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════
+// UI PLUGINS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Deploy UI plugin manifests to ADAS Core.
+ * Core stores them and serves to mobile/web clients via GET /api/ui-plugins.
+ * Also auto-generates bundleUrl for each plugin that has a React Native component.
+ */
+async function deployUiPlugins(plugins, { solutionId } = {}) {
+  // Enrich each plugin with bundleUrl if it has a reactNative render mode
+  const enriched = (plugins || []).map(p => {
+    const pluginId = p.id;
+    // Auto-generate bundleUrl for Core's bundle serving endpoint
+    if (!p.render?.reactNative?.bundleUrl && p.render?.reactNative) {
+      p.render.reactNative.bundleUrl = `/api/ui-plugins/${encodeURIComponent(pluginId)}/bundle.js`;
+    }
+    if (!p.bundleUrl && p.render?.reactNative) {
+      p.bundleUrl = `/api/ui-plugins/${encodeURIComponent(pluginId)}/bundle.js`;
+    }
+    return p;
+  });
+  return request('/api/ui-plugins', {
+    method: 'POST',
+    body: { plugins: enriched },
+  });
+}
+
 /**
  * Fetch tenant settings from ADAS Core.
  * Returns { llmProvider, openaiApiKey, anthropicApiKey, ... } or null on error.
@@ -436,6 +464,7 @@ export default {
   getBaseUrl: () => BASE_URL,
   getSettings,
   deployIdentity,
+  deployUiPlugins,
   deployMcp,
   importSkill,
   importSkillPayload,
@@ -470,6 +499,7 @@ export {
   BASE_URL,
   getSettings,
   deployIdentity,
+  deployUiPlugins,
   deployMcp,
   importSkill,
   importSkillPayload,
