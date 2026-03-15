@@ -1769,6 +1769,31 @@ router.delete('/solutions/:solutionId/skills/:skillId', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// DELETE CONNECTOR FROM SOLUTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * DELETE /deploy/solutions/:solutionId/connectors/:connectorId — Remove a connector
+ * Stops + deletes from Core, removes from solution + skill definitions, cleans mcp-store.
+ */
+router.delete('/solutions/:solutionId/connectors/:connectorId', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const cId = encodeURIComponent(req.params.connectorId);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/connectors/${cId}`, {
+      method: 'DELETE',
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Delete connector error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // VALIDATE FROM STORED STATE
 // ═══════════════════════════════════════════════════════════════════════════
 

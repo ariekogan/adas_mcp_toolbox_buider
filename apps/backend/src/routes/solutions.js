@@ -135,6 +135,96 @@ router.delete('/:id', async (req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// DELETE CONNECTOR FROM SOLUTION
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Delete a connector from a solution.
+ * DELETE /api/solutions/:id/connectors/:connectorId
+ *
+ * 1. Stops + deletes the connector from ADAS Core (best-effort)
+ * 2. Removes connector references from solution definition (grants, platform_connectors)
+ * 3. Removes connector references from skill definitions (connectors array)
+ * 4. Deletes mcp-store files for the connector
+ */
+router.delete('/:id/connectors/:connectorId', async (req, res, next) => {
+  const { id: solutionId, connectorId } = req.params;
+  const results = { core_stopped: false, core_deleted: false, solution_updated: false, skills_updated: [], mcp_store_deleted: false };
+
+  try {
+    const solution = await solutionsStore.load(solutionId);
+
+    // 1. Stop + delete from ADAS Core (best-effort)
+    try {
+      await adasCore.stopConnector(connectorId);
+      results.core_stopped = true;
+    } catch (err) {
+      console.warn(`[solutions/delete-connector] Failed to stop ${connectorId} in Core:`, err.message);
+    }
+    try {
+      await adasCore.deleteConnector(connectorId);
+      results.core_deleted = true;
+    } catch (err) {
+      console.warn(`[solutions/delete-connector] Failed to delete ${connectorId} from Core:`, err.message);
+    }
+
+    // 2. Remove from solution definition
+    const updates = {};
+    // Remove from platform_connectors
+    if (Array.isArray(solution.platform_connectors)) {
+      const filtered = solution.platform_connectors.filter(pc => pc.id !== connectorId);
+      if (filtered.length !== solution.platform_connectors.length) {
+        updates.platform_connectors = filtered;
+      }
+    }
+    // Remove from grants (connector_id references)
+    if (Array.isArray(solution.grants)) {
+      const filtered = solution.grants.filter(g => g.connector_id !== connectorId);
+      if (filtered.length !== solution.grants.length) {
+        updates.grants = filtered;
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      await solutionsStore.updateState(solutionId, updates);
+      results.solution_updated = true;
+    }
+
+    // 3. Remove from skill connectors arrays
+    const linkedSkills = solution.skills || [];
+    for (const ref of linkedSkills) {
+      try {
+        const skill = await skillsStore.load(solutionId, ref.id);
+        if (Array.isArray(skill.connectors) && skill.connectors.includes(connectorId)) {
+          skill.connectors = skill.connectors.filter(c => c !== connectorId);
+          await skillsStore.save(solutionId, ref.id, skill);
+          results.skills_updated.push(ref.id);
+        }
+      } catch { /* skip missing skills */ }
+    }
+
+    // 4. Delete mcp-store files (best-effort)
+    try {
+      const { getCurrentTenantMemoryRoot } = await import('../utils/tenantContext.js');
+      const memRoot = getCurrentTenantMemoryRoot();
+      const storePath = (await import('path')).join(memRoot, '_builder', '_mcp-store', connectorId);
+      const fs = (await import('fs/promises')).default || await import('fs/promises');
+      await fs.rm(storePath, { recursive: true, force: true });
+      results.mcp_store_deleted = true;
+    } catch (err) {
+      console.warn(`[solutions/delete-connector] Failed to delete mcp-store for ${connectorId}:`, err.message);
+    }
+
+    console.log(`[solutions/delete-connector] Removed connector ${connectorId} from solution ${solutionId}:`, results);
+    res.json({ ok: true, connector_id: connectorId, results });
+  } catch (err) {
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ ok: false, error: 'Solution not found' });
+    }
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // DEPLOY STATUS
 // ═══════════════════════════════════════════════════════════════
 
