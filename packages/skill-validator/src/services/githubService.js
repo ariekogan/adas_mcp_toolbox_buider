@@ -334,6 +334,80 @@ export async function listFiles(tenant, solutionId) {
 }
 
 /**
+ * Delete an entire directory from the repo (e.g. connectors/device-mock-mcp/).
+ * Uses the Git Trees API: list all files under the prefix, create a tree
+ * with sha=null for each, commit, and update ref.
+ *
+ * @param {string} tenant
+ * @param {string} solutionId
+ * @param {string} dirPath - Directory path to delete (e.g. "connectors/device-mock-mcp")
+ * @param {string} message - Commit message
+ * @returns {{ commit_sha, files_deleted }}
+ */
+export async function deleteDirectory(tenant, solutionId, dirPath, message = `Delete ${dirPath}`) {
+  const name = repoName(tenant, solutionId);
+  const fullName = `${OWNER}/${name}`;
+
+  // Normalize: strip trailing slash
+  const prefix = dirPath.replace(/\/+$/, '') + '/';
+
+  // Delete from both dev and main branches (so github_pull can't resurrect it)
+  const branches = ['dev', 'main'];
+  const results = {};
+
+  for (const branch of branches) {
+    try {
+      // 1. Get current tree to find files under this directory
+      const fullTree = await gh('GET', `/repos/${fullName}/git/trees/${branch}?recursive=1`);
+      const toDelete = fullTree.tree.filter(t => t.type === 'blob' && t.path.startsWith(prefix));
+
+      if (toDelete.length === 0) {
+        results[branch] = { commit_sha: null, files_deleted: 0 };
+        continue;
+      }
+
+      // 2. Get HEAD of this branch
+      const ref = await gh('GET', `/repos/${fullName}/git/ref/heads/${branch}`);
+      const headSha = ref.object.sha;
+      const headCommit = await gh('GET', `/repos/${fullName}/git/commits/${headSha}`);
+
+      // 3. Create tree with sha=null for each deleted file
+      const treeItems = toDelete.map(f => ({
+        path: f.path,
+        mode: '100644',
+        type: 'blob',
+        sha: null,  // null sha = delete
+      }));
+
+      const tree = await gh('POST', `/repos/${fullName}/git/trees`, {
+        base_tree: headCommit.tree.sha,
+        tree: treeItems,
+      });
+
+      // 4. Commit + update ref
+      const commit = await gh('POST', `/repos/${fullName}/git/commits`, {
+        message,
+        tree: tree.sha,
+        parents: [headSha],
+      });
+
+      await gh('PATCH', `/repos/${fullName}/git/refs/heads/${branch}`, {
+        sha: commit.sha,
+      });
+
+      console.log(`[GitHub] Deleted ${toDelete.length} files under ${dirPath} from ${branch} in ${fullName}`);
+      results[branch] = { commit_sha: commit.sha, files_deleted: toDelete.length };
+    } catch (err) {
+      console.warn(`[GitHub] Failed to delete ${dirPath} from ${branch}:`, err.message);
+      results[branch] = { error: err.message, files_deleted: 0 };
+    }
+  }
+
+  const totalDeleted = Object.values(results).reduce((sum, r) => sum + (r.files_deleted || 0), 0);
+  return { branches: results, total_files_deleted: totalDeleted };
+}
+
+/**
  * Push files to dev branch and create date-based version tag.
  * Automatically cleans up old tags (keeps last X).
  * Uses parallel blob creation for speed.

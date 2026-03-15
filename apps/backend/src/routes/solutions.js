@@ -10,7 +10,7 @@ import { Router } from 'express';
 import solutionsStore from '../store/solutions.js';
 import skillsStore from '../store/skills.js';
 import { processSolutionMessage } from '../services/solutionConversation.js';
-import { validateSolution, validateSecurity, validateSolutionQuality } from '@adas/skill-validator';
+import { validateSolution, validateSecurity, validateSolutionQuality, githubDeleteDirectory } from '@adas/skill-validator';
 import { getSkillSlug, deploySkillToADAS } from '../services/exportDeploy.js';
 import adasCore from '../services/adasCoreClient.js';
 import { getCurrentTenant } from '../utils/tenantContext.js';
@@ -212,6 +212,22 @@ router.delete('/:id/connectors/:connectorId', async (req, res, next) => {
       results.mcp_store_deleted = true;
     } catch (err) {
       console.warn(`[solutions/delete-connector] Failed to delete mcp-store for ${connectorId}:`, err.message);
+    }
+
+    // 5. Delete connector directory from GitHub repo (both dev + main branches)
+    //    This prevents github_pull from resurrecting the connector
+    results.github_deleted = false;
+    try {
+      const tenant = getCurrentTenant();
+      const ghResult = await githubDeleteDirectory(
+        tenant, solutionId,
+        `connectors/${connectorId}`,
+        `Delete connector ${connectorId}`
+      );
+      results.github_deleted = ghResult.total_files_deleted > 0;
+      results.github_details = ghResult.branches;
+    } catch (err) {
+      console.warn(`[solutions/delete-connector] Failed to delete ${connectorId} from GitHub:`, err.message);
     }
 
     console.log(`[solutions/delete-connector] Removed connector ${connectorId} from solution ${solutionId}:`, results);

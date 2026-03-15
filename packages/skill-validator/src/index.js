@@ -53,3 +53,6 @@ export { PHASES, PHASE_LABELS } from './types/DraftSkill.js';
 
 // Defaults — shared between Skill Builder (design-time) and ADAS Core (runtime)
 export { ensureSkillDefaults, ensureSolutionDefaults, DEFAULTS } from './ensureDefaults.js';
+
+// GitHub operations
+export { deleteDirectory as githubDeleteDirectory } from './services/githubService.js';
