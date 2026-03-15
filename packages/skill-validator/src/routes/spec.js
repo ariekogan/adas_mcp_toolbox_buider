@@ -32,6 +32,7 @@ const SOLUTION_SPEC = buildSolutionSpec();
 const WORKFLOWS = buildWorkflows();
 const MOBILE_CONNECTOR_SPEC = buildMobileConnectorSpec();
 const UI_PLUGINS_SPEC = buildUIPluginsSpec();
+const MULTI_USER_CONNECTOR_SPEC = buildMultiUserConnectorSpec();
 const INDEX = buildIndex();
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -45,6 +46,7 @@ router.get('/solution', (_req, res) => res.set(CACHE_HEADERS).json(SOLUTION_SPEC
 router.get('/workflows', (_req, res) => res.set(CACHE_HEADERS).json(WORKFLOWS));
 router.get('/mobile-connector', (_req, res) => res.set(CACHE_HEADERS).json(MOBILE_CONNECTOR_SPEC));
 router.get('/ui-plugins', (_req, res) => res.set(CACHE_HEADERS).json(UI_PLUGINS_SPEC));
+router.get('/multi-user-connector', (_req, res) => res.set(CACHE_HEADERS).json(MULTI_USER_CONNECTOR_SPEC));
 
 export default router;
 
@@ -119,6 +121,10 @@ function buildIndex() {
       '/spec/ui-plugins': {
         method: 'GET',
         description: 'UI Plugins specification — build interactive dashboards for web (iframe) and mobile (React Native). Covers render modes, PluginSDK, bundle pipeline, and deployment.',
+      },
+      '/spec/multi-user-connector': {
+        method: 'GET',
+        description: 'Multi-user connector guide — how to build connectors that isolate data per user (actor). Covers HTTP vs stdio transport, actor context propagation, and complete code examples.',
       },
       '/spec/examples': {
         method: 'GET',
@@ -2971,6 +2977,288 @@ await esbuild.build({
       '4. Build your plugin and connector',
       '5. Deploy via ateam_build_and_run with mcp_store',
       '6. Test: iframe loads in web UI, RN bundle loads in mobile app',
+    ],
+  };
+}
+
+/**
+ * Multi-User Connector specification
+ * Complete guide for building connectors that isolate data per user (actor).
+ */
+function buildMultiUserConnectorSpec() {
+  return {
+    service: '@adas/multi-user-connector',
+    version: '1.0.0',
+    description: 'Build connectors that isolate data per user (actor). A-Team is multi-tenant AND multi-user — multiple users share the same tenant. Any connector that stores, retrieves, or manages per-user data MUST scope it by actor ID.',
+
+    overview: {
+      problem: 'A-Team solutions serve multiple users within a tenant. Without actor scoping, User A sees User B\'s memories, preferences, and private data. Every stateful connector must isolate data per actor.',
+      how_it_works: 'A-Team Core automatically propagates the current user\'s identity (actor ID) to connectors. The mechanism differs by transport: HTTP connectors receive it as a request header, stdio connectors receive it as an injected tool argument. The connector reads the actor ID and scopes all data operations accordingly.',
+      actor_identity: {
+        what_is_actor_id: 'A unique identifier for each user within a tenant. Format: opaque string (e.g., "user_abc123"). Assigned by A-Team Core during authentication.',
+        what_is_tenant: 'The organization/deployment scope. Multiple actors belong to one tenant. Connectors receive both actor_id and tenant_id.',
+        propagation: 'Core injects actor context automatically — the LLM never sees or sends actor IDs. The LLM calls tools normally (e.g., memory.store({ type: "fact", content: "..." })), and Core enriches the call with actor identity before it reaches the connector.',
+      },
+      transport_comparison: {
+        http: {
+          mechanism: 'HTTP headers injected by Core\'s connectorManager',
+          actor_header: 'x-adas-actor',
+          tenant_header: 'x-adas-tenant',
+          how_to_read: 'Read from request headers or AsyncLocalStorage (ALS) context set by middleware',
+        },
+        stdio: {
+          mechanism: 'Tool arguments injected by Core\'s _callToolStdio()',
+          actor_field: '_adas_actor',
+          tenant_field: '_adas_tenant',
+          how_to_read: 'Read from the tool\'s args object: args._adas_actor',
+          critical_gotcha: 'MCP SDK uses zod.safeParse() which STRIPS unknown fields. You MUST declare _adas_actor in every tool\'s zod schema or it will be silently dropped.',
+        },
+      },
+    },
+
+    stdio_connector_guide: {
+      description: 'Complete guide for building multi-user stdio MCP connectors (the most common type).',
+
+      step_1_actor_field_pattern: {
+        description: 'Define a shared ACTOR_FIELD constant and a helper function. Spread ACTOR_FIELD into every tool\'s zod schema.',
+        code: `import { z } from "zod";
+
+// ── Actor context (injected by A-Team Core — invisible to LLM) ──
+const ACTOR_FIELD = {
+  _adas_actor: z.string().optional().describe("Internal: actor ID injected by Core"),
+};
+
+function getActorId(args) {
+  return args?._adas_actor || "default";
+}`,
+        why_default: 'Falling back to "default" ensures the connector works during development/testing when no actor is injected. In production, Core always injects the real actor ID.',
+      },
+
+      step_2_declare_in_every_tool: {
+        description: 'Every tool that touches per-user data MUST include ...ACTOR_FIELD in its zod schema. This is NOT optional — without it, zod strips the field silently.',
+        example: `server.tool(
+  "memory.store",
+  "Store a memory for the current user",
+  {
+    type: z.enum(["preference", "fact", "instruction"]).describe("Memory type"),
+    content: z.string().describe("The memory content"),
+    tags: z.string().optional().describe("Comma-separated tags"),
+    ...ACTOR_FIELD,  // ← CRITICAL: without this, _adas_actor is stripped by zod
+  },
+  async (args) => {
+    const actorId = getActorId(args);
+    // Use actorId to scope the INSERT
+    db.prepare("INSERT INTO memories (id, actor_id, type, content, tags) VALUES (?, ?, ?, ?, ?)")
+      .run(generateId(), actorId, args.type, args.content, args.tags || "");
+    return { content: [{ type: "text", text: JSON.stringify({ success: true }) }] };
+  }
+);`,
+        critical_warning: 'If you forget ...ACTOR_FIELD on even ONE tool, that tool will not receive the actor ID and will fall back to "default", causing data leakage between users.',
+      },
+
+      step_3_scope_all_queries: {
+        description: 'Every SQL query (or data operation) must include actor_id in WHERE clauses.',
+        examples: {
+          insert: 'INSERT INTO memories (id, actor_id, type, content) VALUES (@id, @actor_id, @type, @content)',
+          select: 'SELECT * FROM memories WHERE actor_id = @actor_id ORDER BY updated_at DESC LIMIT @limit',
+          update: 'UPDATE memories SET content = @content WHERE id = @id AND actor_id = @actor_id',
+          delete: 'DELETE FROM memories WHERE id = @id AND actor_id = @actor_id',
+          count: 'SELECT COUNT(*) as count FROM memories WHERE actor_id = @actor_id',
+          search: 'SELECT * FROM memories WHERE actor_id = @actor_id AND content LIKE @query',
+        },
+        rule: 'NEVER query without actor_id in the WHERE clause. Even admin/list operations must be actor-scoped unless explicitly designed as tenant-wide.',
+      },
+
+      step_4_database_schema: {
+        description: 'Add actor_id column to every table that holds per-user data.',
+        create_table: `CREATE TABLE IF NOT EXISTS memories (
+  id TEXT PRIMARY KEY,
+  actor_id TEXT NOT NULL DEFAULT 'default',
+  type TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tags TEXT DEFAULT '',
+  context TEXT DEFAULT '',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for fast per-actor queries
+CREATE INDEX IF NOT EXISTS idx_memories_actor ON memories(actor_id);
+CREATE INDEX IF NOT EXISTS idx_memories_actor_type ON memories(actor_id, type);`,
+        migration: {
+          description: 'For existing databases that need the actor_id column added:',
+          code: `// Safe migration — adds column if not exists, backfills with 'default'
+try {
+  db.prepare("SELECT actor_id FROM memories LIMIT 1").get();
+} catch {
+  db.prepare("ALTER TABLE memories ADD COLUMN actor_id TEXT NOT NULL DEFAULT 'default'").run();
+  db.prepare("CREATE INDEX IF NOT EXISTS idx_memories_actor ON memories(actor_id)").run();
+  db.prepare("CREATE INDEX IF NOT EXISTS idx_memories_actor_type ON memories(actor_id, type)").run();
+}`,
+          note: 'Existing rows get actor_id="default" and won\'t appear for real authenticated users. This is intentional — test data stays isolated.',
+        },
+      },
+    },
+
+    http_connector_guide: {
+      description: 'Guide for multi-user HTTP connectors. Less common but used for connectors that need to serve web requests directly.',
+      mechanism: 'Core\'s connectorManager injects x-adas-actor and x-adas-tenant as HTTP headers on every request to the connector.',
+      reading_actor: {
+        from_header: 'const actorId = req.headers["x-adas-actor"] || "default";',
+        from_als: 'If using AsyncLocalStorage middleware: const actorId = getCurrentActorId();',
+      },
+      note: 'HTTP connectors do NOT have the zod stripping issue — headers flow outside the tool schema. But you still MUST scope all data operations by actor ID.',
+    },
+
+    complete_example: {
+      description: 'Minimal but complete multi-user stdio connector example — a per-user note store.',
+      code: `import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import Database from "better-sqlite3";
+import { randomUUID } from "crypto";
+import { z } from "zod";
+
+// ── Actor context ──
+const ACTOR_FIELD = {
+  _adas_actor: z.string().optional().describe("Internal: actor ID injected by Core"),
+};
+function getActorId(args) {
+  return args?._adas_actor || "default";
+}
+
+// ── Database ──
+const DATA_DIR = process.env.DATA_DIR || ".";
+const db = new Database(\`\${DATA_DIR}/notes.db\`);
+db.pragma("journal_mode = WAL");
+
+db.exec(\`
+  CREATE TABLE IF NOT EXISTS notes (
+    id TEXT PRIMARY KEY,
+    actor_id TEXT NOT NULL DEFAULT 'default',
+    title TEXT NOT NULL,
+    body TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_notes_actor ON notes(actor_id);
+\`);
+
+// ── MCP Server ──
+const server = new McpServer({ name: "notes-mcp", version: "1.0.0" });
+
+server.tool(
+  "notes.add",
+  "Add a new note",
+  {
+    title: z.string().describe("Note title"),
+    body: z.string().optional().describe("Note body"),
+    ...ACTOR_FIELD,
+  },
+  async (args) => {
+    const actorId = getActorId(args);
+    const id = randomUUID();
+    db.prepare("INSERT INTO notes (id, actor_id, title, body) VALUES (?, ?, ?, ?)")
+      .run(id, actorId, args.title, args.body || "");
+    return { content: [{ type: "text", text: JSON.stringify({ id, title: args.title }) }] };
+  }
+);
+
+server.tool(
+  "notes.list",
+  "List all notes for the current user",
+  {
+    limit: z.number().optional().default(20).describe("Max notes to return"),
+    ...ACTOR_FIELD,
+  },
+  async (args) => {
+    const actorId = getActorId(args);
+    const notes = db.prepare(
+      "SELECT * FROM notes WHERE actor_id = ? ORDER BY created_at DESC LIMIT ?"
+    ).all(actorId, args.limit);
+    return { content: [{ type: "text", text: JSON.stringify({ notes, total: notes.length }) }] };
+  }
+);
+
+server.tool(
+  "notes.delete",
+  "Delete a note by ID",
+  {
+    id: z.string().describe("Note ID to delete"),
+    ...ACTOR_FIELD,
+  },
+  async (args) => {
+    const actorId = getActorId(args);
+    const result = db.prepare("DELETE FROM notes WHERE id = ? AND actor_id = ?")
+      .run(args.id, actorId);
+    return { content: [{ type: "text", text: JSON.stringify({ deleted: result.changes > 0 }) }] };
+  }
+);
+
+// ── Start ──
+const transport = new StdioServerTransport();
+await server.connect(transport);`,
+    },
+
+    common_mistakes: [
+      {
+        mistake: 'Forgetting ...ACTOR_FIELD in one tool\'s zod schema',
+        consequence: '_adas_actor silently stripped → tool uses "default" actor → data shared across all users',
+        fix: 'Add ...ACTOR_FIELD to EVERY tool schema. Use grep to verify: every server.tool() call should have ...ACTOR_FIELD.',
+      },
+      {
+        mistake: 'Not including actor_id in WHERE clause for UPDATE/DELETE',
+        consequence: 'User A can modify/delete User B\'s data if they guess the ID',
+        fix: 'Always include "AND actor_id = @actor_id" in UPDATE and DELETE queries.',
+      },
+      {
+        mistake: 'Using a global in-memory cache without actor scoping',
+        consequence: 'Cached data from one user leaks to another',
+        fix: 'Key all caches by actor_id: cache[actorId] = { ... }',
+      },
+      {
+        mistake: 'Hardcoding actor_id instead of reading from args',
+        consequence: 'All users share the same data',
+        fix: 'Always use getActorId(args) — never hardcode.',
+      },
+      {
+        mistake: 'Assuming _adas_actor is always present',
+        consequence: 'Crashes when running in test/dev without Core injection',
+        fix: 'Default to "default": args?._adas_actor || "default"',
+      },
+    ],
+
+    testing: {
+      with_ateam_test_skill: {
+        description: 'ateam_test_skill uses isolated test databases. To verify multi-user isolation, test with two different messages that simulate different actors.',
+        note: 'ateam_test_skill injects a test actor ID automatically. Your connector will receive _adas_actor in args if the schema declares it.',
+      },
+      manual_testing: {
+        description: 'For local development, you can simulate actor injection by passing _adas_actor directly:',
+        example: '{ "tool": "notes.list", "args": { "limit": 10, "_adas_actor": "test-user-1" } }',
+      },
+    },
+
+    checklist: [
+      '☐ ACTOR_FIELD constant defined with z.string().optional()',
+      '☐ getActorId() helper function returns args._adas_actor || "default"',
+      '☐ ...ACTOR_FIELD spread into EVERY tool\'s zod schema',
+      '☐ actor_id column added to ALL per-user tables (NOT NULL DEFAULT "default")',
+      '☐ Index on actor_id column for query performance',
+      '☐ Every SELECT includes WHERE actor_id = ?',
+      '☐ Every UPDATE includes WHERE ... AND actor_id = ?',
+      '☐ Every DELETE includes WHERE ... AND actor_id = ?',
+      '☐ Every INSERT includes actor_id value from getActorId()',
+      '☐ Migration logic for existing databases (ALTER TABLE + backfill)',
+      '☐ Tested with ateam_test_skill to verify tool execution',
+    ],
+
+    learning_path: [
+      '1. Read this spec (/spec/multi-user-connector) for the full pattern',
+      '2. Understand the zod stripping gotcha — this is the #1 source of bugs',
+      '3. Copy the ACTOR_FIELD + getActorId() pattern into your connector',
+      '4. Add actor_id column to your database schema',
+      '5. Scope every query by actor_id',
+      '6. Test with ateam_test_skill',
+      '7. Deploy via ateam_github_patch + ateam_build_and_run(github: true)',
     ],
   };
 }
