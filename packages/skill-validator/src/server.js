@@ -99,6 +99,7 @@ const server = app.listen(PORT, () => {
   console.log(`  PATCH /deploy/solutions/:id/skills/:sk — Update skill incrementally`);
   console.log(`  POST /deploy/solutions/:id/skills/:sk/redeploy — Re-deploy after PATCH`);
   console.log(`  DELETE /deploy/solutions/:id/skills/:sk — Delete a single skill`);
+  console.log(`  DELETE /deploy/solutions/:id/connectors/:cid — Delete a connector`);
   console.log(`  GET  /deploy/solutions/:id/validate     — Validate from stored state`);
   console.log(`  GET  /deploy/solutions/:id/skills/:sk/validate — Validate skill`);
   console.log(`  GET  /deploy/solutions/:id/connectors/health — Connector health`);
