@@ -40,7 +40,7 @@ router.post('/solution', async (req, res, next) => {
 
     log.info(`[Deploy] Starting deployment of solution "${solution.id}"...`);
     log.info(`[Deploy] GitHub mode: ${github ? 'enabled (will pull from GitHub)' : 'disabled (using inline mcp_store)'}`);
-    log.info(`[Deploy] Skills: ${skills.length}, Connectors: ${connectors.length}`);
+    log.info(`[Deploy] Skills: ${skills.length}, Connectors: ${connectors.length}, mcp_store keys: ${Object.keys(mcp_store).join(', ') || 'NONE'}`);
 
     // Step 1: Save solution to Skill Builder
     try {
