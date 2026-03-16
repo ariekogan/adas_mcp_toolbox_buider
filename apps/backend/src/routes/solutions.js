@@ -565,6 +565,47 @@ router.get('/:id/health', async (req, res, next) => {
       }
     }
 
+    // ── React Native plugin validation ────────────────────────────
+    // For ui_plugins with mode "adaptive" or "react-native", verify
+    // the RN build pipeline produced a valid bundle on Core's mcp-store.
+    const rnPluginHealth = [];
+    const uiPlugins = solution.ui_plugins || [];
+    for (const plugin of uiPlugins) {
+      const mode = plugin.render?.mode;
+      const rnConfig = plugin.render?.reactNative;
+      if (!mode || (mode !== 'adaptive' && mode !== 'react-native')) continue;
+      if (!rnConfig) {
+        issues.push({ severity: 'warning', plugin: plugin.id, message: `UI plugin "${plugin.id}" has render mode "${mode}" but no reactNative config. Add render.reactNative.component.` });
+        rnPluginHealth.push({ plugin: plugin.id, ok: false, issue: 'missing reactNative config' });
+        continue;
+      }
+
+      // Extract connector ID from plugin ID format "mcp:<connector-id>:<plugin-name>"
+      const parts = (plugin.id || '').split(':');
+      const connectorId = parts.length === 3 ? parts[1] : null;
+      if (!connectorId) {
+        issues.push({ severity: 'warning', plugin: plugin.id, message: `Cannot determine connector ID from plugin ID "${plugin.id}". Expected format: mcp:<connector-id>:<plugin-name>` });
+        rnPluginHealth.push({ plugin: plugin.id, ok: false, issue: 'invalid plugin ID format' });
+        continue;
+      }
+
+      // Check if rn-bundle/index.bundle.js exists on Core
+      const bundleCheck = await adasCore.checkUiAsset(tenant, connectorId, 'rn-bundle/index.bundle.js');
+      if (!bundleCheck.exists) {
+        issues.push({
+          severity: 'error',
+          plugin: plugin.id,
+          connector: connectorId,
+          message: `RN plugin "${plugin.id}" — rn-bundle/index.bundle.js NOT FOUND on Core. ` +
+            `Required: connector must have rn-src/index.tsx + package.json with "build:rn" script. ` +
+            `The build:rn script must produce rn-bundle/index.bundle.js (CommonJS, externals: react, react-native, @adas/plugin-sdk).`,
+        });
+        rnPluginHealth.push({ plugin: plugin.id, connector: connectorId, ok: false, issue: 'rn-bundle missing' });
+      } else {
+        rnPluginHealth.push({ plugin: plugin.id, connector: connectorId, ok: true });
+      }
+    }
+
     // Helper: match a skill ref by original ID or internal (remapped) ID
     const findSkill = (sid) => skillHealth.find(s => s.id === sid || s.internal_id === sid);
 
@@ -613,6 +654,7 @@ router.get('/:id/health', async (req, res, next) => {
       skills: skillHealth,
       connectors: connectorHealth,
       ...(uiAssetHealth.length > 0 ? { ui_plugins: uiAssetHealth } : {}),
+      ...(rnPluginHealth.length > 0 ? { rn_plugins: rnPluginHealth } : {}),
       issues,
       error_count: errorCount,
       warning_count: warningCount,

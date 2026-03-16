@@ -2164,6 +2164,19 @@ function buildSolutionSpec() {
           'bundle_serving': 'React Native plugin bundles are served by Core API at GET /api/ui-plugins/{pluginId}/bundle.js. Core auto-detects bundleUrl at runtime by checking if rn-bundle/index.bundle.js exists in the connector\'s mcp-store directory. Connectors declare intent (mode: "adaptive"), Core resolves physical assets. No manual URL configuration needed.',
           'mobile_bundle_flow': '1. ateam_build_and_run uploads connector source + runs npm run build → produces rn-bundle/index.bundle.js 2. Core auto-detects bundle existence at runtime via cp.getContextPlugin 3. Mobile app fetches from /api/ui-plugins/{pluginId}/bundle.js, caches locally (7-day TTL) 4. Next load is instant from cache',
           'developer_guides': 'Web developers: docs/UI_PLUGIN_ARCHITECTURE.md | Mobile developers: docs/REACT_NATIVE_UI_PLUGINS_ARCHITECTURE.md + example-plugins/ | Mobile app host: ateam-mobile/DYNAMIC_PLUGIN_LOADING_INTEGRATION.md',
+          'rn_plugin_requirements': {
+            summary: 'React Native plugins require: rn-src/index.tsx entry point, package.json with build:rn script, and the build must produce rn-bundle/index.bundle.js. The health check validates all of this.',
+            file_structure: {
+              'connectors/<id>/rn-src/index.tsx': 'REQUIRED entry point — must use PluginSDK.register(name, { Component })',
+              'connectors/<id>/package.json': 'REQUIRED — must have "build:rn" script that bundles rn-src → rn-bundle/',
+              'connectors/<id>/rn-bundle/index.bundle.js': 'BUILD OUTPUT — produced by build:rn, validated by Core on upload',
+            },
+            minimal_index_tsx: 'import { PluginSDK, useApi } from \'@adas/plugin-sdk\';\nexport default PluginSDK.register(\'plugin-name\', {\n  type: \'ui\',\n  version: \'1.0.0\',\n  capabilities: { haptics: true },\n  Component({ bridge, native, theme }) {\n    const api = useApi(bridge);\n    return null; // your JSX here\n  },\n});',
+            build_rn_script: 'Must produce rn-bundle/index.bundle.js as CommonJS module. Externals: react, react-native, @adas/plugin-sdk (provided by host app via require shim).',
+            bundle_format: 'module.exports.default must be a RegisteredPlugin with a .Component field. Bundle is evaluated via new Function("module","exports","require", code).',
+            validation_chain: '1. rn-src/ exists? → YES: run build:rn → rn-bundle/index.bundle.js exists + non-empty + is JS → DEPLOY OK. NO rn-src/: skip RN build (iframe-only OK). rn-src/ exists but no bundle → DEPLOY REJECTED.',
+            solution_definition: 'ui_plugins entry must have render.mode="adaptive" + render.reactNative.component matching the PluginSDK.register name. bundleUrl is auto-injected by Core at runtime.',
+          },
         },
 
         item_schema: {
