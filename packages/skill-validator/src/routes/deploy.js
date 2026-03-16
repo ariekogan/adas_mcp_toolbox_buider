@@ -2258,6 +2258,33 @@ router.post('/solutions/:solutionId/github/patch', async (req, res) => {
     if (content === undefined) return res.status(400).json({ ok: false, error: 'Missing content in body' });
 
     const result = await github.patchFile(tenant, req.params.solutionId, filePath, content, message);
+
+    // If a skill or solution file was patched, update .ateam/export.json to stay in sync
+    if (filePath === 'solution.json' || /^skills\/[^/]+\/skill\.json$/.test(filePath)) {
+      try {
+        const exportRaw = await github.readFile(tenant, req.params.solutionId, '.ateam/export.json');
+        const exportBundle = JSON.parse(exportRaw.content);
+        const patchedData = JSON.parse(content);
+
+        if (filePath === 'solution.json') {
+          exportBundle.solution = patchedData;
+        } else {
+          // Update the matching skill in the bundle
+          const skills = exportBundle.skills || [];
+          const idx = skills.findIndex(s => (s.id || s.slug) === (patchedData.id || patchedData.slug));
+          if (idx >= 0) skills[idx] = patchedData;
+          else skills.push(patchedData);
+          exportBundle.skills = skills;
+        }
+
+        await github.patchFile(tenant, req.params.solutionId, '.ateam/export.json',
+          JSON.stringify(exportBundle, null, 2), `sync: update export.json after ${filePath} patch`);
+        console.log(`[GitHub Patch] Synced .ateam/export.json after ${filePath} edit`);
+      } catch (syncErr) {
+        console.warn(`[GitHub Patch] Could not sync export.json: ${syncErr.message}`);
+      }
+    }
+
     res.json({ ok: true, ...result });
   } catch (err) {
     console.error('[GitHub] Patch error:', err.message);
@@ -2318,12 +2345,50 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Invalid JSON in .ateam/export.json' });
     }
 
-    // 2. Also read connector source files from repo
+    // 2. Read individual files from repo — they override export.json
+    // Agents use github_patch to edit skills/*/skill.json and solution.json directly,
+    // but export.json is only updated on github_push. So individual files are authoritative.
     const connectorSources = {};
     try {
       const allFiles = await github.listFiles(tenant, solId);
-      const connectorFiles = allFiles.filter(f => f.path.startsWith('connectors/'));
 
+      // 2a. Override solution definition from solution.json (if it exists)
+      if (allFiles.some(f => f.path === 'solution.json')) {
+        try {
+          const solFile = await github.readFile(tenant, solId, 'solution.json');
+          const solData = JSON.parse(solFile.content);
+          bundle.solution = solData;
+          console.log(`[GitHub Pull] Overrode solution definition from solution.json`);
+        } catch (err) {
+          console.warn(`[GitHub Pull] Could not read solution.json: ${err.message}`);
+        }
+      }
+
+      // 2b. Override skill definitions from skills/*/skill.json (if they exist)
+      const skillFiles = allFiles.filter(f => /^skills\/[^/]+\/skill\.json$/.test(f.path));
+      if (skillFiles.length > 0) {
+        const updatedSkills = [];
+        for (const f of skillFiles) {
+          try {
+            const skillFile = await github.readFile(tenant, solId, f.path);
+            const skillData = JSON.parse(skillFile.content);
+            updatedSkills.push(skillData);
+          } catch (err) {
+            console.warn(`[GitHub Pull] Could not read ${f.path}: ${err.message}`);
+          }
+        }
+        if (updatedSkills.length > 0) {
+          // Merge: replace existing skills by ID, add new ones
+          const skillMap = new Map();
+          for (const s of (bundle.skills || [])) skillMap.set(s.id || s.slug, s);
+          for (const s of updatedSkills) skillMap.set(s.id || s.slug, s);
+          bundle.skills = [...skillMap.values()];
+          console.log(`[GitHub Pull] Overrode ${updatedSkills.length} skill(s) from skills/*/skill.json`);
+        }
+      }
+
+      // 2c. Read connector source files
+      const connectorFiles = allFiles.filter(f => f.path.startsWith('connectors/'));
       // Group by connector ID
       for (const f of connectorFiles) {
         // connectors/<connectorId>/<filepath>
