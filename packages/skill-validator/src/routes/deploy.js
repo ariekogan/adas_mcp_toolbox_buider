@@ -2243,7 +2243,9 @@ router.get('/solutions/:solutionId/github/read', async (req, res) => {
 
 /**
  * POST /deploy/solutions/:solutionId/github/patch — Edit a file and commit
- * Body: { path, content, message? }
+ * Two modes:
+ *   1. Full file: { path, content, message? } — replaces entire file
+ *   2. Search/replace: { path, search, replace, message? } — surgical edit
  */
 router.post('/solutions/:solutionId/github/patch', async (req, res) => {
   try {
@@ -2253,9 +2255,18 @@ router.post('/solutions/:solutionId/github/patch', async (req, res) => {
     const tenant = req.headers['x-adas-tenant'];
     if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
 
-    const { path: filePath, content, message } = req.body || {};
+    const { path: filePath, content, search, replace, message } = req.body || {};
     if (!filePath) return res.status(400).json({ ok: false, error: 'Missing path in body' });
-    if (content === undefined) return res.status(400).json({ ok: false, error: 'Missing content in body' });
+
+    // Search/replace mode
+    if (search !== undefined) {
+      if (replace === undefined) return res.status(400).json({ ok: false, error: 'Missing replace in body (required with search)' });
+      const result = await github.searchReplacePatchFile(tenant, req.params.solutionId, filePath, search, replace, message);
+      return res.json({ ok: true, mode: 'search_replace', ...result });
+    }
+
+    // Full content mode
+    if (content === undefined) return res.status(400).json({ ok: false, error: 'Missing content (or search+replace) in body' });
 
     const result = await github.patchFile(tenant, req.params.solutionId, filePath, content, message);
 

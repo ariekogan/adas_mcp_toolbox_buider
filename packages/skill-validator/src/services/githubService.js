@@ -295,6 +295,47 @@ export async function patchFile(tenant, solutionId, filePath, content, message =
 }
 
 /**
+ * Search-and-replace within a file in the repo, then commit.
+ * Reads the current file, performs all replacements, writes back.
+ * @param {string} search — exact text to find
+ * @param {string} replace — text to replace with
+ * @returns {{ path, commit_sha, commit_url, replacements }}
+ */
+export async function searchReplacePatchFile(tenant, solutionId, filePath, search, replace, message) {
+  const name = repoName(tenant, solutionId);
+  const fullName = `${OWNER}/${name}`;
+
+  // Read current file
+  const existing = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}`);
+  const currentContent = Buffer.from(existing.content, 'base64').toString('utf-8');
+
+  // Count occurrences
+  const count = currentContent.split(search).length - 1;
+  if (count === 0) {
+    throw new Error(`Search text not found in ${filePath}. Make sure the search string matches exactly (including whitespace and line breaks).`);
+  }
+
+  // Replace
+  const newContent = currentContent.replaceAll(search, replace);
+
+  // Write back
+  const body = {
+    message: message || `Edit ${filePath} (${count} replacement${count > 1 ? 's' : ''})`,
+    content: Buffer.from(newContent, 'utf-8').toString('base64'),
+    sha: existing.sha,
+  };
+
+  const result = await gh('PUT', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}`, body);
+
+  return {
+    path: filePath,
+    commit_sha: result.commit.sha,
+    commit_url: result.commit.html_url,
+    replacements: count,
+  };
+}
+
+/**
  * Get commit history for a repo.
  * @param {number} limit — max commits to return (default 10)
  * @returns {{ commits: Array<{ sha, message, date, author }> }}
