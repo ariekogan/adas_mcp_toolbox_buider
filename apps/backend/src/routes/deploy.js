@@ -126,7 +126,10 @@ router.post('/solution', async (req, res, next) => {
         });
         log.info(`[Deploy] Connector "${connId}" registered in ADAS Core`);
 
-        // Start connector
+        // Stop old process before starting with new code
+        try { await adasCore.stopConnector(connId); } catch { /* may not be running */ }
+
+        // Start connector with updated code
         const startResult = await adasCore.startConnector(connId);
         const toolCount = startResult?.tools?.length || 0;
         connectorResults.push({ id: connId, ok: toolCount > 0, tools: toolCount });
