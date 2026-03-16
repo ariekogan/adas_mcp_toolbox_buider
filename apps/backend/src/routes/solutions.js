@@ -504,19 +504,40 @@ router.get('/:id/health', async (req, res, next) => {
           const pluginId = pluginSummary.id || pluginSummary.name || 'unknown';
 
           // Call ui.getPlugin to get full manifest with iframeUrl
+          // Try full ID first, then short name (strip "mcp:<connector>:" prefix)
+          // because connectors often only match the short plugin name
           let iframeUrl;
+          let manifest;
           try {
-            const rawManifest = await adasCore.callConnectorTool(ch.id, 'ui.getPlugin', { id: pluginId });
-            let manifest = rawManifest;
-            if (rawManifest?.content?.[0]?.type === 'text') {
-              try { manifest = JSON.parse(rawManifest.content[0].text); } catch {}
+            const idsToTry = [pluginId];
+            // If full ID like "mcp:home-assistant-mcp:home-layout-panel", also try "home-layout-panel"
+            if (pluginId.startsWith('mcp:') && pluginId.split(':').length === 3) {
+              idsToTry.push(pluginId.split(':')[2]);
             }
-            iframeUrl = manifest?.render?.iframeUrl || manifest?.iframeUrl;
+            for (const tryId of idsToTry) {
+              const rawManifest = await adasCore.callConnectorTool(ch.id, 'ui.getPlugin', { id: tryId });
+              manifest = rawManifest;
+              if (rawManifest?.content?.[0]?.type === 'text') {
+                try { manifest = JSON.parse(rawManifest.content[0].text); } catch {}
+              }
+              // If we got an error response, try the next ID
+              if (manifest?.error) continue;
+              iframeUrl = manifest?.render?.iframeUrl || manifest?.iframeUrl;
+              if (iframeUrl) break;
+            }
           } catch {
-            // ui.getPlugin failed — report as warning
-            issues.push({ severity: 'warning', connector: ch.id, message: `UI plugin "${pluginId}" — ui.getPlugin call failed` });
-            uiAssetHealth.push({ plugin: pluginId, connector: ch.id, ok: false, issue: 'ui.getPlugin failed' });
-            continue;
+            // ui.getPlugin failed — but check if ui.listPlugins already had iframeUrl
+            iframeUrl = pluginSummary?.render?.iframeUrl || pluginSummary?.iframeUrl;
+            if (!iframeUrl) {
+              issues.push({ severity: 'warning', connector: ch.id, message: `UI plugin "${pluginId}" — ui.getPlugin call failed` });
+              uiAssetHealth.push({ plugin: pluginId, connector: ch.id, ok: false, issue: 'ui.getPlugin failed' });
+              continue;
+            }
+          }
+
+          // Fallback: if ui.getPlugin didn't return iframeUrl, check ui.listPlugins response
+          if (!iframeUrl) {
+            iframeUrl = pluginSummary?.render?.iframeUrl || pluginSummary?.iframeUrl;
           }
 
           if (!iframeUrl) {
