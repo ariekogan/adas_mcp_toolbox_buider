@@ -28,6 +28,7 @@ const router = Router();
 router.post('/solution', async (req, res, next) => {
   try {
     const log = req.app.locals.log;
+    console.log(`[deploy.js] HIT /api/deploy/solution — body keys: ${Object.keys(req.body || {}).join(', ')}`);
     const { solution, skills = [], connectors = [], mcp_store = {}, github = false } = req.body;
 
     if (!solution || !solution.id) {
