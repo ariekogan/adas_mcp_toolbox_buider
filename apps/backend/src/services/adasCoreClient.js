@@ -30,6 +30,11 @@ function headers(json = false) {
   if (CORE_MCP_SECRET) {
     h['x-adas-token'] = CORE_MCP_SECRET;
   }
+  // Tenant header — Core uses this to set tenant context
+  const tenant = getCurrentTenant();
+  if (tenant) {
+    h['X-ADAS-TENANT'] = tenant;
+  }
   // Also forward user's token for audit/traceability
   const token = getCurrentToken();
   if (token) {
