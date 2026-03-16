@@ -102,6 +102,21 @@ async function deployIdentity({ actor_types, admin_roles, default_actor_type, de
 }
 
 // ═══════════════════════════════════════════════════════════════
+// SOLUTION CONFIG
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Deploy solution-level config (e.g. exclude_bootstrap_tools) to ADAS Core.
+ * Core stores these in MongoDB configStore, applying to ALL skills in the solution.
+ */
+async function deploySolutionConfig({ exclude_bootstrap_tools } = {}) {
+  return request('/api/solution-config', {
+    method: 'POST',
+    body: { exclude_bootstrap_tools: exclude_bootstrap_tools || [] },
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
 // SKILLS
 // ═══════════════════════════════════════════════════════════════
 
@@ -472,6 +487,7 @@ export default {
   getBaseUrl: () => BASE_URL,
   getSettings,
   deployIdentity,
+  deploySolutionConfig,
   deployUiPlugins,
   deployMcp,
   importSkill,
@@ -507,6 +523,7 @@ export {
   BASE_URL,
   getSettings,
   deployIdentity,
+  deploySolutionConfig,
   deployUiPlugins,
   deployMcp,
   importSkill,

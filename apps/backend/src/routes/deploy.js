@@ -150,6 +150,19 @@ router.post('/solution', async (req, res, next) => {
       const identityResult = await deployIdentityToADAS(solution.id, log);
       log.info(`[Deploy] Identity deployed`, identityResult);
 
+      // Deploy solution-level config (exclude_bootstrap_tools, etc.)
+      if (solution.exclude_bootstrap_tools) {
+        try {
+          log.info(`[Deploy] Deploying solution config (exclude_bootstrap_tools)...`);
+          await adasCore.deploySolutionConfig({
+            exclude_bootstrap_tools: solution.exclude_bootstrap_tools,
+          });
+          log.info(`[Deploy] Solution config deployed`);
+        } catch (err) {
+          log.warn(`[Deploy] Solution config deployment failed (non-fatal): ${err.message}`);
+        }
+      }
+
       // Deploy UI plugins (if any)
       let uiPluginResult = null;
       if (solution.ui_plugins && solution.ui_plugins.length > 0) {

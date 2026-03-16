@@ -672,6 +672,15 @@ function buildSkillSpec() {
         example: ['identity.customer.lookup', 'orders.list', 'account.status'],
       },
 
+      // ── Exclude Bootstrap Tools ──
+      exclude_bootstrap_tools: {
+        type: 'string[]', required: false,
+        description: 'System bootstrap tools to UN-PIN for this skill. By default the platform force-pins 9 system tools (readFile, getCurrentProjectPath, getChatTranscript, sys.callAiWithTools, sys.step, sys.handoffToSkill, run_python_script, sys.askForContextAndTools, sys.finalizePlan). Three are MANDATORY and cannot be excluded: run_python_script, sys.askForContextAndTools, sys.finalizePlan. The remaining 6 CAN be excluded here. Excluded tools are NOT removed — they stay in the tool catalog and the LLM can still select them via tool ranking. They just won\'t be force-pinned. Use this to free up planner token budget for skills that don\'t need certain system tools. If also set at the solution level, both lists are merged (union).',
+        excludable_tools: ['readFile', 'getCurrentProjectPath', 'getChatTranscript', 'sys.callAiWithTools', 'sys.step', 'sys.handoffToSkill'],
+        mandatory_tools_note: 'These 3 are ALWAYS pinned and CANNOT be excluded: run_python_script, sys.askForContextAndTools, sys.finalizePlan',
+        example: ['readFile', 'getCurrentProjectPath', 'getChatTranscript'],
+      },
+
       // ── Triggers ──
       triggers: {
         type: 'array', required: false,
@@ -785,6 +794,39 @@ function buildSkillSpec() {
             'Higher limits increase cost but allow the agent to complete complex multi-step tasks.',
             'Use on_max_iterations: "ask_user" for interactive skills, "fail" for batch/automated skills.',
           ],
+          planner_tool_budget_optimization: {
+            _note: 'Advanced optimization — control which tools the planner always sees. Two complementary mechanisms: PIN your important domain tools, UN-PIN system tools you don\'t need.',
+            pin_domain_tools: {
+              field: 'bootstrap_tools',
+              what: 'Up to 3 domain tool names that are ALWAYS visible to the planner, bypassing LLM tool ranking. Use for core tools the skill needs on almost every request.',
+              example: 'bootstrap_tools: ["identity.customer.lookup", "orders.list", "account.status"]',
+              when_to_use: 'Skills with 3+ tools where some are critical for most requests. Without pinning, tool ranking might deprioritize a key tool on certain queries.',
+            },
+            unpin_system_tools: {
+              field: 'exclude_bootstrap_tools',
+              what: 'The platform force-pins 9 system tools into every skill\'s planner. 3 are mandatory (cannot exclude), 6 are excludable to free token budget.',
+              mandatory: {
+                tools: ['run_python_script', 'sys.askForContextAndTools', 'sys.finalizePlan'],
+                note: 'ALWAYS pinned. Cannot be excluded.',
+              },
+              excludable: {
+                tools: ['readFile', 'getCurrentProjectPath', 'getChatTranscript', 'sys.callAiWithTools', 'sys.step', 'sys.handoffToSkill'],
+                note: 'Can be un-pinned. They remain in the tool catalog — the LLM can still select them via ranking, they just won\'t be force-pinned.',
+              },
+              configuration: {
+                skill_level: 'Add exclude_bootstrap_tools array to the skill definition.',
+                solution_level: 'Add exclude_bootstrap_tools to the solution definition — applies to ALL skills. Both levels merged (union).',
+              },
+              common_excludes: {
+                'readFile + getCurrentProjectPath': 'Most skills don\'t need filesystem access.',
+                'getChatTranscript': 'Skills that don\'t review conversation history.',
+                'sys.handoffToSkill': 'Single-skill solutions with no handoffs.',
+                'sys.step + sys.callAiWithTools': 'Simple skills that don\'t need sub-agent delegation.',
+              },
+            },
+            when_to_optimize: 'Skills with many domain tools (10+) benefit most — pinning key tools + excluding unused system tools maximizes the planner\'s visibility of what matters. Skills with few tools (< 5) don\'t need this.',
+            example: 'ateam_patch(solution_id, target="skill", skill_id="my-skill", updates={ bootstrap_tools: ["orders.list", "identity.lookup"], exclude_bootstrap_tools: ["readFile", "getCurrentProjectPath", "getChatTranscript"] })',
+          },
         },
         fields: {
           model: { type: 'string', required: false, description: 'LLM model (e.g., "claude-sonnet-4-20250514")' },
@@ -1889,6 +1931,15 @@ function buildSolutionSpec() {
       name: { type: 'string', required: true, description: 'Solution display name' },
       version: { type: 'string', required: false, description: 'Semantic version' },
       description: { type: 'string', required: false, description: 'What this multi-agent solution does' },
+
+      // ── Exclude Bootstrap Tools (solution-wide) ──
+      exclude_bootstrap_tools: {
+        type: 'string[]', required: false,
+        description: 'System bootstrap tools to UN-PIN across ALL skills in this solution. By default the platform force-pins 9 system tools for every skill. Three are MANDATORY (run_python_script, sys.askForContextAndTools, sys.finalizePlan) and cannot be excluded. The remaining 6 CAN be excluded here: readFile, getCurrentProjectPath, getChatTranscript, sys.callAiWithTools, sys.step, sys.handoffToSkill. Excluded tools are NOT removed from the tool catalog — the LLM tool finder can still select them. They just won\'t be force-pinned. This applies to ALL skills. Individual skills can add more excludes via their own exclude_bootstrap_tools field (lists are merged).',
+        excludable_tools: ['readFile', 'getCurrentProjectPath', 'getChatTranscript', 'sys.callAiWithTools', 'sys.step', 'sys.handoffToSkill'],
+        mandatory_tools_note: 'These 3 are ALWAYS pinned and CANNOT be excluded: run_python_script, sys.askForContextAndTools, sys.finalizePlan',
+        example: ['readFile', 'getCurrentProjectPath'],
+      },
 
       // ── Identity ──
       identity: {
