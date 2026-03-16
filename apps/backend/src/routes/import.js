@@ -783,7 +783,7 @@ router.post('/solution-pack', upload.single('file'), async (req, res) => {
       // JSON body
       manifest = req.body.manifest || req.body;
       skillFiles = req.body.skills || {};
-      mcpStoreFiles = req.body.mcpStore || {};
+      mcpStoreFiles = req.body.mcpStore || req.body.mcp_store || {};
 
       // Persist mcp_store files to disk so deploy-all can find them
       if (manifest.name && Object.keys(mcpStoreFiles).length > 0) {
