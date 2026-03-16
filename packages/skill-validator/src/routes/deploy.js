@@ -2346,19 +2346,26 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
     // The deploy pipeline (import.js → exportDeploy.js) doesn't reliably pass mcp_store
     // through to Core, so we upload directly here before deploying skills.
     const adasCoreUrl = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+    // Build auth headers for Core calls — use shared secret for service-to-service auth
+    const coreMcpSecret = process.env.CORE_MCP_SECRET || '';
+    const coreHeaders = { 'Content-Type': 'application/json' };
+    if (coreMcpSecret) coreHeaders['x-adas-token'] = coreMcpSecret;
+    if (req.headers['x-adas-tenant']) coreHeaders['X-ADAS-TENANT'] = req.headers['x-adas-tenant'];
     if (Object.keys(connectorSources).length > 0) {
       for (const [connId, files] of Object.entries(connectorSources)) {
         try {
           // Stop old connector so it picks up new code
           try {
-            await fetch(`${adasCoreUrl}/api/connectors/${connId}/stop`, { method: 'POST', signal: AbortSignal.timeout(10000) });
+            await fetch(`${adasCoreUrl}/api/connectors/${connId}/stop`, {
+              method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(10000),
+            });
             console.log(`[GitHub Pull] Stopped connector "${connId}" before code update`);
           } catch { /* may not be running */ }
 
           // Upload new code
           const uploadResp = await fetch(`${adasCoreUrl}/api/mcp-store/upload`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: coreHeaders,
             body: JSON.stringify({ connectorId: connId, files, installDeps: true }),
             signal: AbortSignal.timeout(360000),
           });
@@ -2366,7 +2373,9 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
           console.log(`[GitHub Pull] Uploaded ${files.length} files for "${connId}" to Core mcp-store: ${uploadResult.ok !== false ? 'OK' : uploadResult.error || 'failed'}`);
 
           // Restart connector with new code
-          const startResp = await fetch(`${adasCoreUrl}/api/connectors/${connId}/start`, { method: 'POST', signal: AbortSignal.timeout(30000) });
+          const startResp = await fetch(`${adasCoreUrl}/api/connectors/${connId}/start`, {
+            method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(30000),
+          });
           const startResult = await startResp.json().catch(() => ({}));
           console.log(`[GitHub Pull] Restarted connector "${connId}": ${startResult.tools?.length || 0} tools`);
         } catch (err) {

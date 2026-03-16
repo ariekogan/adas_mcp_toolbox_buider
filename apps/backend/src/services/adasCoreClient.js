@@ -18,6 +18,7 @@
 import { getCurrentTenant, getCurrentToken } from '../utils/tenantContext.js';
 
 const BASE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+const CORE_MCP_SECRET = process.env.CORE_MCP_SECRET || '';
 
 // ═══════════════════════════════════════════════════════════════
 // INTERNAL HELPERS
@@ -25,17 +26,19 @@ const BASE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http:
 
 function headers(json = false) {
   const h = {};
-  // Auth token (JWT, PAT, or API key) — forwarded from client via ALS
+  // Service-to-service auth via shared secret (Builder → Core)
+  if (CORE_MCP_SECRET) {
+    h['x-adas-token'] = CORE_MCP_SECRET;
+  }
+  // Also forward user's token for audit/traceability
   const token = getCurrentToken();
   if (token) {
     if (token.startsWith('adas_')) {
-      // API key format → send as X-API-KEY (Core's attachActor handles this)
       h['X-API-KEY'] = token;
     } else {
       h['Authorization'] = `Bearer ${token}`;
     }
   }
-  // No fallback — if no token, request will fail at Core's requireAuth
   if (json) h['Content-Type'] = 'application/json';
   return h;
 }
