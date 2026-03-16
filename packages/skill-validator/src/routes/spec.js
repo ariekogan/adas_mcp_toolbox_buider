@@ -96,6 +96,7 @@ function buildIndex() {
       '30. POST /deploy/solutions/:id/rollback — rollback main to a previous production tag. Body: { tag: "prod-YYYY-MM-DD-001", confirm: true }. DESTRUCTIVE — use with caution.',
       '--- GitHub-First Iteration Loop ---',
       '31. After the first deploy, iterate on connector code via GitHub: PATCH /deploy/solutions/:id/github/patch to edit code → POST /deploy/solution with github:true to redeploy from repo (no inline mcp_store needed)',
+      '32. IMPORTANT: Each connector has INDEPENDENT source code. To add a feature to multiple connectors, read and patch EACH connector separately. Use GET /deploy/solutions/:id/connectors/:connectorId/source to read current code before patching.',
     ],
     endpoints: {
       '/spec/enums': {
@@ -2670,6 +2671,7 @@ if (hostReady) tryLiveData();`,
         'Missing "id" field on handoffs — every handoff needs a unique id',
         'Deploying directly to A-Team Core instead of through the Skill Builder — always use POST /deploy/solution which routes through the Skill Builder for proper storage and MCP generation',
         'Writing Python MCP server code for skills — only connector implementations need real code. Skill MCP servers are auto-generated from tool definitions.',
+        'Assuming one connector patch applies to all connectors — each connector (e.g., home-assistant-mcp, hue-mcp, tuya-mcp) has its OWN server.js. You must read and patch EACH connector independently. Use ateam_get_connector_source to read, ateam_github_patch to edit, then ateam_build_and_run(github:true) to redeploy.',
         'Defining stdio connectors without providing mcp_store code — if the connector server code is not pre-installed on A-Team Core, include it in the mcp_store field of the deploy payload. Without it, the connector will fail to start.',
         'Forgetting "type": "module" in package.json when using ESM imports or @modelcontextprotocol/sdk — Node.js 22.x supports ESM fully but needs the package.json declaration.',
         'Setting ui_capable: true but forgetting to implement ui.listPlugins and ui.getPlugin tools in the connector — both are required for plugin discovery',
