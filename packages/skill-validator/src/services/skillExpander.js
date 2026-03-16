@@ -430,9 +430,12 @@ function generateWorkflows(minimalTools, intents) {
 function generateScenarios(intents, workflows, tools) {
   return intents.map(intent => {
     const wf = workflows.find(w => w.trigger === intent.id);
+    const desc = intent.description || intent.id.replace(/_/g, ' ');
+    const example = intent.examples?.[0];
+
     const steps = [];
-    if (intent.examples?.[0]) {
-      steps.push(`User says: "${intent.examples[0]}"`);
+    if (example) {
+      steps.push(`User says: "${example}"`);
     }
     if (wf?.steps) {
       for (const toolName of wf.steps) {
@@ -442,12 +445,21 @@ function generateScenarios(intents, workflows, tools) {
     }
     steps.push('Agent presents results to the user');
 
+    // Build a meaningful title and description from intent metadata
+    const title = desc.charAt(0).toUpperCase() + desc.slice(1);
+    const description = example
+      ? `User triggers "${desc}" (e.g. "${example}") and the agent handles it end-to-end.`
+      : `User triggers "${desc}" and the agent handles it end-to-end.`;
+    const outcome = example
+      ? `The agent successfully handles the "${desc}" request and presents the result.`
+      : `User request for "${desc}" is handled successfully.`;
+
     return {
       id: intent.id,
-      title: intent.description,
-      description: `Test scenario for ${intent.id.replace(/_/g, ' ')}`,
+      title,
+      description,
       steps,
-      expected_outcome: `User request for ${intent.id.replace(/_/g, ' ')} is handled successfully.`,
+      expected_outcome: outcome,
     };
   });
 }
