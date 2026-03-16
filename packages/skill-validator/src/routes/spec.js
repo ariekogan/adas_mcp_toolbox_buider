@@ -1242,6 +1242,11 @@ function buildSkillSpec() {
         'Forgetting to redeploy after ateam_github_patch — patching GitHub only updates the repo. You must call ateam_build_and_run(github:true) to redeploy with the new code.',
         'Assuming GitHub push failed because the deploy response shows github.async=true — the push runs in the background. Use ateam_github_status() to check if it completed.',
         'Pushing directly to main — main is the production branch. All deploys go to dev. Use POST /promote to move tested versions to main.',
+        // ── PER-CONNECTOR PATCHING MISTAKES ──
+        'CRITICAL: Assuming one connector patch fixes all connectors — each connector has its OWN server.js with independent source code. If home-assistant-mcp has a feature but hue-mcp and tuya-mcp don\'t, you must patch EACH connector separately via ateam_github_patch.',
+        'Patching a connector without reading its current code first — always call ateam_get_connector_source(solution_id, connector_id) or ateam_github_read(solution_id, "connectors/<id>/server.js") BEFORE patching. Each connector has different code, tools, and dependencies.',
+        'Redeploying the entire solution to fix one connector — use ateam_github_patch to edit the specific connector\'s files, then ateam_build_and_run(github:true) to redeploy. You do NOT need to re-pass skill definitions if only connector code changed.',
+        'Ignoring connector status "already_running" or "preserved" — these mean the connector IS running and has discovered tools. Check tool counts in ateam_get_solution(id, "status") before assuming a connector needs changes.',
       ],
       key_concepts: {
         connector_runtime: 'A-Team Core runs connector MCP servers on Node.js 22.x with full ESM support. Recommended: use @modelcontextprotocol/sdk with StdioServerTransport — it is the simplest and most reliable approach. Make sure package.json has "type": "module" and lists @modelcontextprotocol/sdk + zod as dependencies. Alternative: implement raw JSON-RPC over stdio with readline if you prefer zero dependencies. See the connector examples for both patterns.',
@@ -1258,6 +1263,14 @@ function buildSkillSpec() {
           stdout_is_sacred: 'stdout is the JSON-RPC communication channel. NEVER write non-JSON-RPC data to stdout. Use console.error() or process.stderr.write() for logging.',
           stay_alive: 'MCP servers must stay alive and continuously process messages. Never call process.exit().',
           validation: 'The deploy pipeline scans connector source code for anti-patterns (web server code, port binding) and BLOCKS deployment if found.',
+        },
+        per_connector_independence: {
+          _CRITICAL: 'Each connector in a solution has its OWN independent source code (server.js, package.json, plugins). Changing one connector does NOT affect others. A solution with 3 connectors (home-assistant-mcp, hue-mcp, tuya-mcp) has 3 separate codebases.',
+          repo_structure: 'connectors/{connector-id}/server.js — each connector lives in its own directory under connectors/',
+          read_before_patch: 'ALWAYS read current code before patching: ateam_get_connector_source(solution_id, connector_id) or ateam_github_read(solution_id, "connectors/{connector-id}/server.js")',
+          patch_independently: 'To add a feature to multiple connectors, patch EACH one separately via ateam_github_patch. Example: to add a "set_brightness" tool to both hue-mcp and tuya-mcp, you need two separate patches — one for connectors/hue-mcp/server.js and one for connectors/tuya-mcp/server.js.',
+          check_status: 'Use ateam_get_solution(solution_id, "status") to see which connectors are running and how many tools each has discovered. source: "already_running" or "preserved" means the connector IS active — check its tool_count before assuming it needs changes.',
+          redeploy_after_patch: 'After patching connector files via ateam_github_patch, call ateam_build_and_run(github: true) to redeploy. This pulls ALL connector code from GitHub — unchanged connectors are preserved automatically.',
         },
         connector_storage: 'A-Team Core auto-injects a DATA_DIR environment variable into every stdio connector process, pointing to a tenant-scoped, connector-isolated directory. Use process.env.DATA_DIR to store SQLite databases, files, or any persistent data. No configuration needed — just read the env var in your connector code.',
         multi_user_data_isolation: {
@@ -1555,12 +1568,25 @@ function buildWorkflows() {
             'To test: use ateam_test_skill or ateam_test_pipeline',
           ],
           iteration_loop: [
-            '1. Edit connector code → ateam_github_patch({ files: [{ path: "connectors/my-mcp/server.js", content: "..." }] })',
-            '2. Redeploy from GitHub → ateam_build_and_run({ solution, skills, github: true }) — auto-pushes new version to dev',
-            '3. Test → ateam_test_skill({ message: "test query" })',
-            '4. Fix & repeat until working',
-            '5. When ready → promote dev to main: POST /deploy/solutions/:id/promote',
+            '1. Read current connector code → ateam_get_connector_source(solution_id, connector_id) — ALWAYS read before editing',
+            '2. Edit connector code → ateam_github_patch({ files: [{ path: "connectors/my-mcp/server.js", content: "..." }] })',
+            '3. Redeploy from GitHub → ateam_build_and_run({ solution, skills, github: true }) — auto-pushes new version to dev',
+            '4. Test → ateam_test_skill({ message: "test query" })',
+            '5. Fix & repeat until working',
+            '6. When ready → promote dev to main: POST /deploy/solutions/:id/promote',
           ],
+          per_connector_patching: {
+            _IMPORTANT: 'Each connector has INDEPENDENT source code. Patching one connector does NOT change others.',
+            workflow: [
+              '1. Identify which connectors need changes — use ateam_get_solution(solution_id, "status") to see all connectors and their tool counts',
+              '2. For EACH connector that needs changes:',
+              '   a. Read its current code: ateam_get_connector_source(solution_id, connector_id)',
+              '   b. Patch its files: ateam_github_patch({ files: [{ path: "connectors/<connector-id>/server.js", content: "..." }] })',
+              '3. After all connectors are patched, redeploy ONCE: ateam_build_and_run({ github: true })',
+              '4. Test each connector\'s tools to verify: ateam_test_skill with messages that exercise each connector',
+            ],
+            example: 'If home-assistant-mcp supports "set_brightness" but hue-mcp and tuya-mcp do not, you need to: (1) read hue-mcp server.js, (2) add set_brightness tool to hue-mcp, (3) read tuya-mcp server.js, (4) add set_brightness tool to tuya-mcp, (5) redeploy once with github:true.',
+          },
           version_management: {
             branches: {
               dev: 'Staging — receives every successful deploy automatically. Last 10 versions kept.',
@@ -1587,6 +1613,8 @@ function buildWorkflows() {
             'The first deploy MUST include mcp_store (inline connector code) — this creates the GitHub repo and pushes to both dev and main',
             'After that, use ateam_github_patch + ateam_build_and_run(github:true) for faster iteration',
             'github:true only pulls connector source files — skill definitions are always passed in the build_and_run call',
+            'Each connector has independent source code under connectors/{id}/server.js — read each one separately before patching',
+            'To add a feature across multiple connectors, you must patch each connector\'s server.js individually — there is no "patch all" shortcut',
             'GitHub push is ASYNC — the deploy responds immediately. Use ateam_github_status() to verify the push landed.',
             'Deploy response includes github.async=true — this is normal, NOT an error. The push is running in background.',
             'Last 10 dev versions are kept automatically. Older tags are cleaned up.',

@@ -315,17 +315,23 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
           if (existing) {
             const existingTools = existing.tools?.length || 0;
             const status = existing.status || 'unknown';
-            // Check if mcp-store has updated code for this connector
-            const hasNewCode = mcpStoreBase && (await import('fs')).default.existsSync(path.join(mcpStoreBase, connectorId, 'server.js'));
+            // Check if mcp-store or connectors dir has updated code for this connector
+            const fsSync = (await import('fs')).default;
+            const hasNewCode = (mcpStoreBase && fsSync.existsSync(path.join(mcpStoreBase, connectorId, 'server.js')))
+              || fsSync.existsSync(path.join(process.env.TENANTS_ROOT || '/memory', 'connectors', connectorId, 'server.js'));
 
             if (status === 'connected' && existingTools > 0 && !hasNewCode) {
-              log.info(`[MCP Deploy] Connector "${connectorId}" already running in ADAS Core (${existingTools} tools) — preserving`);
-              connectorResults.push({ id: connectorId, ok: true, tools: existingTools, source: 'preserved' });
+              log.info(`[MCP Deploy] Connector "${connectorId}" already running in ADAS Core (${existingTools} tools, status: ${status}) — keeping`);
+              connectorResults.push({ id: connectorId, ok: true, tools: existingTools, source: 'already_running' });
             } else if (hasNewCode) {
               // New code on disk — stop, upload, restart
-              log.info(`[MCP Deploy] Connector "${connectorId}" has updated code in mcp-store — restarting with new code`);
+              const connectorsDir = path.join(process.env.TENANTS_ROOT || '/memory', 'connectors', connectorId);
+              const codeSourceDir = (mcpStoreBase && fsSync.existsSync(path.join(mcpStoreBase, connectorId, 'server.js')))
+                ? path.join(mcpStoreBase, connectorId)
+                : connectorsDir;
+              log.info(`[MCP Deploy] Connector "${connectorId}" has updated code in ${codeSourceDir} — restarting with new code`);
               try { await stopConnectorInADAS(connectorId); } catch { /* may not be running */ }
-              await uploadMcpCodeToADAS(connectorId, path.join(mcpStoreBase, connectorId));
+              await uploadMcpCodeToADAS(connectorId, codeSourceDir);
               const startResult = await startConnectorInADAS(connectorId, { transport: existing.transport || 'stdio' });
               const toolCount = startResult?.tools?.length || 0;
               connectorResults.push({ id: connectorId, ok: toolCount > 0, tools: toolCount, source: 'updated' });
