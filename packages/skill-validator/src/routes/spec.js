@@ -3002,7 +3002,7 @@ await esbuild.build({
   outfile: 'rn-bundle/index.bundle.js',
   format: 'cjs',
   platform: 'neutral',
-  target: 'es2020',
+  target: 'es2015',
   external: ['react', 'react-native', '@adas/plugin-sdk'],
   jsx: 'transform',
   jsxFactory: 'React.createElement',
@@ -3010,6 +3010,7 @@ await esbuild.build({
   minify: false,
 });`,
           critical_rules: [
+            'target MUST be "es2015" — mobile runtime evaluates bundles via new Function() which CANNOT handle async/await syntax. es2015 downlevels async/await to generators. The deploy validator rejects bundles containing async/await.',
             'format MUST be "cjs" (CommonJS) — mobile app evaluates via module.exports',
             'external MUST include react, react-native, @adas/plugin-sdk — host app provides these at runtime',
             'jsx MUST be "transform" with classic React.createElement — most compatible with mobile eval',
