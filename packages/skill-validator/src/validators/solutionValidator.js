@@ -23,6 +23,18 @@ export function validateSolution(solution, context) {
   const errors = [];
   const warnings = [];
 
+  // Auto-expand string connector IDs to objects: "email-mcp" → { id: "email-mcp" }
+  if (Array.isArray(solution.platform_connectors)) {
+    solution.platform_connectors = solution.platform_connectors.map(c =>
+      typeof c === 'string' ? { id: c } : c
+    );
+  }
+  if (Array.isArray(solution.solution_connectors)) {
+    solution.solution_connectors = solution.solution_connectors.map(c =>
+      typeof c === 'string' ? { id: c } : c
+    );
+  }
+
   const identity = solution.identity || {};
   const skills = solution.skills || [];
   const grants = solution.grants || [];
