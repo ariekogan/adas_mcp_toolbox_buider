@@ -1605,10 +1605,21 @@ function buildWorkflows() {
             },
           },
           when_to_use_what: {
-            'ateam_github_patch': 'Edit connector source code (server.js, utils, package.json, UI assets)',
-            'ateam_patch': 'Edit skill definitions (intents, tools, policy, engine) or solution definitions (grants, handoffs, routing)',
+            'ateam_github_patch': 'Edit connector source code (server.js, utils, package.json, UI assets). Supports search+replace for large files.',
+            'ateam_patch(target:"skill")': 'Edit ANY skill field surgically — problem, role, intents, tools, policy, engine, scenarios, glossary. Supports dot notation (e.g. "role.persona": "...") and array ops (_push, _delete, _update).',
+            'ateam_patch(target:"solution")': 'Edit solution-level fields — linked_skills, platform_connectors, ui_plugins, grants, handoffs.',
             'ateam_build_and_run(github:true)': 'Redeploy solution pulling latest connector code from GitHub',
             'ateam_build_and_run(mcp_store)': 'First deploy or when you want to pass connector code inline',
+          },
+          patch_examples: {
+            'Change persona': 'ateam_patch(target:"skill", skill_id:"my-skill", updates:{ "role.persona": "You are a helpful assistant" })',
+            'Update problem statement': 'ateam_patch(target:"skill", skill_id:"my-skill", updates:{ "problem.statement": "Help users manage X" })',
+            'Add a guardrail': 'ateam_patch(target:"skill", skill_id:"my-skill", updates:{ "policy.guardrails.never_push": ["Never do X"] })',
+            'Add a tool': 'ateam_patch(target:"skill", skill_id:"my-skill", updates:{ "tools_push": [{ name:"conn.tool", description:"...", inputs:[], output:{} }] })',
+            'Delete a tool': 'ateam_patch(target:"skill", skill_id:"my-skill", updates:{ "tools_delete": ["old_tool_name"] })',
+            'Update intent': 'ateam_patch(target:"skill", skill_id:"my-skill", updates:{ "intents.supported_update": [{ id:"i1", description:"new description" }] })',
+            'Change engine model': 'ateam_patch(target:"skill", skill_id:"my-skill", updates:{ "engine.model": "claude-sonnet-4-5-20250514" })',
+            'Force redeploy': 'ateam_patch(target:"solution", updates:{ "_force_redeploy": true })',
           },
           tips: [
             'The first deploy MUST include mcp_store (inline connector code) — this creates the GitHub repo and pushes to both dev and main',
