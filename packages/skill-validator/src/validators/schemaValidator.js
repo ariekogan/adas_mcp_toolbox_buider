@@ -887,7 +887,7 @@ function validateBootstrapTools(skill) {
         path: `bootstrap_tools[${i}]`,
         message: 'Each bootstrap_tools entry must be a non-empty string',
       });
-    } else if (toolNames.size > 0 && !toolNames.has(bt)) {
+    } else if (toolNames.size > 0 && !toolNames.has(bt) && !bt.startsWith('sys.')) {
       issues.push({
         code: 'UNKNOWN_BOOTSTRAP_TOOL',
         severity: 'error',
