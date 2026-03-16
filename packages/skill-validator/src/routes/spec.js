@@ -41,14 +41,148 @@ const INDEX = buildIndex();
 
 router.get('/', (_req, res) => res.set(CACHE_HEADERS).json(INDEX));
 router.get('/enums', (_req, res) => res.set(CACHE_HEADERS).json(ENUMS));
-router.get('/skill', (_req, res) => res.set(CACHE_HEADERS).json(SKILL_SPEC));
-router.get('/solution', (_req, res) => res.set(CACHE_HEADERS).json(SOLUTION_SPEC));
+router.get('/skill', (req, res) => {
+  const search = req.query.search;
+  const section = req.query.section;
+  let result = SKILL_SPEC;
+  if (section && SKILL_SECTIONS[section]) {
+    result = SKILL_SECTIONS[section];
+  }
+  if (search) {
+    result = filterBySearch(result, search.toLowerCase());
+  }
+  res.set(CACHE_HEADERS).json(result);
+});
+router.get('/solution', (req, res) => {
+  const search = req.query.search;
+  let result = SOLUTION_SPEC;
+  if (search) {
+    result = filterBySearch(result, search.toLowerCase());
+  }
+  res.set(CACHE_HEADERS).json(result);
+});
 router.get('/workflows', (_req, res) => res.set(CACHE_HEADERS).json(WORKFLOWS));
 router.get('/mobile-connector', (_req, res) => res.set(CACHE_HEADERS).json(MOBILE_CONNECTOR_SPEC));
 router.get('/ui-plugins', (_req, res) => res.set(CACHE_HEADERS).json(UI_PLUGINS_SPEC));
 router.get('/multi-user-connector', (_req, res) => res.set(CACHE_HEADERS).json(MULTI_USER_CONNECTOR_SPEC));
 
 export default router;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SKILL SPEC SECTIONS — named slices for targeted retrieval
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SKILL_SECTIONS = buildSkillSections();
+
+function buildSkillSections() {
+  const schema = SKILL_SPEC.schema || {};
+  return {
+    engine: {
+      _section: 'engine',
+      description: 'AI model, reasoning config, and planner tool budget optimization (bootstrap_tools pinning, exclude_bootstrap_tools).',
+      engine: schema.engine,
+      bootstrap_tools: schema.bootstrap_tools,
+      exclude_bootstrap_tools: schema.exclude_bootstrap_tools,
+    },
+    tools: {
+      _section: 'tools',
+      description: 'Tool definitions, meta tools, bootstrap tool pinning.',
+      tools: schema.tools,
+      meta_tools: schema.meta_tools,
+      bootstrap_tools: schema.bootstrap_tools,
+    },
+    intents: {
+      _section: 'intents',
+      description: 'Intent definitions, examples, and routing.',
+      intents: schema.intents,
+      problem: schema.problem,
+      scenarios: schema.scenarios,
+    },
+    policy: {
+      _section: 'policy',
+      description: 'Policy, access control, grants, response filters, and workflows.',
+      policy: schema.policy,
+      access_policy: schema.access_policy,
+      grant_mappings: schema.grant_mappings,
+      response_filters: schema.response_filters,
+    },
+    triggers: {
+      _section: 'triggers',
+      description: 'Automation triggers (static schedules and dynamic sys.trigger).',
+      triggers: schema.triggers,
+    },
+    connectors: {
+      _section: 'connectors',
+      description: 'Connector linking, channels, and skill identity.',
+      connectors: schema.connectors,
+      channels: schema.channels,
+      skill_identity: schema.skill_identity,
+    },
+    role: {
+      _section: 'role',
+      description: 'Agent persona, goals, limitations, communication style.',
+      role: schema.role,
+      glossary: schema.glossary,
+    },
+    template: {
+      _section: 'template',
+      description: 'Minimal and full skill templates for quick start.',
+      auto_expand: SKILL_SPEC.auto_expand,
+      template: SKILL_SPEC.template,
+    },
+    guide: {
+      _section: 'guide',
+      description: 'Agent guide, build steps, common mistakes, and key concepts.',
+      agent_guide: SKILL_SPEC.agent_guide,
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SEARCH — recursively filter JSON tree to branches containing search term
+// ═══════════════════════════════════════════════════════════════════════════
+
+function filterBySearch(obj, term) {
+  if (obj === null || obj === undefined) return undefined;
+
+  if (typeof obj === 'string') {
+    return obj.toLowerCase().includes(term) ? obj : undefined;
+  }
+  if (typeof obj === 'number' || typeof obj === 'boolean') {
+    return String(obj).toLowerCase().includes(term) ? obj : undefined;
+  }
+
+  if (Array.isArray(obj)) {
+    const filtered = obj.filter(item => {
+      if (typeof item === 'string') return item.toLowerCase().includes(term);
+      if (typeof item === 'object' && item !== null) return filterBySearch(item, term) !== undefined;
+      return String(item).toLowerCase().includes(term);
+    });
+    return filtered.length > 0 ? filtered : undefined;
+  }
+
+  if (typeof obj === 'object') {
+    const result = {};
+    let hasMatch = false;
+    for (const [key, value] of Object.entries(obj)) {
+      // Key match — include the entire subtree
+      if (key.toLowerCase().includes(term)) {
+        result[key] = value;
+        hasMatch = true;
+        continue;
+      }
+      // Recurse into value
+      const filtered = filterBySearch(value, term);
+      if (filtered !== undefined) {
+        result[key] = filtered;
+        hasMatch = true;
+      }
+    }
+    return hasMatch ? result : undefined;
+  }
+
+  return undefined;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BUILDERS
