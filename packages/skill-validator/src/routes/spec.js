@@ -13,7 +13,7 @@
 
 import { Router } from 'express';
 import { PHASES, PHASE_LABELS } from '../types/DraftSkill.js';
-import { VALID_DATA_TYPES, VALID_TRIGGER_TYPES, VALID_PHASES } from '../validators/schemaValidator.js';
+import { VALID_DATA_TYPES, VALID_TRIGGER_TYPES, VALID_TRIGGER_SCOPES, VALID_PHASES } from '../validators/schemaValidator.js';
 import { VALID_CLASSIFICATIONS, VALID_RISK_LEVELS, VALID_EFFECTS, HIGH_RISK_CLASSIFICATIONS } from '../validators/securityValidator.js';
 import { SYSTEM_TOOL_PREFIXES } from '../validators/referenceResolver.js';
 import { DIMENSION_WEIGHTS, GRADE_THRESHOLDS } from '../validators/solutionQualityValidator.js';
@@ -512,6 +512,7 @@ function buildEnums() {
 
       // Triggers
       trigger_type: VALID_TRIGGER_TYPES,
+      trigger_scope: VALID_TRIGGER_SCOPES,
 
       // Security
       security_classification: VALID_CLASSIFICATIONS,
@@ -827,6 +828,21 @@ function buildSkillSpec() {
             '4. concurrency=1 (default) means only one instance runs at a time — next fire waits for current to finish',
             '5. The trigger prompt should be specific: what to check, what action to take, what to report',
           ],
+          scope_guide: {
+            mental_model: 'scope controls WHO the trigger runs for. "system" = one job, no user context. "per_actor" = one job PER active user, each with full user context (memory, preferences, identity).',
+            system: 'Default. The trigger fires once per schedule. The job runs as the system actor with no user-specific context. Use for global housekeeping: cleanup, aggregation, health checks, system-wide reports.',
+            per_actor: 'The trigger fires once per schedule, then fans out — creating a SEPARATE job for each active (non-deactivated) user. Each job runs with that user\'s full actor context: memory.userProfile returns THEIR profile, memory.recall searches THEIR history, connectors receive THEIR actor ID. Use for personalized proactive features: daily briefings, reminders, inbox digests, proactive recommendations.',
+            how_fan_out_works: [
+              '1. Trigger becomes due (same schedule logic as system scope)',
+              '2. Platform loads all active actors (status != deactivated) from the tenant',
+              '3. For EACH actor: checks isDue and canStart independently (per-actor state tracking)',
+              '4. Creates a separate job per actor with their actorId in both the HTTP header and triggerContext',
+              '5. Each job runs in full ALS (AsyncLocalStorage) context — getCurrentActorId() returns the correct user',
+              '6. All memory tools, connector calls, and storage queries automatically scope to that actor',
+            ],
+            concurrency_note: 'With per_actor scope, concurrency is enforced PER ACTOR, not globally. concurrency=1 means each user can have at most 1 running instance of this trigger — other users are unaffected.',
+            state_isolation: 'Trigger state (lastRunAt, checkpoint, runningJobIds) is tracked per (skillSlug, triggerId, actorId). Actor A\'s trigger can fire while Actor B\'s is still running.',
+          },
           dynamic_triggers_note: 'For triggers created at RUNTIME by the AI agent (not at build time), use the sys.trigger system tool. It supports cron expressions, ISO 8601 intervals, and one-shot datetime schedules. Add sys.trigger to the skill\'s bootstrap_tools to make it available. See solution spec dynamic_triggers section for full documentation.',
           schedule_examples: {
             'PT1M': 'Every 1 minute (use sparingly — only for time-critical monitoring)',
@@ -842,12 +858,30 @@ function buildSkillSpec() {
             'For notifications: specify the chat_id/email, message format, and when NOT to notify',
             'Use idempotency markers to prevent duplicate notifications (e.g., "add a NOTIFIED comment after sending, skip tasks that already have one")',
           ],
+          scope_examples: [
+            {
+              name: 'System cleanup (scope: system)',
+              trigger: { id: 'cleanup-stale-jobs', type: 'schedule', every: 'P1D', scope: 'system', prompt: 'Find and archive jobs older than 30 days' },
+              explanation: 'Fires once daily. No user context needed — operates on global data.',
+            },
+            {
+              name: 'Personal daily briefing (scope: per_actor)',
+              trigger: { id: 'daily-briefing', type: 'schedule', every: 'P1D', scope: 'per_actor', prompt: 'Prepare a personalized morning briefing: check calendar, unread emails, pending tasks, and recent notifications. Deliver summary via the user\'s preferred channel.' },
+              explanation: 'Fires once daily, creates a separate job for each active user. Each job has full access to that user\'s calendar, email, and task data through their actor context.',
+            },
+            {
+              name: 'Proactive check (scope: per_actor)',
+              trigger: { id: 'proactive-check', type: 'schedule', every: 'PT5M', scope: 'per_actor', prompt: 'Check for anything that needs the user\'s attention: new messages, upcoming deadlines, anomalies in their data. Only notify if something actionable is found.', concurrency: 1 },
+              explanation: 'Fires every 5 minutes per user. concurrency=1 per actor prevents overlap. Each user\'s check runs independently with their own memory and preferences.',
+            },
+          ],
         },
         item_schema: {
           id: { type: 'string', required: true, description: 'Unique trigger ID within this skill' },
           type: { type: 'enum', values: VALID_TRIGGER_TYPES, required: true, description: '"schedule" for periodic execution, "event" for event-driven activation' },
+          scope: { type: 'enum', values: VALID_TRIGGER_SCOPES, required: false, default: 'system', description: '"system" (default) = fires once, runs as system actor with no user context. "per_actor" = fans out to create one job per active user, each with full actor context (memory, preferences, identity). Use per_actor for personalized proactive features like daily briefings, reminders, or inbox checks.' },
           enabled: { type: 'boolean', required: false, default: true },
-          concurrency: { type: 'number', required: false, default: 1, description: 'Max parallel jobs. Use 1 for triggers that modify state to avoid race conditions' },
+          concurrency: { type: 'number', required: false, default: 1, description: 'Max parallel jobs. With scope="system", this is global. With scope="per_actor", this is PER USER — each user can have up to this many concurrent instances.' },
           prompt: { type: 'string', required: true, description: 'Goal prompt for the triggered job — this is what the skill will execute when the trigger fires' },
           input: { type: 'object', required: false, description: 'Arbitrary data passed to triggerContext' },
           every: { type: 'string', required: false, description: 'ISO 8601 duration (schedule triggers only, e.g., "PT2M", "PT1H", "P1D")' },

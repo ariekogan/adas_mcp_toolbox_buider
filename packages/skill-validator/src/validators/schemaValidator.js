@@ -92,6 +92,7 @@ export const COVERAGE = [
   // Triggers
   { section: 'triggers', field: 'triggers[].id', check: 'Has ID', type: 'schema' },
   { section: 'triggers', field: 'triggers[].type', check: 'Valid enum (schedule|event)', type: 'schema' },
+  { section: 'triggers', field: 'triggers[].scope', check: 'Valid enum (system|per_actor)', type: 'schema' },
   { section: 'triggers', field: 'triggers[].enabled', check: 'Is boolean', type: 'schema' },
   { section: 'triggers', field: 'triggers[].concurrency', check: 'Number >= 1', type: 'schema' },
   { section: 'triggers', field: 'triggers[].prompt', check: 'Has prompt (string)', type: 'schema' },
@@ -102,6 +103,7 @@ export const COVERAGE = [
 export const VALID_DATA_TYPES = ['string', 'number', 'boolean', 'object', 'array', 'text'];
 // Note: 'text' is an alias for 'string' - both are valid
 export const VALID_TRIGGER_TYPES = ['schedule', 'event'];
+export const VALID_TRIGGER_SCOPES = ['system', 'per_actor'];
 export const VALID_PHASES = [
   'PROBLEM_DISCOVERY',
   'SCENARIO_EXPLORATION',
@@ -927,6 +929,16 @@ function validateTrigger(trigger, path) {
       severity: 'error',
       path: `${path}.type`,
       message: `Invalid trigger type: ${trigger.type}. Must be one of: ${VALID_TRIGGER_TYPES.join(', ')}`,
+    });
+  }
+
+  // Validate scope
+  if (trigger.scope !== undefined && !VALID_TRIGGER_SCOPES.includes(trigger.scope)) {
+    issues.push({
+      code: 'INVALID_TRIGGER_SCOPE',
+      severity: 'error',
+      path: `${path}.scope`,
+      message: `Invalid trigger scope: ${trigger.scope}. Must be one of: ${VALID_TRIGGER_SCOPES.join(', ')}`,
     });
   }
 

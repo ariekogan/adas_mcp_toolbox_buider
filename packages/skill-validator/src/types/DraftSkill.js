@@ -416,12 +416,18 @@
  */
 
 /**
+ * Trigger scope enumeration
+ * @typedef {'system' | 'per_actor'} TriggerScope
+ */
+
+/**
  * Base trigger properties shared by all trigger types
  * @typedef {Object} BaseTrigger
  * @property {string} id - Unique identifier within the skill
  * @property {TriggerType} type - Type of trigger
+ * @property {TriggerScope} [scope] - "system" (default) = fires once, no user context. "per_actor" = fans out one job per active user with full actor context.
  * @property {boolean} enabled - Whether trigger is active (default: true)
- * @property {number} concurrency - Max parallel jobs for this trigger (default: 1)
+ * @property {number} concurrency - Max parallel jobs for this trigger (default: 1). With per_actor scope, this is per user.
  * @property {string} prompt - Goal prompt passed to the triggered job
  * @property {Object} [input] - Arbitrary structured data passed to triggerContext.input
  */
@@ -431,6 +437,7 @@
  * @typedef {Object} ScheduleTrigger
  * @property {string} id - Unique identifier within the skill
  * @property {'schedule'} type - Always 'schedule'
+ * @property {TriggerScope} [scope] - "system" (default) or "per_actor"
  * @property {boolean} enabled - Whether trigger is active (default: true)
  * @property {number} concurrency - Max parallel jobs (default: 1)
  * @property {string} prompt - Goal prompt for the triggered job
@@ -443,6 +450,7 @@
  * @typedef {Object} EventTrigger
  * @property {string} id - Unique identifier within the skill
  * @property {'event'} type - Always 'event'
+ * @property {TriggerScope} [scope] - "system" (default) or "per_actor"
  * @property {boolean} enabled - Whether trigger is active (default: true)
  * @property {number} concurrency - Max parallel jobs (default: 1)
  * @property {string} prompt - Goal prompt for the triggered job
