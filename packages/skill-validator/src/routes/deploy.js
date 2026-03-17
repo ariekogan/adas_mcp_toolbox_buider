@@ -1414,6 +1414,30 @@ router.patch('/solutions/:solutionId', async (req, res) => {
       }
     }
 
+    // If the patch includes exclude_bootstrap_tools, push it to ADAS Core's configStore
+    if (updates.exclude_bootstrap_tools !== undefined) {
+      try {
+        const adasCoreUrl = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+        const configResp = await fetch(`${adasCoreUrl}/api/solution-config`, {
+          method: 'POST',
+          headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ exclude_bootstrap_tools: updates.exclude_bootstrap_tools }),
+          signal: AbortSignal.timeout(5000),
+        });
+        if (configResp.ok) {
+          data.solution_config = { exclude_bootstrap_tools: updates.exclude_bootstrap_tools, pushed: true };
+          console.log(`[Deploy] exclude_bootstrap_tools pushed to Core configStore`);
+        } else {
+          const errBody = await configResp.text();
+          console.warn(`[Deploy] Core solution-config push failed: ${configResp.status} ${errBody}`);
+          data.solution_config_warning = `Core config push failed: ${configResp.status}`;
+        }
+      } catch (e) {
+        console.warn(`[Deploy] exclude_bootstrap_tools push to Core failed: ${e.message}`);
+        data.solution_config_warning = `Core config push failed: ${e.message}`;
+      }
+    }
+
     res.status(resp.status).json(data);
   } catch (err) {
     console.error('[Deploy] Patch solution error:', err.message);
