@@ -1761,8 +1761,8 @@ await esbuild.build({
 
     // ── TypeScript Source Code ──
     source: {
-      _note: 'This is the exact component registered with PluginSDK.register(). Use as template for native plugins. Place in rn-src/index.tsx.',
-      _critical: 'Key patterns: (1) Use PluginSDK.register() with component name, (2) Accept { bridge, native, theme } props, (3) Use const api = useApi(bridge) for all tool calls, (4) Always wrap api.call() in try/catch, (5) Use theme tokens for styling, (6) Call native.haptics for feedback. Import from @adas/plugin-sdk (NOT relative paths).',
+      _note: 'This is the exact component exported as a plain object default export. Use as template for native plugins. Place in rn-src/index.tsx.',
+      _critical: 'Key patterns: (1) Export default a plain object with id, type, version, capabilities, and Component fields, (2) Accept { bridge, native, theme } props, (3) Use const api = useApi(bridge) for all tool calls, (4) Always wrap api.call() in try/catch, (5) Use theme tokens for styling, (6) Call native.haptics for feedback. Import useApi from @adas/plugin-sdk (NOT relative paths).',
       file: 'rn-src/index.tsx',
       content: `import React, { useState, useEffect } from 'react';
 import {
@@ -1774,7 +1774,7 @@ import {
   StyleSheet,
   RefreshControl,
 } from 'react-native';
-import { PluginSDK, useApi } from '@adas/plugin-sdk';
+import { useApi } from '@adas/plugin-sdk';
 import type { PluginProps } from '@adas/plugin-sdk';
 
 interface Task {
@@ -1784,12 +1784,7 @@ interface Task {
   priority?: 'high' | 'medium' | 'low';
 }
 
-export default PluginSDK.register('task-board-mobile', {
-  type: 'ui',
-  version: '1.0.0',
-  capabilities: { haptics: true },
-
-  Component({ bridge, native, theme }: PluginProps) {
+function TaskBoardMobile({ bridge, native, theme }: PluginProps) {
     const api = useApi(bridge);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
@@ -1863,8 +1858,7 @@ export default PluginSDK.register('task-board-mobile', {
         }
       />
     );
-  },
-});
+}
 
 const s = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -1879,7 +1873,15 @@ const s = StyleSheet.create({
   statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 12 },
   taskTitle: { flex: 1, fontSize: 14, fontWeight: '500' },
   badge: { fontSize: 10, fontWeight: '600', paddingHorizontal: 6 },
-});`,
+});
+
+export default {
+  id: 'task-board-mobile',
+  type: 'ui',
+  version: '1.0.0',
+  capabilities: { haptics: true },
+  Component: TaskBoardMobile,
+};`,
     },
   };
 }
