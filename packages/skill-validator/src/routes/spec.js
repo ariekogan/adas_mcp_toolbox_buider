@@ -876,6 +876,49 @@ function buildSkillSpec() {
             },
           ],
         },
+        runtime_access: {
+          overview: 'There are THREE ways to interact with triggers at different levels. Choose the right one for your use case.',
+          approaches: [
+            {
+              name: 'AI Agent (sys.trigger)',
+              when: 'The AI agent needs to create/list/delete triggers during a conversation (e.g., user says "remind me at 9 AM")',
+              how: 'The sys.trigger system tool is available to all skills. Actions: create, list, update, delete, pause, resume. Supports cron, every (ISO 8601 duration), and once (ISO 8601 datetime) schedules.',
+              example: '{ action: "create", trigger_id: "morning-reminder", schedule: "cron:0 9 * * *", prompt: "Check calendar and brief user", timezone: "Asia/Jerusalem" }',
+            },
+            {
+              name: 'UI Plugin (connector proxy tools)',
+              when: 'A UI panel needs to display, toggle, or delete triggers (e.g., a "Reminders" panel in the app)',
+              how: 'Add trigger management tools to your UI connector (the MCP server). The connector proxies to the trigger-runner HTTP API (http://trigger-runner:3100) and Core backend API. The UI plugin calls these tools via the bridge: mcpCall("triggers.list", {}, "your-ui-connector-id").',
+              trigger_runner_api: {
+                'GET /triggers': 'List all triggers for the tenant (requires X-ADAS-TENANT header)',
+                'POST /triggers/:skillSlug/:triggerId/toggle': 'Toggle pause/resume for a trigger',
+                'POST /triggers/toggle-all': 'Pause/resume all triggers (body: { paused: boolean })',
+                'POST /reload': 'Force the trigger-runner to reload all trigger definitions',
+              },
+              connector_tool_example: `server.tool("triggers.list", "List all triggers", {
+  _adas_tenant: z.string().optional(),
+}, async ({ _adas_tenant }) => {
+  const res = await fetch("http://trigger-runner:3100/triggers", {
+    headers: { "X-ADAS-TENANT": _adas_tenant }
+  });
+  return { content: [{ type: "text", text: JSON.stringify(await res.json()) }] };
+});`,
+              note: 'The platform injects _adas_tenant into every tool call args automatically (via ConnectorManager). Your connector reads it from args, not from environment variables.',
+            },
+            {
+              name: 'Static (skill definition)',
+              when: 'Fixed schedules defined at build time that never change (e.g., "check inbox every 5 minutes")',
+              how: 'Define triggers[] in the skill YAML. They are deployed with the skill and managed by the trigger-runner automatically.',
+            },
+          ],
+          key_concepts: [
+            'Static triggers (skill definition) vs dynamic triggers (sys.trigger at runtime) — both are managed by the same trigger-runner service',
+            'trigger-runner is a standalone Docker service (http://trigger-runner:3100) accessible to all connectors on the Docker network',
+            'Tenant isolation: always pass X-ADAS-TENANT header — the trigger-runner scopes everything by tenant',
+            '_adas_tenant is injected into MCP tool args by ConnectorManager — connectors read tenant from args, not env',
+            'After deleting a dynamic trigger from MongoDB, call POST /reload on trigger-runner to pick up the change',
+          ],
+        },
         item_schema: {
           id: { type: 'string', required: true, description: 'Unique trigger ID within this skill' },
           type: { type: 'enum', values: VALID_TRIGGER_TYPES, required: true, description: '"schedule" for periodic execution, "event" for event-driven activation' },
