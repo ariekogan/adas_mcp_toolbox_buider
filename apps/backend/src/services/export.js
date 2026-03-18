@@ -883,6 +883,21 @@ export function generateSkillYaml(skill) {
     }
   }
 
+  // Bootstrap Tools — must flow to Core so skillBootstrap picks them up
+  if (Array.isArray(skill.bootstrap_tools) && skill.bootstrap_tools.length > 0) {
+    lines.push(``);
+    lines.push(`bootstrap_tools:`);
+    for (const bt of skill.bootstrap_tools) {
+      lines.push(`  - ${yamlString(bt)}`);
+    }
+  }
+  if (Array.isArray(skill.exclude_bootstrap_tools) && skill.exclude_bootstrap_tools.length > 0) {
+    lines.push(`exclude_bootstrap_tools:`);
+    for (const ebt of skill.exclude_bootstrap_tools) {
+      lines.push(`  - ${yamlString(ebt)}`);
+    }
+  }
+
   return lines.join('\n');
 }
 
