@@ -2570,37 +2570,41 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
     const coreHeaders = { 'Content-Type': 'application/json' };
     if (coreMcpSecret) coreHeaders['x-adas-token'] = coreMcpSecret;
     if (req.headers['x-adas-tenant']) coreHeaders['X-ADAS-TENANT'] = req.headers['x-adas-tenant'];
+    // Upload connector code in parallel
     if (Object.keys(connectorSources).length > 0) {
-      for (const [connId, files] of Object.entries(connectorSources)) {
-        try {
-          // Stop old connector so it picks up new code
+      console.log(`[GitHub Pull] Uploading ${Object.keys(connectorSources).length} connector(s) in parallel...`);
+      await Promise.all(
+        Object.entries(connectorSources).map(async ([connId, files]) => {
           try {
-            await fetch(`${adasCoreUrl}/api/connectors/${connId}/stop`, {
-              method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(10000),
+            // Stop old connector so it picks up new code
+            try {
+              await fetch(`${adasCoreUrl}/api/connectors/${connId}/stop`, {
+                method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(10000),
+              });
+              console.log(`[GitHub Pull] Stopped connector "${connId}" before code update`);
+            } catch { /* may not be running */ }
+
+            // Upload new code
+            const uploadResp = await fetch(`${adasCoreUrl}/api/mcp-store/upload`, {
+              method: 'POST',
+              headers: coreHeaders,
+              body: JSON.stringify({ connectorId: connId, files, installDeps: true }),
+              signal: AbortSignal.timeout(360000),
             });
-            console.log(`[GitHub Pull] Stopped connector "${connId}" before code update`);
-          } catch { /* may not be running */ }
+            const uploadResult = await uploadResp.json().catch(() => ({}));
+            console.log(`[GitHub Pull] Uploaded ${files.length} files for "${connId}" to Core mcp-store: ${uploadResult.ok !== false ? 'OK' : uploadResult.error || 'failed'}`);
 
-          // Upload new code
-          const uploadResp = await fetch(`${adasCoreUrl}/api/mcp-store/upload`, {
-            method: 'POST',
-            headers: coreHeaders,
-            body: JSON.stringify({ connectorId: connId, files, installDeps: true }),
-            signal: AbortSignal.timeout(360000),
-          });
-          const uploadResult = await uploadResp.json().catch(() => ({}));
-          console.log(`[GitHub Pull] Uploaded ${files.length} files for "${connId}" to Core mcp-store: ${uploadResult.ok !== false ? 'OK' : uploadResult.error || 'failed'}`);
-
-          // Restart connector with new code
-          const startResp = await fetch(`${adasCoreUrl}/api/connectors/${connId}/start`, {
-            method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(30000),
-          });
-          const startResult = await startResp.json().catch(() => ({}));
-          console.log(`[GitHub Pull] Restarted connector "${connId}": ${startResult.tools?.length || 0} tools`);
-        } catch (err) {
-          console.warn(`[GitHub Pull] Failed to update connector "${connId}" in Core: ${err.message}`);
-        }
-      }
+            // Restart connector with new code
+            const startResp = await fetch(`${adasCoreUrl}/api/connectors/${connId}/start`, {
+              method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(30000),
+            });
+            const startResult = await startResp.json().catch(() => ({}));
+            console.log(`[GitHub Pull] Restarted connector "${connId}": ${startResult.tools?.length || 0} tools`);
+          } catch (err) {
+            console.warn(`[GitHub Pull] Failed to update connector "${connId}" in Core: ${err.message}`);
+          }
+        })
+      );
     }
 
     // 4. Deploy via the solution import endpoint

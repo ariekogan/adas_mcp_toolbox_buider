@@ -176,20 +176,22 @@ router.post('/solution', async (req, res, next) => {
         }
       }
 
-      // Deploy each skill
-      const deployedSkills = [];
-      for (const skill of skills) {
-        if (!savedSkills.includes(skill.id)) continue;
-        try {
-          log.info(`[Deploy] Deploying skill "${skill.id}" to A-Team Core...`);
-          const result = await deploySkillToADAS(solution.id, skill.id, log);
-          deployedSkills.push({ id: skill.id, status: 'deployed', result });
-          log.info(`[Deploy] Skill "${skill.id}" deployed successfully`);
-        } catch (err) {
-          log.error(`[Deploy] Failed to deploy skill "${skill.id}": ${err.message}`);
-          deployedSkills.push({ id: skill.id, status: 'failed', error: err.message });
-        }
-      }
+      // Deploy skills in parallel — 9 skills × 15s sequential = 135s, parallel = ~15s
+      const skillsToDeploy = skills.filter(s => savedSkills.includes(s.id));
+      log.info(`[Deploy] Deploying ${skillsToDeploy.length} skill(s) in parallel...`);
+      const deployedSkills = await Promise.all(
+        skillsToDeploy.map(async (skill) => {
+          try {
+            log.info(`[Deploy] Deploying skill "${skill.id}" to A-Team Core...`);
+            const result = await deploySkillToADAS(solution.id, skill.id, log);
+            log.info(`[Deploy] Skill "${skill.id}" deployed successfully`);
+            return { id: skill.id, status: 'deployed', result };
+          } catch (err) {
+            log.error(`[Deploy] Failed to deploy skill "${skill.id}": ${err.message}`);
+            return { id: skill.id, status: 'failed', error: err.message };
+          }
+        })
+      );
 
       log.info(`[Deploy] Deployment complete. ${deployedSkills.filter(s => s.status === 'deployed').length}/${deployedSkills.length} skills deployed`);
 
