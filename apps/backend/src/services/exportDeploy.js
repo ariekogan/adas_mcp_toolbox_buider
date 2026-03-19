@@ -202,6 +202,10 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
       ...(skill.triggers?.length ? { triggers: skill.triggers } : {}),
       ...(skill.bootstrap_tools?.length ? { bootstrap_tools: skill.bootstrap_tools } : {}),
       ...(skill.exclude_bootstrap_tools?.length ? { exclude_bootstrap_tools: skill.exclude_bootstrap_tools } : {}),
+      ...(skill.access_policy ? { access_policy: skill.access_policy } : {}),
+      ...(skill.persona_append ? { persona_append: skill.persona_append } : {}),
+      ...(skill.persona_replace ? { persona_replace: skill.persona_replace } : {}),
+      ...(skill.glossary ? { glossary: skill.glossary } : {}),
     };
 
     // Add ui_plugins for agent-to-plugin commands (UI-capable skills)
