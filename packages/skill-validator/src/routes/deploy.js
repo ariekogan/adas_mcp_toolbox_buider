@@ -2422,6 +2422,32 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
         }
       }
 
+      // 2b-check. Warn if skill files exist but solution.json doesn't reference them
+      if (updatedSkills.length > 0) {
+        const solutionSkillIds = (bundle.solution?.skills || []).map(s => s.id || s.slug || s);
+        const fileSkillIds = updatedSkills.map(s => s.id || s.slug);
+        const orphanSkills = fileSkillIds.filter(id => !solutionSkillIds.includes(id));
+        if (orphanSkills.length > 0) {
+          console.warn(`[GitHub Pull] ⚠️ SKILL MISMATCH: ${orphanSkills.length} skill file(s) in skills/ not listed in solution.json.skills: ${orphanSkills.join(', ')}. These skills exist in the repo but won't be routable because solution.json doesn't reference them.`);
+          // Auto-fix: add missing skills to solution topology
+          const solSkills = bundle.solution.skills || [];
+          for (const orphanId of orphanSkills) {
+            const skillDef = updatedSkills.find(s => (s.id || s.slug) === orphanId);
+            if (skillDef) {
+              solSkills.push({
+                id: orphanId,
+                name: skillDef.name || orphanId,
+                role: skillDef.role?.name === 'orchestrator' ? 'orchestrator' : 'worker',
+                description: skillDef.problem?.statement || skillDef.role?.persona?.slice(0, 100) || '',
+                connectors: (skillDef.connectors || []).map(c => typeof c === 'string' ? c : c.id),
+              });
+            }
+          }
+          bundle.solution.skills = solSkills;
+          console.log(`[GitHub Pull] Auto-fixed: added ${orphanSkills.length} orphan skill(s) to solution topology`);
+        }
+      }
+
       // 2c. Read connector source files
       const connectorFiles = allFiles.filter(f => f.path.startsWith('connectors/'));
       // Group by connector ID
