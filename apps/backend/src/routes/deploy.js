@@ -43,6 +43,13 @@ router.post('/solution', async (req, res, next) => {
     log.info(`[Deploy] GitHub mode: ${github ? 'enabled (will pull from GitHub)' : 'disabled (using inline mcp_store)'}`);
     log.info(`[Deploy] Skills: ${skills.length}, Connectors: ${connectors.length}, mcp_store keys: ${Object.keys(mcp_store).join(', ') || 'NONE'}`);
 
+    // Step 0: Backup existing solution before overwriting (for rollback on deploy failure)
+    let previousSolution = null;
+    try {
+      previousSolution = await solutionsStore.load(solution.id);
+      log.info(`[Deploy] Backed up existing solution "${solution.id}" for rollback`);
+    } catch { /* no existing solution — fresh deploy */ }
+
     // Step 1: Save solution to Skill Builder
     try {
       log.info(`[Deploy] Saving solution "${solution.id}" to Skill Builder...`);
@@ -211,6 +218,17 @@ router.post('/solution', async (req, res, next) => {
 
     } catch (err) {
       log.error(`[Deploy] Failed to deploy to A-Team Core: ${err.message}`);
+
+      // Rollback: restore previous solution if we had one
+      if (previousSolution) {
+        try {
+          await solutionsStore.save(previousSolution);
+          log.info(`[Deploy] Rolled back solution "${solution.id}" to previous state`);
+        } catch (rollbackErr) {
+          log.error(`[Deploy] Rollback failed: ${rollbackErr.message}`);
+        }
+      }
+
       return res.status(500).json({
         ok: false,
         error: 'Deployment to A-Team Core failed',

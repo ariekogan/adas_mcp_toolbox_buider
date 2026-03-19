@@ -166,7 +166,11 @@ async function readJson(filePath) {
 }
 
 async function writeJson(filePath, data) {
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+  // Atomic write: write to temp file, then rename. fs.rename() is atomic
+  // on the same filesystem, preventing corrupted/empty files on crash.
+  const tmpPath = `${filePath}.tmp.${Date.now()}`;
+  await fs.writeFile(tmpPath, JSON.stringify(data, null, 2));
+  await fs.rename(tmpPath, filePath);
 }
 
 // ═══════════════════════════════════════════════════════════════
