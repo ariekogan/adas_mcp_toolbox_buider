@@ -2693,7 +2693,11 @@ router.post('/solutions/:solutionId/promote', async (req, res) => {
     res.json({ ok: true, ...result });
   } catch (e) {
     console.error('[Deploy] promote error:', e.message);
-    res.status(400).json({ ok: false, error: `Promotion failed: ${e.message}` });
+    const isMergeConflict = e.message.includes('409') || e.message.toLowerCase().includes('merge conflict');
+    const hint = isMergeConflict
+      ? 'Dev and main branches have diverged. To fix: (1) run ateam_build_and_run(github: true) to redeploy from dev — this auto-pushes a clean state, OR (2) manually resolve the conflict in the GitHub repo.'
+      : undefined;
+    res.status(400).json({ ok: false, error: `Promotion failed: ${e.message}`, ...(hint && { hint }) });
   }
 });
 
