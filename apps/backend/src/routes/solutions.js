@@ -214,21 +214,10 @@ router.delete('/:id/connectors/:connectorId', async (req, res, next) => {
       console.warn(`[solutions/delete-connector] Failed to delete mcp-store for ${connectorId}:`, err.message);
     }
 
-    // 5. Delete connector directory from GitHub repo (both dev + main branches)
-    //    This prevents github_pull from resurrecting the connector
-    results.github_deleted = false;
-    try {
-      const tenant = getCurrentTenant();
-      const ghResult = await githubDeleteDirectory(
-        tenant, solutionId,
-        `connectors/${connectorId}`,
-        `Delete connector ${connectorId}`
-      );
-      results.github_deleted = ghResult.total_files_deleted > 0;
-      results.github_details = ghResult.branches;
-    } catch (err) {
-      console.warn(`[solutions/delete-connector] Failed to delete ${connectorId} from GitHub:`, err.message);
-    }
+    // 5. GitHub files are NOT deleted — the repo is the source of truth.
+    //    Connector code stays in GitHub so github_pull can restore it.
+    //    Only Core state + Builder FS are cleaned up.
+    results.github_preserved = true;
 
     console.log(`[solutions/delete-connector] Removed connector ${connectorId} from solution ${solutionId}:`, results);
     res.json({ ok: true, connector_id: connectorId, results });
