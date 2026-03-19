@@ -1818,6 +1818,99 @@ router.delete('/solutions/:solutionId/connectors/:connectorId', async (req, res)
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// CONNECTOR CODE UPLOAD — upload to Core mcp-store + restart (no skill redeploy)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /deploy/solutions/:solutionId/connectors/:connectorId/upload
+ * Upload connector code to Core and restart — WITHOUT redeploying skills.
+ * Reads files from GitHub repo or accepts them in the request body.
+ * Body: { github?: boolean, files?: [{path, content}] }
+ */
+router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req, res) => {
+  const { solutionId, connectorId } = req.params;
+  const { github: fromGithub, files: bodyFiles } = req.body || {};
+  const tenant = req.headers['x-adas-tenant'];
+
+  try {
+    let files = bodyFiles;
+
+    // If github=true, read files from the repo
+    if (fromGithub && tenant) {
+      const allFiles = await github.listFiles(tenant, solutionId).catch(() => []);
+      const connFiles = allFiles.filter(f => f.path.startsWith(`connectors/${connectorId}/`));
+      if (connFiles.length === 0) {
+        return res.status(404).json({ ok: false, error: `No files found for connector "${connectorId}" in GitHub repo` });
+      }
+      files = [];
+      for (const f of connFiles) {
+        try {
+          const data = await github.readFile(tenant, solutionId, f.path);
+          const relPath = f.path.split('/').slice(2).join('/');
+          files.push({ path: relPath, content: data.content });
+        } catch { /* skip */ }
+      }
+    }
+
+    if (!Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ ok: false, error: 'No files provided. Pass files in body or set github=true.' });
+    }
+
+    // Anti-pattern check
+    const antiPatterns = detectConnectorAntiPatterns(connectorId, files);
+    if (antiPatterns.errors.length > 0) {
+      return res.status(400).json({ ok: false, error: antiPatterns.errors[0], all_errors: antiPatterns.errors });
+    }
+
+    // Upload to Core mcp-store
+    const adasCoreUrl = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+    const coreHeaders = { 'Content-Type': 'application/json' };
+    const coreMcpSecret = process.env.CORE_MCP_SECRET || '';
+    if (coreMcpSecret) coreHeaders['x-adas-token'] = coreMcpSecret;
+    if (tenant) coreHeaders['X-ADAS-TENANT'] = tenant;
+
+    // Stop old connector
+    try {
+      await fetch(`${adasCoreUrl}/api/connectors/${connectorId}/stop`, {
+        method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(10000),
+      });
+      console.log(`[Connector Upload] Stopped "${connectorId}"`);
+    } catch { /* may not be running */ }
+
+    // Upload files
+    const uploadResp = await fetch(`${adasCoreUrl}/api/mcp-store/upload`, {
+      method: 'POST',
+      headers: coreHeaders,
+      body: JSON.stringify({ connectorId, files, installDeps: true }),
+      signal: AbortSignal.timeout(360000),
+    });
+    const uploadResult = await uploadResp.json().catch(() => ({}));
+    if (uploadResult.ok === false) {
+      return res.status(422).json({ ok: false, error: uploadResult.error || 'Upload failed', phase: 'upload' });
+    }
+    console.log(`[Connector Upload] Uploaded ${files.length} files for "${connectorId}"`);
+
+    // Restart connector
+    const startResp = await fetch(`${adasCoreUrl}/api/connectors/${connectorId}/start`, {
+      method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(30000),
+    });
+    const startResult = await startResp.json().catch(() => ({}));
+    console.log(`[Connector Upload] Restarted "${connectorId}": ${startResult.tools?.length || 0} tools`);
+
+    res.json({
+      ok: true,
+      connector_id: connectorId,
+      files_uploaded: files.length,
+      tools: startResult.tools?.length || 0,
+      warnings: antiPatterns.warnings.length > 0 ? antiPatterns.warnings : undefined,
+    });
+  } catch (err) {
+    console.error(`[Connector Upload] Error: ${err.message}`);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // VALIDATE FROM STORED STATE
 // ═══════════════════════════════════════════════════════════════════════════
 
