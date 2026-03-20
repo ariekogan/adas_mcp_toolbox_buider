@@ -927,9 +927,9 @@ ${paramDocs || '        None'}
   const hasConnectors = connectorInfo.length > 0;
   const totalTools = nativeTools.length + connectorInfo.reduce((sum, c) => sum + c.tools.length, 0);
 
-  // Escape the skill YAML for embedding in Python as a triple-quoted string
-  const skillYaml = context.skillYaml || '';
-  const escapedYaml = skillYaml.replace(/\\/g, '\\\\').replace(/"""/g, '\\"\\"\\"');
+  // Embed as JSON to avoid YAML escaping issues with special chars in persona fields
+  const skillJson = JSON.stringify(context.skill || {}, null, 2);
+  const escapedJson = skillJson.replace(/\\/g, '\\\\').replace(/"""/g, '\\"\\"\\"');
 
   return `You are an expert MCP server developer. Generate a COMPLETE FastMCP server.
 
@@ -946,11 +946,12 @@ logger = logging.getLogger(__name__)
 mcp = FastMCP("${context.skill.name || 'MCP Server'}")
 
 # ============================================================================
-# SKILL DEFINITION (YAML) - Complete skill config for ADAS Core
+# SKILL DEFINITION (JSON) - Complete skill config for ADAS Core
 # ============================================================================
 
-SKILL_DEFINITION_YAML = """
-${escapedYaml}
+import json
+SKILL_DEFINITION_JSON = """
+${escapedJson}
 """
 ${connectorClientCode}
 # ============================================================================
@@ -977,7 +978,7 @@ def get_skill_info() -> dict:
 
 @mcp.tool()
 def get_skill_definition() -> dict:
-    """Get the complete skill definition YAML for ADAS Core installation.
+    """Get the complete skill definition for ADAS Core installation.
 
     This returns the full skill configuration including:
     - Problem statement and goals
@@ -989,8 +990,8 @@ def get_skill_definition() -> dict:
     Use this when installing the skill in ADAS Core.
     """
     return {
-        "format": "yaml",
-        "content": SKILL_DEFINITION_YAML.strip(),
+        "format": "json",
+        "content": SKILL_DEFINITION_JSON.strip(),
         "skill_name": "${context.skill.name || 'MCP Server'}",
         "version": "${context.skill.version || 1}"
     }
@@ -1014,10 +1015,10 @@ if __name__ == "__main__":
 1. Use write_file to create mcp_server.py following the EXACT structure above
 2. Fill in REAL implementations for native tools (use realistic mock data, not stubs)
 3. Keep the external connector wrapper tools AS-IS (they proxy to external MCPs)
-4. Keep the SKILL_DEFINITION_YAML exactly as provided - this is the complete skill config
+4. Keep the SKILL_DEFINITION_JSON exactly as provided - this is the complete skill config
 5. Create requirements.txt with: fastmcp>=0.1.0, httpx
 6. Create README.md with basic usage info${hasConnectors ? ` including external connector requirements` : ''}
-7. Create skill.yaml file with the skill definition (same content as SKILL_DEFINITION_YAML)
+7. Create skill.yaml file with the skill definition (same content as SKILL_DEFINITION_JSON)
 8. Call generation_complete when done
 
 ## Native Tools to implement with REAL logic:
@@ -1033,7 +1034,7 @@ IMPORTANT:
 - Use the EXACT template structure above
 - Fill in actual mock implementations for NATIVE tools, not "pass" or "TODO"
 - DO NOT modify the external connector wrapper code - it's already complete
-- DO NOT modify SKILL_DEFINITION_YAML - it contains the complete skill config
+- DO NOT modify SKILL_DEFINITION_JSON - it contains the complete skill config
 - Include proper type hints
 - Return dicts with meaningful mock data
 
