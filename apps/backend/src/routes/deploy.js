@@ -157,11 +157,12 @@ router.post('/solution', async (req, res, next) => {
       const identityResult = await deployIdentityToADAS(solution.id, log);
       log.info(`[Deploy] Identity deployed`, identityResult);
 
-      // Deploy solution-level config (exclude_bootstrap_tools, etc.)
-      if (solution.exclude_bootstrap_tools) {
+      // Deploy solution-level config (bootstrap_tools, exclude_bootstrap_tools)
+      if (solution.bootstrap_tools || solution.exclude_bootstrap_tools) {
         try {
-          log.info(`[Deploy] Deploying solution config (exclude_bootstrap_tools)...`);
+          log.info(`[Deploy] Deploying solution config...`);
           await adasCore.deploySolutionConfig({
+            bootstrap_tools: solution.bootstrap_tools,
             exclude_bootstrap_tools: solution.exclude_bootstrap_tools,
           });
           log.info(`[Deploy] Solution config deployed`);

@@ -2143,6 +2143,13 @@ function buildSolutionSpec() {
       version: { type: 'string', required: false, description: 'Semantic version' },
       description: { type: 'string', required: false, description: 'What this multi-agent solution does' },
 
+      // ── Bootstrap Tools (solution-wide) ──
+      bootstrap_tools: {
+        type: 'string[]', required: false, max_items: 3,
+        description: 'Up to 3 tool names that are ALWAYS pinned for the planner across ALL skills in this solution. Merged with each skill\'s own bootstrap_tools (union, deduplicated). Use this to ensure critical tools like memory.userProfile run on every message regardless of which skill handles it. This also suppresses the greeting fast-path — when bootstrap_tools are present, even "hi" goes through the full planner so bootstrap tools execute.',
+        example: ['memory.userProfile'],
+      },
+
       // ── Exclude Bootstrap Tools (solution-wide) ──
       exclude_bootstrap_tools: {
         type: 'string[]', required: false,

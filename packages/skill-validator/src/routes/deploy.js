@@ -1414,26 +1414,29 @@ router.patch('/solutions/:solutionId', async (req, res) => {
       }
     }
 
-    // If the patch includes exclude_bootstrap_tools, push it to ADAS Core's configStore
-    if (updates.exclude_bootstrap_tools !== undefined) {
+    // If the patch includes bootstrap_tools or exclude_bootstrap_tools, push to ADAS Core's configStore
+    if (updates.bootstrap_tools !== undefined || updates.exclude_bootstrap_tools !== undefined) {
       try {
         const adasCoreUrl = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+        const configBody = {};
+        if (updates.bootstrap_tools !== undefined) configBody.bootstrap_tools = updates.bootstrap_tools;
+        if (updates.exclude_bootstrap_tools !== undefined) configBody.exclude_bootstrap_tools = updates.exclude_bootstrap_tools;
         const configResp = await fetch(`${adasCoreUrl}/api/solution-config`, {
           method: 'POST',
           headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ exclude_bootstrap_tools: updates.exclude_bootstrap_tools }),
+          body: JSON.stringify(configBody),
           signal: AbortSignal.timeout(5000),
         });
         if (configResp.ok) {
-          data.solution_config = { exclude_bootstrap_tools: updates.exclude_bootstrap_tools, pushed: true };
-          console.log(`[Deploy] exclude_bootstrap_tools pushed to Core configStore`);
+          data.solution_config = { ...configBody, pushed: true };
+          console.log(`[Deploy] Solution config pushed to Core configStore:`, Object.keys(configBody).join(', '));
         } else {
           const errBody = await configResp.text();
           console.warn(`[Deploy] Core solution-config push failed: ${configResp.status} ${errBody}`);
           data.solution_config_warning = `Core config push failed: ${configResp.status}`;
         }
       } catch (e) {
-        console.warn(`[Deploy] exclude_bootstrap_tools push to Core failed: ${e.message}`);
+        console.warn(`[Deploy] Solution config push to Core failed: ${e.message}`);
         data.solution_config_warning = `Core config push failed: ${e.message}`;
       }
     }

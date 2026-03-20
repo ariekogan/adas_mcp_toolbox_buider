@@ -106,13 +106,16 @@ async function deployIdentity({ actor_types, admin_roles, default_actor_type, de
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Deploy solution-level config (e.g. exclude_bootstrap_tools) to ADAS Core.
+ * Deploy solution-level config (bootstrap_tools, exclude_bootstrap_tools) to ADAS Core.
  * Core stores these in MongoDB configStore, applying to ALL skills in the solution.
  */
-async function deploySolutionConfig({ exclude_bootstrap_tools } = {}) {
+async function deploySolutionConfig({ bootstrap_tools, exclude_bootstrap_tools } = {}) {
+  const body = {};
+  if (exclude_bootstrap_tools !== undefined) body.exclude_bootstrap_tools = exclude_bootstrap_tools || [];
+  if (bootstrap_tools !== undefined) body.bootstrap_tools = bootstrap_tools || [];
   return request('/api/solution-config', {
     method: 'POST',
-    body: { exclude_bootstrap_tools: exclude_bootstrap_tools || [] },
+    body,
   });
 }
 
