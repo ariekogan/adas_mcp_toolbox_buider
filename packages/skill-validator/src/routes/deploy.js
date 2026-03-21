@@ -625,7 +625,7 @@ router.post('/solution', async (req, res) => {
   const tenant = requireTenant(req, res);
   if (!tenant) return;
 
-  const { solution, skills, connectors, mcp_store } = req.body;
+  const { solution, skills, connectors, mcp_store, skip_github_push } = req.body;
 
   if (!solution?.id) {
     return res.status(400).json({ ok: false, error: 'Missing solution.id' });
@@ -1190,9 +1190,13 @@ router.post('/solution', async (req, res) => {
     // ── GitHub workflow: ASYNC, non-blocking ──
     // Strategy: Respond to caller immediately, push to GitHub in background.
     // This prevents GitHub API slowness from blocking the deploy response.
+    // SKIP when skip_github_push=true (deployed from GitHub — don't overwrite source of truth)
     let githubDeploy = { ok: true, async: true, message: 'GitHub push queued in background' };
     const ghTenant = req.headers['x-adas-tenant'];
-    if (github.isEnabled() && ghTenant) {
+    if (skip_github_push) {
+      githubDeploy = { ok: true, skipped: true, reason: 'Deployed from GitHub — push-back skipped to preserve source of truth.' };
+      console.log('[GitHub] skip_github_push=true — skipping push-back to GitHub');
+    } else if (github.isEnabled() && ghTenant) {
       // Build repo files synchronously (fast, local-only) so we can fire-and-forget the push
       let repoFiles = [];
       try {
