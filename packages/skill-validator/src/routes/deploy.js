@@ -1282,6 +1282,28 @@ router.post('/solution', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// TENANT LIST — proxy to ADAS Core
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /deploy/tenants — List all active tenants (requires master key auth)
+ */
+router.get('/tenants', async (req, res) => {
+  try {
+    const adasCoreUrl = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+    const resp = await fetch(`${adasCoreUrl}/api/tenants/list`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] List tenants error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // SOLUTION LIFECYCLE — proxy to Skill Builder
 // ═══════════════════════════════════════════════════════════════════════════
 
