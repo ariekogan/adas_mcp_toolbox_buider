@@ -173,7 +173,25 @@ export async function attachTenant(req, res, next) {
     }
   }
 
-  // No valid JWT/PAT/API-key — check if dev mode allows X-ADAS-TENANT fallback
+  // 4) Try shared-secret auth (x-adas-token header — used by master key / cross-tenant ops)
+  const sharedToken = req.headers["x-adas-token"];
+  if (sharedToken && CORE_MCP_SECRET && sharedToken.length === CORE_MCP_SECRET.length) {
+    const match = crypto.timingSafeEqual(Buffer.from(sharedToken), Buffer.from(CORE_MCP_SECRET));
+    if (match) {
+      const requestedTenant = (req.headers["x-adas-tenant"] || "").trim().toLowerCase();
+      if (!requestedTenant) {
+        return res.status(400).json({ error: "x-adas-token requires X-ADAS-TENANT header" });
+      }
+      if (!isValidTenant(requestedTenant)) await refreshTenantCache();
+      if (isValidTenant(requestedTenant)) {
+        req.tenant = requestedTenant;
+        req.auth = { type: "master", tenant: requestedTenant };
+        return runWithTenant(req.tenant, () => next());
+      }
+    }
+  }
+
+  // No valid JWT/PAT/API-key/master — check if dev mode allows X-ADAS-TENANT fallback
   const IS_DEV = process.env.NODE_ENV === "development" || process.env.SB_AUTH_SKIP === "true";
 
   if (IS_DEV) {
