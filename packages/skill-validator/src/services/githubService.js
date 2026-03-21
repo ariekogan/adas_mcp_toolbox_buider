@@ -566,11 +566,26 @@ export async function rollback(tenant, solutionId, tagName) {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  // Auto-checkpoint current state before rollback
+  // Auto-checkpoint current state before rollback (skip if HEAD is already a checkpoint)
   let autoCheckpoint = null;
   try {
-    autoCheckpoint = await checkpoint(tenant, solutionId, `before-rollback-to-${tagName}`);
-    console.log(`[GitHub] Auto-checkpoint created: ${autoCheckpoint.tag} (before rollback to ${tagName})`);
+    // Get current main HEAD
+    const mainRef = await gh('GET', `/repos/${fullName}/git/refs/heads/main`);
+    const currentSha = mainRef.object.sha;
+
+    // Check if any safe-* tag already points at this exact commit
+    let alreadyTagged = false;
+    try {
+      const tags = await gh('GET', `/repos/${fullName}/tags?per_page=10`);
+      alreadyTagged = tags.some(t => t.name.startsWith('safe-') && t.commit.sha === currentSha);
+    } catch { /* ignore — be safe and create checkpoint */ }
+
+    if (!alreadyTagged) {
+      autoCheckpoint = await checkpoint(tenant, solutionId, `before-rollback-to-${tagName}`);
+      console.log(`[GitHub] Auto-checkpoint created: ${autoCheckpoint.tag} (before rollback to ${tagName})`);
+    } else {
+      console.log(`[GitHub] Skipping auto-checkpoint — current HEAD already has a safe-* tag`);
+    }
   } catch (cpErr) {
     console.warn(`[GitHub] Could not auto-checkpoint before rollback: ${cpErr.message}`);
     // Continue with rollback anyway — user explicitly requested it
