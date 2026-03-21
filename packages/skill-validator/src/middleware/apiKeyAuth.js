@@ -120,6 +120,18 @@ export default async function apiKeyAuth(req, res, next) {
     return next();
   }
 
+  // Check shared secret (x-adas-token) — master key for cross-tenant ops
+  const sharedToken = req.headers['x-adas-token'];
+  const CORE_SECRET = process.env.CORE_MCP_SECRET || process.env.MCP_SHARED_SECRET || '';
+  if (sharedToken && CORE_SECRET && safeCompare(sharedToken, CORE_SECRET)) {
+    const raw = req.headers['x-adas-tenant'];
+    const sanitized = raw ? raw.trim().toLowerCase() : '';
+    if (sanitized && TENANT_RE.test(sanitized)) {
+      req.headers['x-adas-tenant'] = sanitized;
+    }
+    return next();
+  }
+
   // Check X-API-KEY header
   const candidateKey = req.headers['x-api-key'];
 
