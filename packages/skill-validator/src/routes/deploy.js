@@ -2705,6 +2705,85 @@ router.post('/solutions/:solutionId/github/pull-connectors', async (req, res) =>
   }
 });
 
+/**
+ * POST /deploy/solutions/:solutionId/github/pull-bundle
+ *
+ * Reads the full deployable bundle from GitHub: solution.json, skills, and connector source.
+ * Returns { solution, skills, mcp_store } ready for build_and_run.
+ * This allows build_and_run to deploy with ZERO inline data — everything from GitHub.
+ */
+router.post('/solutions/:solutionId/github/pull-bundle', async (req, res) => {
+  try {
+    if (!github.isEnabled()) {
+      return res.status(503).json({ ok: false, error: 'GitHub integration disabled' });
+    }
+    const tenant = req.headers['x-adas-tenant'];
+    if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
+
+    const solId = req.params.solutionId;
+
+    // List all files in the repo
+    let allFiles;
+    try {
+      allFiles = await github.listFiles(tenant, solId);
+    } catch (err) {
+      return res.status(404).json({
+        ok: false,
+        error: `No GitHub repo found for solution "${solId}": ${err.message}`,
+        hint: 'Deploy the solution first (with mcp_store) to auto-create the GitHub repo.',
+      });
+    }
+
+    const result = { ok: true };
+
+    // 1. Read solution.json
+    try {
+      const solFile = await github.readFile(tenant, solId, 'solution.json');
+      result.solution = JSON.parse(solFile.content);
+    } catch {
+      // solution.json not in repo — caller must provide it
+    }
+
+    // 2. Read skills
+    const skillFiles = allFiles.filter(f => f.path.match(/^skills\/[^/]+\/skill\.json$/));
+    if (skillFiles.length > 0) {
+      result.skills = [];
+      for (const f of skillFiles) {
+        try {
+          const skillData = await github.readFile(tenant, solId, f.path);
+          result.skills.push(JSON.parse(skillData.content));
+        } catch { /* skip unreadable */ }
+      }
+    }
+
+    // 3. Read connector source files
+    const connectorFiles = allFiles.filter(f => f.path.startsWith('connectors/'));
+    if (connectorFiles.length > 0) {
+      const mcpStore = {};
+      for (const f of connectorFiles) {
+        const parts = f.path.split('/');
+        if (parts.length < 3) continue;
+        const connId = parts[1];
+        const filePath = parts.slice(2).join('/');
+        if (!mcpStore[connId]) mcpStore[connId] = [];
+        try {
+          const fileData = await github.readFile(tenant, solId, f.path);
+          mcpStore[connId].push({ path: filePath, content: fileData.content });
+        } catch { /* skip unreadable files */ }
+      }
+      result.mcp_store = mcpStore;
+      result.connectors_found = Object.keys(mcpStore).length;
+    }
+
+    result.skills_found = result.skills?.length || 0;
+    result.files_loaded = connectorFiles.length;
+    res.json(result);
+  } catch (err) {
+    console.error('[GitHub] Pull bundle error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // VOICE SIMULATION (text-based E2E testing)
 // ═══════════════════════════════════════════════════════════════════════════
