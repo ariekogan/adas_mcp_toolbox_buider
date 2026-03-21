@@ -2372,20 +2372,39 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
     const tenant = req.headers['x-adas-tenant'];
     if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
 
-    // Block push-back if this solution was deployed from GitHub.
-    // The pull-bundle endpoint sets this flag. ONE-SHOT: blocks exactly
-    // one push attempt then clears, so subsequent ateam_patch pushes work.
+    // Block push-back if:
+    // 1. pull-bundle flag was set (one-shot)
+    // 2. The latest GitHub commit was made by ateam_github_patch (message starts with "Patch:")
+    //    This catches the case where the MCP tool is old and doesn't call pull-bundle.
     const ghKey = `${tenant}/${solId}`;
     const ghDeployedAt = _githubDeployedSolutions.get(ghKey);
     if (ghDeployedAt && !req.body?.force_push) {
-      // Clear the flag immediately (one-shot) so next push goes through
       _githubDeployedSolutions.delete(ghKey);
-      console.log(`[GitHub] BLOCKED push-back for ${ghKey} — deployed from GitHub ${Math.round((Date.now() - ghDeployedAt) / 1000)}s ago (one-shot, cleared)`);
+      console.log(`[GitHub] BLOCKED push-back for ${ghKey} — deployed from GitHub (one-shot, cleared)`);
       return res.json({
         ok: true,
         skipped: true,
         reason: 'Solution was deployed from GitHub — push-back blocked to preserve source of truth.',
       });
+    }
+
+    // Server-side defense: check if the latest commit on GitHub was a patch/write.
+    // If so, a stale push-back from Core would overwrite it. Block unless force_push.
+    if (!req.body?.force_push) {
+      try {
+        const status = await github.getRepoStatus(tenant, solId);
+        const lastMsg = status?.lastCommit?.message || '';
+        const lastAge = status?.lastCommit?.date ? (Date.now() - new Date(status.lastCommit.date).getTime()) : Infinity;
+        // If last commit was a patch/write AND was recent (within 5 min), block push-back
+        if (lastAge < 5 * 60 * 1000 && (lastMsg.startsWith('Patch:') || lastMsg.startsWith('Write:'))) {
+          console.log(`[GitHub] BLOCKED push-back for ${ghKey} — last commit was "${lastMsg.slice(0, 60)}" (${Math.round(lastAge / 1000)}s ago)`);
+          return res.json({
+            ok: true,
+            skipped: true,
+            reason: `Last GitHub commit was a patch/write ${Math.round(lastAge / 1000)}s ago — push-back blocked to preserve source of truth. Use force_push:true to override.`,
+          });
+        }
+      } catch { /* repo may not exist yet — allow push */ }
     }
 
     const message = req.body?.message || `Deploy ${solId}`;
