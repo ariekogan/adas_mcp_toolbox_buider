@@ -1906,6 +1906,60 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
   }
 });
 
+/**
+ * POST /deploy/solutions/:solutionId/connectors/:connectorId/call
+ *
+ * Call a tool on a running connector. Proxies to Core's POST /api/connectors/:id/call.
+ * Use this to test individual connector tools without deploying to a client.
+ *
+ * Body: { tool: "tool.name", args: { ... } }
+ */
+router.post('/solutions/:solutionId/connectors/:connectorId/call', async (req, res) => {
+  const { connectorId } = req.params;
+  const { tool, args } = req.body || {};
+  const tenant = req.headers['x-adas-tenant'];
+
+  if (!tool) {
+    return res.status(400).json({ ok: false, error: 'Missing "tool" in request body' });
+  }
+
+  try {
+    const adasCoreUrl = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+    const coreHeaders = { 'Content-Type': 'application/json' };
+    const coreMcpSecret = process.env.CORE_MCP_SECRET || '';
+    if (coreMcpSecret) coreHeaders['x-adas-token'] = coreMcpSecret;
+    if (tenant) coreHeaders['X-ADAS-TENANT'] = tenant;
+
+    const callResp = await fetch(`${adasCoreUrl}/api/connectors/${connectorId}/call`, {
+      method: 'POST',
+      headers: coreHeaders,
+      body: JSON.stringify({ tool, args: args || {} }),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    const callResult = await callResp.json().catch(() => ({}));
+
+    if (!callResp.ok || callResult.ok === false) {
+      return res.status(callResp.status || 502).json({
+        ok: false,
+        connector_id: connectorId,
+        tool,
+        error: callResult.error || callResult.message || `Call failed (${callResp.status})`,
+      });
+    }
+
+    res.json({
+      ok: true,
+      connector_id: connectorId,
+      tool,
+      result: callResult.result,
+    });
+  } catch (err) {
+    console.error(`[Connector Call] Error calling ${connectorId}.${tool}: ${err.message}`);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // VALIDATE FROM STORED STATE
 // ═══════════════════════════════════════════════════════════════════════════
