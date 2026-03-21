@@ -2372,23 +2372,20 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
     const tenant = req.headers['x-adas-tenant'];
     if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
 
-    // Block push-back if this solution was recently deployed from GitHub.
-    // The pull-bundle endpoint sets this flag. Cleared after 10 minutes or
-    // when an explicit force_push=true is sent.
+    // Block push-back if this solution was deployed from GitHub.
+    // The pull-bundle endpoint sets this flag. ONE-SHOT: blocks exactly
+    // one push attempt then clears, so subsequent ateam_patch pushes work.
     const ghKey = `${tenant}/${solId}`;
     const ghDeployedAt = _githubDeployedSolutions.get(ghKey);
     if (ghDeployedAt && !req.body?.force_push) {
-      const ageMs = Date.now() - ghDeployedAt;
-      if (ageMs < 10 * 60 * 1000) { // 10 minute window
-        console.log(`[GitHub] BLOCKED push-back for ${ghKey} — deployed from GitHub ${Math.round(ageMs / 1000)}s ago`);
-        return res.json({
-          ok: true,
-          skipped: true,
-          reason: 'Solution was deployed from GitHub — push-back blocked to preserve source of truth. Use force_push:true to override.',
-        });
-      }
-      // Expired — clean up
+      // Clear the flag immediately (one-shot) so next push goes through
       _githubDeployedSolutions.delete(ghKey);
+      console.log(`[GitHub] BLOCKED push-back for ${ghKey} — deployed from GitHub ${Math.round((Date.now() - ghDeployedAt) / 1000)}s ago (one-shot, cleared)`);
+      return res.json({
+        ok: true,
+        skipped: true,
+        reason: 'Solution was deployed from GitHub — push-back blocked to preserve source of truth.',
+      });
     }
 
     const message = req.body?.message || `Deploy ${solId}`;
