@@ -566,6 +566,16 @@ export async function rollback(tenant, solutionId, tagName) {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
+  // Auto-checkpoint current state before rollback
+  let autoCheckpoint = null;
+  try {
+    autoCheckpoint = await checkpoint(tenant, solutionId, `before-rollback-to-${tagName}`);
+    console.log(`[GitHub] Auto-checkpoint created: ${autoCheckpoint.tag} (before rollback to ${tagName})`);
+  } catch (cpErr) {
+    console.warn(`[GitHub] Could not auto-checkpoint before rollback: ${cpErr.message}`);
+    // Continue with rollback anyway — user explicitly requested it
+  }
+
   let targetSha = null;
   try {
     const tagRef = await gh('GET', `/repos/${fullName}/git/refs/tags/${tagName}`);
@@ -595,6 +605,9 @@ export async function rollback(tenant, solutionId, tagName) {
     main_commit_sha: targetSha,
     main_branch_url: `https://github.com/${fullName}/tree/main`,
     rolled_back_at: new Date().toISOString(),
-    warning: 'Main branch has been reset. Use with caution.',
+    ...(autoCheckpoint && { auto_checkpoint: autoCheckpoint.tag }),
+    _hint: autoCheckpoint
+      ? `Pre-rollback state saved as ${autoCheckpoint.tag}. To undo: ateam_github_rollback(solution_id, tag: "${autoCheckpoint.tag}")`
+      : 'Warning: could not save pre-rollback state.',
   };
 }
