@@ -2393,8 +2393,8 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
     if (!req.body?.force_push) {
       try {
         const status = await github.getRepoStatus(tenant, solId);
-        const lastMsg = status?.lastCommit?.message || '';
-        const lastAge = status?.lastCommit?.date ? (Date.now() - new Date(status.lastCommit.date).getTime()) : Infinity;
+        const lastMsg = status?.latest_commit?.message || '';
+        const lastAge = status?.latest_commit?.date ? (Date.now() - new Date(status.latest_commit.date).getTime()) : Infinity;
         // If last commit was a patch/write AND was recent (within 5 min), block push-back
         if (lastAge < 5 * 60 * 1000 && (lastMsg.startsWith('Patch:') || lastMsg.startsWith('Write:'))) {
           console.log(`[GitHub] BLOCKED push-back for ${ghKey} — last commit was "${lastMsg.slice(0, 60)}" (${Math.round(lastAge / 1000)}s ago)`);
