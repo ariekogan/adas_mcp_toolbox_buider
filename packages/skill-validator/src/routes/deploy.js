@@ -81,6 +81,8 @@ function sbHeaders(req) {
   if (tenant) h['X-ADAS-TENANT'] = tenant;
   const apiKey = req.headers['x-api-key'];
   if (apiKey) h['X-API-KEY'] = apiKey;
+  const sharedSecret = req.headers['x-adas-token'];
+  if (sharedSecret) h['x-adas-token'] = sharedSecret;
   return h;
 }
 
