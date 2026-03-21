@@ -2445,6 +2445,29 @@ function buildSolutionSpec() {
             bundle_format: 'module.exports.default must be a plain object with id, Component, and optional type/version/capabilities fields. Bundle is evaluated via new Function("module","exports","require", code).',
             validation_chain: '1. rn-src/ exists? → YES: run build:rn → rn-bundle/index.bundle.js exists + non-empty + is JS → DEPLOY OK. NO rn-src/: skip RN build (iframe-only OK). rn-src/ exists but no bundle → DEPLOY REJECTED.',
             solution_definition: 'ui_plugins entry must have render.mode="adaptive" + render.reactNative.component matching the default export\'s id field. bundleUrl is auto-injected by Core at runtime.',
+            host_app_boundary: {
+              summary: 'CRITICAL: Solution builders create plugin source (rn-src/) and bundles (rn-bundle/) ONLY. The mobile host app (ateam-mobile) already provides the full runtime infrastructure. Do NOT build any of these yourself.',
+              provided_by_host_app: [
+                '@adas/plugin-sdk — useApi(), PluginProps types, bridge protocol. Injected at runtime via require() shim. Do NOT create this package.',
+                'PluginLoader (src/components/PluginLoader.tsx) — downloads bundles from Core, renders in WebView with bridge JS',
+                'usePluginBridge (src/hooks/usePluginBridge.ts) — postMessage protocol, MCP call proxying, plugin command routing',
+                'useRemotePluginBundles (src/hooks/useRemotePluginBundles.ts) — fetches /api/ui-plugins/{id}/bundle.js, caches 7 days',
+                'Tab navigation (app/(tabs)/index.tsx) — dynamic tabs from plugin manifest (Chat + plugin panels)',
+              ],
+              do_NOT_build: [
+                'Do NOT create @adas/plugin-sdk as an npm package or local module — the host app provides it at bundle eval time via require shim',
+                'Do NOT build a PluginHost or PluginLoader component — already exists and works in ateam-mobile',
+                'Do NOT add navigation between chat and plugin screens — already exists as dynamic tabs in ateam-mobile',
+                'Do NOT modify ateam-mobile source code — it is a separate project that already handles all plugin rendering',
+              ],
+              your_job_as_solution_builder: [
+                '1. Write plugin source in connectors/<id>/rn-src/index.tsx',
+                '2. Add esbuild.config.mjs + package.json with build:rn script',
+                '3. Build produces rn-bundle/index.bundle.js (CommonJS, externals: react, react-native, @adas/plugin-sdk)',
+                '4. Deploy via ateam_build_and_run — Core serves the bundle at /api/ui-plugins/{pluginId}/bundle.js',
+                '5. Mobile app automatically discovers, downloads, caches, and renders your plugin — no host-side changes needed',
+              ],
+            },
           },
         },
 
@@ -2979,6 +3002,7 @@ if (hostReady) tryLiveData();`,
         'Using voice.knownPhones without E.164 format — always include "+" country code (e.g., "+14155551234")',
         'Trying to manually wire handoff.transfer as a connector tool — use sys.handoffToSkill instead, it is a built-in platform tool always available to every skill. No connectors list, no mcp_bridge needed. Add sys.handoffToSkill to the skill\'s bootstrap_tools to pin it for the planner.',
         'Expecting tools to fail at runtime when grants are missing — since platform v1.4, denied tools are completely hidden from the LLM planner. The LLM cannot see, select, or attempt to use them. Design your skill knowing that grant-protected tools will appear/disappear dynamically as grants are acquired.',
+        'Trying to create @adas/plugin-sdk, PluginHost, PluginLoader, or plugin navigation — the mobile host app (ateam-mobile) already provides ALL of this infrastructure. Your job is ONLY to create plugin source (rn-src/), build bundles (rn-bundle/), and deploy. The host app downloads and renders your bundles automatically.',
       ],
       key_concepts: {
         skill_roles: 'gateway = entry point (identity/routing), worker = does the work, orchestrator = coordinates multiple workers, approval = authorizes actions',
@@ -3159,8 +3183,31 @@ function buildUIPluginsSpec() {
     react_native_plugin_guide: {
       description: 'Complete guide for building React Native UI plugins that render natively in ateam-mobile.',
 
+      scope_of_responsibility: {
+        summary: 'IMPORTANT: You (the solution builder) create plugin SOURCE CODE and BUNDLES only. The mobile host app (ateam-mobile) already provides the full runtime infrastructure — plugin SDK, loader, bridge, navigation. Do NOT build any host-side components.',
+        what_you_build: [
+          'connectors/<id>/rn-src/index.tsx — your plugin component',
+          'connectors/<id>/esbuild.config.mjs — build config',
+          'connectors/<id>/package.json — with build:rn script',
+          'Build output: connectors/<id>/rn-bundle/index.bundle.js',
+        ],
+        what_the_host_app_already_provides: [
+          '@adas/plugin-sdk — useApi() hook, PluginProps types, bridge protocol. Provided at runtime via require() shim — do NOT create this package.',
+          'PluginLoader — downloads bundles from Core API, evaluates them, renders in WebView with injected bridge JS',
+          'usePluginBridge — full postMessage bridge: MCP call proxying, plugin command routing, init handshake',
+          'useRemotePluginBundles — fetches /api/ui-plugins/{id}/bundle.js, caches locally for 7 days',
+          'Dynamic tab navigation — auto-creates tabs from plugin manifest (Chat tab + one tab per plugin)',
+        ],
+        do_NOT_build: [
+          '@adas/plugin-sdk as a local or npm package',
+          'PluginHost or PluginLoader component',
+          'Navigation between chat and plugin screens',
+          'Any modifications to the ateam-mobile source code',
+        ],
+      },
+
       plugin_sdk: {
-        description: 'The Plugin SDK provides API calls, theme tokens, and RN primitives. Plugins import useApi from @adas/plugin-sdk and export a plain object as default.',
+        description: 'The Plugin SDK provides API calls, theme tokens, and RN primitives. Plugins import useApi from @adas/plugin-sdk and export a plain object as default. NOTE: @adas/plugin-sdk is provided by the mobile host app at runtime — do NOT create it yourself.',
         export_pattern: 'export default { id: "my-plugin", type: "ui", version: "1.0.0", Component: MyComponent } — plain object, no registration call needed.',
         api_calls: 'const api = useApi(bridge); const result = await api.call("toolName", { args }). 15-second timeout, auto-unwrapped results.',
         available_exports: [
