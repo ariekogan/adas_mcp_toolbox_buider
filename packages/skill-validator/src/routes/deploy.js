@@ -2305,14 +2305,16 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
     const repoInfo = await github.ensureRepo(tenant, solId,
       exportBundle.solution?.description || `A-Team solution: ${solId}`);
 
-    // 5. Push files
-    const result = await github.pushFiles(tenant, solId, files, message);
+    // 5. Push files to dev branch (not main — promote explicitly)
+    const result = await github.pushToDev(tenant, solId, files, message);
 
     res.json({
       ok: true,
+      branch: 'dev',
       repo_url: repoInfo.repo_url,
       repo_created: repoInfo.created,
       ...result,
+      _hint: 'Pushed to dev branch. Use ateam_github_promote() to promote to main (production).',
     });
   } catch (err) {
     console.error('[GitHub] Push error:', err.message);
@@ -2352,9 +2354,10 @@ router.get('/solutions/:solutionId/github/read', async (req, res) => {
 
     const filePath = req.query.path;
     if (!filePath) return res.status(400).json({ ok: false, error: 'Missing ?path= parameter' });
+    const branch = req.query.branch || 'dev';
 
-    const file = await github.readFile(tenant, req.params.solutionId, filePath);
-    res.json({ ok: true, ...file });
+    const file = await github.readFile(tenant, req.params.solutionId, filePath, branch);
+    res.json({ ok: true, branch, ...file });
   } catch (err) {
     console.error('[GitHub] Read error:', err.message);
     res.status(err.message.includes('404') ? 404 : 500).json({ ok: false, error: err.message });
@@ -2416,7 +2419,7 @@ router.post('/solutions/:solutionId/github/patch', async (req, res) => {
       }
     }
 
-    res.json({ ok: true, ...result });
+    res.json({ ok: true, ...result, _hint: 'Committed to dev branch. Use ateam_github_promote() to promote to main (production).' });
   } catch (err) {
     console.error('[GitHub] Patch error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
@@ -2435,8 +2438,9 @@ router.get('/solutions/:solutionId/github/log', async (req, res) => {
     if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
 
     const limit = parseInt(req.query.limit) || 10;
-    const log = await github.getLog(tenant, req.params.solutionId, limit);
-    res.json({ ok: true, ...log });
+    const branch = req.query.branch || 'dev';
+    const log = await github.getLog(tenant, req.params.solutionId, limit, branch);
+    res.json({ ok: true, branch, ...log });
   } catch (err) {
     console.error('[GitHub] Log error:', err.message);
     res.status(500).json({ ok: false, error: err.message });

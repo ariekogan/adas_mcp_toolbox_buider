@@ -159,6 +159,29 @@ export async function ensureRepo(tenant, solutionId, description = '') {
 }
 
 /**
+ * Ensure the dev branch exists. Creates it from main if missing.
+ * Idempotent — safe to call before every dev-targeted operation.
+ */
+async function ensureDevBranch(fullName) {
+  try {
+    await gh('GET', `/repos/${fullName}/git/ref/heads/dev`);
+  } catch {
+    // Dev branch doesn't exist — create from main
+    try {
+      const mainRef = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
+      await gh('POST', `/repos/${fullName}/git/refs`, {
+        ref: 'refs/heads/dev',
+        sha: mainRef.object.sha,
+      });
+      console.log(`[GitHub] Created dev branch for ${fullName}`);
+    } catch (err) {
+      console.warn(`[GitHub] Cannot create dev branch for ${fullName}: ${err.message}`);
+      // Non-fatal — patchFile will fall back to default branch
+    }
+  }
+}
+
+/**
  * Atomic multi-file commit via Git Trees API.
  * Uses parallel blob creation for speed.
  */
@@ -244,11 +267,21 @@ export async function getRepoStatus(tenant, solutionId) {
  * Read a single file from the repo.
  * @returns {{ path, content, sha, size }}
  */
-export async function readFile(tenant, solutionId, filePath) {
+export async function readFile(tenant, solutionId, filePath, branch = 'dev') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  const data = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}`);
+  let data;
+  try {
+    data = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}?ref=${branch}`);
+  } catch (err) {
+    // Fallback: if dev branch doesn't exist yet, try main
+    if (branch === 'dev' && err.status === 404) {
+      data = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}?ref=main`);
+    } else {
+      throw err;
+    }
+  }
 
   if (data.type !== 'file') {
     throw new Error(`${filePath} is a ${data.type}, not a file`);
@@ -267,20 +300,24 @@ export async function readFile(tenant, solutionId, filePath) {
  * Write/update a single file in the repo with a commit.
  * Uses the Contents API (simpler than Trees for single files).
  */
-export async function patchFile(tenant, solutionId, filePath, content, message = `Update ${filePath}`) {
+export async function patchFile(tenant, solutionId, filePath, content, message = `Update ${filePath}`, branch = 'dev') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  // Check if file exists (need SHA for update)
+  // Ensure dev branch exists before patching
+  await ensureDevBranch(fullName);
+
+  // Check if file exists on the target branch (need SHA for update)
   let existingSha = null;
   try {
-    const existing = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}`);
+    const existing = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}?ref=${branch}`);
     existingSha = existing.sha;
   } catch { /* file doesn't exist yet — will create */ }
 
   const body = {
     message,
     content: Buffer.from(content, 'utf-8').toString('base64'),
+    branch,
   };
   if (existingSha) body.sha = existingSha;
 
@@ -288,6 +325,7 @@ export async function patchFile(tenant, solutionId, filePath, content, message =
 
   return {
     path: filePath,
+    branch,
     commit_sha: result.commit.sha,
     commit_url: result.commit.html_url,
     created: !existingSha,
@@ -301,12 +339,15 @@ export async function patchFile(tenant, solutionId, filePath, content, message =
  * @param {string} replace — text to replace with
  * @returns {{ path, commit_sha, commit_url, replacements }}
  */
-export async function searchReplacePatchFile(tenant, solutionId, filePath, search, replace, message) {
+export async function searchReplacePatchFile(tenant, solutionId, filePath, search, replace, message, branch = 'dev') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  // Read current file
-  const existing = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}`);
+  // Ensure dev branch exists before patching
+  await ensureDevBranch(fullName);
+
+  // Read current file from target branch
+  const existing = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}?ref=${branch}`);
   const currentContent = Buffer.from(existing.content, 'base64').toString('utf-8');
 
   // Count occurrences
@@ -323,12 +364,14 @@ export async function searchReplacePatchFile(tenant, solutionId, filePath, searc
     message: message || `Edit ${filePath} (${count} replacement${count > 1 ? 's' : ''})`,
     content: Buffer.from(newContent, 'utf-8').toString('base64'),
     sha: existing.sha,
+    branch,
   };
 
   const result = await gh('PUT', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}`, body);
 
   return {
     path: filePath,
+    branch,
     commit_sha: result.commit.sha,
     commit_url: result.commit.html_url,
     replacements: count,
@@ -340,11 +383,21 @@ export async function searchReplacePatchFile(tenant, solutionId, filePath, searc
  * @param {number} limit — max commits to return (default 10)
  * @returns {{ commits: Array<{ sha, message, date, author }> }}
  */
-export async function getLog(tenant, solutionId, limit = 10) {
+export async function getLog(tenant, solutionId, limit = 10, branch = 'dev') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  const commits = await gh('GET', `/repos/${fullName}/commits?per_page=${limit}`);
+  let commits;
+  try {
+    commits = await gh('GET', `/repos/${fullName}/commits?sha=${branch}&per_page=${limit}`);
+  } catch (err) {
+    // Fallback: if dev branch doesn't exist yet, try main
+    if (branch === 'dev' && err.status === 404) {
+      commits = await gh('GET', `/repos/${fullName}/commits?sha=main&per_page=${limit}`);
+    } else {
+      throw err;
+    }
+  }
 
   return {
     repo_url: `https://github.com/${fullName}`,
@@ -363,11 +416,21 @@ export async function getLog(tenant, solutionId, limit = 10) {
  * List all files in the repo (recursive tree).
  * @returns {{ path, type, size }[] }
  */
-export async function listFiles(tenant, solutionId) {
+export async function listFiles(tenant, solutionId, branch = 'dev') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  const tree = await gh('GET', `/repos/${fullName}/git/trees/main?recursive=1`);
+  let tree;
+  try {
+    tree = await gh('GET', `/repos/${fullName}/git/trees/${branch}?recursive=1`);
+  } catch (err) {
+    // Fallback: if dev branch doesn't exist yet, try main
+    if (branch === 'dev' && err.status === 404) {
+      tree = await gh('GET', `/repos/${fullName}/git/trees/main?recursive=1`);
+    } else {
+      throw err;
+    }
+  }
 
   return tree.tree
     .filter(t => t.type === 'blob')
