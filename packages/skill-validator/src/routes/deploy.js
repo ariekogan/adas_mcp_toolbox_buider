@@ -1159,6 +1159,34 @@ router.post('/solution', async (req, res) => {
       console.log(`[Deploy] Voice config pushed: ${JSON.stringify(voiceDeploy.summary)}`);
     }
 
+    // ── Restart connectors so running stdio processes pick up new code ──
+    // Belt-and-suspenders: the MCP tool also does this in Phase 2.5, but
+    // doing it here ensures ANY deploy path (MCP tool, direct API, UI) restarts connectors.
+    let connectorRestart = null;
+    if (mcp_store && typeof mcp_store === 'object' && Object.keys(mcp_store).length > 0) {
+      const adasCoreUrlRestart = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+      const restartResults = [];
+      for (const connId of Object.keys(mcp_store)) {
+        try {
+          // Stop old process
+          await fetch(`${adasCoreUrlRestart}/api/connectors/${encodeURIComponent(connId)}/stop`, {
+            method: 'POST', headers: sbHeaders(req), signal: AbortSignal.timeout(10000),
+          });
+          // Start fresh
+          const startResp = await fetch(`${adasCoreUrlRestart}/api/connectors/${encodeURIComponent(connId)}/start`, {
+            method: 'POST', headers: sbHeaders(req), signal: AbortSignal.timeout(30000),
+          });
+          const startData = await startResp.json().catch(() => ({}));
+          restartResults.push({ id: connId, ok: true, tools: startData.tools?.length || 0 });
+          console.log(`[Deploy] Restarted connector "${connId}": ${startData.tools?.length || 0} tools`);
+        } catch (err) {
+          restartResults.push({ id: connId, ok: false, error: err.message });
+          console.warn(`[Deploy] Failed to restart connector "${connId}": ${err.message}`);
+        }
+      }
+      connectorRestart = { restarted: restartResults.filter(r => r.ok).length, total: restartResults.length, details: restartResults };
+    }
+
     // ── GitHub workflow: ASYNC, non-blocking ──
     // Strategy: Respond to caller immediately, push to GitHub in background.
     // This prevents GitHub API slowness from blocking the deploy response.
@@ -1235,6 +1263,7 @@ router.post('/solution', async (req, res) => {
       ...(githubDeploy && { github: githubDeploy }),
       ...(voiceDeploy && { voice: voiceDeploy.summary }),
       ...(uiPluginDeploy && { ui_plugin_deploy: uiPluginDeploy }),
+      ...(connectorRestart && { connector_restart: connectorRestart }),
       ...(preValidation.errors?.length > 0 && { validation_errors: preValidation.errors }),
       ...(preValidation.warnings?.length > 0 && { validation_warnings: preValidation.warnings }),
       ...(deployWarnings.length > 0 && { deploy_warnings: deployWarnings }),
