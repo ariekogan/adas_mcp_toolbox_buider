@@ -55,6 +55,10 @@ const VOICE_BACKEND_URL = (process.env.VOICE_BACKEND_URL || 'http://voice-backen
 
 const TENANT_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,28}[a-z0-9]$/;
 
+// Track solutions deployed from GitHub — block push-back for these solutions.
+// Key: "tenant/solutionId", Value: timestamp. Prevents stale Core state overwriting GitHub.
+const _githubDeployedSolutions = new Map();
+
 /**
  * Extract and validate tenant from request header. Returns null + sends 400 if invalid.
  * @param {Object} req - Express request
@@ -2368,6 +2372,25 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
     const tenant = req.headers['x-adas-tenant'];
     if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
 
+    // Block push-back if this solution was recently deployed from GitHub.
+    // The pull-bundle endpoint sets this flag. Cleared after 10 minutes or
+    // when an explicit force_push=true is sent.
+    const ghKey = `${tenant}/${solId}`;
+    const ghDeployedAt = _githubDeployedSolutions.get(ghKey);
+    if (ghDeployedAt && !req.body?.force_push) {
+      const ageMs = Date.now() - ghDeployedAt;
+      if (ageMs < 10 * 60 * 1000) { // 10 minute window
+        console.log(`[GitHub] BLOCKED push-back for ${ghKey} — deployed from GitHub ${Math.round(ageMs / 1000)}s ago`);
+        return res.json({
+          ok: true,
+          skipped: true,
+          reason: 'Solution was deployed from GitHub — push-back blocked to preserve source of truth. Use force_push:true to override.',
+        });
+      }
+      // Expired — clean up
+      _githubDeployedSolutions.delete(ghKey);
+    }
+
     const message = req.body?.message || `Deploy ${solId}`;
 
     // 1. Fetch export bundle
@@ -2887,6 +2910,11 @@ router.post('/solutions/:solutionId/github/pull-bundle', async (req, res) => {
 
     result.skills_found = result.skills?.length || 0;
     result.files_loaded = connectorFiles.length;
+
+    // Mark this solution as deployed from GitHub — blocks push-back
+    _githubDeployedSolutions.set(`${tenant}/${solId}`, Date.now());
+    console.log(`[GitHub] Marked ${tenant}/${solId} as github-deployed — push-back blocked`);
+
     res.json(result);
   } catch (err) {
     console.error('[GitHub] Pull bundle error:', err.message);
