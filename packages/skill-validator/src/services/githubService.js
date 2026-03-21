@@ -159,29 +159,6 @@ export async function ensureRepo(tenant, solutionId, description = '') {
 }
 
 /**
- * Ensure the dev branch exists. Creates it from main if missing.
- * Idempotent — safe to call before every dev-targeted operation.
- */
-async function ensureDevBranch(fullName) {
-  try {
-    await gh('GET', `/repos/${fullName}/git/ref/heads/dev`);
-  } catch {
-    // Dev branch doesn't exist — create from main
-    try {
-      const mainRef = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
-      await gh('POST', `/repos/${fullName}/git/refs`, {
-        ref: 'refs/heads/dev',
-        sha: mainRef.object.sha,
-      });
-      console.log(`[GitHub] Created dev branch for ${fullName}`);
-    } catch (err) {
-      console.warn(`[GitHub] Cannot create dev branch for ${fullName}: ${err.message}`);
-      // Non-fatal — patchFile will fall back to default branch
-    }
-  }
-}
-
-/**
  * Atomic multi-file commit via Git Trees API.
  * Uses parallel blob creation for speed.
  */
@@ -267,21 +244,11 @@ export async function getRepoStatus(tenant, solutionId) {
  * Read a single file from the repo.
  * @returns {{ path, content, sha, size }}
  */
-export async function readFile(tenant, solutionId, filePath, branch = 'dev') {
+export async function readFile(tenant, solutionId, filePath, branch = 'main') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  let data;
-  try {
-    data = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}?ref=${branch}`);
-  } catch (err) {
-    // Fallback: if dev branch doesn't exist yet, try main
-    if (branch === 'dev' && err.status === 404) {
-      data = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}?ref=main`);
-    } else {
-      throw err;
-    }
-  }
+  const data = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}?ref=${branch}`);
 
   if (data.type !== 'file') {
     throw new Error(`${filePath} is a ${data.type}, not a file`);
@@ -300,12 +267,9 @@ export async function readFile(tenant, solutionId, filePath, branch = 'dev') {
  * Write/update a single file in the repo with a commit.
  * Uses the Contents API (simpler than Trees for single files).
  */
-export async function patchFile(tenant, solutionId, filePath, content, message = `Update ${filePath}`, branch = 'dev') {
+export async function patchFile(tenant, solutionId, filePath, content, message = `Update ${filePath}`, branch = 'main') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
-
-  // Ensure dev branch exists before patching
-  await ensureDevBranch(fullName);
 
   // Check if file exists on the target branch (need SHA for update)
   let existingSha = null;
@@ -339,12 +303,9 @@ export async function patchFile(tenant, solutionId, filePath, content, message =
  * @param {string} replace — text to replace with
  * @returns {{ path, commit_sha, commit_url, replacements }}
  */
-export async function searchReplacePatchFile(tenant, solutionId, filePath, search, replace, message, branch = 'dev') {
+export async function searchReplacePatchFile(tenant, solutionId, filePath, search, replace, message, branch = 'main') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
-
-  // Ensure dev branch exists before patching
-  await ensureDevBranch(fullName);
 
   // Read current file from target branch
   const existing = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}?ref=${branch}`);
@@ -383,21 +344,11 @@ export async function searchReplacePatchFile(tenant, solutionId, filePath, searc
  * @param {number} limit — max commits to return (default 10)
  * @returns {{ commits: Array<{ sha, message, date, author }> }}
  */
-export async function getLog(tenant, solutionId, limit = 10, branch = 'dev') {
+export async function getLog(tenant, solutionId, limit = 10, branch = 'main') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  let commits;
-  try {
-    commits = await gh('GET', `/repos/${fullName}/commits?sha=${branch}&per_page=${limit}`);
-  } catch (err) {
-    // Fallback: if dev branch doesn't exist yet, try main
-    if (branch === 'dev' && err.status === 404) {
-      commits = await gh('GET', `/repos/${fullName}/commits?sha=main&per_page=${limit}`);
-    } else {
-      throw err;
-    }
-  }
+  const commits = await gh('GET', `/repos/${fullName}/commits?sha=${branch}&per_page=${limit}`);
 
   return {
     repo_url: `https://github.com/${fullName}`,
@@ -416,21 +367,11 @@ export async function getLog(tenant, solutionId, limit = 10, branch = 'dev') {
  * List all files in the repo (recursive tree).
  * @returns {{ path, type, size }[] }
  */
-export async function listFiles(tenant, solutionId, branch = 'dev') {
+export async function listFiles(tenant, solutionId, branch = 'main') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  let tree;
-  try {
-    tree = await gh('GET', `/repos/${fullName}/git/trees/${branch}?recursive=1`);
-  } catch (err) {
-    // Fallback: if dev branch doesn't exist yet, try main
-    if (branch === 'dev' && err.status === 404) {
-      tree = await gh('GET', `/repos/${fullName}/git/trees/main?recursive=1`);
-    } else {
-      throw err;
-    }
-  }
+  const tree = await gh('GET', `/repos/${fullName}/git/trees/${branch}?recursive=1`);
 
   return tree.tree
     .filter(t => t.type === 'blob')
@@ -455,8 +396,8 @@ export async function deleteDirectory(tenant, solutionId, dirPath, message = `De
   // Normalize: strip trailing slash
   const prefix = dirPath.replace(/\/+$/, '') + '/';
 
-  // Delete from both dev and main branches (so github_pull can't resurrect it)
-  const branches = ['dev', 'main'];
+  // Delete from main branch only (single-branch model)
+  const branches = ['main'];
   const results = {};
 
   for (const branch of branches) {
@@ -512,68 +453,36 @@ export async function deleteDirectory(tenant, solutionId, dirPath, message = `De
 }
 
 /**
- * Push files to dev branch and create date-based version tag.
- * Automatically cleans up old tags (keeps last X).
- * Uses parallel blob creation for speed.
+ * @deprecated Use pushFiles instead. Kept as alias for backward compatibility.
  */
-export async function pushToDev(tenant, solutionId, files, message = 'Update solution', keepVersions = 10) {
+export const pushToDev = pushFiles;
+
+/**
+ * Create a safe checkpoint (tag) on current main HEAD.
+ * Tags format: safe-YYYY-MM-DD-NNN
+ * Use rollback() to revert to a checkpoint if something breaks.
+ */
+export async function checkpoint(tenant, solutionId, label = '') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
-  const branch = 'dev';
 
-  // 1. Get or create dev branch
-  let devSha = null;
+  // 1. Get current main HEAD
+  let mainSha;
   try {
-    const ref = await gh('GET', `/repos/${fullName}/git/ref/heads/${branch}`);
-    devSha = ref.object.sha;
+    const mainRef = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
+    mainSha = mainRef.object.sha;
   } catch {
-    // Dev branch doesn't exist — create it from main
-    try {
-      const mainRef = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
-      const mainSha = mainRef.object.sha;
-      await gh('POST', `/repos/${fullName}/git/refs`, {
-        ref: `refs/heads/${branch}`,
-        sha: mainSha,
-      });
-      devSha = mainSha;
-    } catch (err) {
-      throw new Error(`Cannot create dev branch: ${err.message}`);
-    }
+    throw new Error('Main branch not found.');
   }
 
-  // 2. Get current tree
-  const commit = await gh('GET', `/repos/${fullName}/git/commits/${devSha}`);
-  const treeSha = commit.tree.sha;
-
-  // 3. Create blobs (parallel batches of 5)
-  const treeItems = await createBlobsBatch(fullName, files);
-
-  // 4. Create tree
-  const tree = await gh('POST', `/repos/${fullName}/git/trees`, {
-    base_tree: treeSha,
-    tree: treeItems,
-  });
-
-  // 5. Create commit
-  const newCommit = await gh('POST', `/repos/${fullName}/git/commits`, {
-    message,
-    tree: tree.sha,
-    parents: [devSha],
-  });
-
-  // 6. Update dev branch ref
-  await gh('PATCH', `/repos/${fullName}/git/refs/heads/${branch}`, {
-    sha: newCommit.sha,
-  });
-
-  // 7. Create date-based version tag (with retry on 422 conflict)
+  // 2. Create date-based safe tag
   const now = new Date();
-  const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+  const dateStr = now.toISOString().split('T')[0];
 
   let tagCounter = 1;
   try {
     const tags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
-    const todayTags = tags.filter(t => t.ref.startsWith(`refs/tags/dev-${dateStr}-`));
+    const todayTags = tags.filter(t => t.ref.startsWith(`refs/tags/safe-${dateStr}-`));
     if (todayTags.length > 0) {
       const lastTag = todayTags[todayTags.length - 1];
       const lastCounter = parseInt(lastTag.ref.split('-').pop());
@@ -581,233 +490,77 @@ export async function pushToDev(tenant, solutionId, files, message = 'Update sol
     }
   } catch { /* no tags yet */ }
 
-  // Retry tag creation on 422 (conflict from concurrent deploys)
-  let tagName = null;
-  for (let tagAttempt = 0; tagAttempt < 3; tagAttempt++) {
-    tagName = `dev-${dateStr}-${String(tagCounter + tagAttempt).padStart(3, '0')}`;
-    try {
-      await gh('POST', `/repos/${fullName}/git/tags`, {
-        tag: tagName,
-        message: `Development version: ${tagName}`,
-        object: newCommit.sha,
-        type: 'commit',
-      });
-      await gh('POST', `/repos/${fullName}/git/refs`, {
-        ref: `refs/tags/${tagName}`,
-        sha: newCommit.sha,
-      });
-      break; // success
-    } catch (err) {
-      if (err.status === 422 && tagAttempt < 2) {
-        console.warn(`[GitHub] Tag ${tagName} already exists, trying next counter...`);
-        continue;
-      }
-      console.warn(`[GitHub] Could not create tag ${tagName}: ${err.message}`);
-      tagName = null; // tag failed, but commit succeeded
-      break;
-    }
-  }
-
-  // 8. Clean up old tags (keep last X) — best effort, don't fail deploy
-  const cleanedTags = [];
-  try {
-    const allTags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
-    const devTags = allTags
-      .filter(t => t.ref.startsWith('refs/tags/dev-'))
-      .sort()
-      .reverse(); // newest first
-
-    // Delete old tags
-    for (let i = keepVersions; i < devTags.length; i++) {
-      const oldTag = devTags[i].ref.replace('refs/tags/', '');
-      try {
-        await gh('DELETE', `/repos/${fullName}/git/refs/tags/${oldTag}`);
-        cleanedTags.push(oldTag);
-      } catch (err) {
-        console.warn(`Could not delete tag ${oldTag}: ${err.message}`);
-      }
-    }
-  } catch (err) {
-    console.warn(`Error cleaning up tags: ${err.message}`);
-  }
-
-  return {
-    branch,
-    tag: tagName || `dev-${dateStr}-???`,
-    commit_sha: newCommit.sha,
-    commit_url: `https://github.com/${fullName}/commit/${newCommit.sha}`,
-    dev_branch_url: `https://github.com/${fullName}/tree/${branch}`,
-    cleaned_tags: cleanedTags,
-  };
-}
-
-/**
- * Promote a dev version to main (production).
- */
-export async function promote(tenant, solutionId, tagName = null) {
-  const name = repoName(tenant, solutionId);
-  const fullName = `${OWNER}/${name}`;
-
-  // 1. Find target commit SHA
-  let targetSha = null;
-  let resolvedTag = tagName;
-
-  if (tagName) {
-    try {
-      const tagRef = await gh('GET', `/repos/${fullName}/git/refs/tags/${tagName}`);
-      targetSha = tagRef.object.sha;
-
-      if (tagRef.object.type === 'tag') {
-        const tagObj = await gh('GET', `/repos/${fullName}/git/tags/${tagRef.object.sha}`);
-        targetSha = tagObj.object.sha;
-      }
-    } catch (err) {
-      throw new Error(`Tag not found: ${tagName}. Cannot promote.`);
-    }
-  } else {
-    try {
-      const tags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
-      const devTags = tags
-        .filter(t => t.ref.startsWith('refs/tags/dev-'))
-        .sort()
-        .reverse();
-
-      if (devTags.length === 0) {
-        throw new Error('No dev tags found. Deploy to dev branch first.');
-      }
-
-      const latestTagRef = devTags[0];
-      resolvedTag = latestTagRef.ref.replace('refs/tags/', '');
-
-      if (latestTagRef.object.type === 'tag') {
-        // Annotated tag — dereference to get commit SHA
-        const tagObj = await gh('GET', `/repos/${fullName}/git/tags/${latestTagRef.object.sha}`);
-        targetSha = tagObj.object.sha;
-      } else {
-        // Lightweight tag — object.sha IS the commit SHA
-        targetSha = latestTagRef.object.sha;
-      }
-    } catch (err) {
-      throw new Error(`Cannot find latest dev tag: ${err.message}`);
-    }
-  }
-
-  // 2. Get main branch current state
-  let mainSha = null;
-  try {
-    const mainRef = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
-    mainSha = mainRef.object.sha;
-  } catch {
-    throw new Error('Main branch not found. Create it first.');
-  }
-
-  // 3. Create merge commit (main ← dev)
-  const mergeMessage = `Promote: merge ${resolvedTag} to main`;
-  let mergeCommit = null;
-
-  try {
-    mergeCommit = await gh('POST', `/repos/${fullName}/merges`, {
-      base: 'main',
-      head: resolvedTag,
-      commit_message: mergeMessage,
-    });
-  } catch {
-    try {
-      mergeCommit = await gh('POST', `/repos/${fullName}/merges`, {
-        base: 'main',
-        head: targetSha,
-        commit_message: mergeMessage,
-      });
-    } catch (mergeErr) {
-      throw new Error(`Merge failed: ${mergeErr.message}`);
-    }
-  }
-
-  // 4. Get new main ref
-  let mainHeadSha = mainSha;
-  try {
-    const updatedMainRef = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
-    mainHeadSha = updatedMainRef.object.sha;
-  } catch { /* keep old value */ }
-
-  // 5. Create production tag on main
-  const now = new Date();
-  const dateStr = now.toISOString().split('T')[0];
-
-  let prodTagCounter = 1;
-  try {
-    const tags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
-    const todayProdTags = tags.filter(t => t.ref.startsWith(`refs/tags/prod-${dateStr}-`));
-    if (todayProdTags.length > 0) {
-      const lastTag = todayProdTags[todayProdTags.length - 1];
-      const lastCounter = parseInt(lastTag.ref.split('-').pop());
-      prodTagCounter = lastCounter + 1;
-    }
-  } catch { /* no tags yet */ }
-
-  const prodTagName = `prod-${dateStr}-${String(prodTagCounter).padStart(3, '0')}`;
+  const tagName = `safe-${dateStr}-${String(tagCounter).padStart(3, '0')}`;
+  const tagMessage = label
+    ? `Safe checkpoint: ${label}`
+    : `Safe checkpoint: ${tagName}`;
 
   try {
     await gh('POST', `/repos/${fullName}/git/tags`, {
-      tag: prodTagName,
-      message: `Production release: ${prodTagName} (promoted from ${resolvedTag})`,
-      object: mainHeadSha,
+      tag: tagName,
+      message: tagMessage,
+      object: mainSha,
       type: 'commit',
     });
     await gh('POST', `/repos/${fullName}/git/refs`, {
-      ref: `refs/tags/${prodTagName}`,
-      sha: mainHeadSha,
+      ref: `refs/tags/${tagName}`,
+      sha: mainSha,
     });
   } catch (err) {
-    console.warn(`Could not create production tag ${prodTagName}: ${err.message}`);
+    throw new Error(`Could not create checkpoint tag: ${err.message}`);
   }
 
   return {
-    promoted: true,
-    source_tag: resolvedTag,
-    prod_tag: prodTagName,
-    merge_commit_sha: mergeCommit?.sha || mainHeadSha,
-    merge_commit_url: mergeCommit?.html_url || `https://github.com/${fullName}/commit/${mainHeadSha}`,
-    main_branch_url: `https://github.com/${fullName}/tree/main`,
-    promoted_at: new Date().toISOString(),
+    ok: true,
+    tag: tagName,
+    label: label || null,
+    commit_sha: mainSha,
     repo_url: `https://github.com/${fullName}`,
+    created_at: now.toISOString(),
+    _hint: `To rollback to this checkpoint: ateam_github_rollback(solution_id, tag='${tagName}')`,
   };
 }
 
+/** @deprecated Use checkpoint instead. Kept for backward compatibility. */
+export const promote = checkpoint;
+
 /**
- * List all available dev versions (tags) for a solution.
+ * List all safe checkpoints for a solution.
  */
-export async function listDevVersions(tenant, solutionId) {
+export async function listCheckpoints(tenant, solutionId) {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
   try {
     const tags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
-    const devTags = tags
-      .filter(t => t.ref.startsWith('refs/tags/dev-'))
+    const safeTags = tags
+      .filter(t => t.ref.startsWith('refs/tags/safe-'))
       .sort()
       .reverse();
 
-    const versions = devTags.map(t => {
+    const checkpoints = safeTags.map(t => {
       const tagName = t.ref.replace('refs/tags/', '');
-      const parts = tagName.split('-'); // dev-YYYY-MM-DD-NNN
+      const parts = tagName.split('-'); // safe-YYYY-MM-DD-NNN
       return {
         tag: tagName,
-        date: `${parts[1]}-${parts[2]}-${parts[3]}`, // YYYY-MM-DD
+        date: `${parts[1]}-${parts[2]}-${parts[3]}`,
         counter: parseInt(parts[4]),
         commit_sha: t.object.sha,
       };
     });
 
-    return { versions };
+    return { checkpoints };
   } catch (err) {
-    throw new Error(`Cannot list dev versions: ${err.message}`);
+    throw new Error(`Cannot list checkpoints: ${err.message}`);
   }
 }
 
+/** @deprecated Use listCheckpoints instead. */
+export const listDevVersions = listCheckpoints;
+
 /**
- * Rollback main to a previous production tag.
- * DESTRUCTIVE — resets main to a specific commit.
+ * Rollback main to a previous checkpoint tag.
+ * DESTRUCTIVE — force-resets main to a specific commit.
  */
 export async function rollback(tenant, solutionId, tagName) {
   const name = repoName(tenant, solutionId);
@@ -816,10 +569,15 @@ export async function rollback(tenant, solutionId, tagName) {
   let targetSha = null;
   try {
     const tagRef = await gh('GET', `/repos/${fullName}/git/refs/tags/${tagName}`);
-    const tagObj = await gh('GET', `/repos/${fullName}/git/tags/${tagRef.object.sha}`);
-    targetSha = tagObj.object.sha;
+    // Handle both annotated and lightweight tags
+    if (tagRef.object.type === 'tag') {
+      const tagObj = await gh('GET', `/repos/${fullName}/git/tags/${tagRef.object.sha}`);
+      targetSha = tagObj.object.sha;
+    } else {
+      targetSha = tagRef.object.sha;
+    }
   } catch {
-    throw new Error(`Tag not found: ${tagName}`);
+    throw new Error(`Checkpoint not found: ${tagName}. Use ateam_github_list_versions to see available checkpoints.`);
   }
 
   try {

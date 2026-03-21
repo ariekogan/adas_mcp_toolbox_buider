@@ -1197,20 +1197,11 @@ router.post('/solution', async (req, res) => {
             const repoInfo = await github.ensureRepo(_ghTenant, _solutionId, _desc);
             console.log(`[GitHub BG] Repo ready: ${repoInfo.repo_url}`);
 
-            const devResult = await github.pushToDev(
+            const pushResult = await github.pushFiles(
               _ghTenant, _solutionId, _repoFiles,
-              `Staging: ${_solutionId} v${_version} - ${new Date().toISOString()}`,
-              10
+              `Deploy: ${_solutionId} v${_version} - ${new Date().toISOString()}`
             );
-            console.log(`[GitHub BG] ✓ Pushed to dev: ${devResult.tag} | ${_repoFiles.length} files`);
-
-            if (repoInfo.created) {
-              const mainResult = await github.pushFiles(
-                _ghTenant, _solutionId, _repoFiles,
-                `Initial deployment: ${_solutionId} v${_version}`
-              );
-              console.log(`[GitHub BG] ✓ First deploy — pushed to main: ${mainResult.commit_sha.substring(0, 7)}`);
-            }
+            console.log(`[GitHub BG] ✓ Pushed to main: ${pushResult.commit_sha?.substring(0, 7)} | ${_repoFiles.length} files`);
           } catch (err) {
             console.error(`[GitHub BG] Background push failed: ${err.message}`);
           }
@@ -2305,16 +2296,15 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
     const repoInfo = await github.ensureRepo(tenant, solId,
       exportBundle.solution?.description || `A-Team solution: ${solId}`);
 
-    // 5. Push files to dev branch (not main — promote explicitly)
-    const result = await github.pushToDev(tenant, solId, files, message);
+    // 5. Push files to main
+    const result = await github.pushFiles(tenant, solId, files, message);
 
     res.json({
       ok: true,
-      branch: 'dev',
+      branch: 'main',
       repo_url: repoInfo.repo_url,
       repo_created: repoInfo.created,
       ...result,
-      _hint: 'Pushed to dev branch. Use ateam_github_promote() to promote to main (production).',
     });
   } catch (err) {
     console.error('[GitHub] Push error:', err.message);
@@ -2354,7 +2344,7 @@ router.get('/solutions/:solutionId/github/read', async (req, res) => {
 
     const filePath = req.query.path;
     if (!filePath) return res.status(400).json({ ok: false, error: 'Missing ?path= parameter' });
-    const branch = req.query.branch || 'dev';
+    const branch = req.query.branch || 'main';
 
     const file = await github.readFile(tenant, req.params.solutionId, filePath, branch);
     res.json({ ok: true, branch, ...file });
@@ -2419,7 +2409,7 @@ router.post('/solutions/:solutionId/github/patch', async (req, res) => {
       }
     }
 
-    res.json({ ok: true, ...result, _hint: 'Committed to dev branch. Use ateam_github_promote() to promote to main (production).' });
+    res.json({ ok: true, ...result, _hint: 'Committed to main. Create a checkpoint with ateam_github_promote() before risky changes.' });
   } catch (err) {
     console.error('[GitHub] Patch error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
@@ -2438,7 +2428,7 @@ router.get('/solutions/:solutionId/github/log', async (req, res) => {
     if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
 
     const limit = parseInt(req.query.limit) || 10;
-    const branch = req.query.branch || 'dev';
+    const branch = req.query.branch || 'main';
     const log = await github.getLog(tenant, req.params.solutionId, limit, branch);
     res.json({ ok: true, branch, ...log });
   } catch (err) {
@@ -2766,12 +2756,12 @@ router.post('/voice-test', async (req, res) => {
 
 /**
  * POST /solutions/:solutionId/promote
- * Promote a dev version to main (production).
+ * Create a checkpoint (safe point) on the current main HEAD.
+ * Tags the current state with safe-YYYY-MM-DD-NNN for rollback.
  *
  * Request body:
  * {
- *   "tag": "dev-2026-03-11-005"  // Optional: specific dev tag to promote
- *                                 // If omitted, promotes latest dev tag
+ *   "label": "before refactor"  // Optional: human-readable label
  * }
  */
 router.post('/solutions/:solutionId/promote', async (req, res) => {
@@ -2791,29 +2781,26 @@ router.post('/solutions/:solutionId/promote', async (req, res) => {
       return res.status(503).json({ ok: false, error: 'GitHub integration not configured' });
     }
 
-    // Promote dev to main
-    const result = await github.promote(tenant, solutionId, specifiedTag);
+    // Create checkpoint (safe point) on main
+    const label = specifiedTag || req.body?.label || '';
+    const result = await github.checkpoint(tenant, solutionId, label);
 
     res.json({ ok: true, ...result });
   } catch (e) {
-    console.error('[Deploy] promote error:', e.message);
-    const isMergeConflict = e.message.includes('409') || e.message.toLowerCase().includes('merge conflict');
-    const hint = isMergeConflict
-      ? 'Dev and main branches have diverged. To fix: (1) run ateam_build_and_run(github: true) to redeploy from dev — this auto-pushes a clean state, OR (2) manually resolve the conflict in the GitHub repo.'
-      : undefined;
-    res.status(400).json({ ok: false, error: `Promotion failed: ${e.message}`, ...(hint && { hint }) });
+    console.error('[Deploy] checkpoint error:', e.message);
+    res.status(400).json({ ok: false, error: `Checkpoint failed: ${e.message}` });
   }
 });
 
 /**
  * GET /solutions/:solutionId/versions/dev
- * List all available dev versions (tags) for a solution.
+ * List all available checkpoints (safe-* tags) for a solution.
  *
  * Response:
  * {
  *   "ok": true,
- *   "versions": [
- *     {"tag": "dev-2026-03-11-005", "date": "2026-03-11", "counter": 5, "commit_sha": "..."},
+ *   "checkpoints": [
+ *     {"tag": "safe-2026-03-11-005", "date": "2026-03-11", "counter": 5, "commit_sha": "..."},
  *     ...
  *   ]
  * }
@@ -2846,13 +2833,14 @@ router.get('/solutions/:solutionId/versions/dev', async (req, res) => {
 
 /**
  * POST /solutions/:solutionId/rollback
- * Rollback main branch to a previous production tag.
+ * Rollback main branch to a previous checkpoint (safe-* tag).
  *
  * ⚠️ DESTRUCTIVE — resets main to a specific commit.
  *
  * Request body:
  * {
- *   "tag": "prod-2026-03-10-001"  // Required: production tag to rollback to
+ *   "tag": "safe-2026-03-11-001",  // Required: checkpoint tag to rollback to
+ *   "confirm": true                 // Required: explicit confirmation
  * }
  */
 router.post('/solutions/:solutionId/rollback', async (req, res) => {
