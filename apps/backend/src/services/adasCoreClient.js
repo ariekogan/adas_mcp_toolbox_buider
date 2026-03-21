@@ -281,7 +281,10 @@ async function uploadMcpCode(connectorId, files) {
  * Returns { exists: bool, status: number } — no auth needed (static file route).
  */
 async function checkUiAsset(tenant, connectorId, assetPath) {
-  const cleanPath = assetPath.replace(/^\//, '');
+  // iframeUrl convention: "/ui/<plugin>/<ver>/index.html"
+  // Core route /mcp-ui/:tenant/:connectorId/* maps filePath → ui-dist/<filePath>
+  // So strip leading "/ui/" to avoid double "ui-dist/ui/" path.
+  const cleanPath = assetPath.replace(/^\/?(ui\/)?/, '');
   const url = `${BASE_URL}/mcp-ui/${tenant}/${connectorId}/${cleanPath}`;
   try {
     const res = await fetch(url, {
