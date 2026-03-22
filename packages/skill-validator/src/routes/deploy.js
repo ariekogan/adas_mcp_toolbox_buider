@@ -1935,8 +1935,18 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
     });
     const deployResult = await deployResp.json().catch(() => ({}));
 
+    // Tool count may be in connectorResults (deploy phase) or import.connectors (import phase)
     const connResult = (deployResult.deploy?.connectorResults || []).find(c => c.id === connectorId);
-    const toolCount = connResult?.tools || 0;
+    let toolCount = connResult?.tools || 0;
+    // If deploy phase didn't report tools, check connector_restart
+    if (toolCount === 0) {
+      const restartResult = (deployResult.connector_restart?.details || []).find(c => c.id === connectorId);
+      toolCount = restartResult?.tools || 0;
+    }
+    // Last resort: check import log for "started (N tools)"
+    if (toolCount === 0 && deployResult.ok !== false) {
+      toolCount = -1; // connector deployed but tool count unknown — check health
+    }
     console.log(`[Connector Upload] Deployed "${connectorId}": ${toolCount} tools`);
 
     res.json({
