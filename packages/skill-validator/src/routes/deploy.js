@@ -661,9 +661,11 @@ router.post('/solution', async (req, res) => {
     const bgHeaders = { ...req.headers };
     const bgBody = { ...req.body, async: false }; // prevent recursion
 
-    // Run deploy in background
+    // Run deploy in background with progress tracking
+    const updateJob = (update) => _deployJobs.set(jobId, { ..._deployJobs.get(jobId), ...update });
     (async () => {
       try {
+        updateJob({ stage: 'importing', message: 'Importing solution to Builder...' });
         const resp = await fetch(`http://localhost:${process.env.PORT || 3200}/deploy/solution`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-adas-tenant': bgHeaders['x-adas-tenant'], 'x-api-key': bgHeaders['x-api-key'] || '', 'x-adas-token': bgHeaders['x-adas-token'] || '' },
@@ -671,9 +673,23 @@ router.post('/solution', async (req, res) => {
           signal: AbortSignal.timeout(600000), // 10 min internal timeout
         });
         const result = await resp.json();
-        _deployJobs.set(jobId, { status: result.ok ? 'done' : 'failed', ...result, completed_at: new Date().toISOString() });
+        const skillResults = result.deploy?.skillResults || [];
+        const deployed = skillResults.filter(s => s.ok).length;
+        const failed = skillResults.filter(s => !s.ok).length;
+        _deployJobs.set(jobId, {
+          status: result.ok ? 'done' : 'failed',
+          stage: result.ok ? 'complete' : 'failed',
+          message: result.ok
+            ? `Deployed ${deployed} skill(s) successfully.`
+            : `Deploy finished with ${failed} failure(s).`,
+          skills_deployed: deployed,
+          skills_failed: failed,
+          skills_total: skillResults.length,
+          ...result,
+          completed_at: new Date().toISOString(),
+        });
       } catch (err) {
-        _deployJobs.set(jobId, { status: 'failed', error: err.message, completed_at: new Date().toISOString() });
+        _deployJobs.set(jobId, { status: 'failed', stage: 'error', error: err.message, completed_at: new Date().toISOString() });
       }
       // Clean up job after 30 min
       setTimeout(() => _deployJobs.delete(jobId), 30 * 60 * 1000);
