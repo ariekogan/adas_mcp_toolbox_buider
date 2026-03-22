@@ -1918,54 +1918,26 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
       return res.status(400).json({ ok: false, error: antiPatterns.errors[0], all_errors: antiPatterns.errors });
     }
 
-    // Upload to Core mcp-store
-    const adasCoreUrl = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
-    const coreHeaders = { 'Content-Type': 'application/json' };
-    const coreMcpSecret = process.env.CORE_MCP_SECRET || '';
-    if (coreMcpSecret) coreHeaders['x-adas-token'] = coreMcpSecret;
-    if (tenant) coreHeaders['X-ADAS-TENANT'] = tenant;
+    // Deploy connector via Skill Builder backend (same path as build_and_run)
+    // This does a proper install + restart, not just file upload.
+    const deployBody = {
+      solution: { id: solutionId, name: solutionId, version: '1.0.0' },
+      skills: [],
+      connectors: [{ id: connectorId, name: connectorId, transport: 'stdio' }],
+      mcp_store: { [connectorId]: files },
+    };
 
-    // Stop old connector
-    try {
-      await fetch(`${adasCoreUrl}/api/connectors/${connectorId}/stop`, {
-        method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(10000),
-      });
-      console.log(`[Connector Upload] Stopped "${connectorId}"`);
-    } catch { /* may not be running */ }
-
-    // Upload files
-    const uploadResp = await fetch(`${adasCoreUrl}/api/mcp-store/upload`, {
+    const deployResp = await fetch(`${SKILL_BUILDER_URL}/api/deploy/solution`, {
       method: 'POST',
-      headers: coreHeaders,
-      body: JSON.stringify({ connectorId, files, installDeps: true }),
-      signal: AbortSignal.timeout(360000),
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(deployBody),
+      signal: AbortSignal.timeout(120000),
     });
-    const uploadResult = await uploadResp.json().catch(() => ({}));
-    if (uploadResult.ok === false) {
-      return res.status(422).json({ ok: false, error: uploadResult.error || 'Upload failed', phase: 'upload' });
-    }
-    console.log(`[Connector Upload] Uploaded ${files.length} files for "${connectorId}"`);
+    const deployResult = await deployResp.json().catch(() => ({}));
 
-    // Restart connector — wait for deps install, then start
-    await new Promise(r => setTimeout(r, 2000)); // let npm install finish
-    const startResp = await fetch(`${adasCoreUrl}/api/connectors/${connectorId}/start`, {
-      method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(30000),
-    });
-    const startResult = await startResp.json().catch(() => ({}));
-    let toolCount = startResult.tools?.length || 0;
-
-    // If 0 tools, connector may still be initializing — wait and check status
-    if (toolCount === 0) {
-      await new Promise(r => setTimeout(r, 3000));
-      try {
-        const statusResp = await fetch(`${adasCoreUrl}/api/connectors/${connectorId}/status`, {
-          headers: coreHeaders, signal: AbortSignal.timeout(10000),
-        });
-        const statusResult = await statusResp.json().catch(() => ({}));
-        toolCount = statusResult.tools?.length || statusResult.tools_count || 0;
-      } catch { /* ignore */ }
-    }
-    console.log(`[Connector Upload] Restarted "${connectorId}": ${toolCount} tools`);
+    const connResult = (deployResult.deploy?.connectorResults || []).find(c => c.id === connectorId);
+    const toolCount = connResult?.tools || 0;
+    console.log(`[Connector Upload] Deployed "${connectorId}": ${toolCount} tools`);
 
     res.json({
       ok: true,
