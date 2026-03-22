@@ -1553,6 +1553,127 @@ function buildSkillSpec() {
           deploying_ui_assets: 'Include ui-dist/ files in mcp_store alongside server code: { "my-connector": [{ path: "server.js", content: "..." }, { path: "ui-dist/my-plugin/1.0.0/index.html", content: "..." }] }. Both deploy and health check verify the HTML asset exists on disk via HTTP HEAD to /mcp-ui — missing files are reported as errors.',
           see_example: 'GET /spec/examples/connector-ui for a complete working example with correct AND wrong response formats.',
         },
+        // ═══════════════════════════════════════════════════════════════
+        // RUNTIME ANALYSIS & DEBUGGING
+        // ═══════════════════════════════════════════════════════════════
+        runtime_analysis: {
+          description: 'Tools and APIs for testing skills, inspecting execution traces, and diagnosing issues at runtime. Use these to understand WHY a skill behaves a certain way — not just whether it works.',
+
+          testing: {
+            description: 'Send test messages to deployed skills and inspect the results.',
+            tools: {
+              'ateam_test_skill(solution_id, skill_id, message)': {
+                description: 'Send a message to a skill and get the full execution result. Default: waits for completion (up to 60s).',
+                sync_mode: 'Returns the complete result including response text, tool calls made, and timing.',
+                async_mode: 'Set wait:false to get a job_id immediately. Poll with ateam_test_status for progress.',
+              },
+              'ateam_test_pipeline(solution_id, skill_id, message)': {
+                description: 'Test intent detection + planning WITHOUT executing tools. Fast — returns in <2s.',
+                returns: 'Intent classification (which intent matched, confidence), first planned action, and timing.',
+                use_when: 'Debugging why a skill routes incorrectly or plans the wrong action. No side effects.',
+              },
+              'ateam_test_connector(solution_id, connector_id, tool, args)': {
+                description: 'Call a single tool on a running connector directly. Bypasses the skill entirely.',
+                use_when: 'Testing if a connector tool works before wiring it into a skill. Debugging tool-level issues.',
+              },
+              'ateam_test_voice(solution_id, messages[], phone_number?)': {
+                description: 'Simulate a multi-turn voice conversation. Runs the full voice pipeline (session → verification → routing → response).',
+                use_when: 'Testing voice-enabled solutions end-to-end without making a phone call.',
+              },
+            },
+          },
+
+          execution_logs: {
+            description: 'Inspect what happened during a job — every tool call, every decision, every error.',
+            endpoint: 'GET /deploy/solutions/:id/logs',
+            query_params: {
+              'job_id': 'Get trace for a specific job (from ateam_test_skill response)',
+              'skill_id': 'Filter logs to a specific skill',
+              'limit': 'Number of recent jobs to return (default: 10)',
+            },
+            returns: {
+              description: 'Array of job records, each containing:',
+              fields: [
+                'job_id — unique execution ID',
+                'skill_id — which skill handled it',
+                'status — completed, failed, timeout',
+                'steps[] — ordered list of execution steps:',
+                '  - step type (tool_call, llm_response, intent_match)',
+                '  - tool name + arguments + result',
+                '  - duration_ms per step',
+                '  - errors (if any)',
+                'total_duration_ms — end-to-end timing',
+                'input message and final response',
+              ],
+            },
+            debug_workflow: [
+              '1. Run ateam_test_skill(solution_id, skill_id, "test message") — get job_id from response',
+              '2. GET /deploy/solutions/:id/logs?job_id=<job_id> — see full execution trace',
+              '3. Check: did the right intent match? Were the right tools called? Did any tool error?',
+              '4. If intent wrong → fix intents with ateam_patch',
+              '5. If tool error → fix connector with ateam_github_patch + ateam_upload_connector',
+              '6. If response wrong → fix persona/guardrails with ateam_patch',
+            ],
+          },
+
+          execution_metrics: {
+            description: 'Aggregate performance data — timing, bottlenecks, tool usage patterns.',
+            endpoint: 'GET /deploy/solutions/:id/metrics',
+            query_params: {
+              'job_id': 'Metrics for a specific job',
+              'skill_id': 'Metrics for a specific skill (aggregated)',
+              'limit': 'Number of recent jobs to analyze',
+            },
+            returns: {
+              description: 'Performance breakdown:',
+              fields: [
+                'avg/p50/p95 response times',
+                'tool call frequency — which tools are called most',
+                'tool duration — which tools are slowest',
+                'error rate — which tools fail most often',
+                'intent distribution — which intents trigger most',
+                'replan count — how often the planner retries',
+              ],
+            },
+            use_when: 'Optimizing a skill that feels slow, identifying unused tools, or finding error patterns.',
+          },
+
+          health_checks: {
+            description: 'Verify the deployed solution is healthy — skills running, connectors connected, tools discovered.',
+            tools: {
+              'ateam_get_solution(solution_id, "health")': 'Cross-checks Builder definition vs Core state. Shows skills deployed, connectors connected, issues found.',
+              'ateam_get_solution(solution_id, "connectors_health")': 'Connector-level detail — status, transport, tool count, errors.',
+              'ateam_get_solution(solution_id, "status")': 'Deploy status — which skills are deployed, their ports, tool counts.',
+            },
+          },
+
+          typical_debug_scenarios: {
+            'Skill gives wrong answer': [
+              '1. ateam_test_pipeline — check if intent matched correctly',
+              '2. If wrong intent → ateam_patch to fix intent descriptions/examples',
+              '3. If right intent, wrong tools → check logs for tool call sequence',
+              '4. If right tools, wrong response → ateam_patch to fix persona/guardrails',
+            ],
+            'Skill times out': [
+              '1. Check logs for which tool took longest',
+              '2. ateam_test_connector to test that tool directly',
+              '3. If connector slow → fix connector code',
+              '4. If too many replans → adjust engine.rv2.max_iterations',
+            ],
+            'Connector tool returns error': [
+              '1. ateam_test_connector to isolate the issue',
+              '2. ateam_get_connector_source to read the code',
+              '3. Fix with ateam_github_patch + ateam_upload_connector',
+            ],
+            'Handoff not working': [
+              '1. ateam_test_pipeline on the source skill — does it plan a handoff?',
+              '2. Check the handoff trigger description matches the user message',
+              '3. Check the target skill is in solution.linked_skills',
+              '4. Check the target skill is deployed: ateam_get_solution(id, "health")',
+            ],
+          },
+        },
+
         tool_vs_system_tool: 'Your tools come from MCP connectors. System tools (sys.*, ui.*, cp.*) are provided by the A-Team runtime — do NOT define them in your tools array.',
         grant_economy: 'Grants are verified claims that flow between skills. A skill issues grants via grant_mappings (tool output → grant). Another skill requires grants via access_policy. Security contracts enforce this at the solution level.',
         workflow_steps: 'Workflow steps are tool NAMES (not IDs). Example: ["orders.order.get", "sys.emitUserMessage"]. System tools are valid step targets.',
