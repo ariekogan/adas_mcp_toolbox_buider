@@ -678,7 +678,7 @@ router.post('/:id/skills/:skillId/redeploy', async (req, res, next) => {
     // Skill ID is used directly — no remapping needed
     log.info(`[Redeploy] Redeploying skill ${requestedSkillId} in solution ${solutionId}`);
 
-    const result = await deploySkillToADAS(solutionId, requestedSkillId, log);
+    const result = await deploySkillToADAS(solutionId, requestedSkillId, log, undefined, { skipConnectorSync: true });
 
     const statusCode = result.ok === false ? 502 : 200;
     res.status(statusCode).json({

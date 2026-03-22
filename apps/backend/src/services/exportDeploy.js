@@ -69,7 +69,7 @@ export async function deployIdentityToADAS(solutionId, log) {
  * @param {object} log - Logger (console-compatible)
  * @returns {Promise<object>} Deploy result
  */
-export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
+export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { skipConnectorSync = false } = {}) {
   const skill = await skillsStore.load(solutionId, skillId);
   let version = skill.version;
 
@@ -227,11 +227,13 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress) {
 
   log.info(`[MCP Deploy] Successfully deployed! Skill: ${skillSlug}, MCP: ${result.mcpUri}`);
 
-  // Sync linked connectors
+  // Sync linked connectors (skip on redeploy — connectors shouldn't be touched by skill-only changes)
   const connectorResults = [];
   const linkedConnectors = skill.connectors || [];
 
-  if (linkedConnectors.length > 0) {
+  if (skipConnectorSync) {
+    log.info(`[MCP Deploy] Skipping connector sync for "${skillSlug}" (skill-only redeploy)`);
+  } else if (linkedConnectors.length > 0) {
     log.info(`[MCP Deploy] Syncing ${linkedConnectors.length} linked connectors: ${linkedConnectors.join(', ')}`);
     const allConnectors = getAllPrebuiltConnectors();
 
