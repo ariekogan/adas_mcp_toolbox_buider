@@ -666,9 +666,9 @@ router.post('/solution', async (req, res) => {
     (async () => {
       try {
         updateJob({ stage: 'importing', message: 'Importing solution to Builder...' });
-        const resp = await fetch(`http://localhost:${process.env.PORT || 3200}/deploy/solution`, {
+        const resp = await fetch(`${SKILL_BUILDER_URL}/api/deploy/solution`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-adas-tenant': bgHeaders['x-adas-tenant'], 'x-api-key': bgHeaders['x-api-key'] || '', 'x-adas-token': bgHeaders['x-adas-token'] || '' },
+          headers: { 'Content-Type': 'application/json', 'X-ADAS-TENANT': bgHeaders['x-adas-tenant'], ...(bgHeaders['x-adas-token'] ? { 'x-adas-token': bgHeaders['x-adas-token'] } : {}), ...(bgHeaders['x-api-key'] ? { 'X-API-KEY': bgHeaders['x-api-key'] } : {}) },
           body: JSON.stringify(bgBody),
           signal: AbortSignal.timeout(600000), // 10 min internal timeout
         });
@@ -1639,9 +1639,9 @@ router.post('/solutions/:solutionId/skills/:skillId/redeploy', async (req, res) 
 
       if (ghSkill) {
         console.log(`[Deploy] Redeploy ${skillId}: deploying from GitHub (source of truth)`);
-        const deployResp = await fetch(`http://localhost:${process.env.PORT || 3200}/deploy/solution`, {
+        const deployResp = await fetch(`${SKILL_BUILDER_URL}/api/deploy/solution`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-adas-tenant': tenant, 'x-api-key': req.headers['x-api-key'] || '', 'x-adas-token': req.headers['x-adas-token'] || '' },
+          headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
           body: JSON.stringify({ solution: ghSkill.solution, skills: [ghSkill.skill], connectors: [], mcp_store: {} }),
           signal: AbortSignal.timeout(120000),
         });
