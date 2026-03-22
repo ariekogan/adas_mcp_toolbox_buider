@@ -59,6 +59,9 @@ const TENANT_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,28}[a-z0-9]$/;
 // Key: "tenant/solutionId", Value: timestamp. Prevents stale Core state overwriting GitHub.
 const _githubDeployedSolutions = new Map();
 
+// Async deploy job store — in-memory, keyed by job ID
+const _deployJobs = new Map();
+
 /**
  * Extract and validate tenant from request header. Returns null + sends 400 if invalid.
  * @param {Object} req - Express request
@@ -619,23 +622,64 @@ router.post('/skill', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ASYNC DEPLOY JOB POLLING
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get('/jobs/:jobId', (req, res) => {
+  const job = _deployJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ ok: false, error: 'Job not found' });
+  res.json(job);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // POST /deploy/solution
 // Import + deploy an entire solution: identity + connectors + skills.
 // The Skill Builder stores everything, generates MCP servers, and pushes
 // to ADAS Core. No slug or Python MCP code needed.
+// When async: true in body, returns job ID immediately and runs in background.
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.post('/solution', async (req, res) => {
   const tenant = requireTenant(req, res);
   if (!tenant) return;
 
-  const { solution, skills, connectors, mcp_store, skip_github_push, push_to_github } = req.body;
+  const { solution, skills, connectors, mcp_store, skip_github_push, push_to_github, async: asyncMode } = req.body;
 
   if (!solution?.id) {
     return res.status(400).json({ ok: false, error: 'Missing solution.id' });
   }
   if (!solution?.name) {
     return res.status(400).json({ ok: false, error: 'Missing solution.name' });
+  }
+
+  // Async mode: return job ID immediately, run deploy in background
+  if (asyncMode) {
+    const jobId = `deploy-${solution.id}-${Date.now()}`;
+    _deployJobs.set(jobId, { status: 'in_progress', solution_id: solution.id, started_at: new Date().toISOString() });
+
+    // Clone headers for background use (req object won't be available later)
+    const bgHeaders = { ...req.headers };
+    const bgBody = { ...req.body, async: false }; // prevent recursion
+
+    // Run deploy in background
+    (async () => {
+      try {
+        const resp = await fetch(`http://localhost:${process.env.PORT || 3200}/deploy/solution`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-adas-tenant': bgHeaders['x-adas-tenant'], 'x-api-key': bgHeaders['x-api-key'] || '', 'x-adas-token': bgHeaders['x-adas-token'] || '' },
+          body: JSON.stringify(bgBody),
+          signal: AbortSignal.timeout(600000), // 10 min internal timeout
+        });
+        const result = await resp.json();
+        _deployJobs.set(jobId, { status: result.ok ? 'done' : 'failed', ...result, completed_at: new Date().toISOString() });
+      } catch (err) {
+        _deployJobs.set(jobId, { status: 'failed', error: err.message, completed_at: new Date().toISOString() });
+      }
+      // Clean up job after 30 min
+      setTimeout(() => _deployJobs.delete(jobId), 30 * 60 * 1000);
+    })();
+
+    return res.json({ ok: true, async: true, job_id: jobId, poll_url: `/deploy/jobs/${jobId}`, message: 'Deploy started in background. Poll job_id for status.' });
   }
 
   // Guard against accidental skill wipe: if solution declares skills in topology
