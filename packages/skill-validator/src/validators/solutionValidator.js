@@ -409,7 +409,8 @@ export function validateSolution(solution, context) {
             .replace(/^\s*import\s+.*$/gm, '/* import */')
             .replace(/^\s*export\s+default\s+/gm, '  ')
             .replace(/^\s*export\s+\{[^}]*\}\s*;?\s*$/gm, '/* export */')
-            .replace(/^\s*export\s+(async\s+)?(function|class|const|let|var)\s/gm, '$1$2 ');
+            .replace(/^\s*export\s+(async\s+)?(function|class|const|let|var)\s/gm, '$1$2 ')
+            .replace(/\bawait\s+/g, '/* await */ ');
 
           // Use Node's vm.Script to syntax-check without executing
           new vm.Script(neutralized, { filename: `${connector.id}/server.js` });
