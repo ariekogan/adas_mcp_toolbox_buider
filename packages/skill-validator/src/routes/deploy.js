@@ -1946,18 +1946,32 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
     }
     console.log(`[Connector Upload] Uploaded ${files.length} files for "${connectorId}"`);
 
-    // Restart connector
+    // Restart connector — wait for deps install, then start
+    await new Promise(r => setTimeout(r, 2000)); // let npm install finish
     const startResp = await fetch(`${adasCoreUrl}/api/connectors/${connectorId}/start`, {
       method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(30000),
     });
     const startResult = await startResp.json().catch(() => ({}));
-    console.log(`[Connector Upload] Restarted "${connectorId}": ${startResult.tools?.length || 0} tools`);
+    let toolCount = startResult.tools?.length || 0;
+
+    // If 0 tools, connector may still be initializing — wait and check status
+    if (toolCount === 0) {
+      await new Promise(r => setTimeout(r, 3000));
+      try {
+        const statusResp = await fetch(`${adasCoreUrl}/api/connectors/${connectorId}/status`, {
+          headers: coreHeaders, signal: AbortSignal.timeout(10000),
+        });
+        const statusResult = await statusResp.json().catch(() => ({}));
+        toolCount = statusResult.tools?.length || statusResult.tools_count || 0;
+      } catch { /* ignore */ }
+    }
+    console.log(`[Connector Upload] Restarted "${connectorId}": ${toolCount} tools`);
 
     res.json({
       ok: true,
       connector_id: connectorId,
       files_uploaded: files.length,
-      tools: startResult.tools?.length || 0,
+      tools: toolCount,
       warnings: antiPatterns.warnings.length > 0 ? antiPatterns.warnings : undefined,
     });
   } catch (err) {
