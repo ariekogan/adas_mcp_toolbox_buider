@@ -1623,48 +1623,51 @@ router.post('/solutions/:solutionId/skills/:skillId/redeploy', async (req, res) 
   const tenant = req.headers['x-adas-tenant'];
 
   try {
-    // Try Builder backend first
+    // GitHub is the source of truth. If available, always deploy from there.
+    if (tenant && github.isEnabled()) {
+      let ghSkill = null;
+      try {
+        const [solData, skillData] = await Promise.all([
+          github.readFile(tenant, solId, 'solution.json').then(r => JSON.parse(r.content)),
+          github.readFile(tenant, solId, `skills/${skillId}/skill.json`).then(r => JSON.parse(r.content)),
+        ]);
+        ghSkill = { solution: solData, skill: skillData };
+      } catch {
+        // Skill not on GitHub — fall through to Builder FS
+        console.log(`[Deploy] Redeploy ${skillId}: not found on GitHub, using Builder FS`);
+      }
+
+      if (ghSkill) {
+        console.log(`[Deploy] Redeploy ${skillId}: deploying from GitHub (source of truth)`);
+        const deployResp = await fetch(`http://localhost:${process.env.PORT || 3200}/deploy/solution`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-adas-tenant': tenant, 'x-api-key': req.headers['x-api-key'] || '', 'x-adas-token': req.headers['x-adas-token'] || '' },
+          body: JSON.stringify({ solution: ghSkill.solution, skills: [ghSkill.skill], connectors: [], mcp_store: {} }),
+          signal: AbortSignal.timeout(120000),
+        });
+        const deployData = await deployResp.json();
+        const skillResult = (deployData.deploy?.skillResults || [])[0];
+        return res.json({
+          ok: deployData.ok,
+          source: 'github',
+          skill_id: skillId,
+          tools: skillResult?.tools || 0,
+          message: deployData.ok
+            ? `Re-deployed "${skillId}" from GitHub. ${skillResult?.tools || 0} tools.`
+            : `GitHub deploy failed: ${deployData.error || 'unknown'}`,
+        });
+      }
+    }
+
+    // No GitHub — use Builder FS
     const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/skills/${encodeURIComponent(skillId)}/redeploy`, {
       method: 'POST',
       headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body || {}),
       signal: AbortSignal.timeout(60000),
     });
-    if (resp.ok || resp.status !== 404) {
-      const data = await resp.json();
-      return res.status(resp.status).json(data);
-    }
-
-    // Builder FS returned 404 — fall back to GitHub
-    console.log(`[Deploy] Redeploy ${skillId}: not in Builder FS, falling back to GitHub`);
-    if (!tenant || !github.isEnabled()) {
-      return res.status(404).json({ ok: false, error: `Skill "${skillId}" not found in Builder storage and GitHub fallback unavailable.` });
-    }
-
-    // Read solution + skill from GitHub, deploy directly
-    const [solContent, skillContent] = await Promise.all([
-      github.readFile(tenant, solId, 'solution.json').then(r => JSON.parse(r.content)),
-      github.readFile(tenant, solId, `skills/${skillId}/skill.json`).then(r => JSON.parse(r.content)),
-    ]);
-
-    // Deploy via the same deploy/solution endpoint (0 connectors, 1 skill)
-    const deployResp = await fetch(`http://localhost:${process.env.PORT || 3200}/deploy/solution`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-adas-tenant': tenant, 'x-api-key': req.headers['x-api-key'] || '', 'x-adas-token': req.headers['x-adas-token'] || '' },
-      body: JSON.stringify({ solution: solContent, skills: [skillContent], connectors: [], mcp_store: {} }),
-      signal: AbortSignal.timeout(120000),
-    });
-    const deployData = await deployResp.json();
-    const skillResult = (deployData.deploy?.skillResults || [])[0];
-    res.json({
-      ok: deployData.ok,
-      source: 'github_fallback',
-      skill_id: skillId,
-      tools: skillResult?.tools || 0,
-      message: deployData.ok
-        ? `Re-deployed "${skillId}" from GitHub (Builder FS was empty). ${skillResult?.tools || 0} tools.`
-        : `GitHub fallback deploy failed: ${deployData.error || 'unknown'}`,
-    });
+    const data = await resp.json();
+    res.status(resp.status).json({ ...data, source: 'builder_fs' });
   } catch (err) {
     console.error('[Deploy] Redeploy skill error:', err.message);
     res.status(502).json({ ok: false, error: err.message });
