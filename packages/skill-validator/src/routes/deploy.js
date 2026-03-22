@@ -2372,39 +2372,15 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
     const tenant = req.headers['x-adas-tenant'];
     if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
 
-    // Block push-back if:
-    // 1. pull-bundle flag was set (one-shot)
-    // 2. The latest GitHub commit was made by ateam_github_patch (message starts with "Patch:")
-    //    This catches the case where the MCP tool is old and doesn't call pull-bundle.
-    const ghKey = `${tenant}/${solId}`;
-    const ghDeployedAt = _githubDeployedSolutions.get(ghKey);
-    if (ghDeployedAt && !req.body?.force_push) {
-      _githubDeployedSolutions.delete(ghKey);
-      console.log(`[GitHub] BLOCKED push-back for ${ghKey} — deployed from GitHub (one-shot, cleared)`);
+    // Push is opt-IN. Caller must explicitly pass push_to_github: true.
+    // This prevents stale MCP tool processes from auto-pushing Core state back to GitHub.
+    if (!req.body?.push_to_github) {
+      console.log(`[GitHub] BLOCKED push for ${tenant}/${solId} — push_to_github not set (opt-in required)`);
       return res.json({
         ok: true,
         skipped: true,
-        reason: 'Solution was deployed from GitHub — push-back blocked to preserve source of truth.',
+        reason: 'GitHub push requires explicit push_to_github: true.',
       });
-    }
-
-    // Server-side defense: check if the latest commit on GitHub was a patch/write.
-    // If so, a stale push-back from Core would overwrite it. Block unless force_push.
-    if (!req.body?.force_push) {
-      try {
-        const status = await github.getRepoStatus(tenant, solId);
-        const lastMsg = status?.latest_commit?.message || '';
-        const lastAge = status?.latest_commit?.date ? (Date.now() - new Date(status.latest_commit.date).getTime()) : Infinity;
-        // If last commit was a patch/write AND was recent (within 5 min), block push-back
-        if (lastAge < 5 * 60 * 1000 && (lastMsg.startsWith('Patch:') || lastMsg.startsWith('Write:'))) {
-          console.log(`[GitHub] BLOCKED push-back for ${ghKey} — last commit was "${lastMsg.slice(0, 60)}" (${Math.round(lastAge / 1000)}s ago)`);
-          return res.json({
-            ok: true,
-            skipped: true,
-            reason: `Last GitHub commit was a patch/write ${Math.round(lastAge / 1000)}s ago — push-back blocked to preserve source of truth. Use force_push:true to override.`,
-          });
-        }
-      } catch { /* repo may not exist yet — allow push */ }
     }
 
     const message = req.body?.message || `Deploy ${solId}`;
