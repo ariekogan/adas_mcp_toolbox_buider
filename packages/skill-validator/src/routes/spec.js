@@ -1567,6 +1567,11 @@ function buildSkillSpec() {
                 sync_mode: 'Returns the complete result including response text, tool calls made, and timing.',
                 async_mode: 'Set wait:false to get a job_id immediately. Poll with ateam_test_status for progress.',
               },
+              'ateam_test_status(solution_id, skill_id, job_id)': {
+                description: 'Poll progress of an async test job. Hidden tool — not in default list, but callable by name.',
+                returns: 'Iteration count, tool call steps, status (in_progress/done/failed), pending questions, and final result when complete.',
+                usage: 'After ateam_test_skill(wait:false) returns a job_id, call this every few seconds until status is done or failed.',
+              },
               'ateam_test_pipeline(solution_id, skill_id, message)': {
                 description: 'Test intent detection + planning WITHOUT executing tools. Fast — returns in <2s.',
                 returns: 'Intent classification (which intent matched, confidence), first planned action, and timing.',
