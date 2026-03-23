@@ -2140,36 +2140,54 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
       return res.status(400).json({ ok: false, error: antiPatterns.errors[0], all_errors: antiPatterns.errors });
     }
 
-    // Deploy connector via Skill Builder backend (same path as build_and_run)
-    // This does a proper install + restart, not just file upload.
-    const deployBody = {
-      solution: { id: solutionId, name: solutionId, version: '1.0.0' },
-      skills: [],
-      connectors: [{ id: connectorId, name: connectorId, transport: 'stdio' }],
-      mcp_store: { [connectorId]: files },
-    };
+    // Upload files directly to Core mcp-store + restart — does NOT touch solution/skills
+    const adasCoreUrl = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+    const coreHeaders = { 'Content-Type': 'application/json' };
+    const coreMcpSecret = process.env.CORE_MCP_SECRET || '';
+    if (coreMcpSecret) coreHeaders['x-adas-token'] = coreMcpSecret;
+    if (tenant) coreHeaders['X-ADAS-TENANT'] = tenant;
 
-    const deployResp = await fetch(`${SKILL_BUILDER_URL}/api/deploy/solution`, {
+    // Stop old connector
+    try {
+      await fetch(`${adasCoreUrl}/api/connectors/${connectorId}/stop`, {
+        method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(10000),
+      });
+      console.log(`[Connector Upload] Stopped "${connectorId}"`);
+    } catch { /* may not be running */ }
+
+    // Upload files to mcp-store
+    const uploadResp = await fetch(`${adasCoreUrl}/api/mcp-store/upload`, {
       method: 'POST',
-      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
-      body: JSON.stringify(deployBody),
+      headers: coreHeaders,
+      body: JSON.stringify({ connectorId, files, installDeps: true }),
       signal: AbortSignal.timeout(120000),
     });
-    const deployResult = await deployResp.json().catch(() => ({}));
+    const uploadResult = await uploadResp.json().catch(() => ({}));
+    if (uploadResult.ok === false) {
+      return res.status(422).json({ ok: false, error: uploadResult.error || 'Upload failed', phase: 'upload' });
+    }
+    console.log(`[Connector Upload] Uploaded ${files.length} files for "${connectorId}"`);
 
-    // Tool count may be in connectorResults (deploy phase) or import.connectors (import phase)
-    const connResult = (deployResult.deploy?.connectorResults || []).find(c => c.id === connectorId);
-    let toolCount = connResult?.tools || 0;
-    // If deploy phase didn't report tools, check connector_restart
+    // Wait for npm install to finish, then start
+    await new Promise(r => setTimeout(r, 3000));
+    const startResp = await fetch(`${adasCoreUrl}/api/connectors/${connectorId}/start`, {
+      method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(30000),
+    });
+    const startResult = await startResp.json().catch(() => ({}));
+    let toolCount = startResult.tools?.length || 0;
+
+    // If 0 tools, wait a bit more and check health
     if (toolCount === 0) {
-      const restartResult = (deployResult.connector_restart?.details || []).find(c => c.id === connectorId);
-      toolCount = restartResult?.tools || 0;
+      await new Promise(r => setTimeout(r, 3000));
+      try {
+        const healthResp = await fetch(`${adasCoreUrl}/api/connectors/${connectorId}`, {
+          headers: coreHeaders, signal: AbortSignal.timeout(10000),
+        });
+        const healthResult = await healthResp.json().catch(() => ({}));
+        toolCount = healthResult.tools?.length || 0;
+      } catch { /* ignore */ }
     }
-    // Last resort: check import log for "started (N tools)"
-    if (toolCount === 0 && deployResult.ok !== false) {
-      toolCount = -1; // connector deployed but tool count unknown — check health
-    }
-    console.log(`[Connector Upload] Deployed "${connectorId}": ${toolCount} tools`);
+    console.log(`[Connector Upload] Restarted "${connectorId}": ${toolCount} tools`);
 
     const allWarnings = [...(antiPatterns.warnings || []), ...(rnWarnings || [])];
     res.json({
