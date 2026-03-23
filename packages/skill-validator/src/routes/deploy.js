@@ -2011,6 +2011,70 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
       return res.status(400).json({ ok: false, error: 'No files provided. Pass files in body or set github=true.' });
     }
 
+    // Auto-build RN bundle if source is newer than bundle
+    const pkgFile = files.find(f => f.path === 'package.json');
+    const hasBuildScript = pkgFile && pkgFile.content.includes('"build"');
+    const rnSrcFiles = files.filter(f => f.path.startsWith('rn-src/') && f.path.endsWith('.tsx'));
+    const bundleFile = files.find(f => f.path === 'rn-bundle/index.bundle.js');
+
+    if (hasBuildScript && rnSrcFiles.length > 0) {
+      // Hash all source files to detect changes
+      const crypto = await import('crypto');
+      const srcHash = crypto.createHash('md5')
+        .update(rnSrcFiles.map(f => f.content).sort().join(''))
+        .digest('hex');
+
+      // Check if bundle has a matching hash (embedded as first-line comment)
+      const bundleHash = bundleFile?.content?.match(/^\/\/ src-hash:([a-f0-9]+)/)?.[1];
+      const needsBuild = !bundleFile || !bundleHash || bundleHash !== srcHash;
+
+      if (needsBuild) {
+        console.log(`[Connector Upload] RN source changed (src=${srcHash.slice(0,8)}, bundle=${bundleHash?.slice(0,8) || 'none'}) — rebuilding bundle`);
+        try {
+          const os = await import('os');
+          const fsP = await import('fs/promises');
+          const path = await import('path');
+          const { execSync } = await import('child_process');
+
+          // Write source files to temp dir
+          const tmpDir = path.join(os.tmpdir(), `rn-build-${Date.now()}`);
+          await fsP.mkdir(path.join(tmpDir, 'rn-src'), { recursive: true });
+          await fsP.mkdir(path.join(tmpDir, 'rn-bundle'), { recursive: true });
+          for (const f of rnSrcFiles) {
+            await fsP.writeFile(path.join(tmpDir, f.path), f.content);
+          }
+
+          // Build with esbuild
+          execSync(
+            `npx --yes esbuild rn-src/index.tsx --bundle --format=cjs --platform=neutral --outfile=rn-bundle/index.bundle.js --external:react --external:react-native --external:@adas/plugin-sdk --target=es2016`,
+            { cwd: tmpDir, timeout: 30000, stdio: 'pipe' }
+          );
+
+          // Read built bundle and prepend hash
+          let builtBundle = await fsP.readFile(path.join(tmpDir, 'rn-bundle/index.bundle.js'), 'utf8');
+          builtBundle = `// src-hash:${srcHash}\n${builtBundle}`;
+
+          // Replace or add bundle in files array
+          const existingIdx = files.findIndex(f => f.path === 'rn-bundle/index.bundle.js');
+          if (existingIdx >= 0) {
+            files[existingIdx].content = builtBundle;
+          } else {
+            files.push({ path: 'rn-bundle/index.bundle.js', content: builtBundle });
+          }
+
+          console.log(`[Connector Upload] RN bundle rebuilt: ${builtBundle.length} bytes (hash: ${srcHash.slice(0,8)})`);
+
+          // Cleanup
+          await fsP.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+        } catch (buildErr) {
+          console.error(`[Connector Upload] RN build failed (deploying with existing bundle): ${buildErr.message}`);
+          // Don't fail the deploy — use existing bundle if available
+        }
+      } else {
+        console.log(`[Connector Upload] RN source unchanged (hash: ${srcHash.slice(0,8)}) — skipping build`);
+      }
+    }
+
     // Anti-pattern check
     const antiPatterns = detectConnectorAntiPatterns(connectorId, files);
     if (antiPatterns.errors.length > 0) {
