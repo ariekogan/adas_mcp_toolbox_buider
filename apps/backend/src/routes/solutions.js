@@ -706,6 +706,76 @@ router.post('/:id/skills/:skillId/redeploy', async (req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// SYNC-AND-DEPLOY — Write skill to Builder FS then deploy (no solution replacement)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * PUT /:id/skills/:skillId/sync-deploy
+ *
+ * Accepts a full skill JSON body, writes it to Builder FS, then deploys to Core.
+ * Does NOT touch the solution definition or other skills.
+ * This is the safe single-skill deploy path for GitHub-sourced workflows.
+ */
+router.put('/:id/skills/:skillId/sync-deploy', async (req, res, next) => {
+  try {
+    const solutionId = req.params.id;
+    const skillId = req.params.skillId;
+    const log = req.app.locals.log;
+    const skillData = req.body;
+
+    if (!skillData || !skillData.id) {
+      return res.status(400).json({ ok: false, error: 'Missing skill definition in request body' });
+    }
+
+    log.info(`[SyncDeploy] Writing skill ${skillId} to Builder FS and deploying`);
+
+    // Step 1: Ensure the skill is linked in the solution's linked_skills
+    try {
+      const solution = await solutionsStore.load(solutionId);
+      if (solution) {
+        const linked = solution.linked_skills || [];
+        const alreadyLinked = linked.some(s => s.id === skillId || s.skill_id === skillId);
+        if (!alreadyLinked) {
+          linked.push({ id: skillId, skill_id: skillId, name: skillData.name || skillId });
+          solution.linked_skills = linked;
+          await solutionsStore.save(solution);
+          log.info(`[SyncDeploy] Added ${skillId} to solution linked_skills`);
+        }
+      }
+    } catch (solErr) {
+      // Solution not in Builder FS — OK, we just need the skill file
+      log.info(`[SyncDeploy] Solution not in Builder FS (${solErr.message}), deploying skill only`);
+    }
+
+    // Step 2: Write skill JSON to Builder FS (direct file write, no import)
+    await skillsStore.save(skillData);
+    log.info(`[SyncDeploy] Wrote ${skillId} to Builder FS`);
+
+    // Step 3: Deploy to Core
+    const result = await deploySkillToADAS(solutionId, skillId, log, undefined, { skipConnectorSync: true });
+
+    const statusCode = result.ok === false ? 502 : 200;
+    res.status(statusCode).json({
+      ok: result.ok !== false,
+      skill_id: skillId,
+      source: 'sync-deploy',
+      ...result,
+    });
+  } catch (err) {
+    if (err.code === 'NO_EXPORT') {
+      return res.status(400).json({ ok: false, error: err.message });
+    }
+    if (err.code === 'GEN_FAILED') {
+      return res.status(502).json({ ok: false, error: err.message });
+    }
+    if (err.code === 'DEPLOY_FAILED') {
+      return res.status(502).json({ ok: false, error: err.message, deploy_log: err.deploy_log || {} });
+    }
+    next(err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // BULK REDEPLOY
 // ═══════════════════════════════════════════════════════════════
 

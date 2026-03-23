@@ -1638,22 +1638,23 @@ router.post('/solutions/:solutionId/skills/:skillId/redeploy', async (req, res) 
       }
 
       if (ghSkill) {
-        console.log(`[Deploy] Redeploy ${skillId}: deploying from GitHub (source of truth)`);
-        const deployResp = await fetch(`${SKILL_BUILDER_URL}/api/deploy/solution`, {
-          method: 'POST',
+        console.log(`[Deploy] Redeploy ${skillId}: deploying from GitHub via sync-deploy (no solution replacement)`);
+        // Use sync-deploy: writes skill to Builder FS then deploys to Core.
+        // Does NOT touch the solution definition or other skills.
+        const deployResp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/skills/${encodeURIComponent(skillId)}/sync-deploy`, {
+          method: 'PUT',
           headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ solution: ghSkill.solution, skills: [ghSkill.skill], connectors: [], mcp_store: {} }),
+          body: JSON.stringify(ghSkill.skill),
           signal: AbortSignal.timeout(120000),
         });
         const deployData = await deployResp.json();
-        const skillResult = (deployData.deploy?.skillResults || [])[0];
         return res.json({
           ok: deployData.ok,
           source: 'github',
           skill_id: skillId,
-          tools: skillResult?.tools || 0,
+          tools: deployData.tools || 0,
           message: deployData.ok
-            ? `Re-deployed "${skillId}" from GitHub. ${skillResult?.tools || 0} tools.`
+            ? `Re-deployed "${skillId}" from GitHub. ${deployData.tools || 0} tools.`
             : `GitHub deploy failed: ${deployData.error || 'unknown'}`,
         });
       }
