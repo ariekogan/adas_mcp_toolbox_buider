@@ -208,7 +208,7 @@ function buildIndex() {
       '--- Operate & Debug ---',
       '12. POST /deploy/solutions/:id/skills/:skillId/test — test a skill (sync: wait for result, or async: true to get job_id immediately)',
       '13. POST /deploy/solutions/:id/skills/:skillId/test-pipeline — test decision pipeline only (intent + planning, NO tool execution). Returns intent classification, first planned action, and timing.',
-      '14. GET /deploy/solutions/:id/skills/:skillId/test/:jobId — poll async test progress (iteration, steps, pending questions)',
+      '14. GET /deploy/solutions/:id/skills/:skillId/test/:jobId — poll async test progress (iteration, steps, result)',
       '15. DELETE /deploy/solutions/:id/skills/:skillId/test/:jobId — abort a running test',
       '16. GET /deploy/solutions/:id/logs — view execution logs (job traces, tool calls, errors)',
       '17. GET /deploy/solutions/:id/metrics — analyze execution metrics (timing, bottlenecks, signals)',
@@ -315,7 +315,7 @@ function buildIndex() {
       'GET /deploy/solutions/:solutionId/logs': 'Execution logs — recent jobs with step traces, tool calls, errors, timing. Query: ?skill_id=X&limit=10&job_id=X',
       'POST /deploy/solutions/:solutionId/skills/:skillId/test': 'Test a skill — sync (wait for result) or async (Body: { message, async: true } returns job_id immediately)',
       'POST /deploy/solutions/:solutionId/skills/:skillId/test-pipeline': 'Test decision pipeline only — runs intent detection + first planner iteration WITHOUT executing tools. Returns intent classification, planned action, and timing. Body: { message }',
-      'GET /deploy/solutions/:solutionId/skills/:skillId/test/:jobId': 'Poll async test progress — iteration, steps, pending_question, result, elapsed_ms',
+      'GET /deploy/solutions/:solutionId/skills/:skillId/test/:jobId': 'Poll async test progress — iteration, steps, status, result, elapsed_ms',
       'DELETE /deploy/solutions/:solutionId/skills/:skillId/test/:jobId': 'Abort a running test',
       'GET /deploy/solutions/:solutionId/metrics': 'Execution metrics — timing, bottlenecks, tool stats, signals. Query: ?job_id=X or ?skill_id=X',
       'GET /deploy/solutions/:solutionId/connectors/:connectorId/source': 'Connector source code — read the MCP server files',
@@ -1612,7 +1612,7 @@ function buildSkillSpec() {
                 '   → { job_id: "job_abc", actor_id: "test_17...", status: "running" }',
                 '',
                 '2. Poll: ateam_test_status(solution_id, skill_id, "job_abc")',
-                '   → { status: "running", iteration: 3, steps: [...], pending_question: null }',
+                '   → { status: "running", iteration: 3, steps: [...] }',
                 '   → { status: "completed", result: "I\'ll send that email. Please confirm." }',
                 '',
                 '3. Reply: r = ateam_conversation(solution_id, "I confirm", actor_id: "test_17...", wait: false)',
@@ -1654,8 +1654,8 @@ function buildSkillSpec() {
               },
               'ateam_test_status(solution_id, skill_id, job_id)': {
                 description: 'Poll an async job\'s progress. Hidden tool — not in default list, but callable by name.',
-                returns: 'iteration count, tool call steps, status (in_progress/done/failed), pending_question, result.',
-                usage: 'Call every 3-5 seconds after ateam_test_skill(wait:false) until status is done or failed.',
+                returns: 'iteration count, tool call steps, status (running/completed/failed), result when done.',
+                usage: 'Call every 3-5 seconds after ateam_test_skill(wait:false) until status is completed or failed.',
               },
               'ateam_test_pipeline(solution_id, skill_id, message)': {
                 description: 'Test ONLY intent detection + planning — no tool execution. Fast (<2s), no side effects.',
@@ -1763,9 +1763,10 @@ function buildSkillSpec() {
               '2. One skill lacks the tools it needs (e.g., Gmail tools not connected)',
               '3. Fix: either add the missing connector to the skill, or update the orchestrator to not route there',
             ],
-            'Confirmation prompt stuck (no reply)': [
-              '1. Use ateam_conversation with actor_id to reply: ateam_conversation(id, "I confirm", actor_id)',
-              '2. If testing via ateam_test_skill (no actor_id), the job will timeout — use ateam_conversation instead',
+            'Skill asks for confirmation and you need to reply': [
+              '1. The skill\'s response IS the completed job result (e.g., "Please confirm")',
+              '2. Read the result, then send a new message: ateam_conversation(id, "I confirm", actor_id: previous_actor_id)',
+              '3. This creates a new job in the same conversation thread — the skill has context from the previous turn',
             ],
             'UI plugins missing after deploy': [
               '1. ateam_get_solution(id, "connectors_health") — check if the UI connector is running',
