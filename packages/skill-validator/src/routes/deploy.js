@@ -2016,8 +2016,53 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
     const hasBuildScript = pkgFile && pkgFile.content.includes('"build"');
     const rnSrcFiles = files.filter(f => f.path.startsWith('rn-src/') && f.path.endsWith('.tsx'));
     const bundleFile = files.find(f => f.path === 'rn-bundle/index.bundle.js');
+    let rnWarnings = [];
 
     if (hasBuildScript && rnSrcFiles.length > 0) {
+      // ── Validate RN plugin source files ──
+      for (const f of rnSrcFiles) {
+        if (f.path === 'rn-src/index.tsx') continue; // skip entry point
+        const name = f.path.replace('rn-src/', '').replace('.tsx', '');
+        const src = f.content;
+
+        // MUST NOT use PluginSDK.register — causes shared registry conflicts
+        if (src.includes('PluginSDK.register')) {
+          rnWarnings.push(`${name}: uses PluginSDK.register() — MUST use plain object export instead. ` +
+            `Change to: export default { id: '${name}', type: 'ui', version: '1.0.0', Component: MyComponent }`);
+        }
+
+        // MUST have export default
+        if (!src.includes('export default')) {
+          rnWarnings.push(`${name}: missing "export default" — plugin will not load on mobile`);
+        }
+
+        // SHOULD have Component field (check for plain object export pattern)
+        if (!src.includes('PluginSDK.register') && src.includes('export default') &&
+            !src.includes('Component:') && !src.includes('Component,')) {
+          rnWarnings.push(`${name}: export default missing "Component" field — mobile app requires Component to be a function`);
+        }
+
+        // MUST have an id field
+        if (!src.includes('PluginSDK.register') && src.includes('export default') &&
+            !src.match(/id:\s*['"]/) ) {
+          rnWarnings.push(`${name}: export default missing "id" field — mobile app uses this to match plugin to manifest`);
+        }
+
+        // MUST NOT have type: "service"
+        if (src.match(/type:\s*['"]service['"]/)) {
+          rnWarnings.push(`${name}: type is "service" — mobile app refuses to load service plugins as UI`);
+        }
+
+        // SHOULD import useApi from @adas/plugin-sdk
+        if (!src.includes('useApi') && !src.includes('@adas/plugin-sdk')) {
+          rnWarnings.push(`${name}: does not import useApi from @adas/plugin-sdk — plugin cannot make bridge calls`);
+        }
+      }
+
+      if (rnWarnings.length > 0) {
+        console.warn(`[Connector Upload] RN plugin warnings:\n  ${rnWarnings.join('\n  ')}`);
+      }
+
       // Hash all source files to detect changes
       const crypto = await import('crypto');
       const srcHash = crypto.createHash('md5')
@@ -2063,6 +2108,20 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
           }
 
           console.log(`[Connector Upload] RN bundle rebuilt: ${builtBundle.length} bytes (hash: ${srcHash.slice(0,8)})`);
+
+          // Push rebuilt bundle back to GitHub so it stays in sync
+          if (tenant && github.isEnabled()) {
+            try {
+              await github.patchFile(tenant, solutionId,
+                `connectors/${connectorId}/rn-bundle/index.bundle.js`,
+                builtBundle,
+                `Auto-build: rebuild RN bundle (src-hash: ${srcHash.slice(0, 8)})`
+              );
+              console.log(`[Connector Upload] Pushed rebuilt bundle to GitHub`);
+            } catch (ghErr) {
+              console.warn(`[Connector Upload] Failed to push bundle to GitHub (non-fatal): ${ghErr.message}`);
+            }
+          }
 
           // Cleanup
           await fsP.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -2112,12 +2171,13 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
     }
     console.log(`[Connector Upload] Deployed "${connectorId}": ${toolCount} tools`);
 
+    const allWarnings = [...(antiPatterns.warnings || []), ...(rnWarnings || [])];
     res.json({
       ok: true,
       connector_id: connectorId,
       files_uploaded: files.length,
       tools: toolCount,
-      warnings: antiPatterns.warnings.length > 0 ? antiPatterns.warnings : undefined,
+      ...(allWarnings.length > 0 && { warnings: allWarnings }),
     });
   } catch (err) {
     console.error(`[Connector Upload] Error: ${err.message}`);
