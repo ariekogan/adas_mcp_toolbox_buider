@@ -1554,129 +1554,218 @@ function buildSkillSpec() {
           see_example: 'GET /spec/examples/connector-ui for a complete working example with correct AND wrong response formats.',
         },
         // ═══════════════════════════════════════════════════════════════
-        // RUNTIME ANALYSIS & DEBUGGING
+        // TESTING & RUNTIME ANALYSIS
         // ═══════════════════════════════════════════════════════════════
-        runtime_analysis: {
-          description: 'Tools and APIs for testing skills, inspecting execution traces, and diagnosing issues at runtime. Use these to understand WHY a skill behaves a certain way — not just whether it works.',
+        testing_and_runtime: {
+          description: 'Complete guide to testing deployed solutions, monitoring execution, and diagnosing issues. Covers the full lifecycle: pre-deploy checks → functional testing → multi-turn conversations → job monitoring → performance analysis → debugging.',
 
-          testing: {
-            description: 'Send test messages to deployed skills and inspect the results.',
+          // ── 1. PRE-DEPLOY CHECKS ──
+          pre_deploy_checks: {
+            description: 'Verify the solution is ready before testing.',
             tools: {
-              'ateam_test_skill(solution_id, skill_id, message)': {
-                description: 'Send a message to a skill and get the full execution result. Default: waits for completion (up to 60s).',
-                sync_mode: 'Returns the complete result including response text, tool calls made, and timing.',
-                async_mode: 'Set wait:false to get a job_id immediately. Poll with ateam_test_status for progress.',
+              'ateam_get_solution(solution_id, "health")': {
+                description: 'Cross-checks Builder definition vs Core state.',
+                returns: 'Skills deployed, connectors connected, issues found.',
+                use_when: 'After any deploy — confirm everything is running.',
               },
-              'ateam_test_status(solution_id, skill_id, job_id)': {
-                description: 'Poll progress of an async test job. Hidden tool — not in default list, but callable by name.',
-                returns: 'Iteration count, tool call steps, status (in_progress/done/failed), pending questions, and final result when complete.',
-                usage: 'After ateam_test_skill(wait:false) returns a job_id, call this every few seconds until status is done or failed.',
+              'ateam_get_solution(solution_id, "connectors_health")': {
+                description: 'Connector-level detail.',
+                returns: 'Status (connected/disconnected), transport, tool count, errors per connector.',
+                use_when: 'Debugging "unknown connector" or 0-tool issues.',
               },
-              'ateam_test_pipeline(solution_id, skill_id, message)': {
-                description: 'Test intent detection + planning WITHOUT executing tools. Fast — returns in <2s.',
-                returns: 'Intent classification (which intent matched, confidence), first planned action, and timing.',
-                use_when: 'Debugging why a skill routes incorrectly or plans the wrong action. No side effects.',
-              },
-              'ateam_test_connector(solution_id, connector_id, tool, args)': {
-                description: 'Call a single tool on a running connector directly. Bypasses the skill entirely.',
-                use_when: 'Testing if a connector tool works before wiring it into a skill. Debugging tool-level issues.',
-              },
-              'ateam_test_voice(solution_id, messages[], phone_number?)': {
-                description: 'Simulate a multi-turn voice conversation. Runs the full voice pipeline (session → verification → routing → response).',
-                use_when: 'Testing voice-enabled solutions end-to-end without making a phone call.',
+              'ateam_get_solution(solution_id, "status")': {
+                description: 'Deploy status overview.',
+                returns: 'Which skills are deployed, their MCP ports, tool counts, internal IDs.',
+                use_when: 'Verifying skill deployment after build_and_run or redeploy.',
               },
             },
-          },
-
-          execution_logs: {
-            description: 'Inspect what happened during a job — every tool call, every decision, every error.',
-            endpoint: 'GET /deploy/solutions/:id/logs',
-            query_params: {
-              'job_id': 'Get trace for a specific job (from ateam_test_skill response)',
-              'skill_id': 'Filter logs to a specific skill',
-              'limit': 'Number of recent jobs to return (default: 10)',
-            },
-            returns: {
-              description: 'Array of job records, each containing:',
-              fields: [
-                'job_id — unique execution ID',
-                'skill_id — which skill handled it',
-                'status — completed, failed, timeout',
-                'steps[] — ordered list of execution steps:',
-                '  - step type (tool_call, llm_response, intent_match)',
-                '  - tool name + arguments + result',
-                '  - duration_ms per step',
-                '  - errors (if any)',
-                'total_duration_ms — end-to-end timing',
-                'input message and final response',
-              ],
-            },
-            debug_workflow: [
-              '1. Run ateam_test_skill(solution_id, skill_id, "test message") — get job_id from response',
-              '2. GET /deploy/solutions/:id/logs?job_id=<job_id> — see full execution trace',
-              '3. Check: did the right intent match? Were the right tools called? Did any tool error?',
-              '4. If intent wrong → fix intents with ateam_patch',
-              '5. If tool error → fix connector with ateam_github_patch + ateam_upload_connector',
-              '6. If response wrong → fix persona/guardrails with ateam_patch',
+            checklist: [
+              '1. ateam_get_solution(id, "health") — all skills deployed? all connectors connected?',
+              '2. ateam_get_solution(id, "connectors_health") — any connector with 0 tools?',
+              '3. If issues found → fix and redeploy before testing.',
             ],
           },
 
-          execution_metrics: {
-            description: 'Aggregate performance data — timing, bottlenecks, tool usage patterns.',
-            endpoint: 'GET /deploy/solutions/:id/metrics',
-            query_params: {
-              'job_id': 'Metrics for a specific job',
-              'skill_id': 'Metrics for a specific skill (aggregated)',
-              'limit': 'Number of recent jobs to analyze',
+          // ── 2. CONVERSATION TESTING (RECOMMENDED) ──
+          conversation_testing: {
+            description: 'The primary testing tool. Sends messages to the solution as a user would — the system auto-routes to the right skill. Supports multi-turn conversations for flows that require confirmations, follow-ups, or handoffs between skills.',
+            tool: 'ateam_conversation(solution_id, message, actor_id?, wait?, timeout_ms?)',
+            params: {
+              solution_id: 'The solution to test',
+              message: 'The user message (e.g., "send email to X" or "I confirm")',
+              actor_id: 'Optional. Omit for a new conversation. Pass the actor_id from a previous response to continue the thread.',
+              wait: 'true (default) = wait for completion. false = return job_id for async polling.',
+              timeout_ms: 'Max wait time in ms (default: 60000, max: 300000).',
             },
             returns: {
-              description: 'Performance breakdown:',
-              fields: [
-                'avg/p50/p95 response times',
-                'tool call frequency — which tools are called most',
-                'tool duration — which tools are slowest',
-                'error rate — which tools fail most often',
-                'intent distribution — which intents trigger most',
-                'replan count — how often the planner retries',
-              ],
+              job_id: 'Unique job ID for this execution',
+              actor_id: 'Actor ID — reuse this to continue the conversation',
+              status: 'completed, failed, timeout, running',
+              result: 'The skill response text',
+              steps: 'Ordered list of tool calls made during execution',
+              duration_ms: 'End-to-end execution time',
             },
-            use_when: 'Optimizing a skill that feels slow, identifying unused tools, or finding error patterns.',
+            multi_turn_flow: [
+              '1. r = ateam_conversation(solution_id, "send test email to john@example.com")',
+              '   → { job_id: "job_abc", actor_id: "test_17...", result: "I\'ll send that email. Please confirm.", status: "completed" }',
+              '',
+              '2. r = ateam_conversation(solution_id, "I confirm", actor_id: r.actor_id)',
+              '   → { job_id: "job_def" (new job), actor_id: "test_17..." (same), result: "Email sent!", status: "completed" }',
+              '',
+              '3. r = ateam_conversation(solution_id, "now check my calendar", actor_id: r.actor_id)',
+              '   → Routes to a different skill automatically, same conversation thread',
+            ],
+            key_concepts: {
+              actor_id: 'The conversation thread. Same actor_id = Core treats messages as a continuation. Each message creates a new job_id but the actor provides context.',
+              auto_routing: 'No skill_id needed. The solution\'s routing config (orchestrator, handoff triggers) determines which skill handles the message.',
+              test_prefix: 'Auto-generated actor_ids start with "test_" — these are auto-cleaned after 24 hours.',
+              custom_actor: 'You can pass your own actor_id (must start with "test_") for reproducible test sessions.',
+            },
           },
 
-          health_checks: {
-            description: 'Verify the deployed solution is healthy — skills running, connectors connected, tools discovered.',
+          // ── 3. TARGETED SKILL TESTING ──
+          targeted_testing: {
+            description: 'Test a specific skill directly — bypasses routing. Use when you know which skill should handle the message and want to verify it in isolation.',
             tools: {
-              'ateam_get_solution(solution_id, "health")': 'Cross-checks Builder definition vs Core state. Shows skills deployed, connectors connected, issues found.',
-              'ateam_get_solution(solution_id, "connectors_health")': 'Connector-level detail — status, transport, tool count, errors.',
-              'ateam_get_solution(solution_id, "status")': 'Deploy status — which skills are deployed, their ports, tool counts.',
+              'ateam_test_skill(solution_id, skill_id, message, wait?)': {
+                description: 'Send a message directly to a specific skill.',
+                sync_mode: 'wait=true (default): waits for completion, returns full result with steps.',
+                async_mode: 'wait=false: returns job_id immediately. Poll with ateam_test_status.',
+                returns: 'job_id, actor_id, skill_slug, status, result, steps, duration_ms.',
+                supports_actor_id: 'Pass actor_id in the request body to continue a conversation within this skill.',
+              },
+              'ateam_test_status(solution_id, skill_id, job_id)': {
+                description: 'Poll an async job\'s progress. Hidden tool — not in default list, but callable by name.',
+                returns: 'iteration count, tool call steps, status (in_progress/done/failed), pending_question, result.',
+                usage: 'Call every 3-5 seconds after ateam_test_skill(wait:false) until status is done or failed.',
+              },
+              'ateam_test_pipeline(solution_id, skill_id, message)': {
+                description: 'Test ONLY intent detection + planning — no tool execution. Fast (<2s), no side effects.',
+                returns: 'Intent classification (which intent matched, confidence score), first planned action.',
+                use_when: 'Debugging routing — "why did the skill pick intent X instead of Y?"',
+              },
             },
           },
 
-          typical_debug_scenarios: {
+          // ── 4. CONNECTOR TESTING ──
+          connector_testing: {
+            description: 'Test individual connector tools in isolation — bypasses skills entirely. Useful for verifying connector code before wiring tools into skills.',
+            tool: 'ateam_test_connector(solution_id, connector_id, tool, args?)',
+            examples: [
+              'ateam_test_connector("my-solution", "home-assistant-mcp", "rooms.list") — list all rooms',
+              'ateam_test_connector("my-solution", "gmail-mcp", "gmail.status") — check Gmail connection',
+              'ateam_test_connector("my-solution", "memory-mcp", "memory.recall", { query: "user preferences" }) — search memories',
+            ],
+            use_when: [
+              'A skill calls a connector tool and gets an error — test the tool directly to isolate the issue.',
+              'After updating connector code — verify the tool works before testing the full skill.',
+              'Exploring what a connector returns — understand the data shape before writing skill logic.',
+            ],
+          },
+
+          // ── 5. VOICE TESTING ──
+          voice_testing: {
+            description: 'Simulate multi-turn phone conversations without making a real call. Runs the full voice pipeline.',
+            tool: 'ateam_test_voice(solution_id, messages[], phone_number?, skill_slug?, timeout_ms?)',
+            flow: 'Sends messages sequentially, simulating a caller. Each turn goes through: session → caller verification → routing → skill execution → response.',
+            params: {
+              messages: 'Array of user messages in conversation order (e.g., ["hi", "check my appointments", "cancel the 3pm one"])',
+              phone_number: 'Optional: simulated caller number. If in the solution\'s known phones list, auto-verified.',
+              skill_slug: 'Optional: target a specific skill instead of using voice routing.',
+            },
+            use_when: 'Testing voice-enabled solutions end-to-end. Verifying caller verification, voice routing, and multi-turn voice flows.',
+          },
+
+          // ── 6. EXECUTION LOGS ──
+          execution_logs: {
+            description: 'Inspect what happened during a job — every tool call, every decision, every error. The primary debugging tool after a test fails or behaves unexpectedly.',
+            endpoint: 'GET /deploy/solutions/:id/logs',
+            query_params: {
+              'job_id': 'Trace for a specific job (from test response)',
+              'skill_id': 'Filter to a specific skill\'s jobs',
+              'limit': 'Number of recent jobs (default: 10)',
+            },
+            returns: [
+              'job_id, skill_id, status (completed/failed/timeout)',
+              'steps[] — ordered execution steps: tool name, arguments, result, duration_ms, errors',
+              'total_duration_ms, input message, final response',
+            ],
+            workflow: [
+              '1. Run ateam_conversation or ateam_test_skill — note the job_id',
+              '2. GET /deploy/solutions/:id/logs?job_id=<job_id>',
+              '3. Inspect: right intent? right tools? any errors? slow steps?',
+            ],
+          },
+
+          // ── 7. EXECUTION METRICS ──
+          execution_metrics: {
+            description: 'Aggregate performance data across multiple jobs. Identify slow tools, error patterns, and bottlenecks.',
+            endpoint: 'GET /deploy/solutions/:id/metrics',
+            query_params: {
+              'job_id': 'Metrics for one job',
+              'skill_id': 'Aggregated metrics for one skill',
+              'limit': 'Number of recent jobs to analyze',
+            },
+            returns: [
+              'Response times (avg/p50/p95)',
+              'Tool call frequency and duration',
+              'Error rates per tool',
+              'Intent distribution',
+              'Replan count',
+            ],
+            use_when: 'Optimizing a slow skill, finding unused tools, or identifying error patterns across many executions.',
+          },
+
+          // ── 8. DEBUGGING SCENARIOS ──
+          debugging_scenarios: {
+            'Wrong skill handles the message': [
+              '1. ateam_conversation — note which skill_slug responded',
+              '2. ateam_test_pipeline on the orchestrator — check how it classified the intent',
+              '3. Fix: update orchestrator intents or handoff triggers with ateam_patch',
+            ],
             'Skill gives wrong answer': [
-              '1. ateam_test_pipeline — check if intent matched correctly',
+              '1. ateam_test_pipeline — did the right intent match?',
               '2. If wrong intent → ateam_patch to fix intent descriptions/examples',
               '3. If right intent, wrong tools → check logs for tool call sequence',
               '4. If right tools, wrong response → ateam_patch to fix persona/guardrails',
             ],
             'Skill times out': [
-              '1. Check logs for which tool took longest',
-              '2. ateam_test_connector to test that tool directly',
+              '1. Check logs — which tool took longest?',
+              '2. ateam_test_connector — test that tool directly',
               '3. If connector slow → fix connector code',
-              '4. If too many replans → adjust engine.rv2.max_iterations',
+              '4. If too many iterations → adjust engine.rv2.max_iterations',
             ],
             'Connector tool returns error': [
-              '1. ateam_test_connector to isolate the issue',
-              '2. ateam_get_connector_source to read the code',
+              '1. ateam_test_connector — isolate the issue',
+              '2. ateam_get_connector_source or ateam_github_read — read the code',
               '3. Fix with ateam_github_patch + ateam_upload_connector',
             ],
-            'Handoff not working': [
-              '1. ateam_test_pipeline on the source skill — does it plan a handoff?',
-              '2. Check the handoff trigger description matches the user message',
-              '3. Check the target skill is in solution.linked_skills',
-              '4. Check the target skill is deployed: ateam_get_solution(id, "health")',
+            'Handoff ping-pong (skills loop)': [
+              '1. Check logs — two skills handing off to each other repeatedly',
+              '2. One skill lacks the tools it needs (e.g., Gmail tools not connected)',
+              '3. Fix: either add the missing connector to the skill, or update the orchestrator to not route there',
+            ],
+            'Confirmation prompt stuck (no reply)': [
+              '1. Use ateam_conversation with actor_id to reply: ateam_conversation(id, "I confirm", actor_id)',
+              '2. If testing via ateam_test_skill (no actor_id), the job will timeout — use ateam_conversation instead',
+            ],
+            'UI plugins missing after deploy': [
+              '1. ateam_get_solution(id, "connectors_health") — check if the UI connector is running',
+              '2. ateam_test_connector(id, connector_id, "ui.listPlugins") — verify plugins are registered',
+              '3. If missing: ateam_upload_connector(id, connector_id, github:true) — re-upload with HTML files',
             ],
           },
+
+          // ── TESTING BEST PRACTICES ──
+          best_practices: [
+            'Always run ateam_get_solution(id, "health") before testing — catch deploy issues early.',
+            'Use ateam_conversation for end-to-end tests — it tests routing + skill execution together.',
+            'Use ateam_test_pipeline for fast intent debugging — no side effects, <2s response.',
+            'Use ateam_test_connector to isolate connector issues — don\'t debug through the skill.',
+            'For multi-turn flows (confirmations, follow-ups): always use ateam_conversation with actor_id.',
+            'Check logs after failed tests — the steps array shows exactly what happened.',
+            'Test actors (test_ prefix) auto-expire after 24h — no cleanup needed.',
+          ],
         },
 
         tool_vs_system_tool: 'Your tools come from MCP connectors. System tools (sys.*, ui.*, cp.*) are provided by the A-Team runtime — do NOT define them in your tools array.',
