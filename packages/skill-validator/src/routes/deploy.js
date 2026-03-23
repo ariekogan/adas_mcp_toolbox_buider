@@ -2210,6 +2210,30 @@ router.post('/solutions/:solutionId/skills/:skillId/test', async (req, res) => {
 });
 
 /**
+ * POST /deploy/solutions/:solutionId/test — Test the solution (auto-routes, no skill_id needed)
+ * Body: { message: string, actor_id?: string, async?: boolean, timeout_ms?: number }
+ * Pass actor_id to continue a conversation thread.
+ */
+router.post('/solutions/:solutionId/test', async (req, res) => {
+  try {
+    const solId = encodeURIComponent(req.params.solutionId);
+    const isAsync = req.body?.async === true;
+    const timeoutMs = isAsync ? 15000 : Math.min((req.body?.timeout_ms || 60000) + 30000, 330000);
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/test`, {
+      method: 'POST',
+      headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] Solution test error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * POST /deploy/solutions/:solutionId/skills/:skillId/test-pipeline — Test decision pipeline only
  * Body: { message: string }
  */

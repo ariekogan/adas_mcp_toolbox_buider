@@ -1217,14 +1217,86 @@ function mapJobStatus(job) {
 }
 
 /**
+ * POST /api/solutions/:id/test — Test the solution (auto-routes to the right skill)
+ * Body: { message: string, actor_id?: string, async?: boolean, timeout_ms?: number }
+ * No skill_id needed — Core routes based on solution routing config.
+ * Pass actor_id to continue a conversation (same actor = same thread).
+ */
+router.post('/:id/test', async (req, res, next) => {
+  try {
+    const { message, async: asyncMode, timeout_ms, actor_id } = req.body;
+    if (!message) {
+      return res.status(400).json({ ok: false, error: 'message is required' });
+    }
+
+    const testActorId = actor_id || `test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    // No skillSlug — Core auto-routes based on solution config
+    const startResult = await adasCore.startChat({ goal: message, actorId: testActorId });
+    const jobId = startResult.jobId || startResult.id;
+
+    if (!jobId) {
+      return res.status(502).json({ ok: false, error: 'Failed to start job — no job ID returned' });
+    }
+
+    if (asyncMode === true) {
+      return res.json({
+        ok: true,
+        job_id: jobId,
+        actor_id: testActorId,
+        status: 'running',
+        message: 'Job started (auto-routed). Poll GET .../test/' + jobId + ' for progress. Use actor_id to continue the conversation.',
+      });
+    }
+
+    // Sync mode — poll until done
+    const TIMEOUT = Math.min(timeout_ms || 60000, 300000);
+    const POLL_INTERVAL = 2000;
+    const startTime = Date.now();
+    let job;
+
+    while (Date.now() - startTime < TIMEOUT) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+      try {
+        job = await adasCore.getJob(jobId);
+        if (isJobFinal(job)) break;
+      } catch { /* retry */ }
+    }
+
+    if (!job) {
+      return res.json({ ok: false, job_id: jobId, actor_id: testActorId, status: 'timeout', error: `Job did not complete within ${TIMEOUT / 1000}s` });
+    }
+
+    const steps = extractSteps(job);
+    const status = mapJobStatus(job);
+
+    res.json({
+      ok: status === 'completed',
+      job_id: jobId,
+      actor_id: testActorId,
+      status,
+      result: job.summary || job.outcome || job.result || null,
+      steps,
+      duration_ms: Date.now() - startTime,
+      error: job.error || job.state?.internal_error || null,
+    });
+  } catch (err) {
+    if (err.status === 502 || err.message?.includes('fetch failed')) {
+      return res.status(502).json({ ok: false, error: 'ADAS Core unreachable', details: err.message });
+    }
+    next(err);
+  }
+});
+
+/**
  * POST /api/solutions/:id/skills/:skillId/test — Test a skill with a message
- * Body: { message: string, async?: boolean, timeout_ms?: number }
+ * Body: { message: string, async?: boolean, timeout_ms?: number, actor_id?: string }
  * async=true: returns job_id immediately. Poll GET .../test/:jobId for progress.
  * async=false (default): starts job, polls until done, returns result.
  */
 router.post('/:id/skills/:skillId/test', async (req, res, next) => {
   try {
-    const { message, async: asyncMode, timeout_ms } = req.body;
+    const { message, async: asyncMode, timeout_ms, actor_id } = req.body;
     if (!message) {
       return res.status(400).json({ ok: false, error: 'message is required' });
     }
@@ -1238,10 +1310,9 @@ router.post('/:id/skills/:skillId/test', async (req, res, next) => {
       skillSlug = req.params.skillId;
     }
 
-    // Generate a unique actorId per test invocation so the Core's job
-    // continuation logic (highLevelPlan.js) doesn't confuse this test
-    // with a "continue" on a previous test run.
-    const testActorId = `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // Use caller's actor_id for conversation continuity, or generate a new one.
+    // Same actor_id = Core treats it as a continuation of the same conversation.
+    const testActorId = actor_id || `test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     // Start the job
     const startResult = await adasCore.startChat({ goal: message, skillSlug, actorId: testActorId });
@@ -1256,9 +1327,10 @@ router.post('/:id/skills/:skillId/test', async (req, res, next) => {
       return res.json({
         ok: true,
         job_id: jobId,
+        actor_id: testActorId,
         skill_slug: skillSlug,
         status: 'running',
-        message: 'Job started. Poll GET .../test/' + jobId + ' for progress.',
+        message: 'Job started. Poll GET .../test/' + jobId + ' for progress. Use actor_id to continue the conversation.',
       });
     }
 
@@ -1289,6 +1361,7 @@ router.post('/:id/skills/:skillId/test', async (req, res, next) => {
     res.json({
       ok: status === 'completed',
       job_id: jobId,
+      actor_id: testActorId,
       skill_slug: skillSlug,
       status,
       result: job.summary || job.outcome || job.result || null,
