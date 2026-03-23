@@ -1639,6 +1639,41 @@ function buildSkillSpec() {
               test_prefix: 'Auto-generated actor_ids start with "test_" — these are auto-cleaned after 24 hours.',
               custom_actor: 'You can pass your own actor_id (must start with "test_") for reproducible test sessions.',
             },
+
+            example_scenario: {
+              title: 'E2E test: "Delete old emails from trash"',
+              description: 'A multi-turn test that exercises routing, handoff, confirmation, and follow-up.',
+              steps: [
+                {
+                  step: 1,
+                  action: 'Send initial message',
+                  call: 'r = ateam_conversation("personal-adas", "delete all emails older than 7 days from my Gmail trash")',
+                  response: '{ job_id: "job_abc", actor_id: "test_171...", status: "completed", result: "I found 25 emails in your Gmail Trash older than 7 days. Permanently deleting them is irreversible. Should I proceed?" }',
+                  agent_decision: 'The result is a question asking for confirmation. This is NOT a final answer — I need to reply.',
+                },
+                {
+                  step: 2,
+                  action: 'Reply with confirmation',
+                  call: 'r = ateam_conversation("personal-adas", "yes, delete them", actor_id: "test_171...")',
+                  response: '{ job_id: "job_def", actor_id: "test_171...", status: "completed", result: "Done! Permanently deleted 25 emails from Gmail Trash." }',
+                  agent_decision: 'The result confirms the action was taken. This is a final answer — test complete.',
+                },
+                {
+                  step: 3,
+                  action: 'Verify (optional follow-up in same thread)',
+                  call: 'r = ateam_conversation("personal-adas", "how many emails are left in trash now?", actor_id: "test_171...")',
+                  response: '{ job_id: "job_ghi", actor_id: "test_171...", status: "completed", result: "Your Gmail Trash is empty." }',
+                  agent_decision: 'Verification confirms the deletion worked. Test passed.',
+                },
+              ],
+              what_happened_behind_the_scenes: [
+                'Step 1: Core routed to pa-orchestrator → orchestrator handed off to messaging-agent (email management)',
+                'Step 1: messaging-agent called gmail.search, found 25 emails, asked for confirmation (per its destructive-action policy)',
+                'Step 2: Same actor_id → Core continued the conversation with messaging-agent → agent called gmail.trash to delete',
+                'Step 3: Same actor_id → messaging-agent called gmail.search again to verify',
+              ],
+              key_takeaway: 'The agent (you) decides what\'s a question vs a final answer by reading the result text. The platform just executes and returns results. Multi-turn works by reusing actor_id.',
+            },
           },
 
           // ── 3. TARGETED SKILL TESTING ──
