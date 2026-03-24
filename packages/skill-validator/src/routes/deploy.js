@@ -1644,9 +1644,31 @@ router.get('/solutions/:solutionId/connectors/health', async (req, res) => {
  */
 router.patch('/solutions/:solutionId/skills/:skillId', async (req, res) => {
   try {
-    const solId = encodeURIComponent(req.params.solutionId);
-    const skillId = encodeURIComponent(req.params.skillId);
-    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}`, {
+    const solId = req.params.solutionId;
+    const skillId = req.params.skillId;
+    const tenant = req.headers['x-adas-tenant'];
+
+    // Ensure Builder FS has latest from GitHub before patching
+    if (tenant && github.isEnabled()) {
+      try {
+        const ghContent = await github.readFile(tenant, solId, `skills/${skillId}/skill.json`);
+        if (ghContent) {
+          // Write GitHub version to Builder FS (write only, no deploy)
+          await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/skills`, {
+            method: 'POST',
+            headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+            body: ghContent,
+            signal: AbortSignal.timeout(10000),
+          });
+          console.log(`[Deploy] Patch ${skillId}: synced from GitHub before applying patch`);
+        }
+      } catch (ghErr) {
+        console.warn(`[Deploy] Patch ${skillId}: GitHub sync failed (${ghErr.message}), using Builder FS`);
+      }
+    }
+
+    // Now apply the patch on top of the current (synced) version
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/skills/${encodeURIComponent(skillId)}`, {
       method: 'PATCH',
       headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body),
