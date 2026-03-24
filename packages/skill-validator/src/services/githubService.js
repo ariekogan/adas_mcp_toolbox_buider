@@ -128,6 +128,33 @@ export function isEnabled() {
 }
 
 /**
+ * List all solution repos for a tenant.
+ * Repos follow the naming convention: {tenant}--{solutionId}
+ * @returns {Array<{solutionId: string, repo_url: string}>}
+ */
+export async function listTenantRepos(tenant) {
+  const prefix = `${tenant}--`;
+  const repos = await gh('GET', `/users/${OWNER}/repos?per_page=100&sort=updated`);
+  return repos
+    .filter(r => r.name.startsWith(prefix))
+    .map(r => ({
+      solutionId: r.name.slice(prefix.length),
+      repo_url: r.html_url,
+    }));
+}
+
+/**
+ * List directory entries in a repo path.
+ * @returns {Array<string>} directory names
+ */
+export async function listDir(tenant, solutionId, dirPath, branch = 'main') {
+  const name = repoName(tenant, solutionId);
+  const fullName = `${OWNER}/${name}`;
+  const contents = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(dirPath)}?ref=${branch}`);
+  return contents.filter(c => c.type === 'dir').map(c => c.name);
+}
+
+/**
  * Ensure a repo exists under the owner. Creates if not found.
  * Properly distinguishes 404 (not found) from other errors.
  * @returns {{ repo_url, created }} — created=true if newly created

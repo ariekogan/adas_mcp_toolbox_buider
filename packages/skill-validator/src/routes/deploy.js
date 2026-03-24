@@ -1386,6 +1386,61 @@ router.get('/solutions', async (req, res) => {
       signal: AbortSignal.timeout(15000),
     });
     const data = await resp.json();
+    const solutions = data.solutions || [];
+
+    // Auto-sync: if Builder FS is empty, rebuild from GitHub
+    if (solutions.length === 0 && github.isEnabled()) {
+      const tenant = req.headers['x-adas-tenant'];
+      if (tenant) {
+        try {
+          const repos = await github.listTenantRepos(tenant);
+          for (const { solutionId } of repos) {
+            console.log(`[AutoSync] Builder FS empty for ${tenant}, syncing "${solutionId}" from GitHub...`);
+            // Read solution.json
+            const solContent = await github.readFile(tenant, solutionId, 'solution.json');
+            if (!solContent) continue;
+            const solJson = JSON.parse(solContent);
+            // Import solution to Builder FS
+            await fetch(`${SKILL_BUILDER_URL}/api/solutions`, {
+              method: 'POST',
+              headers: sbHeaders(req),
+              body: JSON.stringify(solJson),
+              signal: AbortSignal.timeout(10000),
+            });
+            // Read and import skills
+            try {
+              const skillDirs = await github.listDir(tenant, solutionId, 'skills');
+              for (const skillDir of skillDirs) {
+                try {
+                  const skillContent = await github.readFile(tenant, solutionId, `skills/${skillDir}/skill.json`);
+                  if (skillContent) {
+                    await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solutionId}/skills`, {
+                      method: 'POST',
+                      headers: sbHeaders(req),
+                      body: JSON.stringify(JSON.parse(skillContent)),
+                      signal: AbortSignal.timeout(10000),
+                    });
+                  }
+                } catch (skErr) {
+                  console.warn(`[AutoSync] Skill ${skillDir}: ${skErr.message}`);
+                }
+              }
+            } catch { /* no skills dir */ }
+            console.log(`[AutoSync] Synced ${solutionId} (${repos.length > 0 ? 'from GitHub' : 'empty'})`);
+          }
+          // Re-fetch after sync
+          const resp2 = await fetch(`${SKILL_BUILDER_URL}/api/solutions`, {
+            headers: sbHeaders(req),
+            signal: AbortSignal.timeout(15000),
+          });
+          const data2 = await resp2.json();
+          return res.status(resp2.status).json(data2);
+        } catch (syncErr) {
+          console.warn(`[AutoSync] GitHub sync failed: ${syncErr.message}`);
+        }
+      }
+    }
+
     res.status(resp.status).json(data);
   } catch (err) {
     console.error('[Deploy] List solutions error:', err.message);
