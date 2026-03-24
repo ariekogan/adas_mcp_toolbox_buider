@@ -51,7 +51,10 @@ export async function refreshTenantCache() {
       _cachedTenantIds = json.tenants.map(t => t.id);
       _cacheTime = Date.now();
       console.log(`[tenantContext] Loaded ${_cachedTenantIds.length} tenants from ADAS Core`);
+      return _cachedTenantIds;
     }
+    // Core returned non-ok (401, 404, etc.) — fall through to filesystem
+    throw new Error(`Core returned ok=${json.ok}`);
   } catch (err) {
     console.warn(`[tenantContext] Failed to fetch tenants from ADAS Core: ${err.message}`);
     // Fallback: scan /tenants/ directory for tenant directories
