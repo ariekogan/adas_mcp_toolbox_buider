@@ -12,6 +12,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
+import fs from "node:fs";
 
 const als = new AsyncLocalStorage();
 
@@ -52,7 +53,19 @@ export async function refreshTenantCache() {
       console.log(`[tenantContext] Loaded ${_cachedTenantIds.length} tenants from ADAS Core`);
     }
   } catch (err) {
-    console.warn(`[tenantContext] Failed to fetch tenants from ADAS Core: ${err.message} (using cached: ${_cachedTenantIds.join(",")})`);
+    console.warn(`[tenantContext] Failed to fetch tenants from ADAS Core: ${err.message}`);
+    // Fallback: scan /tenants/ directory for tenant directories
+    try {
+      const entries = fs.readdirSync(TENANTS_ROOT, { withFileTypes: true });
+      const dirs = entries.filter(e => e.isDirectory() && e.name !== 'connectors').map(e => e.name);
+      if (dirs.length > 0) {
+        _cachedTenantIds = dirs;
+        _cacheTime = Date.now();
+        console.log(`[tenantContext] Loaded ${dirs.length} tenants from filesystem: ${dirs.join(",")}`);
+      }
+    } catch (fsErr) {
+      console.warn(`[tenantContext] Filesystem fallback failed: ${fsErr.message} (using cached: ${_cachedTenantIds.join(",")})`);
+    }
   }
   return _cachedTenantIds;
 }
