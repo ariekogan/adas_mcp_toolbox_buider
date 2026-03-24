@@ -14,11 +14,12 @@
 1. [Overview](#overview)
 2. [Authentication](#authentication)
 3. [Core Concepts](#core-concepts)
-4. [Tool Reference](#tool-reference)
-5. [Workflows](#workflows)
-6. [Examples](#examples)
-7. [Error Handling](#error-handling)
-8. [Best Practices](#best-practices)
+4. [Multi-Agent Routing (System Tools)](#multi-agent-routing-system-tools)
+5. [Tool Reference](#tool-reference)
+6. [Workflows](#workflows)
+7. [Examples](#examples)
+8. [Error Handling](#error-handling)
+9. [Best Practices](#best-practices)
 
 ---
 
@@ -118,6 +119,98 @@ A complete snapshot of a solution including:
 - Full re-importable state
 
 **Used by:** `ateam_github_push` to create version snapshots, `ateam_github_pull` to restore versions
+
+### Multi-Agent Routing (System Tools)
+
+For complex solutions with 3+ skills, A-Team provides platform-level system tools that enable skills to discover, query, and delegate to each other at runtime. These are **system tools** — do NOT define them in your `tools` array. They are automatically available to all skills.
+
+**When to use:** Solutions where skills need to collaborate, route requests, or query each other's domains. Single-skill solutions should exclude these via `exclude_bootstrap_tools`.
+
+#### `sys.findCapability(query, top_k?, rebuild?)`
+Search all skills to find which skill and tools can handle a request. Uses a prebuilt capability index — **zero LLM cost** at query time.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `query` | string | Yes | Natural language (e.g., "delete old emails") |
+| `top_k` | number | No | Max results (default: 5, max: 10) |
+| `rebuild` | boolean | No | Force rebuild index (expensive) |
+
+**Returns:** `results[{ capability, skill, skillName, tools, intent, confidence, matchScore }]`
+
+The capability index auto-builds from skill definitions (tool names, descriptions, intents) and auto-rebuilds on skill deploy.
+
+#### `sys.askSkill(to_skill, message, timeout_seconds?)`
+Query another skill and wait for the answer. **Non-terminal** — the calling skill continues with the response.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `to_skill` | string | Yes | Target skill slug |
+| `message` | string | Yes | Natural language request |
+| `timeout_seconds` | number | No | Max wait (default: 60, max: 120) |
+
+**Returns:** `{ ok, answer, sub_job_id, skill, elapsed_ms }`
+
+Creates a sub-job on the target skill, polls for completion, returns the answer text.
+
+#### `sys.listSkills()`
+List all skills in the solution with descriptions, connectors, and supported intents. Zero cost.
+
+**Returns:** `{ ok, count, skills[{ slug, name, description, connectors, intentCount, intents, toolCount }] }`
+
+#### `sys.handoffToSkill(to_skill, grants?, summary?, original_goal?, ttl_seconds?)`
+Transfer the conversation entirely to another skill. **Terminal** — the calling skill's job ends.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `to_skill` | string | Yes | Target skill slug |
+| `grants` | object | No | Verified claims to pass |
+| `summary` | string | No | What happened before handoff |
+| `original_goal` | string | No | User's original request |
+| `ttl_seconds` | number | No | Session TTL (default: 3600) |
+
+#### Common Patterns
+
+**Discover then delegate:** `sys.findCapability("delete old emails")` finds messaging-agent, then `sys.handoffToSkill("messaging-agent")` transfers the conversation.
+
+**Discover then query:** `sys.findCapability("calendar events")` finds life-manager, then `sys.askSkill("life-manager", "What's on my calendar today?")` gets the answer, and the calling skill continues building its response.
+
+**Direct query:** `sys.askSkill("messaging-agent", "Check for unread emails from GitHub")` when the target skill is already known.
+
+#### Cost Profile
+
+| Tool | LLM Cost | Latency |
+|------|----------|---------|
+| `sys.findCapability` | Zero (query) | ~5ms |
+| `sys.listSkills` | Zero | ~10ms |
+| `sys.askSkill` | Target skill's execution | 2-60s |
+| `sys.handoffToSkill` | Zero (relay starts async) | ~50ms |
+
+### Skill Tool Naming & Wildcards
+
+Each tool in a skill's `tools` array has a `name` that matches an MCP connector tool. The naming convention is `connector-id.tool-name` (e.g., `gmail.send`, `memory.recall`).
+
+**Wildcard support:** Use `connector-id:*` to grant a skill access to ALL tools from a connector, without listing each one individually.
+
+```json
+{
+  "tools": [
+    { "name": "mobile-device-mcp:*", "description": "All device tools" },
+    { "name": "gmail.status", "description": "Check Gmail connection" },
+    { "name": "gmail.send", "description": "Send email" },
+    { "name": "memory.recall", "description": "Search memories" }
+  ]
+}
+```
+
+**Mixing wildcards and individual tools:** You can combine both in the same skill. A tool passes the filter if it matches EITHER an individual name OR a wildcard connector. In the example above, the skill gets ALL `mobile-device-mcp` tools plus specific `gmail` and `memory` tools.
+
+**When to use wildcards:**
+- Connectors with many tools where the skill needs all of them (e.g., device adapters, smart home)
+- Rapidly evolving connectors where new tools should auto-expose to the skill
+
+**When NOT to use wildcards:**
+- When the skill should only access specific tools for security/policy reasons
+- When you need per-tool policy rules (approval, rate limits)
 
 ---
 

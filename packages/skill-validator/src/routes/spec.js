@@ -705,7 +705,7 @@ function buildSkillSpec() {
         item_schema: {
           id: { type: 'string', required: true, description: 'Unique tool ID (e.g., "tool-orders-get")' },
           id_status: { type: 'enum', values: ['temporary', 'permanent'], description: 'Whether this ID is provisional or finalized' },
-          name: { type: 'string', required: true, description: 'Tool name matching MCP tool (e.g., "orders.order.get")' },
+          name: { type: 'string', required: true, description: 'Tool name matching MCP tool (e.g., "orders.order.get"). Supports wildcard: "connector-id:*" grants access to ALL tools from that connector (e.g., "mobile-device-mcp:*"). You can mix wildcards and individual tools in the same skill.' },
           description: { type: 'string', required: true, description: 'What this tool does' },
           inputs: {
             type: 'array', required: true,
