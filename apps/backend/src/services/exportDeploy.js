@@ -211,8 +211,14 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
       skillDef.ui_plugins = compiledPlugins;
     }
 
-    await adasCore.importSkill(skillSlug, skillDef);
-    log.info(`[MCP Deploy] Registered skill definition for "${skillSlug}" in ADAS Core`);
+    // Load solution definition to pass to Core (for solution-level routing/orchestrator config)
+    let solutionDef = null;
+    try {
+      solutionDef = await solutionsStore.load(solutionId);
+    } catch { /* solution not in Builder FS — OK, deploy without it */ }
+
+    await adasCore.importSkill(skillSlug, skillDef, solutionDef);
+    log.info(`[MCP Deploy] Registered skill definition for "${skillSlug}" in ADAS Core${solutionDef ? ' (with solution)' : ''}`);
   } catch (err) {
     log.warn(`[MCP Deploy] Skill import warning (non-fatal): ${err.message}`);
   }

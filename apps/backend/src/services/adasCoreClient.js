@@ -138,10 +138,14 @@ async function deployMcp(skillSlug, mcpServer, requirements) {
 /**
  * Register a skill definition so it appears in GET /api/skills.
  */
-async function importSkill(skillSlug, skillDef) {
+async function importSkill(skillSlug, skillDef, solutionDef = null) {
+  const body = { skillSlug, skill: skillDef };
+  if (solutionDef && typeof solutionDef === 'object' && solutionDef.id) {
+    body.solution = solutionDef;
+  }
   return request('/api/skills/import', {
     method: 'POST',
-    body: { skillSlug, skill: skillDef },
+    body,
   });
 }
 
