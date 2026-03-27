@@ -59,6 +59,10 @@ export function resolveReferences(skill, unresolved) {
   const toolIds = new Set((skill.tools || []).map(t => t.id).filter(Boolean));
   const toolNames = new Set((skill.tools || []).filter(t => t.name).map(t => t.name.toLowerCase()));
 
+  // Track connector wildcards (e.g., "mobile-device-mcp:*") — when present,
+  // tool references that aren't individually listed may still be valid at runtime.
+  const hasWildcardTools = (skill.tools || []).some(t => t.name && t.name.endsWith(':*'));
+
   // Also include meta_tools in the lookup (they are valid tool references)
   if (Array.isArray(skill.meta_tools)) {
     for (const mt of skill.meta_tools) {
@@ -88,12 +92,19 @@ export function resolveReferences(skill, unresolved) {
         if (!unresolved.tools.includes(stepId)) {
           unresolved.tools.push(stepId);
         }
+        // When connector wildcards are present, unresolved tools may still be valid
+        // at runtime (the wildcard pulls in all tools from that connector).
+        // Downgrade to info to avoid false positives.
         issues.push({
           code: 'TOOL_NOT_FOUND',
-          severity: 'warning', // Warning until export
+          severity: hasWildcardTools ? 'info' : 'warning',
           path: `policy.workflows[${wi}].steps[${si}]`,
-          message: `Tool "${stepId}" not found`,
-          suggestion: `Define tool "${stepId}" or remove from workflow`,
+          message: hasWildcardTools
+            ? `Tool "${stepId}" not found in explicit tool list (may be provided by a connector wildcard at runtime)`
+            : `Tool "${stepId}" not found`,
+          suggestion: hasWildcardTools
+            ? `This tool may be resolved at runtime via a connector wildcard. If not, define it explicitly.`
+            : `Define tool "${stepId}" or remove from workflow`,
         });
       }
     });
@@ -134,10 +145,14 @@ export function resolveReferences(skill, unresolved) {
       }
       issues.push({
         code: 'TOOL_NOT_FOUND',
-        severity: 'warning',
+        severity: hasWildcardTools ? 'info' : 'warning',
         path: `policy.approvals[${ri}].tool_id`,
-        message: `Tool "${rule.tool_id}" not found for approval rule`,
-        suggestion: `Define tool "${rule.tool_id}" or update the approval rule`,
+        message: hasWildcardTools
+          ? `Tool "${rule.tool_id}" not found in explicit tool list (may be provided by a connector wildcard at runtime)`
+          : `Tool "${rule.tool_id}" not found for approval rule`,
+        suggestion: hasWildcardTools
+          ? `This tool may be resolved at runtime via a connector wildcard. If not, define it explicitly.`
+          : `Define tool "${rule.tool_id}" or update the approval rule`,
       });
     }
   });
@@ -266,6 +281,10 @@ export function getUnresolvedToolRefs(skill) {
   const toolIds = new Set((skill.tools || []).map(t => t.id));
   const toolNames = new Set((skill.tools || []).map(t => (t.name || '').toLowerCase()));
 
+  // When connector wildcards are present, tool references may be resolved at runtime
+  // even if they're not in the explicit tool list. Skip unresolved detection.
+  const hasWildcardTools = (skill.tools || []).some(t => t.name && t.name.endsWith(':*'));
+
   // Also include meta_tools in the lookup
   if (Array.isArray(skill.meta_tools)) {
     for (const mt of skill.meta_tools) {
@@ -280,7 +299,8 @@ export function getUnresolvedToolRefs(skill) {
   for (const workflow of (skill.policy?.workflows || [])) {
     for (const stepId of (workflow.steps || [])) {
       if (!toolIds.has(stepId) && !toolNames.has(stepId.toLowerCase()) && !isSystemTool(stepId)) {
-        unresolved.add(stepId);
+        // With wildcards, this tool may be provided by a connector at runtime
+        if (!hasWildcardTools) unresolved.add(stepId);
       }
     }
   }
@@ -288,7 +308,7 @@ export function getUnresolvedToolRefs(skill) {
   // From approval rules
   for (const approval of (skill.policy?.approvals || [])) {
     if (approval.tool_id && !toolIds.has(approval.tool_id) && !toolNames.has(approval.tool_id.toLowerCase()) && !isSystemTool(approval.tool_id)) {
-      unresolved.add(approval.tool_id);
+      if (!hasWildcardTools) unresolved.add(approval.tool_id);
     }
   }
 

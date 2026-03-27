@@ -330,13 +330,21 @@ export function validateSecurity(skill) {
   (skill.access_policy?.rules || []).forEach((rule, i) => {
     (rule.tools || []).forEach((toolRef, j) => {
       if (toolRef === '*') return; // wildcard is always valid
+      if (toolRef.endsWith(':*')) return; // connector wildcard is always valid
+      // When connector wildcards are present in tools[], individual tool names
+      // may only be resolvable at runtime — downgrade to warning instead of error
+      const hasConnectorWildcards = (skill.tools || []).some(t => t.name && t.name.endsWith(':*'));
       if (!toolNames.has(toolRef) && !isSystemTool(toolRef)) {
         issues.push({
           code: 'ACCESS_POLICY_INVALID_TOOL',
-          severity: 'error',
+          severity: hasConnectorWildcards ? 'info' : 'error',
           path: `access_policy.rules[${i}].tools[${j}]`,
-          message: `Access policy rule references non-existent tool "${toolRef}"`,
-          suggestion: 'Update the tool name or define the missing tool',
+          message: hasConnectorWildcards
+            ? `Access policy rule references tool "${toolRef}" not in explicit tool list (may be provided by a connector wildcard at runtime)`
+            : `Access policy rule references non-existent tool "${toolRef}"`,
+          suggestion: hasConnectorWildcards
+            ? 'This tool may be resolved at runtime via a connector wildcard. If not, define it explicitly.'
+            : 'Update the tool name or define the missing tool',
         });
       }
     });

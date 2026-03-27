@@ -1553,6 +1553,36 @@ function buildSkillSpec() {
           deploying_ui_assets: 'Include ui-dist/ files in mcp_store alongside server code: { "my-connector": [{ path: "server.js", content: "..." }, { path: "ui-dist/my-plugin/1.0.0/index.html", content: "..." }] }. Both deploy and health check verify the HTML asset exists on disk via HTTP HEAD to /mcp-ui — missing files are reported as errors.',
           see_example: 'GET /spec/examples/connector-ui for a complete working example with correct AND wrong response formats.',
         },
+        connector_wildcard_tools: {
+          description: 'Use "connector-id:*" in a skill\'s tools[] array to grant access to ALL tools from a specific connector, without listing each tool individually. You can mix wildcards with individually-named tools from other connectors.',
+          syntax: '"connector-id:*" — e.g., "mobile-device-mcp:*"',
+          how_it_works: [
+            '1. At runtime, the skill\'s tools[] array acts as a whitelist for connector tools.',
+            '2. Tools with names ending in ":*" are treated as connector-level wildcards.',
+            '3. The connector ID is extracted (everything before ":*") and ALL tools from that connector pass the whitelist.',
+            '4. Individual tool names from other connectors are matched exactly.',
+            '5. Core/system tools and UI plugin tools are NOT affected by the whitelist — they are always available.',
+          ],
+          example_tools_array: [
+            '{ name: "mobile-device-mcp:*", id: "tool-mobile-all", description: "All mobile device tools (calendar, contacts, weather, etc.)" }',
+            '{ name: "memory.store", id: "tool-memory-store", description: "Store a memory", inputs: [...], output: {...} }',
+            '{ name: "memory.recall", id: "tool-memory-recall", description: "Recall memories", inputs: [...], output: {...} }',
+          ],
+          effect: 'The skill can use ALL tools from mobile-device-mcp (device.calendar.today, device.battery, etc.) plus only memory.store and memory.recall from the memory connector. Other tools from the memory connector are hidden from the planner.',
+          validation_notes: [
+            'Wildcard tools only need id, name, and description — inputs/output/mock are not required (since the real tool schemas come from the connector at runtime).',
+            'Workflow steps and approval rules referencing tools from a wildcard connector produce "info" severity (not "warning") since they cannot be resolved at design time.',
+            'The wildcard format must be exactly "connector-id:*" — the connector-id must not contain colons.',
+          ],
+          use_when: [
+            'A connector provides many tools and you want the skill to use ALL of them (e.g., a device connector with 20+ tools).',
+            'The connector is under active development and tools are added frequently — wildcards avoid updating the skill definition every time.',
+          ],
+          do_not_use_when: [
+            'You want fine-grained control over which tools from a connector are available to the planner.',
+            'The connector has tools that should NOT be accessible to this skill (security/scope reasons).',
+          ],
+        },
         // ═══════════════════════════════════════════════════════════════
         // TESTING & RUNTIME ANALYSIS
         // ═══════════════════════════════════════════════════════════════

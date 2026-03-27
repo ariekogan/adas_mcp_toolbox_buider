@@ -147,7 +147,13 @@ export function validateSchema(skill) {
 
   // Validate tools
   (skill.tools || []).forEach((tool, i) => {
-    issues.push(...validateTool(tool, `tools[${i}]`));
+    // Connector wildcard tools (e.g., "mobile-device-mcp:*") are references,
+    // not full tool definitions — skip inputs/output/mock validation.
+    if (tool.name && typeof tool.name === 'string' && tool.name.endsWith(':*')) {
+      issues.push(...validateWildcardTool(tool, `tools[${i}]`));
+    } else {
+      issues.push(...validateTool(tool, `tools[${i}]`));
+    }
   });
 
   // Validate policy
@@ -742,6 +748,47 @@ function validateTool(tool, path) {
       severity: 'error',
       path: `${path}.mock_status`,
       message: `Invalid mock_status: ${tool.mock_status}. Must be one of: ${validMockStatuses.join(', ')}`,
+    });
+  }
+
+  return issues;
+}
+
+/**
+ * Validate a connector wildcard tool entry (e.g., "mobile-device-mcp:*").
+ * Wildcard tools are references to all tools from a specific connector.
+ * They only need name and description — inputs, output, mock are not applicable.
+ */
+function validateWildcardTool(tool, path) {
+  const issues = [];
+
+  if (!tool.id || typeof tool.id !== 'string') {
+    issues.push({
+      code: 'MISSING_TOOL_ID',
+      severity: 'error',
+      path: `${path}.id`,
+      message: 'Tool ID is required',
+    });
+  }
+
+  // Validate the wildcard format: "connector-id:*"
+  const connectorId = tool.name.slice(0, -2); // strip ":*"
+  if (!connectorId || connectorId.includes(':')) {
+    issues.push({
+      code: 'INVALID_WILDCARD_FORMAT',
+      severity: 'error',
+      path: `${path}.name`,
+      message: `Invalid wildcard format: "${tool.name}". Expected "connector-id:*" (e.g., "mobile-device-mcp:*")`,
+    });
+  }
+
+  if (!tool.description || typeof tool.description !== 'string') {
+    issues.push({
+      code: 'INVALID_TOOL_DESCRIPTION',
+      severity: 'warning',
+      path: `${path}.description`,
+      message: 'Tool description is recommended for wildcard tools',
+      suggestion: `Add a description like "All tools from ${connectorId} connector"`,
     });
   }
 
