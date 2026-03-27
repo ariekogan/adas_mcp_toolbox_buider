@@ -1789,22 +1789,19 @@ function buildSkillSpec() {
               get_result: 'GET /api/jobs/<job_id> — poll until job.done is true (tooltest jobs complete in <3s)',
             },
             actor_id_convention: {
-              _IMPORTANT: 'Use a PERSISTENT QA actor — do NOT use auto-generated throwaway actors for QA. Multi-turn tests require conversation continuity, and throwaway actors lose context when they expire.',
-              recommended: {
-                'qa-automation': 'Persistent QA actor (no TTL). Created per tenant. Use this for all test automation.',
+              description: 'One actor per test session. Reuse the same actorId across all turns in that session for conversation continuity. Actor auto-expires in 24h — zero garbage.',
+              pattern: {
+                start_of_session: 'Generate: test-{timestamp}-{random} (e.g., "test-1711500000-abc123")',
+                all_turns_in_session: 'Reuse the same actorId for conversation continuity',
+                after_24h: 'Actor auto-expires via MongoDB TTL index — no cleanup needed',
               },
-              do_NOT_use_for_QA: {
-                'test-{timestamp}-{random}': 'Auto-expires in 24h — loses conversation context. Only for Skill Builder one-shot tests.',
-                'pipeline-test-{timestamp}-{random}': 'Auto-expires in 24h — same issue.',
-              },
-              setup: 'Create a persistent QA actor per tenant: db.actors.insertOne({ _id: "qa-automation", name: "QA Automation", actorType: "tester", createdAt: new Date() }). No TTL = persists forever.',
-              usage: 'Always pass actorId: "qa-automation" in test requests. The same actor maintains conversation continuity across all test sessions.',
+              auto_detection: 'Actors matching test-* or pipeline-test-* are auto-detected by isTestActor() and get a 24h TTL on creation.',
             },
             test_automation_example: {
               description: 'Bash script for CI/CD test automation.',
               steps: [
-                '1. Use persistent QA actor: ACTOR_ID="qa-automation"',
-                '2. Send tooltest: curl -s -X POST $BASE_URL/api/chat -H "Authorization: Bearer $PAT" -d \'{"message":"[tooltest:mock] device.battery {}","actorId":"qa-automation"}\'',
+                '1. Generate actor per session: ACTOR_ID="test-$(date +%s)-$(openssl rand -hex 4)"',
+                '2. Send tooltest: curl -s -X POST $BASE_URL/api/chat -H "Authorization: Bearer $PAT" -d \'{"message":"[tooltest:mock] device.battery {}","actorId":"\'$ACTOR_ID\'"}\'',
                 '3. Extract job_id from response',
                 '4. Wait ~3s (tooltest jobs are fast)',
                 '5. Read result: curl -s $BASE_URL/api/jobs/$JOB_ID -H "Authorization: Bearer $PAT"',
@@ -1825,7 +1822,7 @@ function buildSkillSpec() {
               'Full pipeline — SSE, finalization, conversation turn — same as normal messages.',
               'No LLM — bypasses intent detection, planning, and iteration loops entirely.',
               'Same auth — PAT token or JWT, same as regular chat.',
-              'Persistent QA actor — use "qa-automation" actorId for test automation (maintains conversation continuity across sessions).',
+              'Test actor per session — generate test-* actorId once, reuse for all turns, auto-expires in 24h.',
             ],
           },
 
