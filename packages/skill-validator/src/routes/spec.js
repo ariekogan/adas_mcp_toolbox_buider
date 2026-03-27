@@ -3029,6 +3029,108 @@ function buildSolutionSpec() {
         },
         routing_priority: 'Full routing priority: 1. Explicit skillSlug from caller → 2. Conversation continuity (actor\'s last active skill) → 3. Active handoff session → 4. Per-channel default_skill (routing.<channel>.default_skill) → 5. Global default_skill (policies.default_skill_slug) → 6. Auto-detect from deployed skills (gateway/orchestrator role → first skill). Clients never need to know internal skill slugs — just send the message and the platform routes it.',
       },
+      // ── Solution Architecture Decision (CRITICAL) ──
+      solution_topology: {
+        _CRITICAL: 'This is the FIRST and MOST IMPORTANT decision when designing a multi-skill solution. It determines how messages are routed, which system tools are auto-injected, and what handoff instructions Core adds to each skill\'s persona. Get this right and handoffs work automatically. Get it wrong and skills can\'t collaborate.',
+        description: 'Every A-Team solution falls into one of three topologies. Core auto-configures routing, system tool injection, and persona augmentation based on which topology you choose. The solution builder does NOT need to manually configure handoff logic — Core handles it.',
+        topologies: {
+          single_skill: {
+            description: 'One skill handles everything. No routing decisions needed.',
+            when_to_use: 'Simple use cases with one domain (e.g., order support, FAQ bot).',
+            solution_config: 'Just one entry in skills[]. No orchestrator_skill, no routing needed.',
+            auto_behavior: [
+              'No multi-agent system tools injected (sys.handoffToSkill, sys.askSkill, sys.findCapability, sys.listSkills are excluded).',
+              'Messages go directly to the single skill.',
+              'No persona augmentation for routing.',
+            ],
+            tip: 'Set exclude_bootstrap_tools: ["sys.handoffToSkill", "sys.askSkill", "sys.findCapability", "sys.listSkills"] to save planner token budget.',
+          },
+          orchestrator_based: {
+            description: 'One skill acts as the central router/coordinator. All inbound messages go to the orchestrator first, which decides which worker skill should handle each request.',
+            when_to_use: [
+              'Complex solutions with 3+ specialized skills (e.g., personal assistant with calendar, email, device management).',
+              'When you want centralized control over routing decisions.',
+              'When skills have overlapping domains and you need intelligent routing.',
+            ],
+            solution_config: {
+              how_to_activate: 'Set orchestrator_skill: "<orchestrator-skill-id>" at the solution level, OR set routing.<channel>.default_skill to point to an orchestrator-role skill.',
+              example: '{ "orchestrator_skill": "pa-orchestrator", "skills": [{ "id": "pa-orchestrator", "role": "orchestrator" }, { "id": "device-manager", "role": "worker" }, { "id": "messaging-agent", "role": "worker" }] }',
+            },
+            auto_behavior: [
+              'Orchestrator skill gets: sys.findCapability, sys.handoffToSkill, sys.askSkill, sys.listSkills auto-injected as bootstrap tools.',
+              'Worker skills get: sys.handoffToSkill, sys.askSkill auto-injected (so they can hand back to orchestrator or query siblings).',
+              'Core auto-injects routing instructions into each skill\'s persona at runtime — the orchestrator knows to discover and delegate, workers know to hand back when out of scope.',
+              'All inbound messages route to the orchestrator first. The orchestrator uses sys.findCapability + sys.handoffToSkill to route to the right worker.',
+              'After a worker finishes, subsequent messages from the same actor continue with that worker (conversation continuity) until the session expires or the worker hands back.',
+            ],
+            pattern: 'User → Orchestrator → sys.findCapability("send email") → messaging-agent found → sys.handoffToSkill("messaging-agent") → Worker handles request → Worker hands back to orchestrator when done or out of scope.',
+          },
+          symmetric: {
+            description: 'No central orchestrator. Each skill can discover capabilities and hand off directly to any other skill. Fully decentralized routing.',
+            when_to_use: [
+              'Solutions with 2-3 skills of equal importance (no natural "coordinator").',
+              'When each skill has a clear, non-overlapping domain.',
+              'When you want simpler architecture without a central point.',
+            ],
+            solution_config: {
+              how_to_activate: 'Multiple skills[] but NO orchestrator_skill field. Set routing.<channel>.default_skill to any skill (the entry point, but not a coordinator).',
+              example: '{ "skills": [{ "id": "life-manager", "role": "worker" }, { "id": "messaging-agent", "role": "worker" }], "routing": { "api": { "default_skill": "life-manager" } } }',
+            },
+            auto_behavior: [
+              'ALL skills get: sys.findCapability, sys.handoffToSkill, sys.askSkill, sys.listSkills auto-injected as bootstrap tools.',
+              'Core auto-injects handoff instructions into each skill\'s persona — every skill knows how to discover capabilities and hand off.',
+              'Messages route to the default_skill for that channel. If the default skill can\'t handle the request, it discovers and hands off.',
+              'Any skill can hand off to any other skill directly — no orchestrator in the middle.',
+            ],
+            pattern: 'User → Skill A → "I can\'t handle this" → sys.findCapability("device control") → Skill B found → sys.handoffToSkill("skill-b") → Skill B handles it.',
+          },
+        },
+        what_core_auto_handles: {
+          description: 'The solution builder does NOT need to implement any of these manually. Core handles them automatically based on the topology.',
+          auto_features: [
+            'System tool injection — sys.handoffToSkill, sys.askSkill, sys.findCapability, sys.listSkills are auto-pinned as bootstrap tools based on routing mode.',
+            'Persona augmentation — Core injects handoff instructions into each skill\'s prompt context at runtime, telling it when and how to hand off.',
+            'Conversation continuity — after a handoff, subsequent messages from the same actor automatically route to the current skill (no manual session tracking).',
+            'Handoff session management — sessions are created, tracked, and expired automatically by the platform.',
+            'Grant propagation — verified claims (grants) automatically flow between skills during handoffs.',
+            'Capability index — pre-built and cached, auto-refreshed when skills are deployed.',
+          ],
+        },
+        what_the_builder_must_do: {
+          description: 'The solution builder needs to make ONE architectural decision and define clear skill boundaries.',
+          responsibilities: [
+            '1. Choose topology: orchestrator-based or symmetric (this is the key decision).',
+            '2. Define skills[] with clear roles, domains, and problem statements.',
+            '3. Set orchestrator_skill (for orchestrator topology) or omit it (for symmetric).',
+            '4. Set routing.<channel>.default_skill to the entry point skill.',
+            '5. Define grant_mappings if skills need to share verified claims.',
+            '6. Define handoffs[] in the solution to declare which skill-to-skill transfers are allowed.',
+            '7. Write skill problem statements and intents with clear domain boundaries — this helps sys.findCapability route accurately.',
+          ],
+          do_NOT_do: [
+            'Do NOT manually write handoff instructions in skill personas — Core injects them automatically.',
+            'Do NOT manually manage handoff sessions — the platform handles creation, tracking, and expiry.',
+            'Do NOT implement custom routing logic — use orchestrator_skill or routing.default_skill.',
+            'Do NOT define sys.handoffToSkill as a regular tool in the skill definition — it\'s a system tool auto-injected by the platform.',
+          ],
+        },
+        decision_guide: {
+          question: 'How do I choose between orchestrator-based and symmetric?',
+          orchestrator_if: [
+            'You have 3+ skills with overlapping domains.',
+            'You want a single "brain" that decides where to route.',
+            'You need complex routing logic (e.g., verify identity first, then route to the right domain).',
+            'You want to add new worker skills without changing existing ones.',
+          ],
+          symmetric_if: [
+            'You have 2-3 skills with clear, non-overlapping domains.',
+            'Each skill can independently decide when it\'s out of scope.',
+            'You want simpler architecture with fewer moving parts.',
+            'No skill needs to coordinate across multiple other skills.',
+          ],
+        },
+      },
+
       // ── Multi-Agent Routing ──
       multi_agent_routing: {
         description: 'Platform-level system tools for multi-skill collaboration. Any skill can discover capabilities, query other skills, or delegate fully. Only relevant for solutions with 3+ skills — single-skill solutions should exclude these tools.',
