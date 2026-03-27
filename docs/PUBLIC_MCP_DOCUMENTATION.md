@@ -1484,5 +1484,71 @@ ateam_get_spec(topic="overview")      # API overview
 
 ---
 
-**Last Updated:** March 11, 2026
+## Tool Testing (Automation)
+
+Direct tool invocation for testing — bypasses the AI planner and calls connector tools directly.
+
+### Message Format
+
+```
+[tooltest] <tool_name> <json_args>
+```
+
+Sent as a regular chat message. The server intercepts the `[tooltest]` prefix, executes the tool, and returns the result as a conversation turn.
+
+### Modes
+
+| Mode | Format | Description |
+|------|--------|-------------|
+| Real | `[tooltest] tool.name {args}` | Executes against real connector (requires connected device/actor) |
+| Mock | `[tooltest:mock] tool.name {args}` | Returns schema example response (no device needed, for CI/CD) |
+
+### Examples
+
+```
+[tooltest] device.calendar.today {}
+[tooltest] device.calendar.upcoming {"days":3}
+[tooltest] device.calendar.create {"title":"Standup","date":"2026-03-28","start":"09:00","end":"09:30"}
+[tooltest] device.contacts.search {"query":"Sarah"}
+[tooltest] device.battery {}
+[tooltest] device.weather.current {}
+[tooltest] memory.list {"limit":5}
+[tooltest] triggers.list {}
+[tooltest] gmail.status {}
+[tooltest] sys.focusUiPlugin {"plugin_id":"mcp:personal-assistant-ui-mcp:schedule-panel"}
+```
+
+### Generic — Not Hardcoded
+
+The server parses any `[tooltest] <tool_name> <json_args>` and looks up the tool across all connected connectors and system tools. Any tool from any connector works.
+
+### API for Test Automation
+
+```bash
+# 1. Send tooltest message
+JOB=$(curl -s -X POST https://app.ateam-ai.com/api/chat \
+  -H "Authorization: Bearer $TENANT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"[tooltest] device.calendar.today {}","tenant":"mobile-pa"}' \
+  | jq -r '.jobId')
+
+# 2. Poll for result
+curl -s https://app.ateam-ai.com/api/conversation/$JOB \
+  -H "Authorization: Bearer $TENANT_TOKEN" \
+  | jq '.turn.result'
+```
+
+### Server Path
+
+```
+[tooltest] prefix → mainloop.js intercepts → callConnectorTool() → sysFinalizePlan() → conversation turn → result
+```
+
+### Auth
+
+Same as regular chat messages — requires valid tenant token. The actorId is implicit from the authenticated session.
+
+---
+
+**Last Updated:** March 27, 2026
 **Maintained By:** A-Team Core Team

@@ -1651,13 +1651,28 @@ router.patch('/solutions/:solutionId/skills/:skillId', async (req, res) => {
     // Ensure Builder FS has latest from GitHub before patching
     if (tenant && github.isEnabled()) {
       try {
-        const ghContent = await github.readFile(tenant, solId, `skills/${skillId}/skill.json`);
-        if (ghContent) {
-          // Write GitHub version to Builder FS (write only, no deploy)
+        // Sync both the skill and solution from GitHub to Builder FS
+        const [ghSkill, ghSolution] = await Promise.allSettled([
+          github.readFile(tenant, solId, `skills/${skillId}/skill.json`),
+          github.readFile(tenant, solId, 'solution.json'),
+        ]);
+
+        if (ghSolution.status === 'fulfilled' && ghSolution.value?.content) {
+          try {
+            await fetch(`${SKILL_BUILDER_URL}/api/solutions`, {
+              method: 'POST',
+              headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+              body: ghSolution.value.content,
+              signal: AbortSignal.timeout(10000),
+            });
+          } catch { /* solution sync is best-effort */ }
+        }
+
+        if (ghSkill.status === 'fulfilled' && ghSkill.value?.content) {
           await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/skills`, {
             method: 'POST',
             headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
-            body: ghContent,
+            body: ghSkill.value.content,
             signal: AbortSignal.timeout(10000),
           });
           console.log(`[Deploy] Patch ${skillId}: synced from GitHub before applying patch`);
