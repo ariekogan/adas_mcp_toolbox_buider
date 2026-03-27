@@ -1716,7 +1716,86 @@ function buildSkillSpec() {
             ],
           },
 
-          // ── 5. VOICE TESTING ──
+          // ── 5. DIRECT TOOL TESTING (tooltest protocol) ──
+          direct_tool_testing: {
+            description: 'Test individual tools directly via chat messages — bypasses the entire LLM pipeline (intent detection, planning, iteration). Sends a special [tooltest] message that executes the tool and returns results through the standard job pipeline (SSE, conversation turn). Works with ANY tool from any connector — generic, not a hardcoded list.',
+            syntax: {
+              real_mode: '[tooltest] <tool_name> <json_args>',
+              mock_mode: '[tooltest:mock] <tool_name> <json_args>',
+              description: 'Real mode calls the actual tool. Mock mode verifies the tool exists and returns metadata without calling the real tool.',
+            },
+            modes: {
+              real: {
+                prefix: '[tooltest]',
+                description: 'Calls the actual tool (core or connector) and returns real results. Requires a real actor with device/data behind the connector.',
+                example_messages: [
+                  '[tooltest] device.calendar.today {}',
+                  '[tooltest] device.weather.forecast {"days":3}',
+                  '[tooltest] device.message.send {"to":"Sarah","body":"Running late"}',
+                  '[tooltest] device.dnd.set {"enabled":true,"duration_minutes":60}',
+                  '[tooltest] sys.focusUiPlugin {"plugin_id":"mcp:personal-assistant-ui-mcp:schedule-panel"}',
+                ],
+              },
+              mock: {
+                prefix: '[tooltest:mock]',
+                description: 'Verifies tool exists and returns mock metadata (tool name, source connector, description) WITHOUT calling the real tool. Used for CI/CD pipeline validation — tests routing, finalization, conversation turn creation.',
+                example_messages: [
+                  '[tooltest:mock] device.calendar.today {}',
+                  '[tooltest:mock] device.battery {}',
+                  '[tooltest:mock] device.weather.current {}',
+                ],
+                mock_response_format: {
+                  found_connector: '{ ok: true, mock: true, tool: "device.calendar.today", source: "connector:mobile-device-mcp", description: "Get today\'s calendar events", args: {} }',
+                  found_core: '{ ok: true, mock: true, tool: "sys.focusUiPlugin", source: "core", args: {...} }',
+                  not_found: '{ ok: false, mock: true, error: "Tool \\"x\\" not found in core or connectors" }',
+                },
+              },
+            },
+            http_api: {
+              endpoint: 'POST /api/chat',
+              headers: { 'Authorization': 'Bearer <PAT_TOKEN>', 'Content-Type': 'application/json' },
+              request_body: '{ "message": "[tooltest] <tool_name> <json_args>", "actorId": "<optional-test-actor-id>" }',
+              response: '{ ok: true, id: "<job_id>", jobId: "<job_id>", streamUrl: "/api/stream/<job_id>" }',
+              get_result: 'GET /api/jobs/<job_id> — poll until job.done is true (tooltest jobs complete in <3s)',
+            },
+            actor_id_convention: {
+              description: 'Test automation uses synthetic actor IDs with automatic cleanup.',
+              patterns: {
+                'test-{timestamp}-{random}': 'Skill Builder tests — auto-expires in 24h',
+                'pipeline-test-{timestamp}-{random}': 'Pipeline test endpoint — auto-expires in 24h',
+              },
+              usage: 'Pass actorId in request body. IDs matching test-* or pipeline-test-* are auto-detected as test actors and cleaned up by MongoDB TTL indexes after 24 hours.',
+            },
+            test_automation_example: {
+              description: 'Bash script for CI/CD test automation.',
+              steps: [
+                '1. Generate test actor: ACTOR_ID="test-$(date +%s)-$(openssl rand -hex 4)"',
+                '2. Send tooltest: curl -s -X POST $BASE_URL/api/chat -H "Authorization: Bearer $PAT" -d \'{"message":"[tooltest:mock] device.battery {}","actorId":"\'$ACTOR_ID\'"}\'',
+                '3. Extract job_id from response',
+                '4. Wait ~3s (tooltest jobs are fast)',
+                '5. Read result: curl -s $BASE_URL/api/jobs/$JOB_ID -H "Authorization: Bearer $PAT"',
+                '6. Assert result.ok is true',
+              ],
+            },
+            server_execution_path: [
+              'POST /api/chat → server.js: startJob()',
+              'jobRunner.js: runWithTenant(tenant, runBody, {actorId})',
+              'mainloop.js: regex match on [tooltest] or [tooltest:mock] prefix',
+              'REAL: tools[name](args) || connectorManager.callTool(connId, name, args)',
+              'MOCK: verify tool exists in core/connectors, return mock metadata',
+              'sysFinalizePlan({content, contentType: "markdown"}) → writeConversationTurn(job)',
+              'job.done = true',
+            ],
+            key_properties: [
+              'Generic — works with ANY tool from any connector, not a hardcoded list.',
+              'Full pipeline — SSE, finalization, conversation turn — same as normal messages.',
+              'No LLM — bypasses intent detection, planning, and iteration loops entirely.',
+              'Same auth — PAT token or JWT, same as regular chat.',
+              'Test actor cleanup — test-* and pipeline-test-* actors auto-expire in 24h.',
+            ],
+          },
+
+          // ── 6. VOICE TESTING ──
           voice_testing: {
             description: 'Simulate multi-turn phone conversations without making a real call. Runs the full voice pipeline.',
             tool: 'ateam_test_voice(solution_id, messages[], phone_number?, skill_slug?, timeout_ms?)',
@@ -1729,7 +1808,7 @@ function buildSkillSpec() {
             use_when: 'Testing voice-enabled solutions end-to-end. Verifying caller verification, voice routing, and multi-turn voice flows.',
           },
 
-          // ── 6. EXECUTION LOGS ──
+          // ── 7. EXECUTION LOGS ──
           execution_logs: {
             description: 'Inspect what happened during a job — every tool call, every decision, every error. The primary debugging tool after a test fails or behaves unexpectedly.',
             endpoint: 'GET /deploy/solutions/:id/logs',
@@ -1750,7 +1829,7 @@ function buildSkillSpec() {
             ],
           },
 
-          // ── 7. EXECUTION METRICS ──
+          // ── 8. EXECUTION METRICS ──
           execution_metrics: {
             description: 'Aggregate performance data across multiple jobs. Identify slow tools, error patterns, and bottlenecks.',
             endpoint: 'GET /deploy/solutions/:id/metrics',
@@ -1769,7 +1848,7 @@ function buildSkillSpec() {
             use_when: 'Optimizing a slow skill, finding unused tools, or identifying error patterns across many executions.',
           },
 
-          // ── 8. DEBUGGING SCENARIOS ──
+          // ── 9. DEBUGGING SCENARIOS ──
           debugging_scenarios: {
             'Wrong skill handles the message': [
               '1. ateam_conversation — note which skill_slug responded',
