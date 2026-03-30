@@ -50,9 +50,17 @@ router.post('/solution', async (req, res, next) => {
       log.info(`[Deploy] Backed up existing solution "${solution.id}" for rollback`);
     } catch { /* no existing solution — fresh deploy */ }
 
-    // Step 1: Save solution to Skill Builder
+    // Step 1: Save solution to Skill Builder (merge linked_skills to avoid wiping existing skills)
     try {
       log.info(`[Deploy] Saving solution "${solution.id}" to Skill Builder...`);
+      if (previousSolution && previousSolution.linked_skills?.length) {
+        // Merge: keep existing linked_skills, add any new ones from payload
+        const existingSkills = new Set(previousSolution.linked_skills);
+        const payloadSkills = solution.linked_skills || [];
+        for (const s of payloadSkills) existingSkills.add(s);
+        solution.linked_skills = [...existingSkills];
+        log.info(`[Deploy] Merged linked_skills: ${solution.linked_skills.length} total (was ${previousSolution.linked_skills.length}, payload had ${payloadSkills.length})`);
+      }
       await solutionsStore.save(solution);
       log.info(`[Deploy] Solution saved successfully`);
     } catch (err) {
