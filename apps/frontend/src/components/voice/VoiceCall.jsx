@@ -15,8 +15,8 @@ export default function VoiceCall() {
   const tenant = getTenant();
   const token = getAuthToken();
 
-  // Build iframe URL — full mode (not mini), call tab selected
-  const src = `${VOICE_URL}?tenant=${encodeURIComponent(tenant || "")}&authToken=${encodeURIComponent(token || "")}`;
+  // Build iframe URL — mini mode (has call controls: Start/End, transcript, state panel)
+  const src = `${VOICE_URL}?mode=mini&tenant=${encodeURIComponent(tenant || "")}&authToken=${encodeURIComponent(token || "")}`;
 
   // Forward tenant/token changes to iframe
   useEffect(() => {
