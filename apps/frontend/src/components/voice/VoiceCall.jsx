@@ -1,7 +1,6 @@
-// VoiceCall.jsx — Embeds the Voice frontend as an iframe (single source of truth).
-// The actual WebRTC/call logic lives in apps/voice/frontend/ and is served
-// at voice.ateam-ai.com. This eliminates the 600+ line duplicated component.
-// Parent controls (Start/End Call) send commands via postMessage to the iframe.
+// VoiceCall.jsx — Runtime Debug view: left (session prompt + state) + right (call widget)
+// Left panel shows the Voice frontend full page via iframe (session prompt, conversation state, context)
+// Right panel shows VoiceCallMini via iframe (call controls, transcript, runtime state)
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { getTenant, getAuthToken } from "../../api/client.js";
@@ -9,16 +8,20 @@ import { getTenant, getAuthToken } from "../../api/client.js";
 const VOICE_URL = window.__VOICE_URL || "https://voice.ateam-ai.com";
 
 export default function VoiceCall() {
-  const iframeRef = useRef(null);
+  const miniRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
-  const [callState, setCallState] = useState("idle"); // idle | connecting | connected | error
+  const [callState, setCallState] = useState("idle");
 
   const tenant = getTenant();
   const token = getAuthToken();
 
-  const src = `${VOICE_URL}?mode=mini&tenant=${encodeURIComponent(tenant || "")}&authToken=${encodeURIComponent(token || "")}`;
+  // Full mode iframe — shows session prompt + conversation state (left panel)
+  const fullSrc = `${VOICE_URL}?tenant=${encodeURIComponent(tenant || "")}&authToken=${encodeURIComponent(token || "")}`;
 
-  // Listen for call state updates from iframe
+  // Mini mode iframe — call controls + transcript (right panel)
+  const miniSrc = `${VOICE_URL}?mode=mini&tenant=${encodeURIComponent(tenant || "")}&authToken=${encodeURIComponent(token || "")}`;
+
+  // Listen for call state updates from mini iframe
   useEffect(() => {
     function onMessage(ev) {
       const d = ev.data;
@@ -30,10 +33,10 @@ export default function VoiceCall() {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
-  // Send command to iframe
+  // Send command to mini iframe
   const sendCommand = useCallback((command) => {
-    if (!iframeRef.current?.contentWindow) return;
-    iframeRef.current.contentWindow.postMessage(
+    if (!miniRef.current?.contentWindow) return;
+    miniRef.current.contentWindow.postMessage(
       { source: "adas-host", type: "call-command", command, authToken: token || undefined },
       "*"
     );
@@ -48,9 +51,9 @@ export default function VoiceCall() {
       display: "flex",
       flexDirection: "column",
     }}>
-      {/* Call controls */}
+      {/* Call controls bar */}
       <div style={{
-        flexShrink: 0, padding: "10px 16px",
+        flexShrink: 0, padding: "8px 16px",
         display: "flex", alignItems: "center", gap: 10,
         borderBottom: "1px solid #1e293b",
         background: "#0e141b",
@@ -59,54 +62,61 @@ export default function VoiceCall() {
           onClick={() => sendCommand("start")}
           disabled={isActive}
           style={{
-            padding: "8px 20px", borderRadius: 8, border: "none",
-            fontSize: 13, fontWeight: 700, cursor: isActive ? "default" : "pointer",
+            padding: "6px 18px", borderRadius: 6, border: "none",
+            fontSize: 12, fontWeight: 700, cursor: isActive ? "default" : "pointer",
             background: "#16a34a", color: "#fff",
-            opacity: isActive ? 0.4 : 1, transition: "opacity 0.15s",
+            opacity: isActive ? 0.4 : 1,
           }}
-        >
-          Start Call
-        </button>
+        >Start Call</button>
         <button
           onClick={() => sendCommand("stop")}
           disabled={!isActive}
           style={{
-            padding: "8px 20px", borderRadius: 8, border: "none",
-            fontSize: 13, fontWeight: 700, cursor: !isActive ? "default" : "pointer",
+            padding: "6px 18px", borderRadius: 6, border: "none",
+            fontSize: 12, fontWeight: 700, cursor: !isActive ? "default" : "pointer",
             background: "#dc2626", color: "#fff",
-            opacity: !isActive ? 0.4 : 1, transition: "opacity 0.15s",
+            opacity: !isActive ? 0.4 : 1,
           }}
-        >
-          End Call
-        </button>
+        >End Call</button>
         <span style={{
-          fontSize: 12, fontWeight: 600, marginLeft: 8,
+          fontSize: 12, fontWeight: 600,
           color: callState === "connected" ? "#4ade80"
-            : callState === "connecting" ? "#facc15"
-            : "#64748b",
+            : callState === "connecting" ? "#facc15" : "#64748b",
         }}>
-          {callState === "idle" && "Ready"}
-          {callState === "connecting" && "Connecting..."}
-          {callState === "connected" && "Connected — speak now"}
-          {callState === "error" && "Error"}
+          {callState === "idle" ? "Ready" : callState === "connecting" ? "Connecting..." : callState === "connected" ? "Connected — speak now" : "Error"}
         </span>
       </div>
 
-      {/* Voice frontend iframe */}
-      <iframe
-        ref={iframeRef}
-        src={src}
-        onLoad={() => setLoaded(true)}
-        title="Voice Call"
-        sandbox="allow-scripts allow-same-origin allow-forms"
-        allow="microphone *"
-        style={{
-          flex: 1,
-          width: "100%",
-          border: "none",
-          background: "#0d1117",
-        }}
-      />
+      {/* Split: left (full debug) + right (mini call) */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+
+        {/* Left: Session Prompt + Conversation State */}
+        <iframe
+          src={fullSrc}
+          title="Voice Debug"
+          style={{
+            flex: "1 1 55%",
+            border: "none",
+            borderRight: "1px solid #1e293b",
+            background: "#0d1117",
+          }}
+        />
+
+        {/* Right: Call widget (mini) */}
+        <iframe
+          ref={miniRef}
+          src={miniSrc}
+          onLoad={() => setLoaded(true)}
+          title="Voice Call"
+          sandbox="allow-scripts allow-same-origin allow-forms"
+          allow="microphone *"
+          style={{
+            flex: "1 1 45%",
+            border: "none",
+            background: "#0d1117",
+          }}
+        />
+      </div>
     </div>
   );
 }
