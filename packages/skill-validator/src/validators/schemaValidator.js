@@ -89,6 +89,10 @@ export const COVERAGE = [
   { section: 'bootstrap_tools', field: 'bootstrap_tools', check: 'Is string[] (max 3)', type: 'schema' },
   { section: 'bootstrap_tools', field: 'bootstrap_tools[]', check: 'References valid tool name', type: 'schema' },
 
+  // Prefetch Tools
+  { section: 'prefetch_tools', field: 'prefetch_tools', check: 'Is string[]', type: 'schema' },
+  { section: 'prefetch_tools', field: 'prefetch_tools[]', check: 'References valid tool name', type: 'schema' },
+
   // Triggers
   { section: 'triggers', field: 'triggers[].id', check: 'Has ID', type: 'schema' },
   { section: 'triggers', field: 'triggers[].type', check: 'Valid enum (schedule|event)', type: 'schema' },
@@ -161,6 +165,9 @@ export function validateSchema(skill) {
 
   // Validate bootstrap_tools
   issues.push(...validateBootstrapTools(skill));
+
+  // Validate prefetch_tools
+  issues.push(...validatePrefetchTools(skill));
 
   // Validate triggers
   if (skill.triggers && Array.isArray(skill.triggers)) {
@@ -943,6 +950,47 @@ function validateBootstrapTools(skill) {
         path: `bootstrap_tools[${i}]`,
         message: `bootstrap_tools entry "${bt}" does not match any defined tool name — bootstrap tools MUST reference existing tools`,
         suggestion: `Available tool names: ${[...toolNames].slice(0, 5).join(', ')}${toolNames.size > 5 ? '...' : ''}`,
+      });
+    }
+  });
+
+  return issues;
+}
+
+/**
+ * Validate prefetch_tools field
+ * @param {DraftSkill} skill
+ * @returns {ValidationIssue[]}
+ */
+function validatePrefetchTools(skill) {
+  const issues = [];
+  if (!skill.prefetch_tools) return issues;
+
+  if (!Array.isArray(skill.prefetch_tools)) {
+    issues.push({
+      code: 'INVALID_PREFETCH_TOOLS',
+      severity: 'error',
+      path: 'prefetch_tools',
+      message: 'prefetch_tools must be an array of tool name strings',
+    });
+    return issues;
+  }
+
+  const toolNames = new Set((skill.tools || []).map(t => t.name).filter(Boolean));
+  skill.prefetch_tools.forEach((pt, i) => {
+    if (typeof pt !== 'string' || !pt.trim()) {
+      issues.push({
+        code: 'INVALID_PREFETCH_TOOL_ENTRY',
+        severity: 'error',
+        path: `prefetch_tools[${i}]`,
+        message: 'Each prefetch_tools entry must be a non-empty string',
+      });
+    } else if (toolNames.size > 0 && !toolNames.has(pt) && !pt.startsWith('sys.') && !pt.startsWith('memory.')) {
+      issues.push({
+        code: 'UNKNOWN_PREFETCH_TOOL',
+        severity: 'warning',
+        path: `prefetch_tools[${i}]`,
+        message: `prefetch_tools entry "${pt}" does not match any defined tool name`,
       });
     }
   });

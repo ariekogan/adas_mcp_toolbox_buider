@@ -79,17 +79,19 @@ function buildSkillSections() {
   return {
     engine: {
       _section: 'engine',
-      description: 'AI model, reasoning config, and planner tool budget optimization (bootstrap_tools pinning, exclude_bootstrap_tools).',
+      description: 'AI model, reasoning config, and planner tool budget optimization (bootstrap_tools pinning, prefetch_tools pre-loading, exclude_bootstrap_tools).',
       engine: schema.engine,
       bootstrap_tools: schema.bootstrap_tools,
+      prefetch_tools: schema.prefetch_tools,
       exclude_bootstrap_tools: schema.exclude_bootstrap_tools,
     },
     tools: {
       _section: 'tools',
-      description: 'Tool definitions, meta tools, bootstrap tool pinning.',
+      description: 'Tool definitions, meta tools, bootstrap tool pinning, prefetch tool pre-loading.',
       tools: schema.tools,
       meta_tools: schema.meta_tools,
       bootstrap_tools: schema.bootstrap_tools,
+      prefetch_tools: schema.prefetch_tools,
     },
     intents: {
       _section: 'intents',
@@ -805,6 +807,14 @@ function buildSkillSpec() {
         type: 'string[]', required: false, max_items: 3,
         description: 'Up to 3 tool names that are always available to the planner (pinned in tool selection). These are NOT auto-executed — they simply guarantee the planner can always see and choose these tools, even when LLM-based tool ranking would otherwise exclude them. Useful for core domain tools like identity lookup or order retrieval that the planner needs on almost every request. Values must be valid tool names from the tools array.',
         example: ['identity.customer.lookup', 'orders.list', 'account.status'],
+      },
+
+      // ── Prefetch Tools ──
+      prefetch_tools: {
+        type: 'string[]', required: false,
+        description: 'Tool names to pre-load into the planner context at job start (iteration 0). Unlike bootstrap_tools which PIN tools for every iteration, prefetch_tools loads them ONCE at the start so the planner has their outputs available immediately without needing sys.askForContextAndTools. Use for tools the skill almost always needs on first iteration — e.g., memory.recall, identity.lookup. The tools execute automatically at job start and their results are injected into the planner context.',
+        example: ['memory.recall', 'memory.rules.match', 'identity.customer.lookup'],
+        vs_bootstrap: 'bootstrap_tools = always VISIBLE to planner (pinned in tool selection). prefetch_tools = automatically EXECUTED at job start (results pre-loaded into context). Use bootstrap for tools the planner should always be able to CHOOSE. Use prefetch for tools whose RESULTS the planner needs from the start.',
       },
 
       // ── Exclude Bootstrap Tools ──
