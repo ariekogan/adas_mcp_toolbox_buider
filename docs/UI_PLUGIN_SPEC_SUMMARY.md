@@ -167,7 +167,7 @@ GET /spec/examples/ui-plugin-native   — Working native example + source
 ## Key Constraints to Remember
 
 ✅ **Iframe plugins must:**
-- Have `render.iframeUrl` pointing to HTML file in `ui-dist/{pluginId}/{version}/index.html`
+- Have `render.iframeUrl` pointing to HTML file in `ui-dist/{pluginId}/index.html`
 - Listen for `message.source === 'adas-host'` and `message.type === 'init'`
 - Call tools via `window.parent.postMessage()` with correlationId for response matching
 - Handle 15-second timeout on tool calls

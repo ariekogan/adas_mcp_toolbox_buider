@@ -10,7 +10,7 @@
 ## Quick Checklist Before Deploying
 
 ### Iframe Plugins (Web)
-- [ ] `ui-dist/{pluginId}/{version}/index.html` file exists
+- [ ] `ui-dist/{pluginId}/index.html` file exists
 - [ ] File is valid HTML (not empty, not minified beyond readability)
 - [ ] File size < 10MB
 - [ ] Plugin listens for `message.type === 'init'` from host
@@ -39,7 +39,7 @@
 **Check:**
 ```bash
 # Should exist at this path
-ls -la _builder/{connectorId}/ui-dist/{pluginId}/{version}/index.html
+ls -la _builder/{connectorId}/ui-dist/{pluginId}/index.html
 ```
 
 **Fix:**

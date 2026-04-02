@@ -569,7 +569,7 @@ export function validateSolution(solution, context) {
           if (!hasUiDist) {
             warnings.push({
               check: 'ui_connector_dist_files',
-              message: `UI-capable connector "${connector.id}" has no ui-dist/ files in mcp_store. The UI plugin HTML/JS/CSS should be in ui-dist/<plugin-id>/<version>/.`,
+              message: `UI-capable connector "${connector.id}" has no ui-dist/ files in mcp_store. The UI plugin HTML/JS/CSS should be in ui-dist/<plugin-id>/index.html.`,
               connector: connector.id,
               docs: UI_DOC_REF,
             });

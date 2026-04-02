@@ -272,7 +272,7 @@ in a blank iframe with no error.
 | Layer | Format | Example |
 |-------|--------|---------|
 | **MCP server declares** | `/<pluginId>/<version>/index.html` (NO prefix) | `/fleet-dashboard/0.1.0/index.html` |
-| **mcp-store files** | `ui-dist/<pluginId>/<version>/*` | `mcp-store/fleet-mcp/ui-dist/fleet-dashboard/0.1.0/index.html` |
+| **mcp-store files** | `ui-dist/<pluginId>/*` | `mcp-store/fleet-mcp/ui-dist/fleet-dashboard/index.html` |
 | **Browser loads** | `/mcp-ui/<connectorId>/<pluginId>/<version>/index.html` | `/mcp-ui/fleet-mcp/fleet-dashboard/0.1.0/index.html` |
 
 ### 2.2 How It Works
@@ -286,7 +286,7 @@ in a blank iframe with no error.
 When deploying a UI plugin, verify:
 
 - [ ] MCP server `ui.getPlugin` returns `iframeUrl` **without** the `/mcp-ui/<connectorId>/` prefix
-- [ ] Files exist at `mcp-store/<connectorId>/ui-dist/<pluginId>/<version>/index.html`
+- [ ] Files exist at `mcp-store/<connectorId>/ui-dist/<pluginId>/index.html`
 - [ ] `index.html` references JS/CSS assets with **relative paths** (e.g., `./main.js`, not `/main.js`)
 - [ ] The connector is started and in `"connected"` status
 

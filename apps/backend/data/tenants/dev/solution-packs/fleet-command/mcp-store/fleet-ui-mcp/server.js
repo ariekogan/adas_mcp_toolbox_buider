@@ -20,7 +20,7 @@ const PLUGIN_MANIFEST = {
     'Real-time fleet map with vehicle tracking, geofences, trip routes, and alerts for the Tel Aviv metropolitan area.',
   render: {
     mode: 'iframe',
-    iframeUrl: `/ui/${PLUGIN_ID}/${PLUGIN_VERSION}/index.html`,
+    iframeUrl: `/ui/${PLUGIN_ID}/index.html`,
   },
   channels: ['command'],
   capabilities: {

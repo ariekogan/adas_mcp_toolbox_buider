@@ -1200,7 +1200,7 @@ async function tryLiveData() {
         'server.js          — MCP server (exposes tools + ui.listPlugins/ui.getPlugin)',
         'package.json',
         'ui-dist/            — Static UI assets served by A-Team Core',
-        'ui-dist/ecom-overview/1.0.0/index.html  — Self-contained dashboard (with embedded defaults for mobile)',
+        'ui-dist/ecom-overview/index.html  — Self-contained dashboard (with embedded defaults for mobile)',
       ],
     },
   };
@@ -1487,13 +1487,13 @@ function buildExampleSolution() {
       ],
       mcp_store: {
         _note: 'Optional: connector source code. Key = connector id, value = array of { path, content }. For UI-capable connectors, include ui-dist/ files alongside server code — Core serves them at /mcp-ui/<tenant>/<connector-id>/<path>.',
-        _ui_dist_convention: 'To deploy UI plugin assets, include files with paths like "ui-dist/<plugin-id>/<version>/index.html" in the mcp_store array. These are uploaded to Core and served as static assets. Without them, the health check reports "UI plugin asset NOT FOUND".',
+        _ui_dist_convention: 'To deploy UI plugin assets, include files with paths like "ui-dist/<plugin-id>/index.html" in the mcp_store array. Do NOT put version in the path — version is metadata, not a directory. These are uploaded to Core and served as static assets. Without them, the health check reports "UI plugin asset NOT FOUND".',
         _example: {
           'my-ui-connector': [
             { path: 'server.js', content: '// MCP server code...' },
             { path: 'package.json', content: '{ "name": "my-ui-connector", "version": "1.0.0", "type": "module" }' },
-            { path: 'ui-dist/my-dashboard/1.0.0/index.html', content: '<!DOCTYPE html><html>...</html>' },
-            { path: 'ui-dist/my-dashboard/1.0.0/styles.css', content: '/* dashboard styles */' },
+            { path: 'ui-dist/my-dashboard/index.html', content: '<!DOCTYPE html><html>...</html>' },
+            { path: 'ui-dist/my-dashboard/styles.css', content: '/* dashboard styles */' },
           ],
         },
       },
@@ -1506,7 +1506,7 @@ function buildExampleUIPluginIframe() {
     _title: 'Complete Iframe UI Plugin Example',
     _description: 'A fully working HTML+JavaScript UI plugin that communicates with connector tools via postMessage protocol.',
     _platform: 'Web (browser, iframe)',
-    _location: 'In connector mcp_store: ui-dist/{pluginId}/{version}/index.html',
+    _location: 'In connector mcp_store: ui-dist/{pluginId}/index.html',
 
     // ── Plugin Manifest ──
     manifest: {
@@ -1516,7 +1516,7 @@ function buildExampleUIPluginIframe() {
       description: 'Interactive task board with real-time updates',
       render: {
         mode: 'iframe',
-        iframeUrl: '/ui/task-board/1.0.0/index.html',
+        iframeUrl: '/ui/task-board/index.html',
       },
       commands: [
         {
@@ -1536,9 +1536,9 @@ function buildExampleUIPluginIframe() {
 
     // ── HTML Source Code ──
     html_source: {
-      _note: 'This is the exact HTML file served at /ui/task-board/1.0.0/index.html. Use this as a template for your own iframe plugins.',
+      _note: 'This is the exact HTML file served at /ui/task-board/index.html. Use this as a template for your own iframe plugins.',
       _critical: 'Key points: (1) postMessage listener must be FIRST in <head> BEFORE other scripts, (2) Plugin sends { source: "adas-plugin", pluginId: "...", message: { type: "tool.call", toolName: "...", args: {...}, correlationId: "..." } }, (3) Listen for { source: "adas-host", message: { type: "tool.response", payload: { correlationId: "...", result: {...} } } }',
-      file: 'ui-dist/task-board/1.0.0/index.html',
+      file: 'ui-dist/task-board/index.html',
       content: `<!DOCTYPE html>
 <html>
 <head>

@@ -34,7 +34,7 @@ interface PluginManifest {
   // Format: "MAJOR.MINOR.PATCH" (semver)
   // Example: "1.0.0", "2.1.5"
   // Constraints:
-  //   - Must match directory structure: ui-dist/{pluginId}/{version}/index.html
+  //   - Must match directory structure: ui-dist/{pluginId}/index.html
   //   - Numeric only (no 'v' prefix, no prerelease tags like -beta)
 
   // Optional: Brief description

@@ -654,7 +654,7 @@ curl http://localhost:4311/deploy/solutions/:id/connectors/health
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `render.iframeUrl not found in ui-dist/` | Missing HTML file | Add file to `ui-dist/{pluginId}/{version}/index.html` |
+| `render.iframeUrl not found in ui-dist/` | Missing HTML file | Add file to `ui-dist/{pluginId}/index.html` |
 | `ui.listPlugins not returning { plugins: [...] }` | Wrong response shape | Return `{ plugins: [{ id, name, render, ... }] }` not bare array |
 | `render.component "MyPlugin" not registered` | Component not in registry | Call `PluginSDK.register('my-plugin', { Component })` |
 | `Tool timeout calling connector` | Connector tool hangs | Check connector server logs; add timeout handling in tool |
@@ -759,7 +759,7 @@ console.log('Plugin state:', data);
 ## 7. File Checklist
 
 ### Iframe Plugin Checklist
-- [ ] `ui-dist/{pluginId}/{version}/index.html` exists
+- [ ] `ui-dist/{pluginId}/index.html` exists
 - [ ] HTML file is < 10MB
 - [ ] Plugin listens for `init` message
 - [ ] Plugin calls tools via postMessage
