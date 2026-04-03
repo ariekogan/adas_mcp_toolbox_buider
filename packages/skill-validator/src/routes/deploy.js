@@ -2739,39 +2739,67 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
 
     const message = req.body?.message || `Deploy ${solId}`;
 
-    // 1. Fetch export bundle
-    const exportResp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/export`, {
-      headers: sbHeaders(req),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!exportResp.ok) {
-      const text = await exportResp.text().catch(() => '');
-      return res.status(exportResp.status).json({ ok: false, error: `Export failed: ${text}` });
-    }
-    const exportBundle = await exportResp.json();
+    // GitHub-first: read current state FROM GitHub, merge with any new data, push back.
+    // This prevents stale Builder FS from overwriting good GitHub data.
+    // Only fall back to Builder FS export if GitHub repo doesn't exist yet (first deploy).
+    let files;
+    const repoStatus = await github.getRepoStatus(tenant, solId).catch(() => null);
 
-    // 2. Fetch connector sources
-    const connectorSources = {};
-    const connectors = exportBundle.connectors || [];
-    for (const conn of connectors) {
-      const connId = conn.id || conn.name;
-      if (!connId) continue;
+    if (repoStatus?.exists) {
+      // GitHub repo exists — read current files from GitHub, then merge/update
+      console.log(`[GitHub Push] Repo exists — reading current state from GitHub (not Builder FS)`);
       try {
-        const srcResp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/connectors/${encodeURIComponent(connId)}/source`, {
-          headers: sbHeaders(req),
-          signal: AbortSignal.timeout(15000),
+        const pullResp = await fetch(`http://localhost:${process.env.PORT || 3200}/deploy/solutions/${encodeURIComponent(solId)}/github/pull-bundle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-adas-tenant': tenant, 'x-api-key': req.headers['x-api-key'] || '', 'x-adas-token': req.headers['x-adas-token'] || '' },
+          signal: AbortSignal.timeout(30000),
         });
-        if (srcResp.ok) {
-          const srcData = await srcResp.json();
-          connectorSources[connId] = srcData.files || srcData;
+        const pullData = await pullResp.json();
+        if (pullData.ok) {
+          const exportBundle = { solution: pullData.solution, skills: pullData.skills || [], connectors: [] };
+          const connectorSources = pullData.mcp_store || {};
+          files = buildRepoFiles(exportBundle, connectorSources);
+          console.log(`[GitHub Push] Built ${files.length} files from GitHub state`);
         }
       } catch (err) {
-        console.warn(`[GitHub] Could not fetch source for connector ${connId}: ${err.message}`);
+        console.warn(`[GitHub Push] Failed to read from GitHub, falling back to Builder FS: ${err.message}`);
       }
     }
 
-    // 3. Build repo files
-    const files = buildRepoFiles(exportBundle, connectorSources);
+    // Fallback: read from Builder FS (first deploy or GitHub read failed)
+    if (!files) {
+      console.log(`[GitHub Push] Reading from Builder FS (first deploy or GitHub unavailable)`);
+      const exportResp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/export`, {
+        headers: sbHeaders(req),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!exportResp.ok) {
+        const text = await exportResp.text().catch(() => '');
+        return res.status(exportResp.status).json({ ok: false, error: `Export failed: ${text}` });
+      }
+      const exportBundle = await exportResp.json();
+
+      const connectorSources = {};
+      const connectors = exportBundle.connectors || [];
+      for (const conn of connectors) {
+        const connId = conn.id || conn.name;
+        if (!connId) continue;
+        try {
+          const srcResp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/connectors/${encodeURIComponent(connId)}/source`, {
+            headers: sbHeaders(req),
+            signal: AbortSignal.timeout(15000),
+          });
+          if (srcResp.ok) {
+            const srcData = await srcResp.json();
+            connectorSources[connId] = srcData.files || srcData;
+          }
+        } catch (err) {
+          console.warn(`[GitHub] Could not fetch source for connector ${connId}: ${err.message}`);
+        }
+      }
+
+      files = buildRepoFiles(exportBundle, connectorSources);
+    }
 
     // 4. Ensure repo exists
     const repoInfo = await github.ensureRepo(tenant, solId,
