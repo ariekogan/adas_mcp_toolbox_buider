@@ -35,9 +35,14 @@ const PLATFORM_CONNECTOR_META = {
   'internal-comm-mcp':     { transport: 'http', port: 7303, description: 'Internal message queue — skill-to-skill async communication for voice replies and cross-skill coordination.' },
 };
 
-let _platformConnectors = {}; // Populated by fetchPlatformConnectorTools()
+let _platformConnectors = {};
+let _platformConnectorsTs = 0;
+const PLATFORM_CACHE_TTL = 10 * 60_000; // 10 minutes
 
-async function fetchPlatformConnectorTools() {
+async function getPlatformConnectors() {
+  if (_platformConnectorsTs && Date.now() - _platformConnectorsTs < PLATFORM_CACHE_TTL) {
+    return _platformConnectors;
+  }
   const CORE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
   const SECRET = process.env.CORE_MCP_SECRET || process.env.MCP_SHARED_SECRET || '';
   const result = {};
@@ -60,14 +65,9 @@ async function fetchPlatformConnectorTools() {
     }
   }
   _platformConnectors = result;
-  const totalTools = Object.values(result).reduce((sum, c) => sum + (Array.isArray(c.tools) ? c.tools.length : 0), 0);
-  console.log(`[Spec] Loaded platform connectors: ${Object.keys(result).length} connectors, ${totalTools} tools`);
+  _platformConnectorsTs = Date.now();
+  return result;
 }
-
-// Fetch on startup (non-blocking — spec works with empty tools until Core responds)
-fetchPlatformConnectorTools().catch(err => console.warn(`[Spec] Platform connector fetch failed: ${err.message}`));
-// Refresh every 5 minutes
-setInterval(() => fetchPlatformConnectorTools().catch(() => {}), 5 * 60 * 1000);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BUILD RESPONSES AT MODULE LOAD (static data — compute once)
@@ -100,9 +100,17 @@ router.get('/skill', (req, res) => {
   }
   res.set(CACHE_HEADERS).json(result);
 });
-router.get('/solution', (req, res) => {
+router.get('/solution', async (req, res) => {
   const search = req.query.search;
-  let result = SOLUTION_SPEC;
+  let result = { ...SOLUTION_SPEC };
+  // Inject live platform connector tools
+  try {
+    const liveConnectors = await getPlatformConnectors();
+    if (result.schema?.platform_connectors_reference) {
+      result = JSON.parse(JSON.stringify(result)); // deep clone
+      result.schema.platform_connectors_reference.connectors = liveConnectors;
+    }
+  } catch {}
   if (search) {
     result = filterBySearch(result, search.toLowerCase());
   }
@@ -2728,7 +2736,7 @@ function buildSolutionSpec() {
       platform_connectors_reference: {
         description: 'Pre-built connectors managed at the platform level. These run as Docker containers and are shared across all tenants. Solution developers USE them (add to skill.connectors[]) but do NOT create or modify them. Do NOT include their source code in mcp_store or GitHub — they are platform infrastructure.',
         important: 'Platform connectors cannot be modified via ateam_github_patch or ateam_upload_connector. Changes must be made in the ai-dev-assistant repo and the container restarted.',
-        connectors: _platformConnectors, // Populated dynamically at startup
+        connectors: '_DYNAMIC_', // Replaced at request time by getPlatformConnectors()
       },
 
       // ── Security Contracts ──
