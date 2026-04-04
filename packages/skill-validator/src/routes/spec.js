@@ -48,20 +48,28 @@ async function getPlatformConnectors() {
   const result = {};
   for (const [id, meta] of Object.entries(PLATFORM_CONNECTOR_META)) {
     try {
-      const resp = await fetch(`${CORE_URL}/api/connectors/${id}`, {
+      const resp = await fetch(`${CORE_URL}/api/connectors/${id}/tools`, {
         headers: { 'x-adas-token': SECRET, 'X-ADAS-TENANT': 'mobile-pa' },
         signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) {
         const data = await resp.json();
-        const conn = data.connector || data;
-        const tools = (conn.tools || []).map(t => typeof t === 'string' ? t : t.name).filter(Boolean);
-        result[id] = { ...meta, tools, status: conn.status || 'unknown' };
+        const schemas = data.toolSchemas || [];
+        const tools = schemas
+          .filter(t => !t.name.startsWith('ui.'))  // exclude ui.listPlugins, ui.getPlugin (internal)
+          .map(t => ({
+            name: t.name,
+            description: t.description || '',
+            inputs: Object.entries(t.inputSchema?.properties || {})
+              .filter(([k]) => !k.startsWith('_adas_'))  // exclude internal params
+              .map(([k, v]) => ({ name: k, type: v.type || 'string', description: v.description || '', required: (t.inputSchema?.required || []).includes(k) })),
+          }));
+        result[id] = { ...meta, tools, status: data.connected ? 'connected' : 'disconnected' };
       } else {
-        result[id] = { ...meta, tools: ['(unavailable — Core returned ' + resp.status + ')'] };
+        result[id] = { ...meta, tools: [] };
       }
     } catch (err) {
-      result[id] = { ...meta, tools: ['(unavailable — ' + err.message + ')'] };
+      result[id] = { ...meta, tools: [] };
     }
   }
   _platformConnectors = result;
