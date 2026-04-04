@@ -23,6 +23,53 @@ const router = Router();
 const CACHE_HEADERS = { 'Cache-Control': 'public, max-age=86400' };
 
 // ═══════════════════════════════════════════════════════════════════════════
+// PLATFORM CONNECTORS — fetched dynamically from Core at startup
+// ═══════════════════════════════════════════════════════════════════════════
+
+const PLATFORM_CONNECTOR_META = {
+  'whatsapp-mcp':          { transport: 'http', port: 7305, description: 'WhatsApp Business messaging — send/receive messages, check connection, pair devices. Per-actor sessions.', ui_plugins: ['whatsapp-setup'] },
+  'telegram-mcp':          { transport: 'http', port: 7302, description: 'Telegram messaging — send messages, manage webhooks for inbound.' },
+  'gmail-mcp':             { transport: 'http', port: 7301, description: 'Gmail integration — send, read, search, archive, trash, label emails. OAuth-based.' },
+  'mobile-device-mcp':     { transport: 'http', port: 7304, description: 'Mobile device bridge — calendar, contacts, location, weather, battery, notifications, DND, navigation. Data from mobile app relay.' },
+  'handoff-controller-mcp':{ transport: 'http', port: 7309, description: 'Skill-to-skill handoff orchestration — manages live conversation transfers with grant passing.' },
+  'internal-comm-mcp':     { transport: 'http', port: 7303, description: 'Internal message queue — skill-to-skill async communication for voice replies and cross-skill coordination.' },
+};
+
+let _platformConnectors = {}; // Populated by fetchPlatformConnectorTools()
+
+async function fetchPlatformConnectorTools() {
+  const CORE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
+  const SECRET = process.env.CORE_MCP_SECRET || process.env.MCP_SHARED_SECRET || '';
+  const result = {};
+  for (const [id, meta] of Object.entries(PLATFORM_CONNECTOR_META)) {
+    try {
+      const resp = await fetch(`${CORE_URL}/api/connectors/${id}`, {
+        headers: { 'x-adas-token': SECRET, 'X-ADAS-TENANT': 'mobile-pa' },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const conn = data.connector || data;
+        const tools = (conn.tools || []).map(t => typeof t === 'string' ? t : t.name).filter(Boolean);
+        result[id] = { ...meta, tools, status: conn.status || 'unknown' };
+      } else {
+        result[id] = { ...meta, tools: ['(unavailable — Core returned ' + resp.status + ')'] };
+      }
+    } catch (err) {
+      result[id] = { ...meta, tools: ['(unavailable — ' + err.message + ')'] };
+    }
+  }
+  _platformConnectors = result;
+  const totalTools = Object.values(result).reduce((sum, c) => sum + (Array.isArray(c.tools) ? c.tools.length : 0), 0);
+  console.log(`[Spec] Loaded platform connectors: ${Object.keys(result).length} connectors, ${totalTools} tools`);
+}
+
+// Fetch on startup (non-blocking — spec works with empty tools until Core responds)
+fetchPlatformConnectorTools().catch(err => console.warn(`[Spec] Platform connector fetch failed: ${err.message}`));
+// Refresh every 5 minutes
+setInterval(() => fetchPlatformConnectorTools().catch(() => {}), 5 * 60 * 1000);
+
+// ═══════════════════════════════════════════════════════════════════════════
 // BUILD RESPONSES AT MODULE LOAD (static data — compute once)
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2673,6 +2720,15 @@ function buildSolutionSpec() {
           used_by: { type: 'string[]', required: false, description: 'Which skill IDs use this connector' },
           ui_capable: { type: 'boolean', required: false },
         },
+      },
+
+      // ── Platform Connectors Reference ──
+      // Tool lists are fetched DYNAMICALLY from Core at startup — always up to date.
+      // Call GET /spec/solution to see the live tool inventory.
+      platform_connectors_reference: {
+        description: 'Pre-built connectors managed at the platform level. These run as Docker containers and are shared across all tenants. Solution developers USE them (add to skill.connectors[]) but do NOT create or modify them. Do NOT include their source code in mcp_store or GitHub — they are platform infrastructure.',
+        important: 'Platform connectors cannot be modified via ateam_github_patch or ateam_upload_connector. Changes must be made in the ai-dev-assistant repo and the container restarted.',
+        connectors: _platformConnectors, // Populated dynamically at startup
       },
 
       // ── Security Contracts ──
