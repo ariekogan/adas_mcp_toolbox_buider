@@ -27,6 +27,7 @@ const CACHE_HEADERS = { 'Cache-Control': 'public, max-age=86400' };
 // ═══════════════════════════════════════════════════════════════════════════
 
 const PLATFORM_CONNECTOR_META = {
+  'memory-mcp':            { transport: 'http', port: 7306, description: 'Persistent cognitive memory engine — every solution gets a built-in long-term brain per user. Semantic recall, deduplication, contradiction detection, automatic extraction, decay, compaction. Per-user isolated. See memory_engine spec section for full capabilities.' },
   'whatsapp-mcp':          { transport: 'http', port: 7305, description: 'WhatsApp Business messaging — send/receive messages, check connection, pair devices. Per-actor sessions.', ui_plugins: ['whatsapp-setup'] },
   'telegram-mcp':          { transport: 'http', port: 7302, description: 'Telegram messaging — send messages, manage webhooks for inbound.' },
   'gmail-mcp':             { transport: 'http', port: 7301, description: 'Gmail integration — send, read, search, archive, trash, label emails. OAuth-based.' },
@@ -2736,6 +2737,78 @@ function buildSolutionSpec() {
           used_by: { type: 'string[]', required: false, description: 'Which skill IDs use this connector' },
           ui_capable: { type: 'boolean', required: false },
         },
+      },
+
+      // ── Memory Engine ──
+      // The platform's built-in cognitive memory layer — every solution gets it for free.
+      memory_engine: {
+        headline: 'Every solution gets a persistent cognitive memory layer for each user — already built, already deployed, already isolated. You don\'t wire it. You don\'t deploy it. You just use it.',
+        what_it_is: 'A long-term per-user brain. Each user has their own private memory island, fully isolated from other users even within the same solution. The platform provides the connector (memory-mcp) ready to use — add memory-mcp to your skill\'s connectors[] array and the tools are available.',
+        why_it_matters: 'Without it, your solution starts every conversation from zero. With it, your solution behaves like a friend who remembers — preferences, facts, routines, taught rules, past situations.',
+        memory_types: {
+          episodic:   { holds: 'What happened, when',                example: '"User booked a meeting with Sarah last Tuesday"' },
+          semantic:   { holds: 'Facts about the user and their world', example: '"Lives in Tel Aviv", "Works as a designer", "Speaks Hebrew"' },
+          procedural: { holds: 'Rules and learned behaviors',         example: '"When user says good morning → turn on lights"' },
+          working:    { holds: 'Short-lived ephemeral state',         example: '"Currently planning a trip to Berlin", "Mid-checkout"' },
+          meta:       { holds: 'Memory about memory',                 example: 'Why was this remembered, when, with what confidence' },
+        },
+        how_it_learns: {
+          explicit: 'When the user says "remember that I prefer dark mode" or "from now on, never schedule before 10am" — captured as high-confidence taught memories.',
+          automatic: 'As users have normal conversations, the engine quietly extracts useful facts in the background (end-of-job, cheap models, strict cost controls). Auto-learned memories are tagged separately and given lower confidence than taught ones. Users can review/correct/delete via the memory UI.',
+        },
+        intelligence: [
+          'Normalizes input on write — "i prefer dark mode plz" becomes "Prefers dark mode UI"',
+          'Deduplicates semantically — repeating yourself doesn\'t create 5 entries',
+          'Detects contradictions — "lives in Tel Aviv" + later "moved to Berlin" → old marked superseded, new stored',
+          'Recalls semantically — "what does the user like in the morning?" matches even if no memory contains "morning"',
+          'Decays stale memories — facts that haven\'t been touched in months get lower priority',
+          'Compacts in the background — clusters similar memories into clean summaries',
+          'Tracks provenance — every memory has an audit trail: where it came from, why it\'s there, confidence',
+        ],
+        tools: {
+          'memory.recall(query, type?, limit?)':       'Find relevant memories for a query (semantic search)',
+          'memory.list(type?, limit?, offset?)':       'List memories by type',
+          'memory.userProfile()':                       'Get the user\'s full structured profile in one call',
+          'memory.userProfile.set(field, value)':       'Set a structured profile field',
+          'memory.rules.match(situation)':              'Find taught rules that apply to a situation',
+          'memory.rules.count()':                       'Count active rules',
+          'context.read(type)':                         'Read active working context',
+          'memory.semantic.search(query)':              'Advanced semantic search with similarity scoring',
+          'memory.explain(id)':                         'Explain why a memory exists, with provenance trail',
+          'memory.summarize(type?)':                    'Get a high-level summary of stored memories',
+          'memory.audit(filter?)':                      'Inspect the memory audit log',
+        },
+        write_tools_note: 'Write operations (memory.store, memory.update, memory.delete, memory.userProfile.set, context.store, context.resolve, context.clear) are reserved for the platform — they happen automatically via the explicit teaching flow and the background extraction pipeline. Solution skills should NOT call write tools directly. Use recall/list/userProfile/rules.match for read access.',
+        actor_isolation: 'You don\'t pass an actor ID — the platform injects it automatically based on who\'s chatting. You don\'t pass a tenant — handled too. Cross-user data leaks are impossible by construction.',
+        what_you_dont_do: [
+          'Set up a database',
+          'Design a memory schema',
+          'Enforce per-user isolation',
+          'Worry about cross-user data leaks',
+          'Manage embeddings, vector search, or LLM integration',
+          'Implement background compaction or decay logic',
+          'Build a "memory review" UI (already exists)',
+          'Wire memory tools into every new skill (just add memory-mcp to connectors)',
+          'Migrate data when your solution evolves',
+          'Optimize cost on the LLM extraction pipeline',
+        ],
+        when_to_use: [
+          'Personalization — adapt behavior to who you\'re talking to',
+          'Preferences — remember how the user likes things done',
+          'Rules and automations — let users teach behaviors in natural language',
+          'Routine detection — notice patterns and proactively help',
+          'Context continuation — pick up where the conversation left off',
+          'Reducing repetition — don\'t ask the user the same question twice',
+        ],
+        when_NOT_to_use: [
+          'Application state that belongs in your own database',
+          'Tenant-wide configuration (use solution settings instead)',
+          'Logs / audit data (use a logging system)',
+          'Large blobs (files, images, transcripts — store separately and reference them)',
+          'Anything sensitive the user didn\'t intend to share — memory is not a surveillance log',
+        ],
+        the_promise: 'Every solution on this platform inherits a real, persistent, intelligent memory layer for its users — without writing a single line of memory code. Use it, and your solution feels like it knows the user. Skip it, and you\'re building a goldfish.',
+        how_to_enable: 'Add "memory-mcp" to your skill\'s connectors[] array. Then add memory tools you need to your skill\'s tools[] (e.g. memory.recall, memory.userProfile, memory.rules.match). The platform handles the rest.',
       },
 
       // ── Platform Connectors Reference ──
