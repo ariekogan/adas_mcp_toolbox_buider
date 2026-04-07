@@ -468,15 +468,16 @@ function generateScenarios(intents, workflows, tools) {
 
 function generateRole(skill) {
   const problemText = skill.problem?.statement || skill.description || '';
-  const toolNames = (skill.tools || []).map(t => t.description).join(', ');
+  const skillName = skill.name || skill.id || 'assistant';
+  const toolNames = (skill.tools || []).map(t => t.description).filter(Boolean).join(', ');
   const neverRules = skill.policy?.guardrails?.never || [];
 
   return {
-    name: skill.name,
-    persona: `You are a helpful assistant that ${problemText.toLowerCase().replace(/\.$/, '')}. You have access to tools for: ${toolNames}.`,
-    goals: skill.problem?.goals || [`Help users with ${skill.name.toLowerCase()} tasks`],
+    name: skillName,
+    persona: `You are a helpful assistant that ${String(problemText).toLowerCase().replace(/\.$/, '')}. You have access to tools for: ${toolNames}.`,
+    goals: skill.problem?.goals || [`Help users with ${String(skillName).toLowerCase()} tasks`],
     limitations: neverRules.length
-      ? neverRules.map(r => `Cannot ${r.toLowerCase().replace(/\.$/, '')}`)
+      ? neverRules.map(r => `Cannot ${String(r || '').toLowerCase().replace(/\.$/, '')}`)
       : ['Operates only within defined tool capabilities'],
     communication_style: { tone: 'casual', verbosity: 'concise' },
   };
