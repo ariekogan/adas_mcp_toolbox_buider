@@ -2742,20 +2742,68 @@ function buildSolutionSpec() {
       // ── Memory Engine ──
       // The platform's built-in cognitive memory layer — every solution gets it for free.
       memory_engine: {
-        headline: 'Every solution gets a persistent cognitive memory layer for each user — already built, already deployed, already isolated. You don\'t wire it. You don\'t deploy it. You just use it.',
-        what_it_is: 'A long-term per-user brain. Each user has their own private memory island, fully isolated from other users even within the same solution. The platform provides the connector (memory-mcp) ready to use — add memory-mcp to your skill\'s connectors[] array and the tools are available.',
+        in_one_sentence: 'The memory connector is the user\'s brain — your skills READ from it, the platform WRITES to it, and you focus on doing the actual work.',
+        headline: 'Every solution gets a persistent cognitive memory layer for each user — already built, already deployed, already isolated. You don\'t wire it. You don\'t deploy it. You just read from it.',
+        what_it_is: 'A long-term per-user brain. Each user has their own private memory island, fully isolated from other users even within the same solution. The platform provides the connector (memory-mcp) ready to use — add memory-mcp to your skill\'s connectors[] array and the read tools are available.',
         why_it_matters: 'Without it, your solution starts every conversation from zero. With it, your solution behaves like a friend who remembers — preferences, facts, routines, taught rules, past situations.',
+
         memory_types: {
-          episodic:   { holds: 'What happened, when',                example: '"User booked a meeting with Sarah last Tuesday"' },
-          semantic:   { holds: 'Facts about the user and their world', example: '"Lives in Tel Aviv", "Works as a designer", "Speaks Hebrew"' },
-          procedural: { holds: 'Rules and learned behaviors',         example: '"When user says good morning → turn on lights"' },
-          working:    { holds: 'Short-lived ephemeral state',         example: '"Currently planning a trip to Berlin", "Mid-checkout"' },
-          meta:       { holds: 'Memory about memory',                 example: 'Why was this remembered, when, with what confidence' },
+          semantic:   { holds: 'Facts about the user and their world', example: '"Lives in Tel Aviv", "Allergic to peanuts", "Prefers window seats"' },
+          procedural: { holds: 'Rules and learned behaviors',          example: '"When user says good morning → turn on lights"' },
+          episodic:   { holds: 'Things that happened',                 example: 'Past conversations, completed jobs' },
+          working:    { holds: 'Short-lived state with TTL',           example: '"User is running late", "Current plan in progress"' },
+          meta:       { holds: 'Provenance / audit trail',             example: 'When/why a memory was stored, who taught it' },
         },
-        how_it_learns: {
-          explicit: 'When the user says "remember that I prefer dark mode" or "from now on, never schedule before 10am" — captured as high-confidence taught memories.',
-          automatic: 'As users have normal conversations, the engine quietly extracts useful facts in the background (end-of-job, cheap models, strict cost controls). Auto-learned memories are tagged separately and given lower confidence than taught ones. Users can review/correct/delete via the memory UI.',
+
+        // ── READ vs WRITE: this is the most important rule ──
+        read_vs_write: {
+          rule: 'Skills are READ-ONLY consumers. The platform handles ALL writes.',
+          why: 'Memory writes happen in two places, neither involves your skill: (1) the engine auto-extracts facts from conversations in the background, (2) the platform\'s teach handler captures explicit "remember that..." / "from now on..." statements as structured rules. Your skill never needs to call a write tool.',
+          consequence: 'Don\'t hardcode user knowledge. Don\'t try to "remember things yourself." Don\'t build your own teach skill. Trust the engine — it\'s already learning.',
         },
+
+        // ── READ tools (what your skills should use) ──
+        read_tools: {
+          'memory.userProfile()': 'Call this at the START of every interaction. One call returns the user\'s name, timezone, preferences, facts, instructions, and active rules. Use it to personalize replies.',
+          'memory.recall(query, type?, limit?)': 'Search memories by query. Example: "what did the user tell me about their diet?"',
+          'memory.list(type?, limit?, offset?)': 'List all memories of a given type',
+          'memory.rules.match(situation)': 'Check if any user-taught rules apply to the current situation. Call this BEFORE taking an action that might conflict with a rule.',
+          'memory.rules.count()': 'Count active rules',
+          'memory.semantic.search(query)': 'Semantic search across all memories with similarity scoring',
+          'memory.summarize(type?)': '"What do you know about this user?" — high-level summary',
+          'memory.explain(id)': '"Why is this remembered? Where did it come from?" — provenance trail',
+          'memory.audit(filter?)': 'Inspect the memory audit log',
+          'context.read(type)': 'Read short-lived working state (situations, plans)',
+        },
+
+        write_tools_note: 'Write operations (memory.store, memory.update, memory.delete, memory.userProfile.set, context.store, context.resolve, context.clear) are RESERVED for the platform. Solution skills must NOT call them. They happen automatically via the auto-learning pipeline and the platform\'s teach handler.',
+
+        // ── How auto-learning actually works ──
+        how_auto_learning_works: {
+          intro: 'The engine listens to every conversation and extracts memorable things in three passes:',
+          passes: {
+            cheap_pass: {
+              when: 'Every interaction',
+              cost: 'Free',
+              method: 'Regex to catch obvious facts',
+              examples: ['"I live in..."', '"my name is..."', '"I\'m allergic to..."'],
+            },
+            smart_pass: {
+              when: 'Daily batch per user',
+              cost: 'Cheap (Haiku)',
+              method: 'LLM extraction of subtler facts and preferences',
+            },
+            deep_pass: {
+              when: 'Weekly batch per user',
+              cost: 'Medium',
+              method: 'Pattern detection across history',
+              example: '"User always asks about Hebrew news in the morning"',
+            },
+          },
+          tagging: 'Auto-learned memories are tagged source: "auto" with confidence 0.5–0.8 and decay over time. Explicitly taught memories are tagged source: "taught" with confidence 1.0 and don\'t decay. Users can review and correct everything via a dedicated UI.',
+        },
+
+        // ── Engine intelligence (you get this for free) ──
         intelligence: [
           'Normalizes input on write — "i prefer dark mode plz" becomes "Prefers dark mode UI"',
           'Deduplicates semantically — repeating yourself doesn\'t create 5 entries',
@@ -2765,21 +2813,29 @@ function buildSolutionSpec() {
           'Compacts in the background — clusters similar memories into clean summaries',
           'Tracks provenance — every memory has an audit trail: where it came from, why it\'s there, confidence',
         ],
-        tools: {
-          'memory.recall(query, type?, limit?)':       'Find relevant memories for a query (semantic search)',
-          'memory.list(type?, limit?, offset?)':       'List memories by type',
-          'memory.userProfile()':                       'Get the user\'s full structured profile in one call',
-          'memory.userProfile.set(field, value)':       'Set a structured profile field',
-          'memory.rules.match(situation)':              'Find taught rules that apply to a situation',
-          'memory.rules.count()':                       'Count active rules',
-          'context.read(type)':                         'Read active working context',
-          'memory.semantic.search(query)':              'Advanced semantic search with similarity scoring',
-          'memory.explain(id)':                         'Explain why a memory exists, with provenance trail',
-          'memory.summarize(type?)':                    'Get a high-level summary of stored memories',
-          'memory.audit(filter?)':                      'Inspect the memory audit log',
+
+        // ── Skill design rules (do this / don\'t do this) ──
+        skill_design_rules: {
+          do: [
+            'Call memory.userProfile at the START of every interaction — let the engine give you the real picture of who you\'re talking to.',
+            'Call memory.rules.match BEFORE taking an action — the user may have taught a behavior that conflicts with what you\'re about to do.',
+            'Use memory.recall when you need context-specific facts ("what did the user say about their diet?")',
+            'Trust the engine — it learns automatically, you don\'t need to remind it.',
+          ],
+          dont: [
+            'Don\'t hardcode user knowledge — always read it from the engine.',
+            'Don\'t try to remember things yourself — auto-extraction is already running.',
+            'Don\'t call write tools (memory.store, memory.update, etc.) — they\'re platform-only.',
+            'Don\'t build your own teach skill — the platform handles "remember that..." and "from now on...".',
+            'Don\'t cache memory results in your skill state — re-read each interaction (the engine may have learned new things since).',
+          ],
         },
-        write_tools_note: 'Write operations (memory.store, memory.update, memory.delete, memory.userProfile.set, context.store, context.resolve, context.clear) are reserved for the platform — they happen automatically via the explicit teaching flow and the background extraction pipeline. Solution skills should NOT call write tools directly. Use recall/list/userProfile/rules.match for read access.',
-        actor_isolation: 'You don\'t pass an actor ID — the platform injects it automatically based on who\'s chatting. You don\'t pass a tenant — handled too. Cross-user data leaks are impossible by construction.',
+
+        // ── Platform guarantees ──
+        actor_isolation: 'You don\'t pass an actor ID — the platform injects it automatically based on who\'s chatting. You don\'t pass a tenant — handled too. Memory is per-tenant + per-actor. Cross-user data leaks are impossible by construction.',
+        cross_skill: 'The same memory works across every skill in your solution. What one skill learns (via the platform\'s extraction), all skills see.',
+        forward_compatibility: 'Your skill calls don\'t change when the engine gets smarter (better embeddings, new dedup strategies, smarter extraction). Same tool names, smarter results.',
+
         what_you_dont_do: [
           'Set up a database',
           'Design a memory schema',
@@ -2788,18 +2844,21 @@ function buildSolutionSpec() {
           'Manage embeddings, vector search, or LLM integration',
           'Implement background compaction or decay logic',
           'Build a "memory review" UI (already exists)',
+          'Build a "teach my assistant" skill (platform handles it)',
           'Wire memory tools into every new skill (just add memory-mcp to connectors)',
           'Migrate data when your solution evolves',
           'Optimize cost on the LLM extraction pipeline',
         ],
+
         when_to_use: [
           'Personalization — adapt behavior to who you\'re talking to',
           'Preferences — remember how the user likes things done',
-          'Rules and automations — let users teach behaviors in natural language',
+          'Rules and automations — react to user-taught behaviors',
           'Routine detection — notice patterns and proactively help',
           'Context continuation — pick up where the conversation left off',
           'Reducing repetition — don\'t ask the user the same question twice',
         ],
+
         when_NOT_to_use: [
           'Application state that belongs in your own database',
           'Tenant-wide configuration (use solution settings instead)',
@@ -2807,8 +2866,10 @@ function buildSolutionSpec() {
           'Large blobs (files, images, transcripts — store separately and reference them)',
           'Anything sensitive the user didn\'t intend to share — memory is not a surveillance log',
         ],
+
         the_promise: 'Every solution on this platform inherits a real, persistent, intelligent memory layer for its users — without writing a single line of memory code. Use it, and your solution feels like it knows the user. Skip it, and you\'re building a goldfish.',
-        how_to_enable: 'Add "memory-mcp" to your skill\'s connectors[] array. Then add memory tools you need to your skill\'s tools[] (e.g. memory.recall, memory.userProfile, memory.rules.match). The platform handles the rest.',
+
+        how_to_enable: 'Add "memory-mcp" to your skill\'s connectors[] array. Then add the READ tools you need to your skill\'s tools[] (e.g. memory.userProfile, memory.recall, memory.rules.match). The platform handles writes, isolation, extraction, and everything else.',
       },
 
       // ── Platform Connectors Reference ──
