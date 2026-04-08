@@ -251,12 +251,20 @@ export async function generateIntentExamples({ intentId, description, skillConte
  *   - Mutates the skill in place AND returns it for convenience.
  */
 export async function enrichSkillIntentsWithLLM(skill, tools = []) {
-  if (!skill?.intents?.supported || !Array.isArray(skill.intents.supported)) {
-    // If the whole `intents` shape is missing, coerce it to an empty
-    // supported[] so the 0-intent branch below can try to generate them
-    // from scratch. Same path as a skill that was deployed with
-    // explicitly-empty intents.
-    if (!skill.intents) skill.intents = {};
+  // Normalize the intents shape. Some skills store intents as a flat
+  // array (skill.intents = [...]), others as { supported: [...] }. Our
+  // enricher always operates on the {supported:[]} form, so normalize
+  // first. This ALSO handles the "intents field missing entirely"
+  // case by creating an empty supported array.
+  if (Array.isArray(skill.intents)) {
+    // Flat-array form → wrap it so any previously-declared intents are
+    // preserved. Without this, setting skill.intents.supported = [...]
+    // on an array object adds a dangling property that gets silently
+    // dropped during serialization (hit this with pa-orchestrator).
+    skill.intents = { supported: skill.intents };
+  } else if (!skill.intents || typeof skill.intents !== "object") {
+    skill.intents = { supported: [] };
+  } else if (!Array.isArray(skill.intents.supported)) {
     skill.intents.supported = [];
   }
 
