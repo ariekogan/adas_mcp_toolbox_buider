@@ -221,10 +221,58 @@ export async function generateIntentExamples({ intentId, description, skillConte
  */
 export async function enrichSkillIntentsWithLLM(skill, tools = []) {
   if (!skill?.intents?.supported || !Array.isArray(skill.intents.supported)) {
-    return skill;
+    // If the whole `intents` shape is missing, coerce it to an empty
+    // supported[] so the 0-intent branch below can try to generate them
+    // from scratch. Same path as a skill that was deployed with
+    // explicitly-empty intents.
+    if (!skill.intents) skill.intents = {};
+    skill.intents.supported = [];
   }
 
   const skillContext = skill.role?.name || skill.role?.persona || skill.name || skill.id;
+
+  // 0-intent branch: skill has no intents declared at all. Call the LLM
+  // to synthesize a small (3-7) persona-driven set of grouped intents
+  // from the skill's persona, problem, and tool list. Results are
+  // cached on a hash of (persona + tool names) so repeated deploys are
+  // instant. Fails soft to the 1-per-tool template fallback (matches
+  // pre-SOL-02 behavior).
+  if (skill.intents.supported.length === 0) {
+    try {
+      const generated = await generateIntentListForSkill({
+        skillId: skill.id,
+        skillName: skill.name || skill.id,
+        persona: skill.role?.persona || "",
+        roleName: skill.role?.name || "",
+        problem:
+          typeof skill.problem === "string"
+            ? skill.problem
+            : skill.problem?.statement || "",
+        tools: (tools || skill.tools || []).map((t) => ({
+          name: t.name,
+          description: t.description || "",
+        })),
+      });
+      if (Array.isArray(generated) && generated.length > 0) {
+        skill.intents.supported = generated;
+        console.log(
+          `[exampleGenerator] Generated ${generated.length} intents for skill "${skill.id}" from persona+tools`
+        );
+        // Fall through to the per-intent loop below so examples are also
+        // attached via the existing example cache. (The list generator
+        // already returns examples, but the enrichment loop normalizes
+        // shape and keeps examples_generated mirrored.)
+      } else {
+        console.warn(
+          `[exampleGenerator] Intent list generation returned empty for "${skill.id}" — leaving intents empty`
+        );
+      }
+    } catch (e) {
+      console.warn(
+        `[exampleGenerator] Intent list generation failed for "${skill.id}": ${e.message}`
+      );
+    }
+  }
 
   // Build a tool lookup keyed by derived intent id so we can attach
   // per-intent inputs/name without exposing the mapping logic here.
@@ -264,5 +312,195 @@ export async function enrichSkillIntentsWithLLM(skill, tools = []) {
   }
 
   return skill;
+}
+
+// ─── Intent list generation (0-intent case) ────────────────────────────────
+//
+// When a skill has no intents declared, ask the LLM to synthesize a small
+// (3-7) set of persona-driven, tool-grouped intents. Each intent gets an
+// ID, description, and 4 example phrases in a single LLM call. Cached on
+// a hash of (persona + tool names) so redeploys are instant.
+//
+// Separate cache subdirectory from the per-intent example cache: this is
+// a different operation with a different key shape.
+
+const INTENT_LIST_CACHE_DIR = join(
+  __dirname,
+  "..",
+  "..",
+  "cache",
+  "intent-lists"
+);
+
+function intentListCacheKey({ persona, tools }) {
+  const normalized =
+    String(persona || "")
+      .trim()
+      .toLowerCase() +
+    "||" +
+    (tools || [])
+      .map((t) => (t.name || "") + ":" + (t.description || ""))
+      .sort()
+      .join("|");
+  return createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+}
+
+function intentListCachePath(hash) {
+  return join(INTENT_LIST_CACHE_DIR, `${hash}.json`);
+}
+
+function readIntentListCache(hash) {
+  try {
+    const p = intentListCachePath(hash);
+    if (!existsSync(p)) return null;
+    const parsed = JSON.parse(readFileSync(p, "utf-8"));
+    if (!Array.isArray(parsed?.intents)) return null;
+    return parsed.intents;
+  } catch {
+    return null;
+  }
+}
+
+function writeIntentListCache(hash, payload) {
+  try {
+    if (!existsSync(INTENT_LIST_CACHE_DIR)) {
+      mkdirSync(INTENT_LIST_CACHE_DIR, { recursive: true });
+    }
+    writeFileSync(intentListCachePath(hash), JSON.stringify(payload, null, 2));
+  } catch (e) {
+    console.warn(`[exampleGenerator] intent-list cache write failed: ${e.message}`);
+  }
+}
+
+async function callLLMForIntentList({
+  skillName,
+  persona,
+  roleName,
+  problem,
+  tools,
+}) {
+  const adapter = await getDefaultAdapter();
+
+  const systemPrompt =
+    "You design intent catalogs for a skill-based AI assistant. Given a " +
+    "skill's persona, problem, and tool list, produce a SMALL set of " +
+    "high-level user intents (3 to 7) that group related tools together. " +
+    "Each intent represents something the user might ASK for in plain " +
+    "language, not a tool call. Focus on the persona and user-facing " +
+    "outcomes; do NOT create one intent per tool. Use concise snake_case " +
+    "ids. Descriptions are one-sentence natural language. Examples are " +
+    "4 varied, realistic user phrases — no robotic templates like " +
+    "'I need to X' or 'Please X'. " +
+    "Return STRICT JSON: " +
+    '{ "intents": [ { "id": "...", "description": "...", "examples": ["...", "...", "...", "..."], "tools": ["tool.name", ...] } ] }. ' +
+    "The `tools` array on each intent lists which of the skill's tools " +
+    "that intent would likely dispatch (helps the planner pick tools). " +
+    "Do not include any prose or markdown outside the JSON.";
+
+  const toolBlock = (tools || [])
+    .map((t) => `- ${t.name}: ${t.description || "(no description)"}`)
+    .join("\n");
+
+  const userMsg =
+    `Skill name: ${skillName}\n` +
+    (roleName ? `Role: ${roleName}\n` : "") +
+    `Persona:\n${persona || "(none)"}\n\n` +
+    (problem ? `Problem: ${problem}\n\n` : "") +
+    `Tools (${(tools || []).length}):\n${toolBlock}\n\n` +
+    `Return 3-7 grouped intents as JSON.`;
+
+  const resp = await adapter.chat({
+    systemPrompt,
+    messages: [{ role: "user", content: userMsg }],
+    maxTokens: 2000,
+    temperature: 0.5,
+    enableTools: false,
+  });
+
+  const text =
+    resp?.content ||
+    resp?.text ||
+    resp?.message?.content ||
+    (Array.isArray(resp?.content) ? resp.content[0]?.text : null) ||
+    "";
+
+  if (!text) throw new Error("empty LLM response");
+
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("no JSON in LLM response");
+
+  const parsed = JSON.parse(jsonMatch[0]);
+  if (!Array.isArray(parsed?.intents) || parsed.intents.length === 0) {
+    throw new Error("LLM returned invalid intents array");
+  }
+
+  // Normalize each intent into our internal shape.
+  return parsed.intents
+    .filter((i) => i && typeof i.id === "string" && i.id.length > 0)
+    .slice(0, 7)
+    .map((i) => {
+      const examples = Array.isArray(i.examples)
+        ? i.examples.map((e) => String(e).trim()).filter(Boolean).slice(0, 5)
+        : [];
+      return {
+        id: i.id.replace(/[^a-z0-9_]/gi, "_").toLowerCase(),
+        description: String(i.description || "").trim(),
+        examples,
+        examples_generated: examples,
+        // The LLM may suggest which tools this intent dispatches. We
+        // store it as advisory metadata — Core doesn't read it yet, but
+        // it gives authors and future tooling something to work with.
+        candidate_tools: Array.isArray(i.tools)
+          ? i.tools.filter((t) => typeof t === "string")
+          : [],
+      };
+    });
+}
+
+/**
+ * generateIntentListForSkill({ skillId, skillName, persona, roleName, problem, tools })
+ *
+ * Returns a promise for a small set of persona-driven intents for a skill
+ * that currently has none. Cached on (persona + tools) hash. Throws on
+ * LLM failure so the caller can decide whether to fall back.
+ */
+export async function generateIntentListForSkill({
+  skillId,
+  skillName,
+  persona,
+  roleName,
+  problem,
+  tools,
+}) {
+  const hash = intentListCacheKey({ persona, tools });
+
+  // 1. Cache hit?
+  const cached = readIntentListCache(hash);
+  if (cached && cached.length > 0) {
+    console.log(
+      `[exampleGenerator] Intent list cache HIT for "${skillId}" (hash=${hash}, ${cached.length} intents)`
+    );
+    return cached;
+  }
+
+  // 2. LLM call
+  const intents = await callLLMForIntentList({
+    skillName,
+    persona,
+    roleName,
+    problem,
+    tools,
+  });
+
+  writeIntentListCache(hash, {
+    skillId,
+    skillName,
+    persona,
+    toolCount: (tools || []).length,
+    generatedAt: new Date().toISOString(),
+    intents,
+  });
+
+  return intents;
 }
 
