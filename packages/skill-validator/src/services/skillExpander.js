@@ -72,6 +72,15 @@ function deriveIntentId(toolName) {
 /**
  * Generate example user phrases from tool description.
  * Uses the full tool description when available for more natural language.
+ *
+ * IMPORTANT: The output of this function is stored in the intent's
+ * `examples_generated` field, NOT `examples`. Hand-written author examples
+ * live in `examples` and are the only ones consumed by Core's detectIntent
+ * classifier. Auto-generated examples are kept around for non-classifier
+ * consumers (voice skill, eval tooling, docs, training data) but must never
+ * reach the intent classifier prompt — they're robotic templates that bias
+ * classification toward whichever intent happens to have hand-written
+ * natural examples.
  */
 function generateExamples(intentId, toolDesc) {
   const action = intentId.replace(/_/g, ' ');
@@ -398,7 +407,11 @@ function generateIntents(minimalTools, fullTools) {
     const intent = {
       id: intentId,
       description: t.description || `Handle ${intentId.replace(/_/g, ' ')} request`,
-      examples: generateExamples(intentId, t.description),
+      // Auto-generated examples go in examples_generated so they DO NOT
+      // reach the intent classifier prompt in Core. The `examples` field is
+      // reserved for hand-written phrases authored directly on the skill.
+      // See the note on generateExamples() for why this separation matters.
+      examples_generated: generateExamples(intentId, t.description),
       maps_to_workflow: `${intentId}_flow`,
     };
     if (entities.length) intent.entities = entities;
