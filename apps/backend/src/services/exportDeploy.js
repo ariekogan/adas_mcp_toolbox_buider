@@ -6,6 +6,7 @@ import { syncConnectorToADAS, startConnectorInADAS, stopConnectorInADAS, uploadM
 import { buildConnectorPayload } from "../utils/connectorPayload.js";
 import { compileUiPlugins } from "../utils/skillFieldHelpers.js";
 import adasCore from "./adasCoreClient.js";
+import { enrichSkillIntentsWithLLM } from "@adas/skill-validator";
 
 /**
  * Helper to get skillSlug from skill.
@@ -78,6 +79,29 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
   }
 
   log.info(`[MCP Deploy] Starting deploy for ${skillId} (version ${version})`);
+
+  // LLM-backed intent example enrichment.
+  // Replaces legacy robotic template examples ("I need to X", "Please X",
+  // "Can you X?") with LLM-generated natural phrases for the intent
+  // classifier. Author-written examples are preserved. Cached on
+  // description hash — repeated deploys are instant. Failures fall back
+  // to the template generator and never block the deploy.
+  //
+  // We do this BEFORE generating MCP server code so the enriched intents
+  // are persisted back to Builder FS and included in both the MCP export
+  // and the skill definition sent to ADAS Core below. This is the
+  // single-skill path; the full-solution path has the same call in
+  // skill-validator/src/routes/deploy.js.
+  try {
+    if (onProgress) onProgress('enriching_intents', 'Enriching intent examples...');
+    await enrichSkillIntentsWithLLM(skill, skill.tools || []);
+    // Persist the enriched intents so future deploys reuse the cached
+    // output and the Builder UI shows the real examples.
+    await skillsStore.save(skill);
+    log.info(`[MCP Deploy] Enriched intent examples for ${skillId} (${(skill.intents?.supported || []).length} intents)`);
+  } catch (enrichErr) {
+    log.warn(`[MCP Deploy] Intent enrichment failed for ${skillId} (non-fatal): ${enrichErr.message}`);
+  }
 
   // Phase 0: Deploy solution-level identity config (actor types, roles)
   if (solutionId) {

@@ -56,3 +56,8 @@ export { ensureSkillDefaults, ensureSolutionDefaults, DEFAULTS } from './ensureD
 
 // GitHub operations
 export { deleteDirectory as githubDeleteDirectory } from './services/githubService.js';
+
+// LLM-backed intent example enrichment
+// Used by single-skill redeploy paths (apps/backend/src/services/exportDeploy.js)
+// to ensure the enricher runs regardless of which deploy path is taken.
+export { generateIntentExamples, enrichSkillIntentsWithLLM } from './services/exampleGenerator.js';
