@@ -93,7 +93,7 @@ function templateFallback(intentId, description) {
 // ─── LLM call ─────────────────────────────────────────────────────────────
 
 async function callLLMForExamples({ intentId, description, skillContext, toolInputs, toolName }) {
-  const adapter = getDefaultAdapter();
+  const adapter = await getDefaultAdapter();
 
   const systemPrompt =
     "You generate realistic user utterances for an intent classifier. " +
