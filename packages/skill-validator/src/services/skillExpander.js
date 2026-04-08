@@ -412,7 +412,11 @@ function generateIntents(minimalTools, fullTools) {
       // reserved for hand-written phrases authored directly on the skill.
       // See the note on generateExamples() for why this separation matters.
       examples_generated: generateExamples(intentId, t.description),
-      maps_to_workflow: `${intentId}_flow`,
+      // maps_to_workflow was dropped 2026-04-08. It used to link intents to
+      // a single workflow ID, but that 1:1 coupling doesn't fit the direction
+      // we're taking (grouped intents with multiple candidate tools). Core's
+      // planner no longer receives this field either — see
+      // apps/backend/worker/buildAgentState.js for the matching change.
     };
     if (entities.length) intent.entities = entities;
     return intent;
@@ -428,7 +432,11 @@ function generateIntents(minimalTools, fullTools) {
  */
 function generateWorkflows(minimalTools, intents) {
   return intents.map(intent => ({
-    id: intent.maps_to_workflow,
+    // Workflow id used to come from intent.maps_to_workflow; that field was
+    // dropped 2026-04-08 so we derive the id here directly from the intent
+    // id. Same string as before for back-compat with any scenario/workflow
+    // code that key-matched `${intentId}_flow`.
+    id: `${intent.id}_flow`,
     name: intent.description,
     description: `Auto-generated workflow for ${intent.id}`,
     trigger: intent.id,
