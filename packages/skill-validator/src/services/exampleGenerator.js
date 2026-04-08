@@ -235,12 +235,20 @@ export async function enrichSkillIntentsWithLLM(skill, tools = []) {
   }
 
   for (const intent of skill.intents.supported) {
-    // Skip if author wrote examples by hand (and they're not legacy templates)
+    // Skip only if author wrote examples by hand and they're not legacy
+    // auto-templates. The old skillExpander generator produced a 4-item
+    // set where the FIRST entry was the description verbatim and the
+    // other 3 were "I need to X / Can you X? / Please X" wrappers. We
+    // detect legacy sets by asking: do 2+ of the examples match the
+    // template patterns? That catches the 3-of-4 case without
+    // false-positive-ing genuinely hand-authored phrases (where at most
+    // one might accidentally start with "I need to").
     if (Array.isArray(intent.examples) && intent.examples.length > 0) {
-      const allTemplate = intent.examples.every(
-        (e) => /^(I need to |Please |Can you help me |Can you .*\?$|I want to )/i.test(e)
-      );
-      if (!allTemplate) continue;
+      const templateHits = intent.examples.filter((e) =>
+        /^(I need to |Please |Can you help me |Can you .*\?$|I want to )/i.test(e)
+      ).length;
+      const isLegacyTemplates = templateHits >= 2;
+      if (!isLegacyTemplates) continue; // real hand-authored, leave alone
     }
 
     const tool = toolsByIntentId.get(intent.id);
