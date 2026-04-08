@@ -45,6 +45,7 @@ import path from 'node:path';
 import { Router } from 'express';
 import { validateSolution } from '../validators/solutionValidator.js';
 import { expandSkill } from '../services/skillExpander.js';
+import { enrichSkillIntentsWithLLM } from '../services/exampleGenerator.js';
 import * as github from '../services/githubService.js';
 import { buildRepoFiles } from '../services/githubRepoBuilder.js';
 
@@ -722,6 +723,25 @@ router.post('/solution', async (req, res) => {
       expandedSkillsList.push({ skill_id: s.id, expanded_fields });
       return expanded;
     });
+
+    // ── LLM-backed intent example enrichment ──
+    // For each expanded skill, walk its intents and replace the template
+    // `examples` with LLM-generated natural phrases. Author-written examples
+    // are preserved. Cached on description hash so repeated deploys are fast.
+    // Runs only at deploy time (not validate/expand) because it's the
+    // expensive-once, cheap-thereafter path. Failures fall back to the old
+    // template generator, never block the deploy.
+    for (let i = 0; i < expandedSkills.length; i++) {
+      const expanded = expandedSkills[i];
+      const originalTools = skills?.[i]?.tools || expanded.tools || [];
+      try {
+        await enrichSkillIntentsWithLLM(expanded, originalTools);
+      } catch (err) {
+        console.warn(
+          `[Deploy] LLM intent enrichment failed for skill "${expanded.id}" — continuing with template examples. Error: ${err.message}`
+        );
+      }
+    }
 
     // ── Pre-deploy validation (on expanded skills) ──
     const validationContext = { skills: expandedSkills, connectors: connectors || [], mcp_store: mcp_store || {} };
