@@ -2,70 +2,97 @@
  * exampleGenerator.js — LLM-backed natural example generator for skill intents.
  *
  * Replaces the old template-based generator (still present as the fallback).
- * Given an intent description, asks the platform LLM for 3-5 realistic user
- * phrases. Results are cached on disk keyed by a hash of the description so
- * redeploys don't re-hit the LLM unless the description actually changed.
+ * Given an intent description, asks the platform LLM for 4 realistic user
+ * phrases. Results are cached in Core's MongoDB (via the
+ * /api/internal/llm-cache HTTP endpoint) keyed by a hash of the
+ * description so redeploys don't re-hit the LLM unless the description
+ * actually changed.
  *
  * Strategy:
- *   1. Hash the normalized description → cache key
- *   2. Look up cache file in _builder/cache/intent-examples/<hash>.json
+ *   1. Hash the normalized description → cache key "intent-examples:<hash>"
+ *   2. GET Core /api/internal/llm-cache/<key>
  *   3. If hit → return cached examples (instant)
- *   4. If miss → call LLM, write cache, return examples
+ *   4. If miss → call LLM, PUT cache in Core, return examples
  *   5. If LLM errors → fall back to the original template generator
  *
- * The cache lives on the filesystem because this is a BUILDER task (design
- * time), not a runtime task. Per CLAUDE.md: "Skill Builder = Filesystem ONLY
- * (_builder/)".
+ * The cache lives in Core's MongoDB (not on Builder FS). Reason: the
+ * Skill Builder's source tree is a mirror of GitHub, so anything under
+ * packages/ or _builder/ ends up in version control — a cache would
+ * leak into commits. MongoDB is already the canonical runtime store
+ * and survives container rebuilds. Cache failures become cache misses
+ * (never fail the LLM call).
  */
 
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { getDefaultAdapter } from "./llm/adapter.js";
 import { deriveIntentId } from "./skillExpander.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// Core HTTP cache configuration — same env vars as llm/adapter.js.
+const CORE_URL = process.env.ADAS_CORE_URL || "http://adas-backend:4000";
+const CORE_SECRET =
+  process.env.ADAS_MCP_TOKEN || process.env.CORE_MCP_SECRET || "";
+const CACHE_NAMESPACE_EXAMPLES = "intent-examples";
+const CACHE_NAMESPACE_LISTS = "intent-lists";
 
-// Cache lives at <repo>/packages/skill-validator/cache/intent-examples/
-// which is inside the skill-validator package. Simple, no tenant scoping
-// needed because the cache key is content-hashed.
-const CACHE_DIR = join(__dirname, "..", "..", "cache", "intent-examples");
-
-// ─── Cache helpers ─────────────────────────────────────────────────────────
+// ─── Mongo-backed cache (via Core HTTP) ────────────────────────────────────
+//
+// Cache ops go through Core's /api/internal/llm-cache/:key endpoints
+// with the internal shared secret. Failures become cache misses — the
+// generator always falls through to a fresh LLM call rather than
+// erroring out. This keeps the hot path resilient to Core restarts or
+// transient network issues.
 
 function hashDescription(desc) {
-  return createHash("sha256").update(String(desc || "").trim().toLowerCase()).digest("hex").slice(0, 16);
+  return createHash("sha256")
+    .update(String(desc || "").trim().toLowerCase())
+    .digest("hex")
+    .slice(0, 16);
 }
 
-function cachePath(hash) {
-  return join(CACHE_DIR, `${hash}.json`);
-}
-
-function readCache(hash) {
+async function cacheGet(namespace, hash) {
+  if (!CORE_SECRET) return null;
   try {
-    const p = cachePath(hash);
-    if (!existsSync(p)) return null;
-    const raw = readFileSync(p, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed?.examples)) return null;
-    return parsed.examples;
-  } catch {
+    const key = `${namespace}:${hash}`;
+    const resp = await fetch(
+      `${CORE_URL}/api/internal/llm-cache/${encodeURIComponent(key)}`,
+      {
+        headers: { "x-adas-token": CORE_SECRET },
+        signal: AbortSignal.timeout(5000),
+      }
+    );
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (!data?.hit) return null;
+    return data.entry?.payload ?? null;
+  } catch (e) {
+    console.warn(`[exampleGenerator] cache GET failed (${namespace}): ${e.message}`);
     return null;
   }
 }
 
-function writeCache(hash, description, examples) {
+async function cachePut(namespace, hash, payload) {
+  if (!CORE_SECRET) return;
   try {
-    if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true });
-    const payload = {
-      description,
-      examples,
-      generatedAt: new Date().toISOString(),
-    };
-    writeFileSync(cachePath(hash), JSON.stringify(payload, null, 2));
+    const key = `${namespace}:${hash}`;
+    const resp = await fetch(
+      `${CORE_URL}/api/internal/llm-cache/${encodeURIComponent(key)}`,
+      {
+        method: "PUT",
+        headers: {
+          "x-adas-token": CORE_SECRET,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ namespace, payload }),
+        signal: AbortSignal.timeout(5000),
+      }
+    );
+    if (!resp.ok) {
+      console.warn(
+        `[exampleGenerator] cache PUT failed (${namespace}): ${resp.status} ${resp.statusText}`
+      );
+    }
   } catch (e) {
-    console.warn(`[exampleGenerator] cache write failed: ${e.message}`);
+    console.warn(`[exampleGenerator] cache PUT failed (${namespace}): ${e.message}`);
   }
 }
 
@@ -174,9 +201,9 @@ export async function generateIntentExamples({ intentId, description, skillConte
   const hash = hashDescription(desc);
 
   // 1. Cache hit?
-  const cached = readCache(hash);
-  if (cached && cached.length > 0) {
-    return cached;
+  const cached = await cacheGet(CACHE_NAMESPACE_EXAMPLES, hash);
+  if (Array.isArray(cached?.examples) && cached.examples.length > 0) {
+    return cached.examples;
   }
 
   // 2. Cache miss → LLM
@@ -188,7 +215,11 @@ export async function generateIntentExamples({ intentId, description, skillConte
       toolInputs,
       toolName,
     });
-    writeCache(hash, desc, examples);
+    await cachePut(CACHE_NAMESPACE_EXAMPLES, hash, {
+      description: desc,
+      examples,
+      generatedAt: new Date().toISOString(),
+    });
     return examples;
   } catch (e) {
     console.warn(
@@ -318,19 +349,9 @@ export async function enrichSkillIntentsWithLLM(skill, tools = []) {
 //
 // When a skill has no intents declared, ask the LLM to synthesize a small
 // (3-7) set of persona-driven, tool-grouped intents. Each intent gets an
-// ID, description, and 4 example phrases in a single LLM call. Cached on
-// a hash of (persona + tool names) so redeploys are instant.
-//
-// Separate cache subdirectory from the per-intent example cache: this is
-// a different operation with a different key shape.
-
-const INTENT_LIST_CACHE_DIR = join(
-  __dirname,
-  "..",
-  "..",
-  "cache",
-  "intent-lists"
-);
+// ID, description, and 4 example phrases in a single LLM call. Cached in
+// Core's Mongo under the "intent-lists" namespace keyed by a hash of
+// (persona + tool names).
 
 function intentListCacheKey({ persona, tools }) {
   const normalized =
@@ -343,33 +364,6 @@ function intentListCacheKey({ persona, tools }) {
       .sort()
       .join("|");
   return createHash("sha256").update(normalized).digest("hex").slice(0, 16);
-}
-
-function intentListCachePath(hash) {
-  return join(INTENT_LIST_CACHE_DIR, `${hash}.json`);
-}
-
-function readIntentListCache(hash) {
-  try {
-    const p = intentListCachePath(hash);
-    if (!existsSync(p)) return null;
-    const parsed = JSON.parse(readFileSync(p, "utf-8"));
-    if (!Array.isArray(parsed?.intents)) return null;
-    return parsed.intents;
-  } catch {
-    return null;
-  }
-}
-
-function writeIntentListCache(hash, payload) {
-  try {
-    if (!existsSync(INTENT_LIST_CACHE_DIR)) {
-      mkdirSync(INTENT_LIST_CACHE_DIR, { recursive: true });
-    }
-    writeFileSync(intentListCachePath(hash), JSON.stringify(payload, null, 2));
-  } catch (e) {
-    console.warn(`[exampleGenerator] intent-list cache write failed: ${e.message}`);
-  }
 }
 
 async function callLLMForIntentList({
@@ -475,12 +469,12 @@ export async function generateIntentListForSkill({
   const hash = intentListCacheKey({ persona, tools });
 
   // 1. Cache hit?
-  const cached = readIntentListCache(hash);
-  if (cached && cached.length > 0) {
+  const cached = await cacheGet(CACHE_NAMESPACE_LISTS, hash);
+  if (Array.isArray(cached?.intents) && cached.intents.length > 0) {
     console.log(
-      `[exampleGenerator] Intent list cache HIT for "${skillId}" (hash=${hash}, ${cached.length} intents)`
+      `[exampleGenerator] Intent list cache HIT for "${skillId}" (hash=${hash}, ${cached.intents.length} intents)`
     );
-    return cached;
+    return cached.intents;
   }
 
   // 2. LLM call
@@ -492,7 +486,7 @@ export async function generateIntentListForSkill({
     tools,
   });
 
-  writeIntentListCache(hash, {
+  await cachePut(CACHE_NAMESPACE_LISTS, hash, {
     skillId,
     skillName,
     persona,
