@@ -940,7 +940,6 @@ export function generateAdasExportPayload(toolbox) {
     // RV2 settings - these control the iteration loop
     max_iterations: eng.rv2?.max_iterations ?? 16,
     timeout: eng.rv2?.timeout ?? 60000,
-    on_max_iterations: eng.rv2?.on_max_iterations ?? 'ask_user',
     // HLR settings - max replans (strategy changes)
     max_replans: eng.hlr?.replanning?.max_replans ?? 3,
     // Finalization gate (judge)

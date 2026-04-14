@@ -68,7 +68,6 @@ export const COVERAGE = [
   // Engine
   { section: 'engine', field: 'engine', check: 'Section exists', type: 'schema' },
   { section: 'engine', field: 'engine.rv2.max_iterations', check: 'At least 1', type: 'schema' },
-  { section: 'engine', field: 'engine.rv2.on_max_iterations', check: 'Valid enum (escalate/fail/ask_user)', type: 'schema' },
   { section: 'engine', field: 'engine.hlr.critic.strictness', check: 'Valid enum (low/medium/high)', type: 'schema' },
   { section: 'engine', field: 'engine.autonomy.level', check: 'Valid enum (autonomous/supervised/restricted)', type: 'schema' },
   { section: 'engine', field: 'engine.finalization_gate.enabled', check: 'Is boolean', type: 'schema' },
@@ -470,15 +469,6 @@ function validateEngine(engine) {
       });
     }
 
-    const validOnMax = ['escalate', 'fail', 'ask_user'];
-    if (engine.rv2.on_max_iterations && !validOnMax.includes(engine.rv2.on_max_iterations)) {
-      issues.push({
-        code: 'INVALID_ON_MAX_ITERATIONS',
-        severity: 'error',
-        path: 'engine.rv2.on_max_iterations',
-        message: `Invalid on_max_iterations: ${engine.rv2.on_max_iterations}. Must be one of: ${validOnMax.join(', ')}`,
-      });
-    }
   }
 
   // Validate HLR config

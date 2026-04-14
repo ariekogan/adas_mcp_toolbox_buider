@@ -851,7 +851,6 @@ export function generateSkillYaml(skill) {
   // RV2 Engine settings - max_iterations is the main iteration limit
   lines.push(`  max_iterations: ${skill.engine?.rv2?.max_iterations ?? 16}`);
   lines.push(`  timeout: ${skill.engine?.rv2?.timeout ?? 60000}`);
-  lines.push(`  on_max_iterations: ${skill.engine?.rv2?.on_max_iterations ?? 'ask_user'}`);
   if (skill.engine?.response_format) {
     lines.push(`  response_format: ${skill.engine.response_format}`);
   }

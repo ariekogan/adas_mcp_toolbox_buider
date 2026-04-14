@@ -96,7 +96,6 @@ export function makeValidSkill() {
         max_iterations: 8,
         iteration_timeout_ms: 30000,
         allow_parallel_tools: false,
-        on_max_iterations: 'fail',
       },
       hlr: {
         enabled: true,

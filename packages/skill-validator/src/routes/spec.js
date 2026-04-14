@@ -595,7 +595,6 @@ function buildEnums() {
 
       // Engine
       autonomy_level: ['autonomous', 'supervised', 'restricted'],
-      on_max_iterations: ['escalate', 'fail', 'ask_user'],
       critic_strictness: ['low', 'medium', 'high'],
       reflection_depth: ['shallow', 'medium', 'deep'],
 
@@ -1078,7 +1077,6 @@ function buildSkillSpec() {
             'If jobs frequently hit ENGINE_BUDGET_EXHAUSTED, increase rv2.max_iterations.',
             'The platform default is 16 iterations if not configured. Always set it explicitly for production skills.',
             'Higher limits increase cost but allow the agent to complete complex multi-step tasks.',
-            'Use on_max_iterations: "ask_user" for interactive skills, "fail" for batch/automated skills.',
           ],
           planner_tool_budget_optimization: {
             _note: 'Advanced optimization — control which tools the planner always sees. Two complementary mechanisms: PIN your important domain tools, UN-PIN system tools you don\'t need.',
@@ -1125,7 +1123,6 @@ function buildSkillSpec() {
               max_iterations: { type: 'number', description: 'Max tool calls per job (default: 10, platform fallback: 16). Simple lookups need 8-12, investigations need 20-30, deep analysis 30+.' },
               iteration_timeout_ms: { type: 'number', description: 'Timeout per iteration in ms (default: 30000)' },
               allow_parallel_tools: { type: 'boolean', description: 'Allow parallel tool execution (default: false)' },
-              on_max_iterations: { type: 'enum', values: ['escalate', 'fail', 'ask_user'], description: 'What happens when max_iterations is reached: "ask_user" pauses for input, "fail" stops with error, "escalate" triggers handoff.' },
             },
           },
           hlr: {
@@ -1453,7 +1450,6 @@ function buildSkillSpec() {
             max_iterations: 8,
             iteration_timeout_ms: 30000,
             allow_parallel_tools: false,
-            on_max_iterations: 'fail',
           },
           hlr: {
             enabled: true,

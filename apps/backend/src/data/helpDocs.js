@@ -280,7 +280,6 @@ export const HELP_DOCS = {
       max_iterations: 'Maximum reasoning steps (default: 10). Higher = more complex tasks possible, but slower.',
       iteration_timeout_ms: 'Timeout per step in milliseconds (default: 30000). Prevents hung operations.',
       allow_parallel_tools: 'Whether tools can run simultaneously (default: false). Enable for independent operations.',
-      on_max_iterations: 'What to do when limit reached: escalate, fail, or ask_user.'
     },
     recommendations: {
       'Simple Q&A skills': 'max_iterations: 5, timeout: 15000',

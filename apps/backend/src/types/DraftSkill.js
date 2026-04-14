@@ -570,7 +570,6 @@
  * @property {number} max_iterations - Default: 10
  * @property {number} iteration_timeout_ms - Default: 30000
  * @property {boolean} allow_parallel_tools - Default: false
- * @property {'escalate' | 'fail' | 'ask_user'} on_max_iterations
  */
 
 /**

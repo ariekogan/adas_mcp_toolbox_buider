@@ -23,7 +23,6 @@ const DEFAULT_ENGINE = {
     max_iterations: 10,
     iteration_timeout_ms: 30000,
     allow_parallel_tools: false,
-    on_max_iterations: 'fail',
   },
   hlr: {
     enabled: true,

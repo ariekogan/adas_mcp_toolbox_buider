@@ -394,7 +394,6 @@ function buildExampleSkill() {
         max_iterations: 8,  // Low for this simple order-support skill
         iteration_timeout_ms: 30000,
         allow_parallel_tools: false,
-        on_max_iterations: 'fail',  // 'ask_user' for interactive, 'fail' for batch
       },
       hlr: {
         enabled: true,
