@@ -34,6 +34,7 @@ const PLATFORM_CONNECTOR_META = {
   'mobile-device-mcp':     { transport: 'http', port: 7304, description: 'Mobile device bridge — calendar, contacts, location, weather, battery, notifications, DND, navigation. Data from mobile app relay.' },
   'handoff-controller-mcp':{ transport: 'http', port: 7309, description: 'Skill-to-skill handoff orchestration — manages live conversation transfers with grant passing.' },
   'internal-comm-mcp':     { transport: 'http', port: 7303, description: 'Internal message queue — skill-to-skill async communication for voice replies and cross-skill coordination.' },
+  'browser-mcp':           { transport: 'http', port: 7315, description: 'Browser automation — navigate, read, click, type, fill forms, take screenshots. Playwright-based headless Chromium. Use from connector code for web scraping and automation.', ui_plugins: ['browser-view'] },
 };
 
 let _platformConnectors = {};
@@ -129,6 +130,61 @@ router.get('/workflows', (_req, res) => res.set(CACHE_HEADERS).json(WORKFLOWS));
 router.get('/mobile-connector', (_req, res) => res.set(CACHE_HEADERS).json(MOBILE_CONNECTOR_SPEC));
 router.get('/ui-plugins', (_req, res) => res.set(CACHE_HEADERS).json(UI_PLUGINS_SPEC));
 router.get('/multi-user-connector', (_req, res) => res.set(CACHE_HEADERS).json(MULTI_USER_CONNECTOR_SPEC));
+
+// Live platform connector catalog with tool schemas
+router.get('/platform-connectors', async (_req, res) => {
+  try {
+    const connectors = await getPlatformConnectors();
+    res.set(CACHE_HEADERS).json({
+      description: 'Platform connectors — pre-built, shared across all tenants. Add to skill.connectors[] to use.',
+      inter_connector_calling: {
+        summary: 'Custom connectors can call platform connectors through the Core MCP gateway. This is the recommended pattern for connector-to-connector communication.',
+        gateway_url: 'Use env var ADAS_MCP_GATEWAY_URL (injected automatically) or default: http://backend:4000/mcp',
+        auth: 'Include x-adas-token header with ADAS_MCP_TOKEN env var (injected automatically)',
+        tenant: 'Include x-adas-tenant header with ADAS_TENANT env var (injected automatically)',
+        wire_format: 'JSON-RPC 2.0',
+        example: {
+          description: 'Call browser-mcp:web.read from inside a custom connector',
+          code: `const CORE_URL = process.env.ADAS_MCP_GATEWAY_URL || process.env.ADAS_CORE_URL || "http://backend:4000";
+const TOKEN = process.env.ADAS_MCP_TOKEN || "";
+const TENANT = process.env.ADAS_TENANT || "";
+
+async function callPlatformTool(toolName, args) {
+  const res = await fetch(CORE_URL + "/mcp", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-adas-tenant": TENANT,
+      "x-adas-token": TOKEN,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "tools/call",
+      id: Date.now(),
+      params: { name: toolName, arguments: args },
+    }),
+  });
+  const data = await res.json();
+  return data?.result?.content?.[0]?.text
+    ? JSON.parse(data.result.content[0].text)
+    : data?.result;
+}
+
+// Usage: const page = await callPlatformTool("web.read", { url: "https://example.com" });`,
+        },
+        injected_env_vars: {
+          ADAS_MCP_GATEWAY_URL: 'Core MCP gateway URL (recommended for inter-connector calls)',
+          ADAS_MCP_TOKEN: 'Shared secret for authenticating to Core',
+          ADAS_TENANT: 'Current tenant name',
+          ADAS_CORE_URL: 'Core API base URL (legacy, same as gateway but without /mcp suffix)',
+        },
+      },
+      connectors,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 export default router;
 
@@ -326,6 +382,10 @@ function buildIndex() {
       '/spec/multi-user-connector': {
         method: 'GET',
         description: 'Multi-user connector guide — how to build connectors that isolate data per user (actor). Covers HTTP vs stdio transport, actor context propagation, and complete code examples.',
+      },
+      '/spec/platform-connectors': {
+        method: 'GET',
+        description: 'Platform connector catalog — live tool schemas for all built-in connectors (memory, browser, gmail, whatsapp, etc.). Includes inter-connector calling pattern with complete code example.',
       },
       '/spec/examples': {
         method: 'GET',
@@ -4068,13 +4128,31 @@ await esbuild.build({
         },
 
         package_json: {
-          description: 'Your connector package.json needs a build script and esbuild:',
+          description: 'Your connector package.json needs build scripts and esbuild as a dev dependency.',
           example: {
-            scripts: { build: 'node esbuild.config.mjs' },
-            devDependencies: { esbuild: '^0.20.0' },
+            scripts: {
+              build: 'npm run build:rn',
+              'build:rn': 'for f in my-panel another-panel; do esbuild rn-src/$f.tsx --bundle --format=cjs --platform=neutral --outfile=rn-bundle/$f.bundle.js --external:react --external:react-native --external:@adas/plugin-sdk --target=es2016; done && esbuild rn-src/index.tsx --bundle --format=cjs --platform=neutral --outfile=rn-bundle/index.bundle.js --external:react --external:react-native --external:@adas/plugin-sdk --target=es2016',
+            },
+            devDependencies: { esbuild: '^0.27.0' },
           },
-          note: 'Core auto-runs "npm run build" after "npm install" during deployment. The bundle is produced automatically.',
+          note: 'Core auto-runs "npm install" then "npm run build" during deployment. The build:rn script compiles each panel individually (for per-plugin bundles) plus an index.tsx barrel export (combined bundle). Replace "my-panel another-panel" with your actual panel names.',
         },
+
+        plugin_sdk_note: {
+          description: '@adas/plugin-sdk is NOT published on npm. It is provided by the mobile host app at runtime through a require shim. Your esbuild config must declare it as external. The SDK exports useApi (for MCP tool calls) and PluginProps type (for TypeScript). You import it normally in source code — the host app resolves it at runtime.',
+        },
+
+        index_tsx_template: {
+          description: 'rn-src/index.tsx — barrel export that re-exports all panels. This produces the combined index.bundle.js served by Core.',
+          code: `// rn-src/index.tsx — barrel export for all RN plugins
+export { default as MyPanel } from './my-panel';
+export { default as AnotherPanel } from './another-panel';
+
+// Default export = first panel (used by single-plugin connectors)
+export { default } from './my-panel';`,
+        },
+
 
         connector_manifest: {
           description: 'Your connector\'s ui.getPlugin tool must return the correct render config:',
