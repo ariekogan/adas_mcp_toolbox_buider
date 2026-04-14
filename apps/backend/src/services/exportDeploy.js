@@ -431,14 +431,27 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
           // Non-fatal: connector may not be running yet (first deploy)
         }
 
-        // Upload connector source code to ADAS Core mcp-store (if available)
+        // Upload connector source code to ADAS Core mcp-store ONLY if Core doesn't have it yet.
+        // If Core already has connector code (from GitHub deploy or direct edit), don't overwrite —
+        // the _builder copy may be stale. Connector code changes should go through GitHub.
         if (mcpStoreBase) {
           const mcpCodeDir = path.join(mcpStoreBase, connectorId);
           try {
             const { default: fsSync } = await import('fs');
-            if (fsSync.existsSync(mcpCodeDir)) {
+            // Check if Core already has this connector's code
+            const coreHasCode = await (async () => {
+              try {
+                const existing = await adasCore.getConnector(connectorId);
+                return existing?.status === 'connected' || (existing?.tools_count || 0) > 0;
+              } catch { return false; }
+            })();
+
+            if (coreHasCode) {
+              log.info(`[MCP Deploy] Skipping mcp-store upload for "${connectorId}" — Core already has working code. Use ateam_upload_connector(github:true) to update connector code.`);
+            } else if (fsSync.existsSync(mcpCodeDir)) {
+              // First deploy or Core lost the code — upload from _builder
               await uploadMcpCodeToADAS(connectorId, mcpCodeDir);
-              log.info(`[MCP Deploy] Uploaded mcp-store for "${connectorId}"`);
+              log.info(`[MCP Deploy] Uploaded mcp-store for "${connectorId}" (first deploy / recovery)`);
             }
           } catch (uploadErr) {
             log.warn(`[MCP Deploy] mcp-store upload for "${connectorId}" failed (non-fatal): ${uploadErr.message}`);
