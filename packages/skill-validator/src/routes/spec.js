@@ -1395,6 +1395,61 @@ function buildSkillSpec() {
       note: 'Any tool name starting with sys., ui., or cp. is recognized as a system tool by the validator',
     },
 
+    // ── Python Helpers (available inside run_python_script) ──
+    python_helpers: {
+      description: 'Built-in Python functions available in every run_python_script execution. These are injected as a prelude — no imports needed.',
+      helpers: {
+        'adas_call_tool(name, args, timeout_sec=120)': {
+          description: 'Call any ADAS tool from Python via the RPC bridge. Blocks until the tool returns. Returns dict with ok, result, error fields.',
+          args: { name: 'Tool name (string)', args: 'Tool arguments (dict, optional)', timeout_sec: 'Max wait time (default: 120)' },
+          returns: '{ ok: True/False, result: <tool output>, error: <message if failed> }',
+          example: 'result = adas_call_tool("gmail.send", {"to": "alice@example.com", "subject": "Hi", "body": "Hello!"})',
+        },
+        'adas_emit_progress(message, step=None, total=None, data=None)': {
+          description: 'Emit a progress event visible to the user in real-time and stored in the tool result. Uses the same proven RPC bridge as adas_call_tool — guaranteed delivery, zero timing issues. Essential for fat tools (browser automation, multi-step workflows) that run for minutes.',
+          args: {
+            message: 'Human-readable status string (required). Shown to the user in the UI.',
+            step: 'Current step number (optional, int). Displayed as [step/total] in the UI.',
+            total: 'Total number of steps (optional, int).',
+            data: 'Arbitrary structured data dict (optional). Included in the progress log for the LLM.',
+          },
+          behavior: [
+            'Blocks ~50ms per call (one RPC round-trip). Use between real work, not in tight loops.',
+            'Always allowed — bypasses the allowed_tools check. No configuration needed.',
+            'Events appear in result._progress[] when the tool returns (enriched result for LLM planning).',
+            'Events appear in the UI in real-time via SSE (web) and WebSocket (mobile).',
+            'Events are stored on job.state.__live_progress[] for chain-level aggregation.',
+            'Watchdog signals (_lastActivityTs, _rpcErrorStreak) feed into the HLR signals system for critic-driven abort decisions.',
+          ],
+          example: [
+            'adas_emit_progress("Restoring session", step=1, total=4)',
+            'adas_emit_progress("Scraping reactions", step=2, total=4, data={"url": "https://linkedin.com/notifications"})',
+            'adas_emit_progress("Processing 12 reactions", step=3, total=4, data={"count": 12})',
+            'adas_emit_progress("Done", step=4, total=4)',
+          ],
+        },
+        'adas_output_json(payload)': {
+          description: 'Output a JSON payload with robust markers. Use when expect_json=True in run_python_script. Avoids interference from debug prints to stdout.',
+          args: { payload: 'Dict or list to output as JSON' },
+          example: 'adas_output_json({"status": "ok", "items": [1, 2, 3]})',
+        },
+        'sp_get(name, default=None, parse_json=True)': {
+          description: 'Read a job scratchpad value. Scratchpads persist across iterations within the same job.',
+          args: { name: 'Scratchpad key', default: 'Default value if not found', parse_json: 'Auto-parse JSON strings (default: True)' },
+        },
+        'sp_set(name, content, mode="set", type="json")': {
+          description: 'Write a job scratchpad value. Calls sys.step internally.',
+          args: { name: 'Scratchpad key', content: 'Value to store', mode: 'set|append|merge', type: 'json|text' },
+        },
+        'sp_append(name, content)': { description: 'Append to a text scratchpad. Shorthand for sp_set(name, content, mode="append", type="text").' },
+        'sp_merge(name, obj)': { description: 'Merge a dict into a JSON scratchpad. Shorthand for sp_set(name, obj, mode="merge", type="json").' },
+        'adas_context': {
+          description: 'Dict containing job context — scratchpads, arguments, conversation history. Available as a global variable.',
+          fields: { scratchpads: 'Dict of scratchpad name → {content, type, ts}', args: 'Tool arguments passed by the planner' },
+        },
+      },
+    },
+
     // ── Validation Rules ──
     validation_rules: {
       description: 'What POST /validate/skill checks (5-stage pipeline)',
