@@ -978,14 +978,13 @@ function buildSkillSpec() {
           script_cache: {
             type: 'object', required: false,
             description:
-              'Opt-in for script-level JIT shortcuts. When a fat tool (one that the planner implements via run_python_script) interacts with a flaky external system — DOM scraping, version-rotating APIs, brittle HTML — setting this flag makes the platform CACHE the working Python script and replay it on subsequent calls. The LLM regenerates the Python only when a cached run fails. This gives stability across LinkedIn DOM drifts, API version changes, etc. ' +
+              'Opt-in for script-level JIT shortcuts (Level 2). When a fat tool interacts with a flaky external system — DOM scraping, version-rotating APIs, brittle HTML — setting `enabled: true` turns the tool into a first-class dispatchable function. The planner calls it directly like any other tool; the platform bakes the Python implementation on first call, caches it, and replays on subsequent calls. The LLM regenerates only when a cached run fails. ' +
               'ENABLE THIS when: the tool implementation is inherently unstable (browser automation, web scraping, screen reading, third-party API whose shape rotates). ' +
-              'DO NOT enable for: pure-compute tools, deterministic API calls, MCP-bridged tools with stable schemas — they do not need caching. ' +
-              'CONTRACT: when enabled, your run_python_script call MUST pass tool_name: "<this.name>" AND your Python output JSON MUST include a failure_class field when ok is false. See run_python_script meta for the full failure_class spec.',
+              'DO NOT enable for: pure-compute tools, deterministic API calls, MCP-bridged tools with stable schemas — they do not need caching.',
             fields: {
               enabled: {
                 type: 'boolean', required: true,
-                description: 'Turn script caching on for this tool. Default: false (pass-through, original behavior).',
+                description: 'Turn script caching on for this tool. Default: false. When true, the Core synthesizes a dispatcher for this tool — the planner can call it directly, no run_python_script boilerplate required.',
               },
               invalidate_on: {
                 type: 'string[]', required: false,
@@ -998,36 +997,22 @@ function buildSkillSpec() {
                 default: 30,
               },
             },
-            failure_class_contract: {
-              description: 'When script_cache is active, your Python output JSON (adas_output_json) MUST include a failure_class field when ok is false. The platform uses it to decide whether to invalidate the cache or preserve it.',
+            failure_class_contract_AUTOMATIC: {
+              description:
+                'The Python the baker generates MUST emit a failure_class field. The baker\'s system prompt enforces this automatically — you (the solution author) do NOT need to write the contract into the tool description or persona. The classes are:',
               classes: {
-                ok: 'Success. Platform refreshes cache TTL, increments hits counter.',
-                logical: 'The EXTERNAL system gave a valid NO (invalid credentials, rate limited, moderation rejected). The script is correct; the problem is real-world. Platform PRESERVES the cache and bubbles the error up to the user. Never use for anything the script itself got wrong.',
-                domain_break: 'The script assumption was wrong (selector returned null, JSON field missing, unexpected shape). Platform INVALIDATES the cache and re-bakes on the next call. Use this when you detected that the external system changed shape underneath you.',
+                ok: 'Success. Platform refreshes cache TTL.',
+                logical: 'External system gave a valid NO (invalid credentials, rate limited, moderation). Cache is PRESERVED.',
+                domain_break: 'Script assumption was wrong (selector null, shape changed). Cache is INVALIDATED, rebaked next call.',
               },
-              auto_classified: [
-                'execution — Python tracebacks, non-zero exit, timeouts, signals. The platform detects and classifies these; you do not need to report them.',
-              ],
-              default_when_missing: 'If your script emits {ok:false} without a failure_class, the platform conservatively treats it as domain_break — it will invalidate + rebake rather than silently cache a broken script.',
-              example: [
-                '# DOM changed — script could not read what it expected',
-                "if not login_nav or 'global-nav' not in str(login_nav.get('result','')):",
-                "    adas_output_json({'ok': False, 'failure_class': 'domain_break', 'error': 'global_nav_missing'})",
-                '',
-                '# Real user-side error — password was wrong',
-                "elif 'Invalid credentials' in page_text:",
-                "    adas_output_json({'ok': False, 'failure_class': 'logical', 'error': 'bad_password'})",
-                '',
-                '# Success',
-                'else:',
-                "    adas_output_json({'ok': True, 'failure_class': 'ok', 'profile_name': name})",
-              ],
+              auto_classified_by_platform: 'Python tracebacks, non-zero exits, timeouts → classified as execution automatically.',
+              default_when_missing: 'ok:false without failure_class → treated as domain_break (conservative).',
+              solution_author_responsibility: 'NONE. The baker enforces this contract. You just write the tool description.',
             },
-            integration_hint: {
-              planner_side:
-                'When the planner implements THIS tool via run_python_script, it must pass tool_name: "<this.name>" as an arg. Without tool_name the cache layer is inactive (pass-through).',
-              persona_reminder:
-                'Add to your skill persona: "When implementing linkedin.status, call run_python_script with tool_name=\'linkedin.status\' so the platform can cache the working script."',
+            planner_awareness_AUTOMATIC: {
+              description:
+                'At Level 2, the planner calls the tool DIRECTLY: linkedin.status({}). It does NOT need to know about run_python_script, tool_name, script_cache, or failure_class. The Core intercepts the call, resolves the synthetic dispatcher, and handles everything. ' +
+                'Your skill persona does NOT need any rules about tool_name or run_python_script routing. The only thing the persona needs is the normal "when to use this tool" kind of guidance.',
             },
             when_to_use: [
               'Browser automation (DOM scraping, Playwright clicks, headless Chromium)',
@@ -1041,12 +1026,27 @@ function buildSkillSpec() {
               'Tools that run for milliseconds — caching overhead is not worth it',
               'Tools whose OUTPUT is supposed to depend on args you do not count as part of the shape',
             ],
-            example_config: {
+            example_config_MINIMAL: {
+              enabled: true,
+            },
+            example_config_FULL: {
               enabled: true,
               invalidate_on: ['execution', 'domain_break'],
               max_age_days: 30,
             },
             design_doc: 'Docs/WIP/SCRIPT-LEVEL-JIT-SHORTCUTS.md in ai-dev-assistant repo.',
+          },
+          script_hint: {
+            type: 'string', required: false,
+            description:
+              'OPTIONAL Python snippet shown to the baker as a "what you think the implementation should look like" seed. Relevant only when script_cache.enabled is true. ' +
+              'The baker uses the hint as a strong starting point but is NOT bound by it — if a selector is wrong or a step unnecessary, the baker will deviate. A good hint dramatically speeds the first bake and reduces LLM creativity; a bad hint is harmless (it gets thrown away on first failure). ' +
+              'WHEN TO PROVIDE: if you know the site has a specific login button with a specific selector, put it in the hint. If you don\'t know the DOM, omit it entirely — the baker will figure it out from the tool description alone. ' +
+              'FORMAT: raw Python source as a multi-line string. Use adas_call_tool(), adas_emit_progress(), adas_output_json() like you would in run_python_script directly. No imports needed (json, time, re are available). The baker will rewrite as needed — you do NOT have to emit failure_class; the baker handles that.',
+            example_when_you_know_the_site:
+              '# Hint for a site with known selectors\nimport json\nnav = adas_call_tool(\'web.navigate\', {\'url\': \'https://example.com/account\'})\ncheck = adas_call_tool(\'web.evaluate\', {\'script\': "document.querySelector(\'.user-badge\') ? \'in\' : \'out\'"})\nadas_output_json({\'logged_in\': \'in\' in str(check.get(\'result\', \'\'))})',
+            example_when_you_DO_NOT_know_the_site:
+              '# Omit script_hint entirely — let the baker discover the DOM on first run.',
           },
           mock: {
             type: 'object', required: false,
@@ -1620,32 +1620,42 @@ function buildSkillSpec() {
       },
     },
 
-    // ── Script-Level JIT Shortcuts (platform feature) ──
+    // ── Script-Level JIT Shortcuts (platform feature, Level 2) ──
     script_caching: {
       description:
         'Platform feature for stabilizing fat Python tools that interact with flaky external systems (browser automation, web scraping, version-rotating APIs). ' +
-        'When a tool opts in (via tools[].script_cache.enabled), the platform CACHES the working Python body and replays it on subsequent calls — the LLM regenerates only when a cached run fails. ' +
-        'This means: LinkedIn changes its DOM → first user who hits the change triggers re-bake → every subsequent user gets the updated script automatically, no redeploy.',
+        'At Level 2 (current), opting in transforms a tool into a first-class dispatchable function: the planner calls it directly (linkedin.status({})), the Core synthesizes a dispatcher, the scriptBaker generates Python from the tool description, the platform caches the working script, and subsequent calls replay. The LLM regenerates only when a cached run fails. ' +
+        'Result: LinkedIn changes its DOM → first user triggers rebake → every subsequent user gets the updated script automatically, no redeploy.',
+      what_the_solution_author_writes: [
+        '1. A normal tool definition (name, description, inputs, output).',
+        '2. `script_cache: { enabled: true }` on that tool. Defaults for invalidate_on + max_age_days are fine.',
+        '3. OPTIONALLY, a `script_hint` field showing the baker what you think the Python should look like (seed, not binding).',
+        '4. That\'s it. No run_python_script boilerplate, no Python template in the description, no tool_name arg, no persona rules.',
+      ],
+      what_happens_automatically: [
+        'The planner sees tool X in its toolbox (from skill.tools).',
+        'Planner calls X({args}) directly — like any tool.',
+        'Core sees no runtime function for X but sees script_cache.enabled on X → synthesizes a dispatcher.',
+        'Dispatcher calls runPythonScriptCore with tool_name=X and NO code.',
+        'Hook A: cache miss → baker generates Python from tool description + optional script_hint → dry-runs → caches.',
+        'Hook A: cache hit → cached script replayed.',
+        'Hook B: classify outcome → refresh TTL (ok) / invalidate (domain_break/execution) / preserve (logical).',
+        'Planner sees normal tool result. Zero awareness of any of this.',
+      ],
       when_to_use:
         'Turn this on for tools whose implementation is inherently unstable — browser automation, DOM scraping, APIs whose shape rotates between versions. ' +
         'Do NOT turn it on for deterministic compute or stable MCP-bridged tools.',
-      opt_in_schema: 'See tools[].script_cache in the tools.item_schema above.',
-      failure_class_contract: {
-        summary:
-          'When script_cache is active, your Python output MUST include a failure_class field when ok is false. The platform uses this to decide whether to invalidate the cache or preserve it.',
+      failure_class_contract_AUTOMATIC: {
+        description:
+          'Every baked script includes a failure_class field — the baker\'s system prompt enforces it. Solution authors do not need to worry about this.',
         classes: {
           ok: 'Success → refresh TTL, increment hits.',
-          logical: 'External system gave a valid NO (bad login, rate limit, moderation). Script is correct; problem is real-world. → cache PRESERVED.',
-          domain_break: 'Script assumption was wrong (selector null, field missing, shape changed). → cache INVALIDATED, re-bake.',
-          execution: 'Python traceback / non-zero exit / timeout. Platform auto-detects. → cache INVALIDATED, re-bake.',
+          logical: 'External system gave a valid NO (bad login, rate limit, moderation). → cache PRESERVED.',
+          domain_break: 'Script assumption was wrong (selector null, shape changed). → cache INVALIDATED, rebake.',
+          execution: 'Python traceback / non-zero exit / timeout. Platform auto-detects. → cache INVALIDATED, rebake.',
         },
-        default_when_missing: 'ok:false without failure_class → treated conservatively as domain_break.',
       },
-      planner_integration: {
-        rule: 'When the planner implements a fat tool (e.g. linkedin.status) via run_python_script, it MUST pass tool_name: "linkedin.status" as an arg. Without tool_name the cache layer is inactive even if the tool has script_cache.enabled.',
-        persona_reminder:
-          'Add to the skill persona: "When implementing <tool-name>, call run_python_script with tool_name=\'<tool-name>\' so the platform can cache the working script."',
-      },
+      opt_in_schema: 'See tools[].script_cache and tools[].script_hint in the tools.item_schema above.',
       defaults: {
         BAKER_MAX_ATTEMPTS: 5,
         CACHE_TTL_DAYS: 30,
