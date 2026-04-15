@@ -23,6 +23,8 @@ import { warmCoreSettings } from "./services/llm/adapter.js";
 import mcpManager from "./services/mcpConnector.js";
 import connectorState from "./store/connectorState.js";
 import { registerImportedConnector } from "./routes/connectors.js";
+import { syncAllTenantsFromGitHub } from "./services/gitSyncBootstrap.js";
+import { refreshTenantCache } from "./utils/tenantContext.js";
 
 const app = express();
 
@@ -204,6 +206,20 @@ const server = app.listen(port, "0.0.0.0", () => {
       }
     } catch (err) {
       log.error('[Startup] Connector reconnection failed:', err.message);
+    }
+  })();
+
+  // F3 — boot-time GitHub → Builder FS reconciliation (fire-and-forget, non-blocking).
+  // See /Users/arie/.claude/plans/peaceful-dazzling-dijkstra.md (PR-2).
+  (async () => {
+    try {
+      // Ensure the tenant cache is populated BEFORE asking gitSync to enumerate tenants.
+      // tenantContext starts its own periodic refresh on import, but the first call
+      // may not have resolved yet when we hit this block.
+      await refreshTenantCache();
+      await syncAllTenantsFromGitHub({ log });
+    } catch (err) {
+      log.error('[Startup] GitSync bootstrap failed:', err.message);
     }
   })();
 });
