@@ -131,6 +131,99 @@ router.get('/mobile-connector', (_req, res) => res.set(CACHE_HEADERS).json(MOBIL
 router.get('/ui-plugins', (_req, res) => res.set(CACHE_HEADERS).json(UI_PLUGINS_SPEC));
 router.get('/multi-user-connector', (_req, res) => res.set(CACHE_HEADERS).json(MULTI_USER_CONNECTOR_SPEC));
 
+// Platform SDK — runtime API reference for custom connectors and skills
+router.get('/sdk', (_req, res) => res.set(CACHE_HEADERS).json({
+  name: '@ateam/sdk',
+  version: '1.0.0',
+  description: 'Runtime SDK for A-Team platform. Use from custom connectors and skill code to access platform capabilities cleanly.',
+  install: 'npm install @ateam/sdk',
+  quick_start: `import { platform, context, memory, progress, log, llm } from "@ateam/sdk";
+
+// Call any platform connector
+const page = await platform.callTool("browser-mcp", "web.navigate", { url: "https://example.com" });
+
+// Current execution context
+const tenant = context.tenant();            // "mobile-pa"
+const actorId = context.actorId();           // "278d0d74-..."
+const full = await context.get();            // { tenant, actorId, actor, jobId, skillSlug }
+context.rejectSystemActor();                 // throws if not a real user
+
+// Memory shortcuts
+await memory.store({ type: "preference", content: "Prefers window seats" });
+const hits = await memory.recall("seats");
+const profile = await memory.profile();
+await memory.profileSet("phone", "+972544567033");
+
+// Progress events (visible in UI traces)
+await progress.emit("Scraping page 3", { step: 3, total: 7 });
+
+// Structured logging
+log.info("starting request", { url });
+log.error("request failed", { err: err.message });
+
+// Platform LLM (fast tier)
+const res = await llm.call({ prompt: "Summarize: ...", max_tokens: 200 });`,
+  env_vars: {
+    description: 'Platform injects these into every connector process automatically. Do NOT set them yourself.',
+    ADAS_SDK_URL: 'Platform MCP gateway URL (e.g. http://backend:4000/mcp)',
+    ADAS_MCP_TOKEN: 'Shared secret for platform auth',
+    ADAS_TENANT: 'Current tenant name',
+    ADAS_ACTOR_ID: 'Current actor ID (may be empty for system calls)',
+    ADAS_CONNECTOR_ID: 'Your connector\u2019s ID (used by logging)',
+    'PLATFORM_<CONNECTOR>_URL': 'Per-platform-connector URLs (e.g. PLATFORM_BROWSER_MCP_URL). Use these to bypass the gateway if needed.',
+  },
+  modules: {
+    platform: {
+      'callTool(connector, tool, args)': 'Call any platform connector\u2019s tool. Auto-injects tenant/actor.',
+      'mcpCall(toolName, args, opts?)': 'Low-level MCP JSON-RPC call. Most users want callTool().',
+    },
+    context: {
+      'tenant()': 'Current tenant (from env, synchronous)',
+      'actorId()': 'Current actor ID (from env, synchronous)',
+      'get()': 'Async: full context { tenant, actorId, actor, jobId, skillSlug }',
+      'isSystemActor(id)': 'True for synthetic actors (default, trigger-runner, test, ...)',
+      'rejectSystemActor()': 'Throw if current actor is synthetic \u2014 use before per-user operations',
+    },
+    memory: {
+      'store(args)': 'Store a memory (preference, fact, instruction, rule, user_model)',
+      'recall(query, opts?)': 'Keyword search',
+      'list(opts?)': 'List memories with type/limit filters',
+      'profile()': 'Full user profile bundle',
+      'profileSet(field, value)': 'Set a structured profile field (name, phone, email, ...)',
+      'update(id, patch)': 'Update a memory',
+      'remove(id)': 'Delete a memory',
+    },
+    progress: {
+      'emit(message, opts?)': 'Emit a progress event to the current job\u2019s SSE feed. opts: { step, total, data }',
+    },
+    log: {
+      'info(msg, data?)': 'Log at info level with [connector-id] prefix',
+      'warn(msg, data?)': 'Log at warn level',
+      'error(msg, data?)': 'Log at error level (stderr)',
+      'debug(msg, data?)': 'Log at debug level',
+    },
+    llm: {
+      'call({ prompt, system?, max_tokens?, temperature?, caller? })': 'Call platform fast LLM',
+    },
+  },
+  mcp_contract: {
+    description: 'The SDK is a thin client over these MCP tools exposed by the platform. You can call them directly via JSON-RPC for language-agnostic access (Python, Rust, etc.).',
+    endpoint: 'POST ${ADAS_SDK_URL}',
+    wire_format: 'JSON-RPC 2.0',
+    tools: [
+      'platform.callTool(connector, tool, args) \u2014 proxy to any platform connector',
+      'platform.context.get() \u2014 { tenant, actorId, actor, jobId, skillSlug }',
+      'platform.progress.emit(message, step?, total?, data?) \u2014 emit progress event',
+      'sys.llm(prompt, system?, max_tokens?, ...) \u2014 platform LLM',
+    ],
+  },
+  related_specs: [
+    '/spec/platform-connectors \u2014 available connectors + tools',
+    '/spec/solution \u2014 solution definition reference',
+    '/spec/skill \u2014 skill definition reference',
+  ],
+}));
+
 // Live platform connector catalog with tool schemas
 router.get('/platform-connectors', async (_req, res) => {
   try {
@@ -386,6 +479,10 @@ function buildIndex() {
       '/spec/platform-connectors': {
         method: 'GET',
         description: 'Platform connector catalog — live tool schemas for all built-in connectors (memory, browser, gmail, whatsapp, etc.). Includes inter-connector calling pattern with complete code example.',
+      },
+      '/spec/sdk': {
+        method: 'GET',
+        description: '@ateam/sdk runtime API reference — platform, context, memory, progress, log, llm modules. Used by custom connectors and skill code to access platform capabilities.',
       },
       '/spec/examples': {
         method: 'GET',
