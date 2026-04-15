@@ -26,6 +26,7 @@ export const EXAMPLE_CONNECTOR_UI = buildExampleConnectorUI();
 export const EXAMPLE_UI_PLUGIN_IFRAME = buildExampleUIPluginIframe();
 export const EXAMPLE_UI_PLUGIN_NATIVE = buildExampleUIPluginNative();
 export const EXAMPLE_SOLUTION = buildExampleSolution();
+export const EXAMPLE_SCRIPT_CACHE_SKILL = buildExampleScriptCacheSkill();
 
 const INDEX = {
   description: 'Complete, runnable examples for building A-Team skills and solutions. Each example passes validation.',
@@ -54,6 +55,10 @@ const INDEX = {
       method: 'GET',
       description: 'Full "E-Commerce Customer Service" solution — 3 skills, grants, handoffs, routing',
     },
+    '/spec/examples/script-cache-skill': {
+      method: 'GET',
+      description: 'Fat-tool skill demonstrating script_cache — browser-automation tool with the failure_class contract, persona rules for tool_name, and an embedded Python template. Reference implementation for the script-level JIT shortcut feature.',
+    },
   },
 };
 
@@ -68,6 +73,7 @@ router.get('/connector-ui', (_req, res) => res.set(CACHE_HEADERS).json(EXAMPLE_C
 router.get('/ui-plugin-iframe', (_req, res) => res.set(CACHE_HEADERS).json(EXAMPLE_UI_PLUGIN_IFRAME));
 router.get('/ui-plugin-native', (_req, res) => res.set(CACHE_HEADERS).json(EXAMPLE_UI_PLUGIN_NATIVE));
 router.get('/solution', (_req, res) => res.set(CACHE_HEADERS).json(EXAMPLE_SOLUTION));
+router.get('/script-cache-skill', (_req, res) => res.set(CACHE_HEADERS).json(EXAMPLE_SCRIPT_CACHE_SKILL));
 
 export default router;
 
@@ -1884,3 +1890,172 @@ export default {
     },
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Script-Cache Skill — reference implementation of script-level JIT shortcuts
+// ═══════════════════════════════════════════════════════════════════════════
+
+function buildExampleScriptCacheSkill() {
+  const PYTHON_TEMPLATE = [
+    "# Platform will cache this script under (skill, 'site.login', argShape).",
+    "# Subsequent calls with the same arg shape replay it verbatim — no LLM regen.",
+    "",
+    "import json",
+    "",
+    "adas_emit_progress('Navigating to site', step=1, total=3)",
+    "nav = adas_call_tool('web.navigate', {'url': 'https://example.com/login'})",
+    "if not nav.get('ok'):",
+    "    # Platform cannot reach the page at all — treat as domain break so we re-bake.",
+    "    adas_output_json({'ok': False, 'failure_class': 'domain_break',",
+    "                      'error': 'page_unreachable'})",
+    "    # (fall through exit)",
+    "",
+    "adas_emit_progress('Reading page', step=2, total=3)",
+    "check = adas_call_tool('web.evaluate', {",
+    "    'script': \"document.querySelector('.login-form') ? 'ok' : 'missing'\"",
+    "})",
+    "result = str(check.get('result', ''))",
+    "",
+    "adas_emit_progress('Classifying result', step=3, total=3)",
+    "if 'missing' in result:",
+    "    # DOM changed underneath us — structural issue, re-bake needed.",
+    "    adas_output_json({'ok': False, 'failure_class': 'domain_break',",
+    "                      'error': 'login_form_selector_null'})",
+    "elif 'rate_limited' in result.lower() or 'blocked' in result.lower():",
+    "    # External system said NO with a valid response. User problem, cache stays.",
+    "    adas_output_json({'ok': False, 'failure_class': 'logical',",
+    "                      'error': 'rate_limited'})",
+    "else:",
+    "    adas_output_json({'ok': True, 'failure_class': 'ok',",
+    "                      'loaded': True})",
+  ].join("\n");
+
+  return {
+    _explanation:
+      'Minimal fat-tool skill demonstrating script_cache opt-in. This is the pattern to copy when building any skill whose tools interact with flaky external systems. Key pieces: (1) tool declares script_cache.enabled:true; (2) persona tells the planner to pass tool_name when calling run_python_script; (3) the embedded Python template honors the failure_class contract. See Docs/WIP/SCRIPT-LEVEL-JIT-SHORTCUTS.md for design.',
+    _how_the_flow_works: [
+      '1. Planner reads site.login tool description; sees it opts into script_cache.',
+      '2. Planner calls run_python_script with tool_name:"site.login" + code=<the template>.',
+      '3. Platform Hook A looks up (skill, site.login, argShape) in script_cache.',
+      '4. MISS on first call → scriptBaker generates Python, dry-runs it, caches on ok.',
+      '5. Next call HITS → replays cached Python, no LLM regen.',
+      '6. If LinkedIn DOM drifts and template returns failure_class:domain_break → platform invalidates + rebakes on next call.',
+      '7. If login fails with failure_class:logical (rate limit, bad creds) → cache PRESERVED, user sees error.',
+    ],
+    skill: {
+      id: 'example-script-cache',
+      name: 'Example: Script Cache Skill',
+      description: 'Reference implementation of the script-level JIT shortcut feature. Demonstrates fat-tool caching for browser automation.',
+      version: '1.0.0',
+      phase: 'DEPLOYED',
+      connectors: ['browser-mcp'],
+      problem: {
+        statement: 'Users need stable browser automation despite external sites changing their DOM structure unpredictably.',
+        context: 'Browser-based automation is inherently flaky — CSS classes rotate, elements move, selectors break. Without caching, the LLM regenerates the same Python on every call (wasteful tokens, inconsistent behavior). With script_cache, the working script is cached and only re-generated on actual failure.',
+        goals: ['Stable browser automation across DOM drifts', 'Automatic re-baking when the external system changes', 'Preserve cache across user-side failures (rate limits, bad credentials)'],
+      },
+      role: {
+        name: 'Example Automation Agent',
+        persona: [
+          'You are a web automation specialist.',
+          '',
+          'Every browser operation is ONE run_python_script call.',
+          '',
+          '=== SCRIPT CACHE ADHERENCE (CRITICAL) ===',
+          'When you call run_python_script to implement site.login, you MUST pass',
+          '  tool_name: "site.login"',
+          'as an argument. This tells the platform to activate the script cache for',
+          'this call. Without tool_name the cache is inactive and every call will',
+          'regenerate Python from scratch.',
+          '',
+          '=== FAILURE CLASS CONTRACT ===',
+          'Your Python output MUST include a failure_class field when ok is false:',
+          "  'logical'      → external system said NO with a valid response (rate",
+          '                   limit, bad creds, moderation). Cache is preserved.',
+          "  'domain_break' → your assumption about the page was wrong (selector",
+          '                   null, shape changed). Cache is invalidated + rebaked.',
+          "  'ok'           → success. Cache TTL is refreshed.",
+          '',
+          'The platform handles execution failures (Python crashes, timeouts) automatically.',
+          '',
+          '=== MOBILE CHAT ===',
+          '1-2 sentences max. Plain text. No bullet lists.',
+        ].join('\n'),
+        goals: ['Drive web-based automations', 'Cache stable scripts across DOM changes'],
+        limitations: ['Cannot access sites behind authentication without user-provided credentials'],
+        communication_style: { tone: 'casual', verbosity: 'concise' },
+      },
+      intents: {
+        supported: [
+          {
+            id: 'check-site-login',
+            description: 'Log into the target site and confirm access.',
+            examples: ['check my site login', 'am I logged in?'],
+            candidate_tools: ['run_python_script'],
+          },
+        ],
+        thresholds: { accept: 0.8, clarify: 0.5, reject: 0.5 },
+        out_of_domain: { action: 'redirect', message: '' },
+      },
+      engine: {
+        rv2: { max_iterations: 10, iteration_timeout_ms: 120000, allow_parallel_tools: false, on_max_iterations: 'ask_user' },
+        hlr: { enabled: true, critic: { enabled: true, check_interval: 3, strictness: 'medium' }, reflection: { enabled: true, depth: 'shallow' }, replanning: { enabled: true, max_replans: 3 } },
+        autonomy: { level: 'supervised' },
+        finalization_gate: { enabled: true, max_retries: 2 },
+      },
+      tools: [
+        {
+          id: 'tool-site-login',
+          name: 'site.login',
+          description: [
+            'Check whether the user is logged into the target site.',
+            '',
+            'Implementation: Call run_python_script with tool_name="site.login" and the template',
+            'below. The platform caches the working script and replays it on subsequent calls.',
+            '',
+            '```python',
+            PYTHON_TEMPLATE,
+            '```',
+          ].join('\n'),
+          inputs: [],
+          output: { type: 'object', description: '{ ok, failure_class, loaded?, error? }' },
+          source: { type: 'custom' },
+          security: { classification: 'internal' },
+          script_cache: {
+            enabled: true,
+            invalidate_on: ['execution', 'domain_break'],
+            max_age_days: 30,
+          },
+        },
+        {
+          id: 'tool-browser-wildcard',
+          name: 'browser-mcp:*',
+          description: 'All browser-mcp tools — used internally by run_python_script via adas_call_tool.',
+          inputs: [],
+          output: { type: 'object', description: 'Varies by tool' },
+          source: { type: 'mcp_bridge', connection_id: 'browser-mcp', mcp_tool: '*' },
+          security: { classification: 'internal' },
+        },
+      ],
+      policy: {
+        guardrails: {
+          never: ['Call web.* tools directly as planner steps — always use run_python_script'],
+          always: [
+            'Pass tool_name="site.login" when implementing site.login via run_python_script',
+            'Include failure_class in every adas_output_json call',
+          ],
+        },
+        approvals: [], workflows: [], escalation: { enabled: false, conditions: [], target: '' },
+      },
+      access_policy: { rules: [{ tools: ['*'], effect: 'allow' }] },
+      grant_mappings: [], channels: [], conversation: [], triggers: [], meta_tools: [], glossary: {},
+    },
+    _what_to_verify: [
+      'The tool declares `script_cache.enabled: true`.',
+      'The persona explicitly instructs the planner to pass `tool_name`.',
+      "The Python template emits `failure_class` on every {ok: false} path.",
+      'Domain-level failures (selector null) use `domain_break`; user-side (rate limit) use `logical`.',
+    ],
+  };
+}
+

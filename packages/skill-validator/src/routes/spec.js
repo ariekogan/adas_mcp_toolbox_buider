@@ -975,6 +975,79 @@ function buildSkillSpec() {
               rate_limit: { type: 'string', required: false, description: 'e.g., "100/minute"' },
             },
           },
+          script_cache: {
+            type: 'object', required: false,
+            description:
+              'Opt-in for script-level JIT shortcuts. When a fat tool (one that the planner implements via run_python_script) interacts with a flaky external system — DOM scraping, version-rotating APIs, brittle HTML — setting this flag makes the platform CACHE the working Python script and replay it on subsequent calls. The LLM regenerates the Python only when a cached run fails. This gives stability across LinkedIn DOM drifts, API version changes, etc. ' +
+              'ENABLE THIS when: the tool implementation is inherently unstable (browser automation, web scraping, screen reading, third-party API whose shape rotates). ' +
+              'DO NOT enable for: pure-compute tools, deterministic API calls, MCP-bridged tools with stable schemas — they do not need caching. ' +
+              'CONTRACT: when enabled, your run_python_script call MUST pass tool_name: "<this.name>" AND your Python output JSON MUST include a failure_class field when ok is false. See run_python_script meta for the full failure_class spec.',
+            fields: {
+              enabled: {
+                type: 'boolean', required: true,
+                description: 'Turn script caching on for this tool. Default: false (pass-through, original behavior).',
+              },
+              invalidate_on: {
+                type: 'string[]', required: false,
+                description: 'Which failure classes trigger cache invalidation. Defaults to ["execution","domain_break"]. "logical" is ALWAYS excluded (a bad password is a user problem, not a script problem — the cache should survive it).',
+                enum: ['execution', 'domain_break'],
+              },
+              max_age_days: {
+                type: 'number', required: false,
+                description: 'TTL in days. Cached scripts auto-expire this long after their last successful use (refreshed on every ok hit). Default: 30. Clamped to (0, 365].',
+                default: 30,
+              },
+            },
+            failure_class_contract: {
+              description: 'When script_cache is active, your Python output JSON (adas_output_json) MUST include a failure_class field when ok is false. The platform uses it to decide whether to invalidate the cache or preserve it.',
+              classes: {
+                ok: 'Success. Platform refreshes cache TTL, increments hits counter.',
+                logical: 'The EXTERNAL system gave a valid NO (invalid credentials, rate limited, moderation rejected). The script is correct; the problem is real-world. Platform PRESERVES the cache and bubbles the error up to the user. Never use for anything the script itself got wrong.',
+                domain_break: 'The script assumption was wrong (selector returned null, JSON field missing, unexpected shape). Platform INVALIDATES the cache and re-bakes on the next call. Use this when you detected that the external system changed shape underneath you.',
+              },
+              auto_classified: [
+                'execution — Python tracebacks, non-zero exit, timeouts, signals. The platform detects and classifies these; you do not need to report them.',
+              ],
+              default_when_missing: 'If your script emits {ok:false} without a failure_class, the platform conservatively treats it as domain_break — it will invalidate + rebake rather than silently cache a broken script.',
+              example: [
+                '# DOM changed — script could not read what it expected',
+                "if not login_nav or 'global-nav' not in str(login_nav.get('result','')):",
+                "    adas_output_json({'ok': False, 'failure_class': 'domain_break', 'error': 'global_nav_missing'})",
+                '',
+                '# Real user-side error — password was wrong',
+                "elif 'Invalid credentials' in page_text:",
+                "    adas_output_json({'ok': False, 'failure_class': 'logical', 'error': 'bad_password'})",
+                '',
+                '# Success',
+                'else:',
+                "    adas_output_json({'ok': True, 'failure_class': 'ok', 'profile_name': name})",
+              ],
+            },
+            integration_hint: {
+              planner_side:
+                'When the planner implements THIS tool via run_python_script, it must pass tool_name: "<this.name>" as an arg. Without tool_name the cache layer is inactive (pass-through).',
+              persona_reminder:
+                'Add to your skill persona: "When implementing linkedin.status, call run_python_script with tool_name=\'linkedin.status\' so the platform can cache the working script."',
+            },
+            when_to_use: [
+              'Browser automation (DOM scraping, Playwright clicks, headless Chromium)',
+              'Third-party APIs whose response shape changes between versions',
+              'HTML parsing where the structure of the page rotates',
+              'Any fat tool where you watched the LLM rewrite the same Python five times last week',
+            ],
+            when_NOT_to_use: [
+              'Deterministic compute — math, data transforms, JSON reshaping',
+              'Tools that are already MCP-bridged with a stable schema',
+              'Tools that run for milliseconds — caching overhead is not worth it',
+              'Tools whose OUTPUT is supposed to depend on args you do not count as part of the shape',
+            ],
+            example_config: {
+              enabled: true,
+              invalidate_on: ['execution', 'domain_break'],
+              max_age_days: 30,
+            },
+            design_doc: 'Docs/WIP/SCRIPT-LEVEL-JIT-SHORTCUTS.md in ai-dev-assistant repo.',
+          },
           mock: {
             type: 'object', required: false,
             description: 'Mock configuration for testing without real MCP',
@@ -1545,6 +1618,40 @@ function buildSkillSpec() {
           fields: { scratchpads: 'Dict of scratchpad name → {content, type, ts}', args: 'Tool arguments passed by the planner' },
         },
       },
+    },
+
+    // ── Script-Level JIT Shortcuts (platform feature) ──
+    script_caching: {
+      description:
+        'Platform feature for stabilizing fat Python tools that interact with flaky external systems (browser automation, web scraping, version-rotating APIs). ' +
+        'When a tool opts in (via tools[].script_cache.enabled), the platform CACHES the working Python body and replays it on subsequent calls — the LLM regenerates only when a cached run fails. ' +
+        'This means: LinkedIn changes its DOM → first user who hits the change triggers re-bake → every subsequent user gets the updated script automatically, no redeploy.',
+      when_to_use:
+        'Turn this on for tools whose implementation is inherently unstable — browser automation, DOM scraping, APIs whose shape rotates between versions. ' +
+        'Do NOT turn it on for deterministic compute or stable MCP-bridged tools.',
+      opt_in_schema: 'See tools[].script_cache in the tools.item_schema above.',
+      failure_class_contract: {
+        summary:
+          'When script_cache is active, your Python output MUST include a failure_class field when ok is false. The platform uses this to decide whether to invalidate the cache or preserve it.',
+        classes: {
+          ok: 'Success → refresh TTL, increment hits.',
+          logical: 'External system gave a valid NO (bad login, rate limit, moderation). Script is correct; problem is real-world. → cache PRESERVED.',
+          domain_break: 'Script assumption was wrong (selector null, field missing, shape changed). → cache INVALIDATED, re-bake.',
+          execution: 'Python traceback / non-zero exit / timeout. Platform auto-detects. → cache INVALIDATED, re-bake.',
+        },
+        default_when_missing: 'ok:false without failure_class → treated conservatively as domain_break.',
+      },
+      planner_integration: {
+        rule: 'When the planner implements a fat tool (e.g. linkedin.status) via run_python_script, it MUST pass tool_name: "linkedin.status" as an arg. Without tool_name the cache layer is inactive even if the tool has script_cache.enabled.',
+        persona_reminder:
+          'Add to the skill persona: "When implementing <tool-name>, call run_python_script with tool_name=\'<tool-name>\' so the platform can cache the working script."',
+      },
+      defaults: {
+        BAKER_MAX_ATTEMPTS: 5,
+        CACHE_TTL_DAYS: 30,
+        default_invalidate_on: ['execution', 'domain_break'],
+      },
+      design_doc: 'Docs/WIP/SCRIPT-LEVEL-JIT-SHORTCUTS.md in the ai-dev-assistant repo.',
     },
 
     // ── Validation Rules ──
