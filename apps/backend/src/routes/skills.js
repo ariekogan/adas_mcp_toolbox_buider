@@ -46,13 +46,19 @@ router.get('/', async (req, res, next) => {
   try {
     const { solutionId } = req.params;
 
-    // Load the solution to get linked_skills
+    // Load the solution to determine which skills belong to it.
+    // UNION semantics (F3 drift fix): a skill is "in this solution" if it
+    // appears in EITHER solution.linked_skills[] OR solution.skills[].id.
+    // Historically we only consulted linked_skills (with skills[] as a fallback
+    // only when linked_skills was empty) — that caused skills added to the
+    // topology via ateam_github_patch or ateam_build_and_run (which updates
+    // skills[] but not always linked_skills) to disappear from the listing
+    // even though their skill.json was present on disk.
+    // See: /Users/arie/.claude/plans/peaceful-dazzling-dijkstra.md (PR-4).
     const solution = await solutionsStore.load(solutionId);
-    // Fall back to solution.skills[].id if linked_skills is empty
-    const linked = solution?.linked_skills?.length
-      ? solution.linked_skills
-      : (solution?.skills || []).map(s => s.id).filter(Boolean);
-    const linkedSkillIds = new Set(linked);
+    const fromLinkedField = Array.isArray(solution?.linked_skills) ? solution.linked_skills : [];
+    const fromTopology = (solution?.skills || []).map(s => s.id).filter(Boolean);
+    const linkedSkillIds = new Set([...fromLinkedField, ...fromTopology]);
 
     // Get all skills and filter by linked_skills
     const allSkills = await skillsStore.list();
