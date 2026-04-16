@@ -4266,14 +4266,34 @@ function buildUIPluginsSpec() {
         },
         capabilities: {
           type: 'object', required: false,
-          description: 'Native device capabilities this plugin requests (mobile only)',
+          description:
+            'Native device capabilities this plugin requests (mobile only). ' +
+            'All native capabilities ship pre-installed in the ateam-mobile platform app — ' +
+            'declaring a flag here gates the JS API access (`native.<cap>.*`). ' +
+            'Adding a NEW native capability beyond this list requires a platform mobile-app rebuild ' +
+            'and is not a solution-level change.',
+          architectural_rule:
+            'Every capability below is pre-installed in ateam-mobile via packages/device-bridge. ' +
+            'Solutions consume them as plain JS through native.<cap>.*. No solution should ever ' +
+            'require mobile rebuild to use any of these. If a solution needs a capability NOT listed, ' +
+            'it must be added to the platform first (mobile v2+ release) — never in solution code.',
           fields: {
-            haptics: { type: 'boolean', description: 'Vibration/haptic feedback' },
-            camera: { type: 'boolean', description: 'Camera access' },
-            location: { type: 'boolean', description: 'GPS/location services' },
-            storage: { type: 'boolean', description: 'Local storage access' },
-            notifications: { type: 'boolean', description: 'Push notifications' },
+            haptics:     { type: 'boolean', description: 'Vibration/haptic feedback (selection, impact, notification)' },
+            camera:      { type: 'boolean', description: 'Camera access (photo, video, scanBarcode, pickImage)' },
+            location:    { type: 'boolean', description: 'GPS/location services (getCurrent, watchPosition)' },
+            offline:     { type: 'boolean', description: 'Local storage (KV + sqlite)' },
+            biometrics:  { type: 'boolean', description: '[legacy stub — prefer biometricsV2]' },
+            biometricsV2:{ type: 'boolean', description: 'Face ID / Touch ID / fingerprint — native.biometricsV2.authenticate({reason})' },
+            notifications:{type: 'boolean', description: 'Local + push notifications' },
+            fileSystem:  { type: 'boolean', description: 'Document picker + read/write' },
+            cookies:     { type: 'boolean', description: 'Read/clear platform cookie jar — used by login-webview flows (see browser-mcp:login-webview plugin). native.cookies.get(url) returns HttpOnly cookies too.' },
+            webview:     { type: 'boolean', description: 'Plugin renders a native WebView component (react-native-webview). Typically paired with cookies for login flows.' },
+            sharing:     { type: 'boolean', description: 'Native share sheet — native.sharing.shareFile(uri). Hand content off to any installed app (Mail, Messages, Files, etc.)' },
+            scanner:     { type: 'boolean', description: 'QR / barcode scanner — camera-based. native.scanner.requestPermissions() then plugin mounts BarCodeScanner component.' },
+            nfc:         { type: 'boolean', description: 'NFC tag read — native.nfc.readOnce(timeoutMs). iOS requires entitlement in app provisioning, Android requires NFC permission. Use for physical-world triggers, pairing, loyalty cards.' },
           },
+          failure_mode_when_undeclared:
+            'Calling native.<cap>.* without declaring the capability flag logs a warning and returns silently. Plugins MUST declare every capability they use.',
         },
         commands: {
           type: 'array', required: false,
