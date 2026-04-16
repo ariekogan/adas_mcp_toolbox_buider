@@ -987,24 +987,14 @@ export function generateAdasExportPayload(toolbox) {
     }
   }
 
-  // Include rich tool definitions inside the skill object so Core can
-  // preserve fields downstream code needs at runtime (inputs/output/source/
-  // security/script_cache/script_hint etc.). Without this, Core stores only
-  // {name, description} and the Level 2 synthetic dispatcher + script_hint
-  // layer cannot activate.
+  // Include skill.tools in the export payload so Core can see Level 2
+  // script_cache opt-in. We keep ONLY the fields Core actually needs and
+  // AVOID shipping inputs/output/source/security/policy/mock — those inflate
+  // every planner prompt. Historically skill.tools wasn't sent at all; the
+  // minimum we add is {name, description, script_cache?, script_hint?}.
   skill.tools = tools.map((tool) => {
     const out = { name: tool.name };
-    if (tool.id) out.id = tool.id;
     if (tool.description) out.description = tool.description;
-    if (Array.isArray(tool.inputs)) out.inputs = tool.inputs;
-    if (tool.output) out.output = tool.output;
-    if (tool.source) out.source = tool.source;
-    if (tool.security) out.security = tool.security;
-    if (tool.policy) out.policy = tool.policy;
-    if (tool.mock) out.mock = tool.mock;
-    if (tool.mock_status) out.mock_status = tool.mock_status;
-    if (tool.id_status) out.id_status = tool.id_status;
-    // Level 2 script-level JIT shortcut fields.
     if (tool.script_cache) out.script_cache = tool.script_cache;
     if (typeof tool.script_hint === "string") out.script_hint = tool.script_hint;
     return out;

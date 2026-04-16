@@ -208,22 +208,13 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
       description: skill.description || "",
       mcp_server: result.mcpUri,
       connectors: (skill.connectors || []),
-      // Preserve the rich tool fields Core needs at runtime — in particular
-      // script_cache + script_hint (Level 2 JIT shortcuts) plus the normal
-      // shape fields (inputs/output/source/security) so the stored skill in
-      // Core's Mongo is a complete definition the planner + dispatcher +
-      // baker can operate on. See Docs/WIP/SCRIPT-LEVEL-JIT-SHORTCUTS.md.
+      // Ship {name, description} for every tool (historical minimum that
+      // keeps planner prompts compact) PLUS the two Level 2 fields
+      // (script_cache, script_hint) when the tool opted in. Do NOT add
+      // other tool-shape fields here — inputs/output/source/security
+      // would balloon every planner prompt across every skill.
       tools: (skill.tools || []).map(t => {
         const out = { name: t.name, description: t.description || "" };
-        if (t.id) out.id = t.id;
-        if (Array.isArray(t.inputs)) out.inputs = t.inputs;
-        if (t.output) out.output = t.output;
-        if (t.source) out.source = t.source;
-        if (t.security) out.security = t.security;
-        if (t.policy) out.policy = t.policy;
-        if (t.mock) out.mock = t.mock;
-        if (t.mock_status) out.mock_status = t.mock_status;
-        if (t.id_status) out.id_status = t.id_status;
         if (t.script_cache) out.script_cache = t.script_cache;
         if (typeof t.script_hint === "string") out.script_hint = t.script_hint;
         return out;
