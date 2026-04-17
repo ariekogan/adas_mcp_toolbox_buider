@@ -1054,6 +1054,22 @@ function buildSkillSpec() {
               '# Omit script_hint entirely — let the baker discover the DOM on first run.',
             example_with_dataStore_for_session_cookies:
               '# Use platform.dataStore for raw structured data (cookies, tokens).\n# NEVER use memory.store for raw JSON — it normalizes/summarizes.\nimport json\nstored = adas_call_tool(\'platform.dataStore.get\', {\'key\': \'my_session_cookies\'})\ncookies = None\nif stored.get(\'found\') and stored.get(\'value\'):\n    val = stored[\'value\']\n    cookies = json.loads(val) if isinstance(val, str) else val\nif cookies:\n    adas_call_tool(\'web.cookies.set\', {\'cookies\': cookies})\n# ... do work ...\n# Save fresh cookies with 24h TTL\nfresh = adas_call_tool(\'web.cookies.get\', {\'urls\': \'https://example.com\'})\nif fresh.get(\'cookies\'):\n    adas_call_tool(\'platform.dataStore.set\', {\'key\': \'my_session_cookies\', \'value\': json.dumps(fresh[\'cookies\']), \'ttl_seconds\': 86400})  # 24h TTL — caller decides; omit for no expiry',
+            best_practice_session_convention: {
+              description:
+                'BEST PRACTICE: When multiple tools in a skill share session state (cookies, tokens, cached credentials), ' +
+                'declare the convention ONCE in problem.context — not in each tool\'s script_hint. ' +
+                'The baker reads problem.context when generating scripts for ANY tool, so all tools stay consistent automatically. ' +
+                'Without this, updating one tool\'s storage path but forgetting another causes session breaks.',
+              example_problem_context:
+                '"Session convention: ALL tools in this skill store and restore session cookies from platform.dataStore ' +
+                'under key \'my_session_cookies\' (24h TTL). NEVER use memory.recall for cookies — memory-mcp normalizes/summarizes raw JSON. ' +
+                'Restore pattern: platform.dataStore.get → json.loads → web.cookies.set. ' +
+                'Save pattern: web.cookies.get → json.dumps → platform.dataStore.set with ttl_seconds=86400."',
+              why: 'Prevents the class of bug where tool A writes to dataStore but tool B reads from memory.recall — ' +
+                'a single line in problem.context keeps every baker-generated script consistent.',
+              future: 'This is a solution-level best practice today. A future platform feature may formalize ' +
+                'skill-level session config as a dedicated schema field with mechanical enforcement.',
+            },
           },
           mock: {
             type: 'object', required: false,
