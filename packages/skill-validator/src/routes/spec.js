@@ -214,6 +214,10 @@ const res = await llm.call({ prompt: "Summarize: ...", max_tokens: 200 });`,
       'platform.callTool(connector, tool, args) \u2014 proxy to any platform connector',
       'platform.context.get() \u2014 { tenant, actorId, actor, jobId, skillSlug }',
       'platform.progress.emit(message, step?, total?, data?) \u2014 emit progress event',
+      'platform.dataStore.set(key, value, ttl_seconds?) \u2014 raw key-value store per actor (for structured data like cookies, tokens, cached API responses). Separate from memory-mcp. Optional TTL for auto-expiry.',
+      'platform.dataStore.get(key) \u2014 retrieve raw value by exact key. JSON values auto-parsed.',
+      'platform.dataStore.delete(key) \u2014 delete a key-value pair',
+      'platform.dataStore.list(prefix?, limit?) \u2014 list stored keys, optionally filtered by prefix',
       'sys.llm(prompt, system?, max_tokens?, ...) \u2014 platform LLM',
     ],
   },
@@ -1048,6 +1052,8 @@ function buildSkillSpec() {
               '# Hint for a site with known selectors\nimport json\nnav = adas_call_tool(\'web.navigate\', {\'url\': \'https://example.com/account\'})\ncheck = adas_call_tool(\'web.evaluate\', {\'script\': "document.querySelector(\'.user-badge\') ? \'in\' : \'out\'"})\nadas_output_json({\'logged_in\': \'in\' in str(check.get(\'result\', \'\'))})',
             example_when_you_DO_NOT_know_the_site:
               '# Omit script_hint entirely — let the baker discover the DOM on first run.',
+            example_with_dataStore_for_session_cookies:
+              '# Use platform.dataStore for raw structured data (cookies, tokens).\n# NEVER use memory.store for raw JSON — it normalizes/summarizes.\nimport json\nstored = adas_call_tool(\'platform.dataStore.get\', {\'key\': \'my_session_cookies\'})\ncookies = None\nif stored.get(\'found\') and stored.get(\'value\'):\n    val = stored[\'value\']\n    cookies = json.loads(val) if isinstance(val, str) else val\nif cookies:\n    adas_call_tool(\'web.cookies.set\', {\'cookies\': cookies})\n# ... do work ...\n# Save fresh cookies with 24h TTL\nfresh = adas_call_tool(\'web.cookies.get\', {\'urls\': \'https://example.com\'})\nif fresh.get(\'cookies\'):\n    adas_call_tool(\'platform.dataStore.set\', {\'key\': \'my_session_cookies\', \'value\': json.dumps(fresh[\'cookies\']), \'ttl_seconds\': 86400})  # 24h TTL — caller decides; omit for no expiry',
           },
           mock: {
             type: 'object', required: false,
@@ -1562,8 +1568,18 @@ function buildSkillSpec() {
         'cp.fe_api': 'Frontend API proxy for context plugin iframe requests',
         'cp.listContextPlugins': 'List all context plugins from connected connectors',
         'cp.getContextPlugin': 'Get a specific context plugin manifest',
+        'platform.dataStore.set': 'Raw key-value store per actor. Store structured data (cookies, tokens, cached API responses) that should NOT go through memory-mcp normalization. Args: key (string, required), value (string or JSON, required), ttl_seconds (optional, auto-expire). Stored in dedicated MongoDB collection "actor_data".',
+        'platform.dataStore.get': 'Retrieve raw value by exact key for the current actor. JSON values auto-parsed. Returns { ok, found, value, value_type, expires_at }.',
+        'platform.dataStore.delete': 'Delete a key-value pair. Args: key (required).',
+        'platform.dataStore.list': 'List stored keys, optionally filtered by prefix. Args: prefix (optional), limit (default 50, max 200). Returns { ok, keys[{key, value_type, updated_at, expires_at}], count }.',
       },
-      note: 'Any tool name starting with sys., ui., or cp. is recognized as a system tool by the validator',
+      dataStore_vs_memory: {
+        description: 'When to use platform.dataStore vs memory-mcp:',
+        'platform.dataStore': 'Machine-facing raw data: session cookies, OAuth tokens, cached API responses, serialized state. Stored verbatim — no normalization, no LLM summarization, no embeddings. Exact key-value. Optional TTL.',
+        'memory-mcp': 'User-facing knowledge: facts, preferences, instructions, user model. Smart memory with normalization, deduplication, semantic search, LLM-powered compaction. Visible in the Memories UI panel.',
+        rule: 'If the data is for machines to read back exactly → dataStore. If the data is for the agent to reason about or for the user to see → memory.',
+      },
+      note: 'Any tool name starting with sys., ui., cp., or platform. is recognized as a system tool by the validator',
     },
 
     // ── Python Helpers (available inside run_python_script) ──
