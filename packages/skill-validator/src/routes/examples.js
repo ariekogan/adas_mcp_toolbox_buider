@@ -1053,6 +1053,32 @@ function buildExampleConnectorUI() {
   return raw;
 }`,
         },
+
+        _step_4_close_plugin: {
+          _note: 'Plugins can dismiss themselves and return the user to the chat view. Works on both iframe and React Native plugins. Use after completing a task (e.g., auth success) or when the plugin is no longer needed.',
+          iframe: {
+            message_format: {
+              source: 'adas-plugin',
+              action: 'close',
+            },
+            code: `// Close this plugin and return to chat
+window.parent.postMessage({ source: 'adas-plugin', action: 'close' }, '*');`,
+          },
+          react_native: {
+            bridge_method: 'bridge.close()',
+            code: `// Close this plugin and return to chat
+bridge.close();`,
+            auto_close_example: `// Auto-close after 2s delay (e.g., after showing success message)
+setTimeout(() => bridge.close(), 2000);`,
+          },
+          use_cases: [
+            'Auth plugin auto-closes after successful login',
+            'Setup wizard closes after completing configuration',
+            'One-shot plugin closes after delivering results',
+            'User taps a "Done" button to dismiss the plugin',
+          ],
+          behavior: 'Host exits plugins mode and returns to the chat view. The plugin instance stays mounted (not destroyed) — reopening the plugin tab shows the same state.',
+        },
       },
 
       // ── Example: Dashboard calling two data connectors ──
