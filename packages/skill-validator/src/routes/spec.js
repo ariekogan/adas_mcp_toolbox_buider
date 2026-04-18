@@ -1598,6 +1598,84 @@ function buildSkillSpec() {
       note: 'Any tool name starting with sys., ui., cp., or platform. is recognized as a system tool by the validator',
     },
 
+    // ── Platform Authentication (Generic Login) ──
+    platform_authentication: {
+      description: 'Generic login mechanism for any website. The user signs in on their own device (native WebView on mobile, iframe on web) — no passwords touch the LLM or the server. Cookies are captured and persisted automatically. Provided by the browser-mcp platform connector.',
+      when_to_use: [
+        'Any skill that needs the user logged into a website (LinkedIn, Booking, Facebook, etc.)',
+        'Works for: username/password, OAuth, SSO/SAML, MFA/2FA, passkeys/biometrics',
+        'Exception: Google blocks WebView logins — use dedicated OAuth flow (Linking.openURL) for Google services',
+      ],
+      flow: [
+        '1. Skill calls web.openLoginWebView(url, cookie_domain, success_url_pattern) — returns session_token',
+        '2. Platform opens native WebView on the user\'s device with the real login page',
+        '3. User signs in using any method (password manager, Face ID, MFA, etc.)',
+        '4. When success_url_pattern matches the current URL → cookies captured automatically',
+        '5. Cookies stored in platform.dataStore (7-day TTL) + injected into Playwright browser context',
+        '6. Subsequent web.navigate calls to that domain are already authenticated',
+        '7. On container restart, stored cookies are restored from dataStore into Playwright',
+      ],
+      tools: {
+        'web.openLoginWebView': {
+          description: 'Open a native login WebView on the user\'s device. Returns a session_token for correlation.',
+          args: {
+            url: 'Login URL (e.g. "https://www.linkedin.com/login")',
+            cookie_domain: 'Domain to capture cookies for (e.g. "linkedin.com")',
+            success_url_pattern: 'Regex — when the URL matches, login is complete (e.g. "linkedin\\\\.com/feed"). If omitted, a "Done" button is shown.',
+            timeout_ms: 'Max wait time in ms (default: 300000 = 5 min)',
+          },
+          returns: '{ ok, session_token, timeout_ms, _ui_command... }',
+        },
+        'web.awaitLoginWebView': {
+          description: 'Block until the user finishes signing in or timeout fires. Pair with web.openLoginWebView.',
+          args: { session_token: 'Token returned by web.openLoginWebView' },
+          returns: '{ ok, cookies: [...] } on success, { ok: false, error: "login_webview_timeout" } on timeout',
+        },
+        'web.submitLoginWebView': {
+          description: 'Internal callback from the mobile plugin — NOT for skills to call directly. Delivers captured cookies back to the server.',
+        },
+      },
+      skill_pattern: {
+        description: 'How skills should handle login:',
+        do: [
+          'Check login status BEFORE opening login (e.g. call your *.status tool first)',
+          'Call web.openLoginWebView → web.awaitLoginWebView as a pair',
+          'Use success_url_pattern for auto-detection when possible',
+          'Handle "already signed in" gracefully (success_url matches immediately)',
+        ],
+        do_not: [
+          'Do NOT automate login with web.fill / web.click — that bypasses MFA and leaks passwords to the LLM',
+          'Do NOT call web.navigate before web.openLoginWebView for the same site — it shows the Playwright screenshot view unnecessarily',
+          'Do NOT hardcode credentials or tokens in skill definitions',
+        ],
+        example_flow: [
+          '// Iteration 1: check status',
+          '{ tool: "linkedin.status", args: {} }',
+          '// → returns { connected: false }',
+          '',
+          '// Iteration 2: open login',
+          '{ tool: "web.openLoginWebView", args: { url: "https://www.linkedin.com/login", cookie_domain: "linkedin.com", success_url_pattern: "linkedin\\\\.com/feed" } }',
+          '// → returns { session_token: "abc123" }',
+          '',
+          '// Iteration 3: wait for user to finish',
+          '{ tool: "web.awaitLoginWebView", args: { session_token: "abc123" } }',
+          '// → returns { ok: true, cookies: [...] } — cookies auto-stored in dataStore',
+        ],
+      },
+      cookie_persistence: {
+        storage: 'platform.dataStore with key format "auth_cookies:{domain}" (e.g. "auth_cookies:linkedin.com")',
+        ttl: '7 days — auto-expires via MongoDB TTL index',
+        scope: 'Per actor (user) — each user\'s cookies are isolated',
+        restore: 'On new Playwright session, stored cookies are automatically loaded from dataStore and injected into the browser context',
+      },
+      plugin_bridge: {
+        description: 'UI plugins can dismiss themselves after completing their task:',
+        react_native: 'bridge.close() — returns user to chat view',
+        iframe: 'window.parent.postMessage({ source: "adas-plugin", action: "close" }, "*")',
+        behavior: 'Host exits plugins mode. Plugin stays mounted (not destroyed). 10s auto-close on success is recommended UX.',
+      },
+    },
+
     // ── Python Helpers (available inside run_python_script) ──
     python_helpers: {
       description: 'Built-in Python functions available in every run_python_script execution. These are injected as a prelude — no imports needed.',
