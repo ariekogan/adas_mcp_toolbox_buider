@@ -2763,6 +2763,7 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
     // This prevents stale Builder FS from overwriting good GitHub data.
     // Only fall back to Builder FS export if GitHub repo doesn't exist yet (first deploy).
     let files;
+    let exportBundle;  // hoisted — used below for ensureRepo description
     const repoStatus = await github.getRepoStatus(tenant, solId).catch(() => null);
 
     if (repoStatus?.exists) {
@@ -2776,7 +2777,7 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
         });
         const pullData = await pullResp.json();
         if (pullData.ok) {
-          const exportBundle = { solution: pullData.solution, skills: pullData.skills || [], connectors: [] };
+          exportBundle = { solution: pullData.solution, skills: pullData.skills || [], connectors: [] };
           const connectorSources = pullData.mcp_store || {};
           files = buildRepoFiles(exportBundle, connectorSources);
           console.log(`[GitHub Push] Built ${files.length} files from GitHub state`);
@@ -2797,7 +2798,7 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
         const text = await exportResp.text().catch(() => '');
         return res.status(exportResp.status).json({ ok: false, error: `Export failed: ${text}` });
       }
-      const exportBundle = await exportResp.json();
+      exportBundle = await exportResp.json();
 
       const connectorSources = {};
       const connectors = exportBundle.connectors || [];
@@ -2823,7 +2824,7 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
 
     // 4. Ensure repo exists
     const repoInfo = await github.ensureRepo(tenant, solId,
-      exportBundle.solution?.description || `A-Team solution: ${solId}`);
+      exportBundle?.solution?.description || `A-Team solution: ${solId}`);
 
     // 5. Push files to main
     const result = await github.pushFiles(tenant, solId, files, message);

@@ -324,7 +324,13 @@ export function validateSolution(solution, context) {
 
       // 8b-1: Detect require() or import calls that need npm dependencies
       const NODE_BUILTINS = new Set(['fs', 'path', 'http', 'https', 'crypto', 'url', 'os', 'util', 'stream', 'events', 'child_process', 'net', 'tls', 'dns', 'querystring', 'readline', 'assert', 'buffer', 'zlib', 'worker_threads', 'cluster', 'dgram', 'perf_hooks', 'async_hooks', 'v8', 'vm', 'module', 'timers', 'console', 'process', 'string_decoder', 'punycode']);
-      const baseName = (mod) => mod.startsWith('@') ? mod.split('/').slice(0, 2).join('/') : mod.split('/')[0];
+      // Strip the `node:` prefix before doing anything else — `node:crypto`,
+      // `node:fs/promises`, etc. are all Node builtins, not npm packages.
+      const stripNodePrefix = (mod) => mod.startsWith('node:') ? mod.slice(5) : mod;
+      const baseName = (mod) => {
+        const m = stripNodePrefix(mod);
+        return m.startsWith('@') ? m.split('/').slice(0, 2).join('/') : m.split('/')[0];
+      };
 
       const requireMatches = serverCode.match(/require\s*\(\s*['"]([^./][^'"]*)['"]\s*\)/g) || [];
       const importMatches = serverCode.match(/from\s+['"]([^./][^'"]*)['"]/g) || [];
