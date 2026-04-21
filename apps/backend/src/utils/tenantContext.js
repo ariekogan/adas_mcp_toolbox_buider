@@ -19,6 +19,7 @@ const als = new AsyncLocalStorage();
 const TENANTS_ROOT = process.env.TENANTS_ROOT || path.join(process.cwd(), "data", "tenants");
 const DEFAULT_TENANT = "main";
 const ADAS_CORE_URL = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || "http://ai-dev-assistant-backend-1:4000";
+const CORE_MCP_SECRET = process.env.CORE_MCP_SECRET || process.env.MCP_SHARED_SECRET || "";
 const CACHE_TTL = 60_000; // 60s
 
 // ── Dynamic tenant cache (replaces hardcoded VALID_TENANTS) ──
@@ -45,7 +46,12 @@ export function getValidTenants() {
  */
 export async function refreshTenantCache() {
   try {
-    const res = await fetch(`${ADAS_CORE_URL}/api/tenants/list`);
+    // Send the shared secret so Core treats this as a trusted service call
+    // and returns ALL active tenants. Without this header, Core returns an
+    // empty list to unauthenticated callers — which silently breaks every
+    // X-API-KEY auth attempt because no tenant is ever "valid".
+    const headers = CORE_MCP_SECRET ? { "x-adas-token": CORE_MCP_SECRET } : {};
+    const res = await fetch(`${ADAS_CORE_URL}/api/tenants/list`, { headers });
     const json = await res.json();
     if (json.ok && Array.isArray(json.tenants)) {
       _cachedTenantIds = json.tenants.map(t => t.id);
