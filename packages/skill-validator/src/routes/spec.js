@@ -35,6 +35,53 @@ const PLATFORM_CONNECTOR_META = {
   'handoff-controller-mcp':{ transport: 'http', port: 7309, description: 'Skill-to-skill handoff orchestration — manages live conversation transfers with grant passing.' },
   'internal-comm-mcp':     { transport: 'http', port: 7303, description: 'Internal message queue — skill-to-skill async communication for voice replies and cross-skill coordination.' },
   'browser-mcp':           { transport: 'http', port: 7315, description: 'Browser automation — navigate, read, click, type, fill forms, take screenshots. Playwright-based headless Chromium. Use from connector code for web scraping and automation.', ui_plugins: ['browser-view'] },
+
+  // ─── Document intelligence stack ──────────────────────────────────────
+  // cloud-docs-mcp and docs-index-mcp work as a pair: cloud-docs connects
+  // to the user\'s cloud provider (Dropbox, Google Drive, ...), docs-index-mcp
+  // chunks + embeds + searches over any content ingested into it.
+  // The `cloud.create_corpus` tool wires them together automatically.
+  'docs-index-mcp':        {
+    transport: 'http',
+    port: 7311,
+    description:
+      'Source-agnostic document corpus retrieval. Chunks + embeds + cosine-searches user documents. Platform embedding-service powers the vectors (provider-agnostic). Storage is per-tenant Mongo + per-actor scoping.\n' +
+      '\n' +
+      'TYPICAL USE — if your document source is a cloud provider (Dropbox/GDrive), DO NOT use docs.corpus.create directly. Use cloud-docs-mcp\'s cloud.create_corpus({name, service_id, path}) instead — it creates the corpus here AND auto-wires background sync so docs.search stays fresh. Only call docs.corpus.create + docs.ingest.file directly when ingesting from a custom source that cloud-docs-mcp does not cover.\n' +
+      '\n' +
+      'KEY TOOLS:\n' +
+      '  docs.search({corpus_id?, query, top_k})        → top-k chunks with {text, path, heading_path, score}\n' +
+      '  docs.answer({query, corpus_id?})               → LLM-backed RAG answer with citations\n' +
+      '  docs.corpus.list() / docs.corpus.get(id)       → inspect corpora\n' +
+      '  docs.stats({corpus_id?})                       → ingestion stats\n' +
+      '  docs.file.get({file_id})                       → full file text + chunks\n' +
+      '\n' +
+      'SUPPORTED FILE TYPES: text/* (plain, markdown, html, csv, json, xml), PDF, DOCX, common code files. Others are skipped with a reason.',
+  },
+
+  'cloud-docs-mcp':        {
+    transport: 'http',
+    port: 7312,
+    description:
+      'Unified cloud document source — one connector, multiple providers. Current adapters: Dropbox, Google Drive. Authentication is delegated to platform.auth (OAuth tokens are stored there; cloud-docs NEVER runs its own OAuth flow). Users connect via platform.auth.ensureConnected({service_id: "dropbox"|"google_drive"}).\n' +
+      '\n' +
+      'TYPICAL FLOW (skill creates a searchable corpus from user\'s Dropbox):\n' +
+      '  1. platform.auth.ensureConnected({service_id:"dropbox"})  — user links their account\n' +
+      '  2. cloud.create_corpus({name, service_id:"dropbox", path:"/Contracts"}) — creates corpus in docs-index-mcp, wires auto-sync, triggers initial walk\n' +
+      '  3. docs.search({corpus_id, query}) — returns chunks; fresh-sync happens in the background (cooldown 15 min)\n' +
+      '\n' +
+      'KEY TOOLS:\n' +
+      '  cloud.list_services()                          → which providers are enabled\n' +
+      '  cloud.list_folder({service_id, path, cursor})  → directory listing\n' +
+      '  cloud.get_metadata({service_id, path})         → size, modified, mime\n' +
+      '  cloud.download({service_id, path})             → {content_base64, size, mime, name}\n' +
+      '  cloud.upload({service_id, path, artifact_hash, mode})  → push a CAS artifact to cloud (Dropbox write scope required)\n' +
+      '  cloud.walk({service_id, path, max_files})      → recursive file iterator (initial ingest)\n' +
+      '  cloud.list_changes({service_id, cursor})       → delta sync using provider cursor\n' +
+      '  cloud.create_corpus({name, service_id, path})  → one-shot: corpus + sync wiring + initial walk\n' +
+      '\n' +
+      'DO NOT call cloud.download + docs.ingest.file manually when cloud.create_corpus covers your use case — the latter wires the sync webhook so every subsequent docs.search auto-refreshes the corpus.',
+  },
 };
 
 let _platformConnectors = {};
