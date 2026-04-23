@@ -2044,16 +2044,36 @@ router.delete('/solutions/:solutionId/skills/:skillId', async (req, res) => {
   try {
     const solId = encodeURIComponent(req.params.solutionId);
     const skillId = encodeURIComponent(req.params.skillId);
+    const tenant = req.headers['x-adas-tenant'];
+
+    // 1. Ask the Builder to clean FS + solution.json + Core (stop MCP, drop Mongo entry)
     const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${solId}/skills/${skillId}`, {
       method: 'DELETE',
       headers: sbHeaders(req),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(30000),
     });
-    if (resp.status === 204) {
-      return res.status(204).send();
+    const builderData = resp.status === 204 ? { ok: true } : await resp.json().catch(() => ({}));
+    if (!resp.ok && resp.status !== 204) {
+      return res.status(resp.status).json(builderData);
     }
-    const data = await resp.json();
-    res.status(resp.status).json(data);
+
+    // 2. Delete the skill's directory from GitHub (skills/<skillId>/).
+    // Non-fatal: if GH is disabled/unreachable, local cleanup already ran.
+    // Without this step the boot sync would restore the skill.json on next
+    // restart (GH missing → write FS from GH rule doesn't trigger because
+    // the file is gone from GH now — but only if THIS step runs).
+    let githubResult = null;
+    if (tenant && github.isEnabled()) {
+      try {
+        const delRes = await github.deleteDirectory(tenant, req.params.solutionId, `skills/${req.params.skillId}`, `Delete skill ${req.params.skillId}`);
+        githubResult = { ok: true, ...delRes };
+      } catch (err) {
+        console.warn(`[Deploy] GitHub delete for skill ${req.params.skillId} failed: ${err.message}`);
+        githubResult = { ok: false, error: err.message };
+      }
+    }
+
+    res.json({ ok: true, skill_id: req.params.skillId, cleanup: builderData.cleanup || null, github: githubResult });
   } catch (err) {
     console.error('[Deploy] Delete skill error:', err.message);
     res.status(502).json({ ok: false, error: err.message });

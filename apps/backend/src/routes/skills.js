@@ -262,22 +262,49 @@ router.delete('/:skillId', async (req, res, next) => {
   try {
     const { solutionId, skillId } = req.params;
     const internalId = await resolveSkillId(skillId);
+    const cleanup = { fs: false, solution_skills: false, linked_skills: false, core: false, core_error: null };
 
-    await skillsStore.remove(solutionId, internalId);
+    // 1. Remove the skill's files from Builder FS (skill.json, exports, etc.)
+    try {
+      await skillsStore.remove(solutionId, internalId);
+      cleanup.fs = true;
+    } catch (err) {
+      console.warn(`[DeleteSkill] FS removal failed for ${internalId}: ${err.message}`);
+    }
 
-    // Also remove from solution's architecture skills array
+    // 2. Remove from solution.json (both skills[] and linked_skills[])
     try {
       const solution = await solutionsStore.load(solutionId);
+      let changed = false;
       if (Array.isArray(solution.skills)) {
-        const idx = solution.skills.findIndex(s => s.id === internalId || s.id === skillId);
-        if (idx !== -1) {
-          solution.skills.splice(idx, 1);
-          await solutionsStore.save(solution);
-        }
+        const before = solution.skills.length;
+        solution.skills = solution.skills.filter(s => s.id !== internalId && s.id !== skillId);
+        if (solution.skills.length !== before) { cleanup.solution_skills = true; changed = true; }
       }
-    } catch { /* non-fatal — solution may not exist */ }
+      if (Array.isArray(solution.linked_skills)) {
+        const before = solution.linked_skills.length;
+        solution.linked_skills = solution.linked_skills.filter(s => s !== internalId && s !== skillId);
+        if (solution.linked_skills.length !== before) { cleanup.linked_skills = true; changed = true; }
+      }
+      if (changed) await solutionsStore.save(solution);
+    } catch (err) {
+      console.warn(`[DeleteSkill] solution.json cleanup failed: ${err.message}`);
+    }
 
-    res.status(204).send();
+    // 3. Tell A-Team Core to stop the MCP process + drop the skill from Mongo.
+    // Core's DELETE /api/skills/:slug handler is responsible for killing the
+    // tracked MCP process, releasing the port, and removing the skill registry
+    // entry. Non-fatal: if Core is down we still clean local state.
+    try {
+      const adasCore = (await import('../services/adasCoreClient.js')).default;
+      await adasCore.deleteSkill(internalId);
+      cleanup.core = true;
+    } catch (err) {
+      cleanup.core_error = err.message;
+      console.warn(`[DeleteSkill] Core deletion failed for ${internalId}: ${err.message}`);
+    }
+
+    res.json({ ok: true, skill_id: internalId, cleanup });
   } catch (err) {
     next(err);
   }
