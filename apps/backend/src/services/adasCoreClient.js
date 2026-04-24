@@ -26,16 +26,18 @@ const CORE_MCP_SECRET = process.env.CORE_MCP_SECRET || '';
 
 function headers(json = false) {
   const h = {};
-  // Service-to-service auth via shared secret (Builder → Core)
-  if (CORE_MCP_SECRET) {
-    h['x-adas-token'] = CORE_MCP_SECRET;
-  }
   // Tenant header — Core uses this to set tenant context
   const tenant = getCurrentTenant();
   if (tenant) {
     h['X-ADAS-TENANT'] = tenant;
   }
-  // Also forward user's token for audit/traceability
+
+  // Auth: send the user's token when a request is in user context, OR the
+  // shared secret for service-to-service calls when no user is present.
+  // NEVER BOTH — Core's attachActor checks shared-secret BEFORE PAT, so a
+  // simultaneous user-PAT + shared-secret caller gets attributed as
+  // _system_service instead of the actual user. This is the bug the
+  // Skill Builder ↔ Core audit flagged in round 014.
   const token = getCurrentToken();
   if (token) {
     if (token.startsWith('adas_')) {
@@ -43,7 +45,13 @@ function headers(json = false) {
     } else {
       h['Authorization'] = `Bearer ${token}`;
     }
+  } else if (CORE_MCP_SECRET) {
+    // No user context → service-to-service call (e.g. background sync, poller).
+    h['x-adas-token'] = CORE_MCP_SECRET;
+    // Advisory attribution for Core's audit log (round 001 #3 hardening).
+    h['x-adas-service'] = 'skill-builder';
   }
+
   if (json) h['Content-Type'] = 'application/json';
   return h;
 }
