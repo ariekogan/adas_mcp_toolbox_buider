@@ -3364,6 +3364,76 @@ function buildSolutionSpec() {
         connectors: '_DYNAMIC_', // Replaced at request time by getPlatformConnectors()
       },
 
+      // ── Platform Connector Recipes ──
+      // Common multi-connector wiring patterns that solution developers would
+      // otherwise have to figure out by reading each connector's catalog entry.
+      platform_connector_recipes: {
+        _note: 'Copy-paste recipes for wiring platform connectors together at the solution level. Each recipe lists the exact platform_connectors[], skill.connectors[], and skill.tools[] entries needed.',
+
+        document_intelligence: {
+          _summary: 'Document search + RAG Q&A over the user\'s cloud-stored files (Dropbox, Google Drive).',
+          _when_to_use: 'Your solution needs to answer questions grounded in user documents — contracts, notes, wikis, manuals — that live in a cloud provider. Works for chat-driven Q&A and for tools that need retrieval-augmented context.',
+
+          step_1_solution_platform_connectors: {
+            _note: 'Add BOTH to your solution.platform_connectors[]. They are a pair — cloud-docs ingests, docs-index searches.',
+            example: [
+              { id: 'docs-index-mcp', required: true },
+              { id: 'cloud-docs-mcp', required: true },
+            ],
+          },
+
+          step_2_skill_connectors: {
+            _note: 'Add both connector IDs to the skill.connectors[] array of every skill that needs document search.',
+            example: ['docs-index-mcp', 'cloud-docs-mcp'],
+          },
+
+          step_3_skill_tools: {
+            _note: 'Pull the tools the skill actually uses into skill.tools[]. Typical search skill needs ~4 of these. Full catalog: see /spec/platform-connectors.',
+            minimum_for_retrieval_skill: [
+              'cloud.create_corpus   (one-time setup — creates corpus + auto-wires sync)',
+              'docs.search           (top-k chunk retrieval with scores + citations)',
+              'docs.answer           (LLM-backed RAG answer — optional if you do your own composition)',
+              'docs.corpus.list      (so the skill can discover existing corpora for this user)',
+            ],
+            optional: [
+              'docs.stats            (UI hint: show ingestion progress)',
+              'docs.file.get         (fetch full file text when the user clicks a search result)',
+              'cloud.list_folder     (browse-before-search UX)',
+            ],
+          },
+
+          step_4_user_auth_ux: {
+            _note: 'Users must authenticate to their cloud provider BEFORE the first search. Plan this into your UX — it\'s a one-time per-actor OAuth redirect, handled by platform.auth.',
+            pattern: [
+              '1. Skill detects missing connection (cloud.create_corpus returns {ok:false, reason:"not_connected"} or catch the error).',
+              '2. Skill responds with a prompt: "I need access to your Dropbox. Tap to connect."',
+              '3. Skill calls platform.auth.ensureConnected({service_id:"dropbox"}) — platform handles the OAuth flow + token storage.',
+              '4. On return, skill retries cloud.create_corpus. From this point on, the token is persisted and auto-refreshed.',
+            ],
+            important: 'cloud-docs-mcp NEVER runs its own OAuth. All provider auth is delegated to platform.auth — one shared token store across every connector that needs that provider.',
+          },
+
+          step_5_runtime_flow: {
+            _note: 'After setup, the skill\'s actual retrieval loop is tiny.',
+            example_script_hint: [
+              'corpus = cloud.create_corpus({name:"my-docs", service_id:"dropbox", path:"/Contracts"})   // first call only; idempotent',
+              'hits   = docs.search({corpus_id: corpus.corpus_id, query: user_question, top_k: 6})',
+              '// (optional) answer = docs.answer({corpus_id: corpus.corpus_id, query: user_question})',
+              'return compose_reply(hits)',
+            ],
+            background_sync: 'Every docs.search against a cloud-backed corpus triggers a background refresh (delta sync, cooldown 15 min). The skill does NOT need to call cloud.list_changes or manually re-ingest anything — that\'s the whole point of cloud.create_corpus vs docs.corpus.create.',
+          },
+
+          common_mistakes: [
+            'Calling docs.corpus.create directly for a cloud source — DO NOT. Use cloud.create_corpus so sync gets wired.',
+            'Manually calling cloud.download + docs.ingest.file in a loop — DO NOT. Same reason.',
+            'Forgetting to add BOTH connectors to platform_connectors[]. docs-index alone has no source; cloud-docs alone has nothing to search.',
+            'Assuming the user is already authenticated. Always handle the "not_connected" case in your skill\'s persona/guardrails.',
+            'Creating a new corpus per query instead of reusing one per user+source. Corpora are meant to be long-lived; docs.search is the hot path.',
+          ],
+        },
+      },
+
       // ── Security Contracts ──
       security_contracts: {
         type: 'array', required: false,
