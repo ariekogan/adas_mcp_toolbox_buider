@@ -28,11 +28,59 @@ import { refreshTenantCache } from "./utils/tenantContext.js";
 
 const app = express();
 
+// CORS allowlist (round 019 H1). CORS_ALLOWED_ORIGINS env =
+// comma-separated origins (e.g. "https://builder.ateam-ai.com,http://localhost:3312").
+// Unset OR "*" preserves the old wildcard behavior for backcompat with dev.
+// Same pattern as Core round 008 #26 and admin-backend round 018.
+const CORS_ALLOWED_LIST = String(process.env.CORS_ALLOWED_ORIGINS || "*")
+  .split(",").map(s => s.trim()).filter(Boolean);
+const CORS_ALLOW_ANY = CORS_ALLOWED_LIST.includes("*");
+
 app.use(cors({
+  origin: (origin, cb) => {
+    if (CORS_ALLOW_ANY) return cb(null, true);
+    if (!origin) return cb(null, true); // same-origin / curl / server-to-server
+    if (CORS_ALLOWED_LIST.includes(origin)) return cb(null, true);
+    return cb(null, false); // browser will block; no ACAO header sent
+  },
   exposedHeaders: ["X-ADAS-TENANT"],
   allowedHeaders: ["Content-Type", "X-ADAS-TENANT", "Authorization"],
 }));
 app.use(express.json({ limit: "10mb" }));
+
+// In-memory rate limit (round 019 H2). Sliding window per IP.
+// Backed by a Map; fail-open on store errors. Same shape as Core round 006.
+const _rlStore = new Map();
+function rateLimit({ key, windowMs, max }) {
+  return (req, res, next) => {
+    try {
+      const ip = req.headers["cf-connecting-ip"]
+        || (req.headers["x-forwarded-for"] || "").split(",")[0].trim()
+        || req.ip
+        || req.socket?.remoteAddress
+        || "unknown";
+      const fullKey = `${key}:${ip}`;
+      const now = Date.now();
+      const cutoff = now - windowMs;
+      const arr = (_rlStore.get(fullKey) || []).filter(t => t >= cutoff);
+      if (arr.length >= max) {
+        res.setHeader("Retry-After", Math.ceil(windowMs / 1000));
+        return res.status(429).json({
+          ok: false,
+          error: "Too many requests",
+          retryAfterSeconds: Math.ceil(windowMs / 1000),
+        });
+      }
+      arr.push(now);
+      _rlStore.set(fullKey, arr);
+      res.setHeader("X-RateLimit-Remaining", String(max - arr.length));
+      next();
+    } catch (err) {
+      console.error(`[rateLimit:${key}] check failed:`, err.message);
+      next(); // fail-open
+    }
+  };
+}
 
 // Multi-Tenant: Attach tenant from X-ADAS-TENANT header
 app.use(attachTenant);
@@ -132,7 +180,9 @@ app.use("/api/connectors", connectorsRouter);
 app.use("/api/actors", actorsRouter);
 app.use("/api/tenant", tenantRouter);
 app.use("/api/import", importRouter);
-app.use("/api/deploy", deployRouter);
+// Deploy is expensive (filesystem writes, Core API calls, ~300s timeout) —
+// 5 deploys/10min/IP keeps abuse + path-traversal payload brute-force in check.
+app.use("/api/deploy", rateLimit({ key: "deploy", windowMs: 10 * 60 * 1000, max: 5 }), deployRouter);
 app.use("/api/solutions", solutionsRouter);
 app.use("/api/agent-api", agentApiRouter);
 app.use("/api/settings", settingsRouter);
