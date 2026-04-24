@@ -191,21 +191,18 @@ export async function attachTenant(req, res, next) {
     }
   }
 
-  // No valid JWT/PAT/API-key/master — check if dev mode allows X-ADAS-TENANT fallback
-  const IS_DEV = process.env.NODE_ENV === "development" || process.env.SB_AUTH_SKIP === "true";
-
-  if (IS_DEV) {
-    // Dev/standalone: accept X-ADAS-TENANT header without authentication
-    const raw = req.headers["x-adas-tenant"];
-    const requested = raw ? raw.trim().toLowerCase() : "";
-    req.tenant = isValidTenant(requested) ? requested : DEFAULT_TENANT;
-  } else {
-    // Production: no auth = default tenant, req.auth stays unset (auth guard will block /api)
-    req.tenant = DEFAULT_TENANT;
-  }
-
-  // Wrap the rest of the request in tenant-scoped ALS context
-  // Note: req.auth is NOT set — the auth guard in server.js will block protected routes
+  // No valid JWT/PAT/API-key/master auth.
+  //
+  // Before round 015: dev-mode (NODE_ENV=development or SB_AUTH_SKIP=true)
+  // let unauthenticated callers pick any tenant via X-ADAS-TENANT header. The
+  // production downstream auth guard in server.js blocked protected routes, so
+  // no data was leaked — but the path existed and could be turned on via env.
+  //
+  // Round 015: removed entirely. Unauthenticated requests always fall through
+  // to DEFAULT_TENANT with req.auth unset (blocked by the auth guard). If a
+  // standalone dev environment truly needs no auth, mint a PAT for the dev
+  // tenant and use that — no environment-driven bypass is permitted.
+  req.tenant = DEFAULT_TENANT;
   return runWithTenant(req.tenant, () => next());
 }
 
