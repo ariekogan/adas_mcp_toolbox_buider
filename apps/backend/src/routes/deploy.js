@@ -99,12 +99,38 @@ router.post('/solution', async (req, res, next) => {
           fs.mkdirSync(connectorDir, { recursive: true });
         }
 
+        // Validate connectorId — only [a-z0-9_-] allowed; reject path-traversal
+        // payloads like ".." or "/foo". Round 019 hardening.
+        const CONNECTOR_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
         for (const [connectorId, files] of Object.entries(mcp_store)) {
-          const connPath = path.join(connectorDir, connectorId);
+          if (!CONNECTOR_ID_RE.test(connectorId)) {
+            log.warn(`[Deploy] Rejected mcp_store connectorId "${connectorId}" — invalid format`);
+            continue;
+          }
+          const connPath = path.resolve(connectorDir, connectorId);
+          // Defense-in-depth: connPath must still be inside connectorDir.
+          if (!connPath.startsWith(path.resolve(connectorDir) + path.sep)) {
+            log.warn(`[Deploy] Rejected mcp_store connectorId "${connectorId}" — escapes connectorDir`);
+            continue;
+          }
           fs.mkdirSync(connPath, { recursive: true });
 
           for (const file of files) {
-            const filePath = path.join(connPath, file.path);
+            // file.path is user-controlled; must stay inside connPath.
+            // Reject absolute paths, "..", or any payload that resolves outside.
+            if (typeof file?.path !== 'string' || !file.path) {
+              log.warn(`[Deploy] Skipping file with missing path in connector "${connectorId}"`);
+              continue;
+            }
+            if (file.path.includes('\0') || path.isAbsolute(file.path)) {
+              log.warn(`[Deploy] Rejected file path "${file.path}" — absolute or null byte`);
+              continue;
+            }
+            const filePath = path.resolve(connPath, file.path);
+            if (!filePath.startsWith(connPath + path.sep)) {
+              log.warn(`[Deploy] Rejected file path "${file.path}" — escapes connector dir`);
+              continue;
+            }
             const fileDir = path.dirname(filePath);
             fs.mkdirSync(fileDir, { recursive: true });
             fs.writeFileSync(filePath, file.content, 'utf-8');
