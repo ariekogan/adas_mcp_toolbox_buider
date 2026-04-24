@@ -35,11 +35,14 @@ class MCPConnection extends EventEmitter {
     return new Promise((resolve, reject) => {
       const { command, args = [], env = {} } = this.config;
 
-      // Spawn the MCP server process
+      // Spawn the MCP server process.
+      // shell:false (round 019 hardening) — `shell: true` interpreted both
+      // cmd and args through /bin/sh, enabling command injection if any
+      // field came from user input. Direct exec only; if a connector
+      // legitimately needs a shell pipeline, use ["sh", "-c", "..."].
       this.process = spawn(command, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, ...env },
-        shell: true
+        env: { ...process.env, ...env }
       });
 
       this.process.stdout.on('data', (data) => {
