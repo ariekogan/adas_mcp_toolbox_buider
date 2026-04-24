@@ -36,6 +36,33 @@ async function ensureDir(dir) {
   }
 }
 
+// Round 020 H3: validate solution ID before path-joining. Defense against
+// path-traversal payloads in user-controlled `solution.id` (e.g. "../foo",
+// "/abs/path", names with null bytes). Also rejects paths into other
+// tenants' dirs even if traversal char-checks were missed.
+//
+// Allowed: 1-128 chars, lowercase + digits + - _.
+function validateSolutionId(id, ctx = "solution") {
+  if (!id || typeof id !== 'string') {
+    const e = new Error(`${ctx}: id required (string)`);
+    e.statusCode = 400;
+    throw e;
+  }
+  if (!/^[a-z0-9][a-z0-9_-]{0,127}$/i.test(id)) {
+    const e = new Error(`${ctx}: id "${id.slice(0, 80)}" invalid (must match /^[a-z0-9][a-z0-9_-]{0,127}$/i)`);
+    e.statusCode = 400;
+    throw e;
+  }
+  // Belt-and-suspenders: ensure resolved path stays inside solutions dir.
+  const root = path.resolve(getSolutionsDir());
+  const resolved = path.resolve(root, id);
+  if (!resolved.startsWith(root + path.sep)) {
+    const e = new Error(`${ctx}: id "${id.slice(0, 80)}" escapes solutions dir`);
+    e.statusCode = 400;
+    throw e;
+  }
+}
+
 async function fileExists(filePath) {
   try {
     await fs.access(filePath);
@@ -205,6 +232,7 @@ async function create(name) {
  * @returns {Promise<Object>}
  */
 async function load(id) {
+  validateSolutionId(id, 'load');
   const solutionPath = path.join(getSolutionsDir(), id, 'solution.json');
 
   if (!(await fileExists(solutionPath))) {
@@ -225,6 +253,7 @@ async function load(id) {
  * @returns {Promise<void>}
  */
 async function save(solution) {
+  validateSolutionId(solution?.id, 'save');
   const solDir = path.join(getSolutionsDir(), solution.id);
   await ensureDir(solDir);
 
@@ -240,6 +269,7 @@ async function save(solution) {
  * @returns {Promise<string[]>} List of deleted skill slugs (for ADAS Core cleanup)
  */
 async function remove(id) {
+  validateSolutionId(id, 'remove');
   const solDir = path.join(getSolutionsDir(), id);
   const deletedSlugs = [];
 
@@ -484,6 +514,7 @@ async function importFromYaml(solutionData, linkedSkillIds = []) {
 
   // Create new solution
   const id = solutionData.id || `sol_${uuidv4().slice(0, 8)}`;
+  validateSolutionId(id, 'import');
   const solDir = path.join(getSolutionsDir(), id);
   await ensureDir(solDir);
 
