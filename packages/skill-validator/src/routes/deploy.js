@@ -3091,6 +3091,7 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
       // 2c. Read connector source files
       const connectorFiles = allFiles.filter(f => f.path.startsWith('connectors/'));
       // Group by connector ID
+      let connectorReadErrors = 0;
       for (const f of connectorFiles) {
         // connectors/<connectorId>/<filepath>
         const parts = f.path.split('/');
@@ -3098,11 +3099,19 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
         const connId = parts[1];
         const filePath = parts.slice(2).join('/');
         if (!connectorSources[connId]) connectorSources[connId] = [];
-        // Read file content
+        // Read file content. Log read failures — silently dropping them was the
+        // root cause of the "ateam_github_pull skips subdirectory files"
+        // bug (rn-bundle/index.bundle.js stayed stale on Core for weeks).
         try {
           const fileData = await github.readFile(tenant, solId, f.path);
           connectorSources[connId].push({ path: filePath, content: fileData.content });
-        } catch { /* skip unreadable files */ }
+        } catch (err) {
+          connectorReadErrors++;
+          console.warn(`[GitHub Pull] Could not read ${f.path}: ${err.message}`);
+        }
+      }
+      if (connectorReadErrors > 0) {
+        console.warn(`[GitHub Pull] ⚠️ ${connectorReadErrors} connector file(s) failed to read — Core may end up with stale code. See per-file warnings above.`);
       }
     } catch (err) {
       console.warn(`[GitHub] Could not list repo files: ${err.message}`);

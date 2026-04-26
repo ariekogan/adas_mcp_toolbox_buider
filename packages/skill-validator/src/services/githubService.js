@@ -122,6 +122,24 @@ export function repoName(tenant, solutionId) {
   return `${tenant}--${solutionId}`;
 }
 
+/**
+ * Encode a path for GitHub's Contents API.
+ *
+ * BUG FIX: previous code used encodeURIComponent(path) which encodes "/" as
+ * "%2F". GitHub's Contents API expects path SEGMENTS — slashes must remain
+ * literal so the URL `/repos/foo/bar/contents/connectors/x/y.js` parses as
+ * the file at sub-path "connectors/x/y.js", not as a single literal name
+ * "connectors%2Fx%2Fy.js". Result of the bug: any subdirectory file (e.g.
+ * connectors/<id>/rn-bundle/index.bundle.js) returned 404, the readFile
+ * caller's try/catch swallowed it silently, and ateam_github_pull silently
+ * dropped subdirectory files — only top-level connector files came through.
+ * Encode each segment separately so special chars (spaces, plus, etc.) are
+ * still escaped, but slashes survive.
+ */
+function encodePath(p) {
+  return String(p).split('/').map(encodeURIComponent).join('/');
+}
+
 /** Check if GitHub integration is enabled and configured. */
 export function isEnabled() {
   return ENABLED && PAT.length > 0;
@@ -150,7 +168,7 @@ export async function listTenantRepos(tenant) {
 export async function listDir(tenant, solutionId, dirPath, branch = 'main') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
-  const contents = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(dirPath)}?ref=${branch}`);
+  const contents = await gh('GET', `/repos/${fullName}/contents/${encodePath(dirPath)}?ref=${branch}`);
   return contents.filter(c => c.type === 'dir').map(c => c.name);
 }
 
@@ -275,7 +293,7 @@ export async function readFile(tenant, solutionId, filePath, branch = 'main') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  const data = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}?ref=${branch}`);
+  const data = await gh('GET', `/repos/${fullName}/contents/${encodePath(filePath)}?ref=${branch}`);
 
   if (data.type !== 'file') {
     throw new Error(`${filePath} is a ${data.type}, not a file`);
@@ -301,7 +319,7 @@ export async function patchFile(tenant, solutionId, filePath, content, message =
   // Check if file exists on the target branch (need SHA for update)
   let existingSha = null;
   try {
-    const existing = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}?ref=${branch}`);
+    const existing = await gh('GET', `/repos/${fullName}/contents/${encodePath(filePath)}?ref=${branch}`);
     existingSha = existing.sha;
   } catch { /* file doesn't exist yet — will create */ }
 
@@ -312,7 +330,7 @@ export async function patchFile(tenant, solutionId, filePath, content, message =
   };
   if (existingSha) body.sha = existingSha;
 
-  const result = await gh('PUT', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}`, body);
+  const result = await gh('PUT', `/repos/${fullName}/contents/${encodePath(filePath)}`, body);
 
   return {
     path: filePath,
@@ -335,7 +353,7 @@ export async function searchReplacePatchFile(tenant, solutionId, filePath, searc
   const fullName = `${OWNER}/${name}`;
 
   // Read current file from target branch
-  const existing = await gh('GET', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}?ref=${branch}`);
+  const existing = await gh('GET', `/repos/${fullName}/contents/${encodePath(filePath)}?ref=${branch}`);
   const currentContent = Buffer.from(existing.content, 'base64').toString('utf-8');
 
   // Count occurrences
@@ -355,7 +373,7 @@ export async function searchReplacePatchFile(tenant, solutionId, filePath, searc
     branch,
   };
 
-  const result = await gh('PUT', `/repos/${fullName}/contents/${encodeURIComponent(filePath)}`, body);
+  const result = await gh('PUT', `/repos/${fullName}/contents/${encodePath(filePath)}`, body);
 
   return {
     path: filePath,
