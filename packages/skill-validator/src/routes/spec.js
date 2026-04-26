@@ -3712,6 +3712,54 @@ function buildSolutionSpec() {
               },
             },
           },
+
+          // ── Consumer-app surface (host-shell rendering hints) ──
+          // Declares WHERE the plugin renders in the host shell — drawer, fullscreen,
+          // card, header pill, ambient widget, or proactive nudge. Without this
+          // field, the plugin renders in the legacy plugin-tab grid (back-compat).
+          //
+          // Reference implementation: ateam-mobile/src/plugin-sdk/surfaces/.
+          // See docs/SURFACE_SPEC_HANDOFF.md for the full contract.
+          surface: {
+            type: 'object', required: false,
+            description: 'Optional consumer-app rendering hint. When present, the host shell renders the plugin inside the matching surface (drawer / fullscreen / card / header / ambient / nudge) instead of the legacy plugin-tab grid. Omit for back-compat (defaults to legacy tab placement).',
+            backward_compat: 'Plugins WITHOUT a surface field render in the legacy plugin-tab grid as if surface were { type: "tab", visibility: "user" }. No existing solution breaks.',
+            fields: {
+              type: {
+                type: 'enum', required: true,
+                values: ['drawer', 'fullscreen', 'card', 'header', 'ambient', 'nudge'],
+                description: 'WHERE the plugin renders. drawer = bottom sheet (default for "show me X"); fullscreen = edge-to-edge takeover (voice mode, capture flows); card = inline tile (dashboards, empty-state suggestions); header = small ambient pill in top bar (battery, weather, DND); ambient = always-visible mini widget; nudge = proactive notification card injected into chat ("Sarah replied — draft?").',
+              },
+              visibility: {
+                type: 'enum', required: false,
+                values: ['always', 'user', 'engine'],
+                default: 'user',
+                description: 'WHO can summon it. always = mounted persistently (e.g. header battery pill); user = user can summon (tap, menu, slash command); engine = HIDDEN by default, only mounted when a skill emits sys.focusUiPlugin / sys.showSurface.',
+              },
+              icon: { type: 'string', required: false, description: 'Optional emoji or short symbol shown in the surface chrome (e.g. "🥗", "📅", "💬")' },
+              title: { type: 'string', required: false, description: 'Title shown in the surface chrome. Defaults to plugin.name when omitted.' },
+              subtitle: { type: 'string', required: false, description: 'Secondary text shown below the title (e.g. "Macros, meals, hydration")' },
+              privacy: { type: 'boolean', required: false, default: false, description: 'When true, the host shows a lock pill in the surface chrome to indicate the plugin handles sensitive data.' },
+              category: { type: 'string', required: false, description: 'Reserved for future host-side grouping (e.g. "Health", "Productivity"). Validator passes through without semantic checks.' },
+              featured: { type: 'boolean', required: false, default: false, description: 'Reserved for future home empty-state rail. Validator passes through. Cannot coexist with visibility:"engine" (engine-only surfaces are not user-discoverable).' },
+            },
+            example: {
+              type: 'drawer',
+              visibility: 'user',
+              icon: '🥗',
+              title: "Today's plate",
+              subtitle: 'Macros, meals, hydration',
+            },
+            engine_contract: {
+              _note: 'A skill response can promote any plugin to a dedicated surface — even one with visibility:"engine" — by emitting sys.focusUiPlugin / sys.showSurface(pluginId, props?). The host looks up the manifest\'s surface.type and mounts the plugin in the matching container. Plugin receives a dismiss() capability and any props the skill passed.',
+              three_tier_message_pattern: {
+                tier_1_chat: 'Default — skill replies as plain markdown text.',
+                tier_2_block: 'Future platform extension. Not in scope yet.',
+                tier_3_surface: 'Skill emits sys.focusUiPlugin(pluginId, props?) for that one response — the host activates the surface declared in the plugin\'s manifest.',
+                key_idea: 'The SOLUTION decides per response which tier it uses. The host never pre-decides.',
+              },
+            },
+          },
         },
       },
     },

@@ -502,6 +502,102 @@ export function validateSolution(solution, context) {
       }
     }
 
+    // 8g. Surface field validation — for plugins with a `surface` block in
+    // their manifest, validate enum values + composite checks. Plugins
+    // without a surface field render in the legacy plugin-tab grid (no
+    // validation needed, full back-compat).
+    //
+    // Surfaces appear at TWO levels:
+    //   - skill.ui_plugins[]      (skill-scoped, validated above for
+    //                              connector_id; we add surface checks here)
+    //   - solution.ui_plugins[]   (solution-scoped, declared at top level)
+    // Both are checked here.
+    //
+    // Spec: docs/SURFACE_SPEC_HANDOFF.md.
+    const SURFACE_TYPES = new Set(['drawer', 'fullscreen', 'card', 'header', 'ambient', 'nudge']);
+    const SURFACE_VISIBILITY = new Set(['always', 'user', 'engine']);
+    const ALWAYS_NATIVE_TYPES = new Set(['header', 'ambient']); // tiny / always-mounted → iframe rarely works
+
+    function validateSurface(plugin, ctx) {
+      const surface = plugin?.surface;
+      if (!surface || typeof surface !== 'object') return; // back-compat: no surface = legacy tab placement
+
+      // type — required when surface block is present
+      if (!surface.type) {
+        errors.push({
+          check: 'ui_plugin_surface_missing_type',
+          message: `UI plugin "${plugin.id}"${ctx} has a surface block but no surface.type. Required: ${[...SURFACE_TYPES].join(', ')}.`,
+          plugin: plugin.id,
+        });
+      } else if (!SURFACE_TYPES.has(surface.type)) {
+        errors.push({
+          check: 'ui_plugin_surface_invalid_type',
+          message: `UI plugin "${plugin.id}"${ctx} has invalid surface.type "${surface.type}". Allowed: ${[...SURFACE_TYPES].join(', ')}.`,
+          plugin: plugin.id,
+        });
+      }
+
+      // visibility — optional, defaults to "user"
+      if (surface.visibility !== undefined && !SURFACE_VISIBILITY.has(surface.visibility)) {
+        errors.push({
+          check: 'ui_plugin_surface_invalid_visibility',
+          message: `UI plugin "${plugin.id}"${ctx} has invalid surface.visibility "${surface.visibility}". Allowed: ${[...SURFACE_VISIBILITY].join(', ')}.`,
+          plugin: plugin.id,
+        });
+      }
+
+      // privacy / featured must be booleans if present
+      if (surface.privacy !== undefined && typeof surface.privacy !== 'boolean') {
+        errors.push({
+          check: 'ui_plugin_surface_privacy_type',
+          message: `UI plugin "${plugin.id}"${ctx}: surface.privacy must be a boolean.`,
+          plugin: plugin.id,
+        });
+      }
+      if (surface.featured !== undefined && typeof surface.featured !== 'boolean') {
+        errors.push({
+          check: 'ui_plugin_surface_featured_type',
+          message: `UI plugin "${plugin.id}"${ctx}: surface.featured must be a boolean.`,
+          plugin: plugin.id,
+        });
+      }
+
+      // Composite check: header / ambient surfaces in iframe form rarely work.
+      // Both are tiny + always-mounted; iframe overhead breaks the UX.
+      const renderMode = plugin?.render?.mode;
+      if (ALWAYS_NATIVE_TYPES.has(surface.type) && renderMode && renderMode !== 'react-native') {
+        warnings.push({
+          check: 'ui_plugin_surface_iframe_for_persistent',
+          message: `UI plugin "${plugin.id}"${ctx}: surface.type "${surface.type}" is always-mounted; render.mode "${renderMode}" rarely works in iframe form. Prefer render.mode "react-native" or "adaptive".`,
+          plugin: plugin.id,
+          surface_type: surface.type,
+          render_mode: renderMode,
+        });
+      }
+
+      // Composite check: engine-only surfaces cannot be featured (not user-discoverable by definition).
+      if (surface.visibility === 'engine' && surface.featured === true) {
+        errors.push({
+          check: 'ui_plugin_surface_engine_featured',
+          message: `UI plugin "${plugin.id}"${ctx}: surface.visibility "engine" cannot also be surface.featured:true (engine-only plugins are not user-discoverable by definition).`,
+          plugin: plugin.id,
+        });
+      }
+    }
+
+    // Skill-level ui_plugins
+    for (const skill of fullSkills) {
+      const uiPlugins = skill.ui_plugins || [];
+      for (const plugin of uiPlugins) {
+        validateSurface(plugin, ` (in skill "${skill.id}")`);
+      }
+    }
+    // Solution-level ui_plugins (top of solution.json)
+    const solutionUiPlugins = solution?.ui_plugins || [];
+    for (const plugin of solutionUiPlugins) {
+      validateSurface(plugin, ' (solution-level)');
+    }
+
     // ─── 9. UI-capable connector validation ──────────────────
     // Connectors with ui_capable: true MUST have ui.listPlugins and ui.getPlugin tools,
     // and their mcp_store server code must return the correct response format.
