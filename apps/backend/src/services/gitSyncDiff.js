@@ -62,6 +62,10 @@ const EPHEMERAL_FIELDS = new Set([
   'validation',
   'lastExportType',
   'conversation',
+  // (c) Resolved-on-load flags. These get computed during intent enrichment
+  //     and stamped onto each intent record on FS, but the GH copy is the
+  //     pre-resolution authoring state. They're cache markers, not spec.
+  'maps_to_workflow_resolved',
 ]);
 
 /**
