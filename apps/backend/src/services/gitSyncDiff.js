@@ -32,7 +32,15 @@ import { getMemoryRoot } from '../utils/tenantContext.js';
  * on REAL content drift (a tool was added/removed, intents changed, etc.),
  * not on benign timestamp churn.
  */
-const EPHEMERAL_FIELDS = new Set(['updated_at', 'last_modified_at', 'last_save_at']);
+const EPHEMERAL_FIELDS = new Set([
+  'updated_at',
+  'last_modified_at',
+  'last_save_at',
+  'deployedAt',     // bumped by exportDeploy when a skill ships to Core
+  'lastExportedAt', // bumped by the export-bundle build step
+  'lastDeployedAt',
+  'lastValidatedAt',
+]);
 
 /**
  * Re-serialize JSON content with stable formatting and ephemeral fields
