@@ -77,7 +77,21 @@ most platform bugs trace back to confusing one for another.
 - Two render modes: `iframe` (web) and `react-native` (mobile). `adaptive` does both.
 - New `surface` field declares **where** in the host shell it renders: `drawer | fullscreen | card | header | ambient | nudge`.
 - Visibility: `always | user | engine` — the latter means a skill summons it via `sys.focusUiPlugin`.
-- See `docs/UI_PLUGIN_DEVELOPMENT_GUIDE.md` and `docs/PLUGIN_PROTOCOL_SPEC.md`.
+- New `surface.placement` field declares the role-based slot: `featured` (signature surface, the face of the solution), `menu` (nav-row entry), or omitted (regular plugin in the host's default list). Each host renders these roles using its own chrome conventions — solution.json stays portable.
+- See `docs/UI_PLUGIN_DEVELOPMENT_GUIDE.md`, `docs/PLUGIN_PROTOCOL_SPEC.md`, and the **host contract** below for the host/solution boundary.
+
+### Host contract — boundary between any host shell and the solutions it renders
+The surface field tells a host **where** to render a plugin. The `host_contract` section of the solution spec tells a host **what it may not do** and the closed allow-list of **what it may do**. Defines:
+- **Ownership matrix**: per-concern (brand chrome, identity flow, surface containers → host; tool names, domain UI, empty-state copy → solution).
+- **Forbidden host behaviors**: no tool names in host code, no domain UI in host source, no shadowing solution plugins, no multi-source composition, no domain affordances in chrome, no domain seed copy.
+- **Host capability allow-list**: the closed set of concerns a host may own (brand chrome, identity flow, surface containers, plugin SDK runtime, generic registry-driven scaffolding, transport — rendering only).
+- **Validator drift check**: regex grep `api\.call\([\'"]([\w.]+)[\'"]` in host source, flag any tool name found outside the SDK runtime.
+
+Why it matters: solutions become portable across hosts (web / mobile / watch / kiosk) and hosts become swappable across solutions. The drift case the contract was written for: `ateam-mobile`'s host-side `MemoryDrawer.tsx` shadowed the declared `mcp:personal-assistant-ui-mcp:memories-panel` plugin and called `memory.add` directly — schema-valid but spirit-violating.
+
+- Spec endpoint: `GET /spec/host-contract` (also embedded in `GET /spec/solution#host_contract`).
+- Origin doc: `docs/HOST_VS_SOLUTION_HANDOFF.md` (in `ateam-mobile`).
+- Validator: enforces `surface.placement` enum + soft cap (≤ 3 `featured` per solution) + the engine/featured contradiction check.
 
 ---
 
@@ -399,7 +413,8 @@ GET /deploy/jobs/<job_id>
 | UI plugins | `docs/UI_PLUGIN_DEVELOPMENT_GUIDE.md`, `docs/PLUGIN_PROTOCOL_SPEC.md` |
 | Plugin SDK API | `docs/PLUGIN_SDK_API_REFERENCE.md` |
 | External developers writing connectors | `Docs/EXTERNAL_CONNECTOR_GUIDE.md` (in `ai-dev-assistant`) |
-| Surface field spec hand-off | `Docs/SURFACE_SPEC_HANDOFF.md` (in `ateam-mobile`) |
+| Surface field spec hand-off | `docs/SURFACE_SPEC_HANDOFF.md` (in `ateam-mobile`) |
+| Host contract spec hand-off | `docs/HOST_VS_SOLUTION_HANDOFF.md` (in `ateam-mobile`) — boundary between any host shell and the solutions it renders. Live spec at `GET /spec/host-contract`. |
 | F3 storage discipline plan | `~/.claude/plans/peaceful-dazzling-dijkstra.md` |
 | Roadmap (open work) | `docs/ROADMAP.md` (TBD — flag if missing) |
 | Public MCP API reference | `docs/PUBLIC_MCP_DOCUMENTATION.md` |

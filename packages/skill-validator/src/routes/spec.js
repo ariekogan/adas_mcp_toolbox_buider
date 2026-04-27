@@ -178,6 +178,18 @@ router.get('/mobile-connector', (_req, res) => res.set(CACHE_HEADERS).json(MOBIL
 router.get('/ui-plugins', (_req, res) => res.set(CACHE_HEADERS).json(UI_PLUGINS_SPEC));
 router.get('/multi-user-connector', (_req, res) => res.set(CACHE_HEADERS).json(MULTI_USER_CONNECTOR_SPEC));
 
+// Host contract — boundary between any host shell and the solutions it
+// renders. Returns the host_contract subsection of the solution spec so
+// validator/builder agents can fetch it on its own without pulling the
+// full solution spec.
+router.get('/host-contract', (_req, res) => {
+  const hostContract = SOLUTION_SPEC?.host_contract;
+  if (!hostContract) {
+    return res.status(500).json({ error: 'host_contract block not present in SOLUTION_SPEC' });
+  }
+  res.set(CACHE_HEADERS).json(hostContract);
+});
+
 // Platform SDK — runtime API reference for custom connectors and skills
 router.get('/sdk', (_req, res) => res.set(CACHE_HEADERS).json({
   name: '@ateam/sdk',
@@ -522,6 +534,10 @@ function buildIndex() {
       '/spec/ui-plugins': {
         method: 'GET',
         description: 'UI Plugins specification — build interactive dashboards for web (iframe) and mobile (React Native). Covers render modes, plugin SDK, bundle pipeline, and deployment.',
+      },
+      '/spec/host-contract': {
+        method: 'GET',
+        description: 'Host contract — normative boundary between any host shell (mobile app, web shell, kiosk, watch) and the solutions it renders. Defines the ownership matrix, forbidden host behaviors, host capability allow-list, and validator drift check. Use this when reviewing a host implementation or when designing a portable solution. Companion to surface field on ui_plugins.',
       },
       '/spec/multi-user-connector': {
         method: 'GET',
@@ -3795,7 +3811,31 @@ function buildSolutionSpec() {
               subtitle: { type: 'string', required: false, description: 'Secondary text shown below the title (e.g. "Macros, meals, hydration")' },
               privacy: { type: 'boolean', required: false, default: false, description: 'When true, the host shows a lock pill in the surface chrome to indicate the plugin handles sensitive data.' },
               category: { type: 'string', required: false, description: 'Reserved for future host-side grouping (e.g. "Health", "Productivity"). Validator passes through without semantic checks.' },
-              featured: { type: 'boolean', required: false, default: false, description: 'Reserved for future home empty-state rail. Validator passes through. Cannot coexist with visibility:"engine" (engine-only surfaces are not user-discoverable).' },
+              featured: { type: 'boolean', required: false, default: false, description: 'Legacy boolean — superseded by placement:"featured". Validator passes through. Cannot coexist with visibility:"engine".' },
+              // ── Generic, role-based slot hint ─────────────────────────────
+              // Tells the host WHICH slot in its chrome to put the plugin in,
+              // expressed in solution-domain terms (NOT host-specific terms
+              // like "tab" or "sidebar"). Each host renders these roles however
+              // its own chrome makes sense. Mobile pins "featured" plugins on
+              // home; a web host might render them as hero tiles. Either way,
+              // solution.json doesn\'t change per host.
+              //
+              // Origin: docs/HOST_VS_SOLUTION_HANDOFF.md (placement section).
+              placement: {
+                type: 'enum', required: false,
+                values: ['featured', 'menu'],
+                description:
+                  '"featured" = signature surface, the face of the solution. Host renders prominently (mobile: pinned home card; web/dashboard: hero tile). "menu" = nav-row entry (mobile: side-menu row; web: sidebar item). Omit = regular plugin in the host\'s default plugin list / picker. Keep "featured" rare per solution — validator flags > 3 (warning) since "featured" loses meaning when everything is featured.',
+                examples: {
+                  featured: 'Signature surfaces — the dashboard, the today plate, the pinned summary card.',
+                  menu: 'Connections panel (manage Gmail/WhatsApp/Dropbox auth), activity log, tour/help, About page — anything that fits a nav-row format.',
+                  omitted: 'Regular plugin — accessible when the user wants it (drawer in plugin picker, sidebar entry).',
+                },
+                validator_rules: [
+                  'Soft cap: more than 3 plugins with placement:"featured" emits a warning ("featured loses meaning when everything is featured"). Not a hard error.',
+                  'placement:"featured" with visibility:"engine" is rejected — engine-only surfaces are not user-discoverable, so featuring them does nothing.',
+                ],
+              },
             },
             example: {
               type: 'drawer',
@@ -3816,6 +3856,177 @@ function buildSolutionSpec() {
           },
         },
       },
+    },
+
+    // ─── Host contract ────────────────────────────────────────────────────
+    // Normative boundary between the host shell (mobile app, web shell, future
+    // watch/kiosk hosts) and the solution. This section is what the validator
+    // and the platform builder agent consult to decide whether a host is
+    // overstepping into solution territory.
+    //
+    // The surface schema documents HOW a solution declares plugin placement.
+    // host_contract documents WHO is responsible for WHAT. Without it, a host
+    // can stay technically schema-compliant while pulling domain logic out of
+    // the solution and into itself (the MemoryDrawer pattern observed in
+    // mobile-pa, where the host shipped its own Memories drawer that called
+    // memory.add directly, shadowing the declared plugin).
+    //
+    // Origin: docs/HOST_VS_SOLUTION_HANDOFF.md (mobile-pa session, 2026-04-27).
+    // Companion: surface field on ui_plugins.item_schema (above).
+    host_contract: {
+      spec_version: '1.0.0',
+      description:
+        'Normative boundary between any host shell that renders A-Team solutions and the solutions it renders. The surface field tells a host WHERE to render a plugin; this section tells the host WHAT it may not do, plus the closed allow-list of what it MAY do. A host that follows host_contract is portable across solutions; a solution that fits inside host_contract is portable across hosts.',
+      audience:
+        'Builder/validator agents inspecting host source (ateam-mobile, future web/watch hosts) and platform builder agents composing solutions. Solutions must not need to know which host is rendering them; hosts must not need to know which solution is loaded.',
+      goal:
+        'Solutions become portable (any conformant host renders any solution). Hosts become swappable (web, mobile, watch, kiosk hosts can each implement the same allow-list). Drift between solution and host becomes a regex-grep away from detection.',
+
+      // ── 1. Ownership matrix ─────────────────────────────────────────────
+      ownership_matrix: {
+        description:
+          'Per-concern matrix of who is responsible. HOST owns shell, chrome, and surface containers. SOLUTION owns every domain-specific decision. When in doubt, default to SOLUTION — the host should be inert and registry-driven.',
+        host_owns: [
+          { concern: 'Brand identity', covers: 'Name, palette, mark, voice, type system' },
+          { concern: 'Auth, onboarding, navigation chrome', covers: 'Login, tenant picker, OAuth callback, identity flows' },
+          { concern: 'Surface containers', covers: 'One container shell per surface.type enum value (drawer / fullscreen / card / header / ambient / nudge)' },
+          { concern: 'Plugin SDK runtime', covers: 'bridge, useApi, theme, haptics, bundle loader, postMessage protocol — runtime infra only, no domain code' },
+          { concern: 'Notification banners, toasts, in-chat blocks (rendering only)', covers: 'Generic display containers; the content comes from the solution' },
+          { concern: 'Transport', covers: 'Chat composer, voice input, push notification rendering — no domain knowledge' },
+        ],
+        solution_owns: [
+          { concern: 'Tool names, connector IDs, skill IDs', covers: 'Anything the host might want to call by name belongs to the solution definition' },
+          { concern: 'Domain UI', covers: 'Memories, calendar, devices, food, messaging, etc. Each domain ships as a UI plugin' },
+          { concern: 'Empty-state copy & seed examples', covers: 'No empty-state strings, no "first add a memory" copy, no seed lists in host code' },
+          { concern: 'Greeting copy / AI persona surface', covers: 'Either a header/ambient plugin or skill-driven response — never hard-coded in host' },
+          { concern: 'Suggestion card content', covers: 'Label, icon, target — derived from the solution\'s plugin surfaces (visibility:user)' },
+          { concern: 'Cross-domain composition', covers: 'If two domains need to be combined for a render, that composition lives in a solution-side plugin or skill, never in the host' },
+        ],
+      },
+
+      // ── 2. Forbidden host behaviors ─────────────────────────────────────
+      forbidden_host_behaviors: {
+        description:
+          'A spec-conformant host MUST NOT do any of the following. These are the concrete anti-patterns that schema validation alone cannot catch — they are spec-compliant (the surface field is there, the manifest is valid) but spirit-violating (domain logic has leaked out of the solution).',
+        rules: [
+          {
+            rule: 'No tool names in host code',
+            forbidden: 'api.call("memory.add"), bridge.call("triggers.toggle"), any string-literal reference to a tool name, connector ID, or skill ID anywhere in host source.',
+            allowed_alternative: 'The solution exposes a UI plugin or sys command for the host to invoke generically.',
+          },
+          {
+            rule: 'No domain UI in host source',
+            forbidden: 'A MemoryDrawer.tsx, a CalendarPanel.tsx, a TodayPlate.tsx, etc. — any component named for a solution domain.',
+            allowed_alternative: 'The solution declares a UI plugin for that domain. The host renders it via the surface container that matches plugin.surface.type.',
+          },
+          {
+            rule: 'No shadowing of solution plugins',
+            forbidden: 'Rendering a host-built panel for a domain when the loaded solution declares a UI plugin for that same domain.',
+            allowed_alternative: 'Always prefer the solution\'s declared plugin. If no plugin is declared, render an empty surface (or fall back to the legacy plugin-tab grid).',
+          },
+          {
+            rule: 'No multi-source composition in host',
+            forbidden: 'Reading from multiple solution sources (memory.list + calendar.list) and composing them in host code before render.',
+            allowed_alternative: 'A solution-side plugin or skill performs the composition; the host renders the composed result.',
+          },
+          {
+            rule: 'No domain affordances in host chrome',
+            forbidden: 'A button, gesture, or shortcut that triggers a tool the host names directly.',
+            allowed_alternative: 'The solution declares the affordance via plugin commands or surface chrome. The host invokes it generically (e.g., "render every plugin command as a row in this menu").',
+          },
+          {
+            rule: 'No empty-state or seed copy for solution domains',
+            forbidden: '"Add your first memory", "No reminders yet — try …", category labels like "People", "Preferences", "Routines".',
+            allowed_alternative: 'The solution\'s plugin renders its own empty state. If the plugin is not loaded, the host shows a generic "No active plugins" message.',
+          },
+        ],
+        illustrative_drift_case: {
+          summary: 'mobile-pa MemoryDrawer.tsx (April 2026) — concrete anti-pattern that motivated this spec section.',
+          what_host_did_wrong: [
+            'Shipped src/components/MemoryDrawer.tsx that called memory.list directly.',
+            'Rendered an "Add memory" button that called memory.add directly.',
+            'Hardcoded seed copy ("People", "Preferences", "Routines").',
+            'Result: domain UX existed in two places (host + solution plugin), drifted, and a solution change to memory grouping had no effect on mobile.',
+          ],
+          what_should_have_happened: [
+            'Solution declares mcp:personal-assistant-ui-mcp:memories-panel with surface { type: "drawer", visibility: "user", title: "Memories" }.',
+            'Host iterates every plugin with surface.visibility:"user" and renders one drawer per plugin. The Memories drawer is just one card in that registry-driven list.',
+            'memory.add is invoked by the plugin, not by the host. The host never sees the tool name.',
+          ],
+          reference_implementation:
+            'Every other drawer in the personal-adas suggestion-card row IS a solution plugin and IS the reference behavior. The host iterates visibility:user surfaces and renders surface.title / icon / subtitle. Adding or removing a plugin makes a card appear or disappear with zero host code change.',
+        },
+      },
+
+      // ── 3. Host capability allow-list ───────────────────────────────────
+      host_capabilities: {
+        description:
+          'CLOSED set. A host is the union of these capabilities, and nothing else. Anything not on this list is solution territory.',
+        capabilities: [
+          {
+            capability: 'Brand chrome',
+            includes: 'Name, mark, palette, type system, dark/light theme tokens',
+          },
+          {
+            capability: 'Identity flows',
+            includes: 'Auth, onboarding, tenant picker, OAuth callback handler — identity only, no domain state',
+          },
+          {
+            capability: 'Surface containers',
+            includes: 'One container per surface.type enum value: drawer, fullscreen, card, header, ambient, nudge. Each container is a generic shell that renders whichever plugin is mounted into it.',
+          },
+          {
+            capability: 'Plugin SDK runtime',
+            includes: 'Bundle loader, bridge / useApi / theme / haptics injection, postMessage protocol, web ↔ React Native render adaptation',
+          },
+          {
+            capability: 'Generic registry-driven scaffolding',
+            includes: 'e.g. "for every plugin where surface.visibility==user, render its surface.title as a card on the suggestion rail." No plugin is named in host code; the host iterates whatever the solution declares.',
+          },
+          {
+            capability: 'Transport',
+            includes: 'Chat composer (text input box), voice input, push notification rendering — rendering only, no domain knowledge',
+          },
+        ],
+        anti_capability_test: 'If a capability cannot be implemented without naming a tool, connector, or skill, it does not belong in the host.',
+      },
+
+      // ── 4. Validator drift check ────────────────────────────────────────
+      validator_drift_check: {
+        description:
+          'Static analysis hint for builder/validator agents reviewing host repos. Catches the obvious anti-pattern cases (the MemoryDrawer regex match). Not a replacement for human review, but cheap to run and a strong signal.',
+        check: {
+          name: 'host_calls_solution_tool_directly',
+          regex: 'api\\.call\\([\'"]([\\w.]+)[\'"]',
+          alt_regexes: [
+            'bridge\\.call\\([\'"]([\\w.]+)[\'"]',
+            'mcpCall\\([\'"]([\\w.]+)[\'"]',
+          ],
+          source_scope: 'Host repo source files only — exclude the plugin SDK runtime files (bridge.ts, useApi.ts, PluginLoader.tsx) since the SDK itself legitimately routes calls.',
+          report_format: 'For each unique tool name found, report: file:line, the matched tool name, and whether the loaded solution.json declares a UI plugin for that tool\'s domain. If a plugin exists for the same domain, the host is shadowing it — flag as DRIFT_HOST_SHADOWS_PLUGIN.',
+          exit_signal: 'Zero matches outside the SDK runtime → host is conformant. One or more matches → flag for review.',
+        },
+        complementary_signals: [
+          'A component named after a solution domain (MemoryDrawer, CalendarPanel) under host source paths.',
+          'String literals in host source that match seed-copy patterns ("Add your first…", domain-specific category labels).',
+          'Direct imports of solution-namespaced types or constants into host source.',
+        ],
+      },
+
+      // ── Why this matters ────────────────────────────────────────────────
+      rationale: [
+        'Solutions become portable. Any host that conforms to host_contract can render any solution. No more "this UI only works on mobile-pa."',
+        'Hosts become swappable. A web host, a watch host, a kiosk host can each implement the same allow-list; solutions never need per-host code.',
+        'AI agents (builder/validator) have a normative rule to apply. Without host_contract, they have to infer ownership from the surface field\'s description. With it, they enforce a closed contract on every solution + host PR.',
+      ],
+
+      // Cross-references
+      see_also: [
+        'GET /spec/solution#schema.ui_plugins.item_schema.surface — the surface schema (type, visibility, placement) this section complements',
+        'GET /spec/solution#schema.ui_plugins.item_schema.surface.placement — the role-based slot hint (featured | menu | omitted) that lets a single solution.json adapt to mobile, web, watch, kiosk hosts without per-host code',
+        'GET /spec/ui-plugins — UI plugin development guide (web iframe + React Native)',
+        'docs/HOST_VS_SOLUTION_HANDOFF.md — origin doc with full motivation and the MemoryDrawer drift case',
+      ],
     },
 
     functional_connectors: {

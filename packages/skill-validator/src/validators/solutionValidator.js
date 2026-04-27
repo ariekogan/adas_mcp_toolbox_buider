@@ -528,7 +528,13 @@ export function validateSolution(solution, context) {
     // Spec: docs/SURFACE_SPEC_HANDOFF.md.
     const SURFACE_TYPES = new Set(['drawer', 'fullscreen', 'card', 'header', 'ambient', 'nudge']);
     const SURFACE_VISIBILITY = new Set(['always', 'user', 'engine']);
+    const SURFACE_PLACEMENT = new Set(['featured', 'menu']);
     const ALWAYS_NATIVE_TYPES = new Set(['header', 'ambient']); // tiny / always-mounted → iframe rarely works
+    // Track featured-placement count across both skill-level and solution-level
+    // ui_plugins. Soft cap of 3 — beyond that, "featured" loses meaning.
+    // See docs/HOST_VS_SOLUTION_HANDOFF.md (placement section).
+    const FEATURED_SOFT_CAP = 3;
+    const featuredPluginIds = [];
 
     function validateSurface(plugin, ctx) {
       const surface = plugin?.surface;
@@ -595,6 +601,35 @@ export function validateSolution(solution, context) {
           plugin: plugin.id,
         });
       }
+
+      // ── placement (role-based slot hint) ──────────────────────────────
+      // Optional. Tells the host WHICH slot to render the plugin in,
+      // expressed in solution-domain terms ("featured" / "menu") rather than
+      // host-specific terms. The solution stays portable; each host renders
+      // these roles using its own chrome conventions.
+      // Origin: docs/HOST_VS_SOLUTION_HANDOFF.md — placement section.
+      if (surface.placement !== undefined) {
+        if (typeof surface.placement !== 'string' || !SURFACE_PLACEMENT.has(surface.placement)) {
+          errors.push({
+            check: 'ui_plugin_surface_invalid_placement',
+            message: `UI plugin "${plugin.id}"${ctx}: invalid surface.placement "${surface.placement}". Allowed: ${[...SURFACE_PLACEMENT].join(', ')} (or omit for default plugin-list placement).`,
+            plugin: plugin.id,
+          });
+        } else {
+          // placement:"featured" + visibility:"engine" is contradictory: featuring
+          // a surface that is hidden by default doesn't render anywhere.
+          if (surface.placement === 'featured' && surface.visibility === 'engine') {
+            errors.push({
+              check: 'ui_plugin_surface_placement_engine_featured',
+              message: `UI plugin "${plugin.id}"${ctx}: surface.placement:"featured" cannot coexist with surface.visibility:"engine" — engine-only surfaces are not user-discoverable, so featuring them is a no-op.`,
+              plugin: plugin.id,
+            });
+          }
+          if (surface.placement === 'featured') {
+            featuredPluginIds.push(plugin.id);
+          }
+        }
+      }
     }
 
     // Skill-level ui_plugins
@@ -608,6 +643,18 @@ export function validateSolution(solution, context) {
     const solutionUiPlugins = solution?.ui_plugins || [];
     for (const plugin of solutionUiPlugins) {
       validateSurface(plugin, ' (solution-level)');
+    }
+
+    // 8g.1 — Featured-placement soft cap. Beyond ~3 featured surfaces,
+    // "featured" loses signal. Warning only — solutions with a strong reason
+    // to feature more can ignore it.
+    if (featuredPluginIds.length > FEATURED_SOFT_CAP) {
+      warnings.push({
+        check: 'ui_plugin_too_many_featured',
+        message: `${featuredPluginIds.length} plugins declare surface.placement:"featured" (soft cap: ${FEATURED_SOFT_CAP}). "Featured" is meant to mark signature surfaces; everything-featured means nothing-featured. Consider demoting some to default placement or "menu".`,
+        plugins: featuredPluginIds,
+        soft_cap: FEATURED_SOFT_CAP,
+      });
     }
 
     // ─── 9. UI-capable connector validation ──────────────────
