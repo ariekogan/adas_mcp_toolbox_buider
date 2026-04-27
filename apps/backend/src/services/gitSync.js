@@ -57,6 +57,46 @@ function shouldPush() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Per-repo push serialization
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// When a deploy fans out and saves N skills + 1 solution.json in parallel,
+// each save's pushAndWrite races to the same `<tenant>--<solutionId>` repo.
+// All N+1 writers read the same HEAD, build commits with the same parent,
+// and the ref-update for all but one returns 422 ("Update is not a fast
+// forward"). We've fixed githubService.pushFiles to retry on that 422 with
+// a fresh HEAD, but each retry costs an extra GH round-trip per loser, and
+// under high contention the retries themselves can race. Cheaper to
+// serialize at the gitSync layer — one push per repo at a time.
+//
+// The lock is per `tenant--solutionId`, so different tenants and different
+// solutions in the same tenant push concurrently, exactly as before.
+//
+// Implementation: chained promises. New holders await the current tail,
+// then become the new tail. After they release, the next waiter runs.
+const _repoLocks = new Map(); // repoName → Promise<void>
+
+async function withRepoLock(tenant, solutionId, fn) {
+  const key = repoName(tenant, solutionId);
+  const prev = _repoLocks.get(key) || Promise.resolve();
+  let release;
+  const lock = new Promise(r => { release = r; });
+  // Build the new tail ONCE so the identity check below works.
+  const myTail = prev.then(() => lock, () => lock);
+  _repoLocks.set(key, myTail);
+  try {
+    await prev;          // wait for the previous holder (ignore its rejection)
+    return await fn();
+  } finally {
+    release();
+    // Only clear the map if no later holder chained on top of us.
+    if (_repoLocks.get(key) === myTail) {
+      _repoLocks.delete(key);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Push a single file (path + content) to the tenant's solution repo, then
@@ -82,7 +122,16 @@ async function pushAndWrite(solutionId, repoPath, content, commitMessage, fsWrit
   let ghError = null;
 
   try {
-    const r = await pushFiles(tenant, solutionId, [{ path: repoPath, content }], commitMessage);
+    // Per-repo lock — serializes parallel pushes to the same repo so the
+    // ref-update step doesn't race. With githubService.pushFiles also
+    // retrying on 422, this is belt-and-braces: lock prevents most
+    // collisions, retry rescues the unlikely cross-process / cross-pod
+    // collision (e.g. ateam_github_patch from an external agent landing
+    // mid-deploy). Cost: a single repo's pushes are sequential, but each
+    // push is small (~1-3 GH round-trips). Different repos still parallel.
+    const r = await withRepoLock(tenant, solutionId, () =>
+      pushFiles(tenant, solutionId, [{ path: repoPath, content }], commitMessage)
+    );
     commitSha = r?.commit_sha;
   } catch (err) {
     ghError = err.message;

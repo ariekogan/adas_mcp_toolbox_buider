@@ -206,48 +206,84 @@ export async function ensureRepo(tenant, solutionId, description = '') {
 /**
  * Atomic multi-file commit via Git Trees API.
  * Uses parallel blob creation for speed.
+ *
+ * Concurrent-write resilience: when two pushes to the same repo race,
+ * the second ref-update returns 422 ("Update is not a fast forward" or
+ * "Reference cannot be updated") because both commits were authored
+ * against the same HEAD. The losing push used to fail outright,
+ * leaving Builder FS ahead of GitHub for the affected file —
+ * exactly the FS-newer-than-GH drift observed on mobile-pa.
+ *
+ * Fix: on a ref-update 422, re-read HEAD, rebuild the commit on top of
+ * the new HEAD (re-using the already-uploaded blobs and tree), retry
+ * the ref-update. Up to PUSH_MAX_RETRIES attempts with small jittered
+ * backoff. Blobs are content-addressable so they don't need to be
+ * recreated; only the tree (which depends on base_tree) and the
+ * commit (which depends on parents) get rebuilt.
  */
+const PUSH_MAX_RETRIES = 4;
+
 export async function pushFiles(tenant, solutionId, files, message = 'Update solution') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  // 1. Get current HEAD
-  let headSha, treeSha;
-  try {
-    const ref = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
-    headSha = ref.object.sha;
-    const commit = await gh('GET', `/repos/${fullName}/git/commits/${headSha}`);
-    treeSha = commit.tree.sha;
-  } catch (err) {
-    throw new Error(`Cannot get HEAD for ${fullName}: ${err.message}`);
-  }
-
-  // 2. Create blobs (parallel batches of 5)
+  // Create blobs ONCE — they're content-addressable, surviving every retry.
   const treeItems = await createBlobsBatch(fullName, files);
 
-  // 3. Create tree
-  const tree = await gh('POST', `/repos/${fullName}/git/trees`, {
-    base_tree: treeSha,
-    tree: treeItems,
-  });
+  let lastErr = null;
+  for (let attempt = 0; attempt <= PUSH_MAX_RETRIES; attempt++) {
+    // 1. Get current HEAD on every attempt (a concurrent push may have
+    //    advanced it since the previous try).
+    let headSha, treeSha;
+    try {
+      const ref = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
+      headSha = ref.object.sha;
+      const commit = await gh('GET', `/repos/${fullName}/git/commits/${headSha}`);
+      treeSha = commit.tree.sha;
+    } catch (err) {
+      throw new Error(`Cannot get HEAD for ${fullName}: ${err.message}`);
+    }
 
-  // 4. Create commit
-  const commit = await gh('POST', `/repos/${fullName}/git/commits`, {
-    message,
-    tree: tree.sha,
-    parents: [headSha],
-  });
+    // 2. Create tree on top of the current HEAD's tree.
+    const tree = await gh('POST', `/repos/${fullName}/git/trees`, {
+      base_tree: treeSha,
+      tree: treeItems,
+    });
 
-  // 5. Update ref
-  await gh('PATCH', `/repos/${fullName}/git/refs/heads/main`, {
-    sha: commit.sha,
-  });
+    // 3. Create commit with current HEAD as parent.
+    const commit = await gh('POST', `/repos/${fullName}/git/commits`, {
+      message,
+      tree: tree.sha,
+      parents: [headSha],
+    });
 
-  return {
-    commit_sha: commit.sha,
-    commit_url: commit.html_url,
-    files_committed: files.length,
-  };
+    // 4. Update ref. This is the contended step — a concurrent push that
+    //    lands between step 1 and step 4 makes our parents stale, so the
+    //    server rejects with 422.
+    try {
+      await gh('PATCH', `/repos/${fullName}/git/refs/heads/main`, {
+        sha: commit.sha,
+      });
+      return {
+        commit_sha: commit.sha,
+        commit_url: commit.html_url,
+        files_committed: files.length,
+        ...(attempt > 0 && { retries: attempt }),
+      };
+    } catch (err) {
+      lastErr = err;
+      const msg = err?.message || '';
+      const isFastForwardRace = err?.status === 422 && /fast forward|cannot be updated|update is not/i.test(msg);
+      if (!isFastForwardRace || attempt >= PUSH_MAX_RETRIES) {
+        throw err;
+      }
+      // Jittered backoff: 100-300ms × 2^attempt.
+      const wait = Math.floor((100 + Math.random() * 200) * (2 ** attempt));
+      console.warn(`[GitHub] pushFiles ref-update 422 for ${fullName} (attempt ${attempt + 1}/${PUSH_MAX_RETRIES}, retry in ${wait}ms): ${msg}`);
+      await sleep(wait);
+    }
+  }
+  throw lastErr || new Error(`pushFiles failed after ${PUSH_MAX_RETRIES} retries`);
 }
 
 /**
