@@ -26,7 +26,6 @@
  * /tmp/gitsync-drift-<tenant>.json so operators can inspect via docker exec.
  */
 
-import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -40,6 +39,13 @@ import {
 } from '@adas/skill-validator/src/services/githubService.js';
 
 import { getValidTenants, runWithTenant, getMemoryRoot } from '../utils/tenantContext.js';
+import {
+  contentMatches,
+  parseIsoOrNull,
+  resolveFsTarget,
+  readFsIfExists,
+  writeFileAtomic,
+} from './gitSyncDiff.js';
 
 // In-memory per-tenant drift log, consulted by /api/health etc.
 const _driftLog = new Map(); // tenant → { lastSyncAt, summary, drifts: [...] }
@@ -56,83 +62,9 @@ export function getLastSyncAt(tenant) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Reconciliation primitives
+// Reconciliation primitives — diff helpers live in ./gitSyncDiff.js so the
+// pre-deploy guard (gitSync.verifyConsistency) can reuse them.
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Canonicalize JSON content for stable comparison (re-serialize with sorted keys). */
-function canonicalizeJson(str) {
-  try {
-    return JSON.stringify(JSON.parse(str), null, 2);
-  } catch {
-    return str; // not JSON; compare as-is
-  }
-}
-
-/** Return true if two strings are byte-identical after optional JSON canonicalization. */
-function contentMatches(a, b, isJson) {
-  if (isJson) return canonicalizeJson(a) === canonicalizeJson(b);
-  return a === b;
-}
-
-function parseIsoOrNull(s) {
-  if (!s || typeof s !== 'string') return null;
-  const ms = Date.parse(s);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-/**
- * Resolve the target absolute path on Builder FS for a repo-relative path,
- * or return null if we don't sync this path.
- *
- * Repo layout:
- *   solution.json                         → <memoryRoot>/solutions/<solId>/solution.json
- *   skills/<slug>/skill.json              → <memoryRoot>/<slug>/skill.json
- *   connectors/<id>/<file>                → <memoryRoot>/solution-packs/<solName>/mcp-store/<id>/<file>
- *
- * Notes on connector path choice:
- *   The Builder writes connector source to TWO locations today:
- *     (a) <memoryRoot>/solution-packs/<solName>/mcp-store/<id>/<file>   — tenant-scoped (exportDeploy.js:280)
- *     (b) <TENANTS_ROOT>/connectors/<id>/<file>                         — CROSS-TENANT shared (deploy.js:97)
- *   Boot sync writes only to (a). Writing to (b) during boot would race across tenants (two tenants
- *   with a connector of the same id would overwrite each other). (b) is a best-effort staging area
- *   that deploy.js rewrites every run anyway, and exportDeploy.js:356 OR-checks both locations when
- *   deciding if the Core already has the code — so (a) alone is sufficient for deploy readiness.
- */
-function resolveFsTarget(repoPath, solutionId, solutionName) {
-  if (repoPath === 'solution.json') {
-    return [path.join(getMemoryRoot(), 'solutions', solutionId, 'solution.json')];
-  }
-  const skillMatch = repoPath.match(/^skills\/([^/]+)\/skill\.json$/);
-  if (skillMatch) {
-    const slug = skillMatch[1];
-    return [path.join(getMemoryRoot(), slug, 'skill.json')];
-  }
-  const connMatch = repoPath.match(/^connectors\/([^/]+)\/(.+)$/);
-  if (connMatch) {
-    const [, connId, rel] = connMatch;
-    const packName = solutionName || solutionId;
-    return [path.join(getMemoryRoot(), 'solution-packs', packName, 'mcp-store', connId, rel)];
-  }
-  // README, .ateam/, other metadata — don't sync to FS
-  return null;
-}
-
-/** Atomic file write (tmp + rename), mkdir -p the parent. */
-async function writeFileAtomic(absPath, content) {
-  await fsp.mkdir(path.dirname(absPath), { recursive: true });
-  const tmp = `${absPath}.tmp.${Date.now()}`;
-  await fsp.writeFile(tmp, content);
-  await fsp.rename(tmp, absPath);
-}
-
-async function readFsIfExists(absPath) {
-  try {
-    return await fsp.readFile(absPath, 'utf-8');
-  } catch (err) {
-    if (err.code === 'ENOENT') return null;
-    throw err;
-  }
-}
 
 /**
  * Compare FS vs GH for a single solution and apply the reconciliation table.

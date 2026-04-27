@@ -6,7 +6,48 @@ import { syncConnectorToADAS, startConnectorInADAS, stopConnectorInADAS, uploadM
 import { buildConnectorPayload } from "../utils/connectorPayload.js";
 import { compileUiPlugins } from "../utils/skillFieldHelpers.js";
 import adasCore from "./adasCoreClient.js";
+import { verifyConsistency } from "./gitSync.js";
 import { enrichSkillIntentsWithLLM } from "@adas/skill-validator";
+
+/**
+ * Pre-deploy guard for the single-skill paths (per-skill redeploy, import,
+ * exportRuntime). Mirrors the route-level guard in routes/deploy.js but
+ * throws (so the existing try/catch chain reports a clean 409-style error)
+ * instead of returning an Express response.
+ *
+ * Bulk-deploy callers (routes/deploy.js POST /solution) run the guard at the
+ * route entry and pass skipGuard:true here to avoid double-checking.
+ *
+ * Env: GITSYNC_DEPLOY_GUARD = warn (default) | strict | off
+ */
+async function runSkillDeployGuard(solutionId, log) {
+  const mode = (process.env.GITSYNC_DEPLOY_GUARD || 'warn').toLowerCase();
+  if (mode === 'off') return;
+
+  let consistency;
+  try {
+    consistency = await verifyConsistency(solutionId);
+  } catch (err) {
+    log.warn(`[MCP Deploy Guard] verifyConsistency(${solutionId}) crashed (non-fatal): ${err.message}`);
+    return;
+  }
+  if (consistency.skipped || consistency.ok) return;
+
+  log.warn(`[MCP Deploy Guard] ${solutionId}: ${consistency.drifts.length} drift(s) detected`);
+  consistency.drifts.forEach(d => {
+    const detail = d.fsTarget ? ` (fs=${d.fsTarget})` : '';
+    log.warn(`[MCP Deploy Guard]   - ${d.kind}: ${d.path}${detail}`);
+  });
+
+  if (mode === 'strict') {
+    const err = new Error('Pre-deploy consistency check failed');
+    err.code = 'DRIFT_DETECTED';
+    err.drifts = consistency.drifts;
+    err.hint = 'Run ateam_github_pull(solution_id) to restore Builder FS, or restart the backend to trigger startup sync. Set GITSYNC_DEPLOY_GUARD=warn to log and proceed.';
+    throw err;
+  }
+  // warn mode — log only.
+}
 
 /**
  * Helper to get skillSlug from skill.
@@ -70,7 +111,14 @@ export async function deployIdentityToADAS(solutionId, log) {
  * @param {object} log - Logger (console-compatible)
  * @returns {Promise<object>} Deploy result
  */
-export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { skipConnectorSync = false } = {}) {
+export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { skipConnectorSync = false, skipGuard = false } = {}) {
+  // Pre-deploy guard. Bulk POST /solution runs the guard at the route level
+  // and passes skipGuard:true. Per-skill redeploys (solutions.js, import.js,
+  // exportRuntime.js) get the guard here.
+  if (!skipGuard) {
+    await runSkillDeployGuard(solutionId, log);
+  }
+
   const skill = await skillsStore.load(solutionId, skillId);
   let version = skill.version;
 

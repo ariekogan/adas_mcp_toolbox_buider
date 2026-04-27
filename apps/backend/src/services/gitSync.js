@@ -22,12 +22,25 @@
  * gitSync auto-degrades to FS-only regardless of mode.
  */
 
+import path from 'node:path';
+
 import {
   isEnabled as githubEnabled,
   pushFiles,
   repoName,
+  listFiles,
+  readFile as githubReadFile,
 } from '@adas/skill-validator/src/services/githubService.js';
-import { getCurrentTenant, getCurrentTenantOrNull } from '../utils/tenantContext.js';
+import {
+  getCurrentTenant,
+  getCurrentTenantOrNull,
+  getMemoryRoot,
+} from '../utils/tenantContext.js';
+import {
+  contentMatches,
+  resolveFsTarget,
+  readFsIfExists,
+} from './gitSyncDiff.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -169,8 +182,132 @@ export function describeGitSyncState() {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// verifyConsistency — read-only drift detector used by the pre-deploy guard
+// (F3 PR-5). Walks the GH repo for the given solution, compares each file
+// against Builder FS, and returns a list of drifts. Never writes anything.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Drift kinds returned by verifyConsistency:
+ *   - fs_missing       : file exists in GH but not in FS
+ *   - content_differs  : both exist but JSON-canonical content differs
+ *   - gh_missing       : skill is referenced in solution.json (linked_skills
+ *                        ∪ skills[].id) but no matching skills/<slug>/skill.json
+ *                        exists in GH
+ *   - gh_read_error    : GitHub Contents API failed for a specific path
+ *   - repo_unreachable : listFiles itself failed (network / 404 / auth)
+ */
+
+/**
+ * Compare Builder FS vs GitHub for a single solution. Returns a small,
+ * structured drift report so callers (deploy guard, /api/health) can
+ * decide whether to block, warn, or surface to the operator.
+ *
+ * Performance: ~1 GH list call + N GH file reads + N FS reads per solution
+ * (N is typically 5-30 files). GH file reads are not parallelized today —
+ * sequential keeps logs readable and stays well inside GitHub's 5000/hour
+ * authenticated rate limit.
+ *
+ * @param {string} solutionId
+ * @returns {Promise<{ ok: boolean, skipped?: boolean, reason?: string,
+ *                     drifts: Array<{ path: string, fsTarget?: string,
+ *                                     kind: string, error?: string }> }>}
+ */
+export async function verifyConsistency(solutionId) {
+  if (!solutionId) throw new Error('gitSync.verifyConsistency: solutionId required');
+
+  if (!githubEnabled()) {
+    return { ok: true, skipped: true, reason: 'github_disabled', drifts: [] };
+  }
+
+  const tenant = getCurrentTenant();
+  const drifts = [];
+
+  // 1. Enumerate every file in the GH repo for this solution.
+  let ghFiles;
+  try {
+    ghFiles = await listFiles(tenant, solutionId);
+  } catch (err) {
+    // 404 = repo doesn't exist yet (initial deploy before first push). There is
+    // nothing to be consistent with, so this is "no drift" not "unreachable".
+    // The deploy will create the repo as part of the GH push that follows.
+    if (err.status === 404) {
+      return { ok: true, skipped: true, reason: 'repo_not_created_yet', drifts: [] };
+    }
+    return {
+      ok: false,
+      reason: 'repo_unreachable',
+      drifts: [{ path: repoName(tenant, solutionId), kind: 'repo_unreachable', error: err.message }],
+    };
+  }
+
+  // 2. Pre-read solution.json so we know the solution name (used to resolve
+  //    connector pack dir on FS). Failure is fine — connector files just
+  //    won't resolve, and they'll show up as drift below.
+  let solutionName = null;
+  try {
+    const r = await githubReadFile(tenant, solutionId, 'solution.json');
+    solutionName = JSON.parse(r.content).name || null;
+  } catch { /* fall through */ }
+
+  // 3. Walk each GH file and check FS counterpart.
+  const ghSkillSlugs = new Set();
+  for (const gf of ghFiles) {
+    const skillMatch = gf.path.match(/^skills\/([^/]+)\/skill\.json$/);
+    if (skillMatch) ghSkillSlugs.add(skillMatch[1]);
+
+    const fsTargets = resolveFsTarget(gf.path, solutionId, solutionName);
+    if (!fsTargets) continue; // README, .ateam/, metadata — not synced
+
+    let ghContent;
+    try {
+      const r = await githubReadFile(tenant, solutionId, gf.path);
+      ghContent = r.content;
+    } catch (err) {
+      drifts.push({ path: gf.path, kind: 'gh_read_error', error: err.message });
+      continue;
+    }
+
+    const isJson = gf.path.endsWith('.json');
+    for (const fsTarget of fsTargets) {
+      const fsContent = await readFsIfExists(fsTarget);
+      if (fsContent === null) {
+        drifts.push({ path: gf.path, fsTarget, kind: 'fs_missing' });
+        continue;
+      }
+      if (!contentMatches(fsContent, ghContent, isJson)) {
+        drifts.push({ path: gf.path, fsTarget, kind: 'content_differs' });
+      }
+    }
+  }
+
+  // 4. Detect skills the FS knows about (linked_skills ∪ topology) that GH does
+  //    not — the inverse drift direction. We never auto-delete; we just report.
+  try {
+    const solAbs = path.join(getMemoryRoot(), 'solutions', solutionId, 'solution.json');
+    const solContent = await readFsIfExists(solAbs);
+    if (solContent) {
+      const sol = JSON.parse(solContent);
+      const linked = Array.isArray(sol.linked_skills) ? sol.linked_skills : [];
+      const fromTopo = Array.isArray(sol.skills)
+        ? sol.skills.map(s => s?.id || s).filter(Boolean)
+        : [];
+      const allFsSlugs = new Set([...linked, ...fromTopo]);
+      for (const slug of allFsSlugs) {
+        if (!ghSkillSlugs.has(slug)) {
+          drifts.push({ path: `skills/${slug}/skill.json`, kind: 'gh_missing' });
+        }
+      }
+    }
+  } catch { /* solution.json missing or unparseable — surfaces above as fs_missing */ }
+
+  return { ok: drifts.length === 0, drifts };
+}
+
 export default {
   saveSolutionWithSync,
   saveSkillWithSync,
   describeGitSyncState,
+  verifyConsistency,
 };
