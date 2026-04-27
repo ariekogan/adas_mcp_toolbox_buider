@@ -2889,7 +2889,15 @@ router.post('/solutions/:solutionId/github/push', async (req, res) => {
       // GitHub repo exists — read current files from GitHub, then merge/update
       console.log(`[GitHub Push] Repo exists — reading current state from GitHub (not Builder FS)`);
       try {
-        const pullResp = await fetch(`http://localhost:${process.env.PORT || 3200}/deploy/solutions/${encodeURIComponent(solId)}/github/pull-bundle`, {
+        // Self-loopback to the agent-api (this same server). The agent-api
+        // listens on VALIDATOR_PORT || 3200 (see server.js). DO NOT use
+        // process.env.PORT — inside the docker container PORT=4000 sets the
+        // Builder backend's port, and falling through to localhost:4000
+        // sends this request to the WRONG Express server (Builder doesn't
+        // serve /deploy/... — it serves /api/deploy/...). The wrong server's
+        // 404 returns HTML, and `await resp.json()` chokes on `<!DOCTYPE`,
+        // which surfaces as the "Unexpected token '<'" pull failure.
+        const pullResp = await fetch(`http://localhost:${process.env.VALIDATOR_PORT || 3200}/deploy/solutions/${encodeURIComponent(solId)}/github/pull-bundle`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-adas-tenant': tenant, 'x-api-key': req.headers['x-api-key'] || '', 'x-adas-token': req.headers['x-adas-token'] || '' },
           signal: AbortSignal.timeout(30000),
@@ -3107,7 +3115,13 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
       // Re-invoke this same endpoint synchronously by calling Builder directly.
       // Builder's /github/pull does the heavy lifting (read files, upload to Core,
       // restart connectors, deploy skills).
-      const url = `http://localhost:${process.env.PORT || 3200}/deploy/solutions/${encodeURIComponent(solId)}/github/pull`;
+      // Self-loopback: hit the SYNC branch on this same agent-api server.
+      // VALIDATOR_PORT (not PORT) — see server.js. PORT inside the container
+      // resolves to 4000 (Builder backend), whose Express returns an HTML 404
+      // for /deploy/... routes, and `await resp.json()` chokes on the
+      // `<!DOCTYPE` body — surfacing as the "Unexpected token '<'" job error
+      // user-side.
+      const url = `http://localhost:${process.env.VALIDATOR_PORT || 3200}/deploy/solutions/${encodeURIComponent(solId)}/github/pull`;
       const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json',
