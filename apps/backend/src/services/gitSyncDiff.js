@@ -32,14 +32,36 @@ import { getMemoryRoot } from '../utils/tenantContext.js';
  * on REAL content drift (a tool was added/removed, intents changed, etc.),
  * not on benign timestamp churn.
  */
+// Local deploy/runtime state that gets stamped onto skill.json by the deploy
+// pipeline but does NOT belong in the GitHub-authoritative copy of the skill.
+// We strip these before comparing FS vs GH so verifyConsistency only fires
+// when REAL content drift exists (tools changed, intents changed, etc.).
+//
+// Two categories:
+//
+// (a) Timestamps that get bumped on every save / deploy / export.
+// (b) Runtime/deploy-state fields. mcpUri is the Core-assigned MCP server
+//     URL for that skill — it's tenant- and Core-instance-specific, so it
+//     cannot live on GH (different Core instances would assign different
+//     ports). phase is the deploy lifecycle state (EXPORTED → DEPLOYED).
+//     validation is the last validation result snapshot. conversation is
+//     the chat history. None of these represent authoritative skill spec.
 const EPHEMERAL_FIELDS = new Set([
+  // (a) Timestamps
   'updated_at',
   'last_modified_at',
   'last_save_at',
-  'deployedAt',     // bumped by exportDeploy when a skill ships to Core
-  'lastExportedAt', // bumped by the export-bundle build step
+  'deployedAt',
+  'lastExportedAt',
   'lastDeployedAt',
   'lastValidatedAt',
+  // (b) Runtime / deploy-state
+  'mcpUri',
+  'deployedTo',
+  'phase',
+  'validation',
+  'lastExportType',
+  'conversation',
 ]);
 
 /**
