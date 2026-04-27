@@ -64,6 +64,48 @@ const _githubDeployedSolutions = new Map();
 const _deployJobs = new Map();
 
 /**
+ * Start a job, return the {job_id, poll_url} response immediately, and run
+ * `runFn(updateJob)` in the background.
+ *
+ * Used by every long-running deploy endpoint that previously hit Cloudflare
+ * 524 timeouts (~100s upstream limit). The runFn must return an object with
+ * at least `{ ok: boolean }`. Anything else it returns is merged into the
+ * final job entry so callers see the full result on poll. updateJob lets
+ * the runFn report intermediate progress.
+ *
+ * Cleanup: completed jobs auto-evict after 30 minutes.
+ */
+function startAsyncDeployJob(label, key, runFn) {
+  const jobId = `${label}-${key}-${Date.now()}`;
+  const setJob = (patch) => _deployJobs.set(jobId, { ...(_deployJobs.get(jobId) || {}), ...patch });
+  setJob({ job_id: jobId, status: 'in_progress', label, key, started_at: new Date().toISOString() });
+
+  const updateJob = (patch) => setJob(patch);
+  (async () => {
+    try {
+      const result = await runFn(updateJob);
+      setJob({
+        status: result?.ok === false ? 'failed' : 'done',
+        ...result,
+        completed_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error(`[Deploy:async ${label}] job ${jobId} crashed: ${err.message}`);
+      setJob({ status: 'failed', error: err.message, completed_at: new Date().toISOString() });
+    }
+    setTimeout(() => _deployJobs.delete(jobId), 30 * 60 * 1000);
+  })();
+
+  return {
+    ok: true,
+    async: true,
+    job_id: jobId,
+    poll_url: `/deploy/jobs/${jobId}`,
+    message: `${label} started in background. Poll job_id for status.`,
+  };
+}
+
+/**
  * Extract and validate tenant from request header. Returns null + sends 400 if invalid.
  * @param {Object} req - Express request
  * @param {Object} res - Express response
@@ -1733,6 +1775,28 @@ router.post('/solutions/:solutionId/skills/:skillId/redeploy', async (req, res) 
   const solId = req.params.solutionId;
   const skillId = req.params.skillId;
   const tenant = req.headers['x-adas-tenant'];
+  const isAsync = req.body?.async === true;
+
+  // Async mode: return job_id immediately, run the same logic in background.
+  // Single-skill redeploys aren't usually long enough to 524, but tools that
+  // batch many redeploys benefit from the same polling pattern as bulk.
+  if (isAsync) {
+    const reqRef = { params: req.params, headers: { ...req.headers }, body: { ...(req.body || {}), async: false } };
+    return res.json(startAsyncDeployJob('redeploy-skill', `${solId}/${skillId}`, async (updateJob) => {
+      updateJob({ stage: 'redeploying-skill', skill_id: skillId, message: 'Redeploying skill from GitHub or Builder FS...' });
+      // Re-invoke this same handler synchronously by reusing the logic below.
+      // Easier approach: call the Builder's underlying endpoint directly.
+      const builderUrl = `${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/skills/${encodeURIComponent(skillId)}/redeploy`;
+      const resp = await fetch(builderUrl, {
+        method: 'POST',
+        headers: { ...sbHeaders(reqRef), 'Content-Type': 'application/json' },
+        body: JSON.stringify(reqRef.body),
+        signal: AbortSignal.timeout(300000),
+      });
+      const data = await resp.json();
+      return { ok: resp.ok && data.ok !== false, skill_id: skillId, ...data };
+    }));
+  }
 
   try {
     // GitHub is the source of truth. If available, always deploy from there.
@@ -1874,12 +1938,35 @@ router.post('/solutions/:solutionId/chat', async (req, res) => {
  * Returns per-skill results with deployed/failed counts.
  */
 router.post('/solutions/:solutionId/redeploy', async (req, res) => {
+  const solId = req.params.solutionId;
+  const isAsync = req.body?.async === true;
+
+  // Async mode: return job_id immediately, run redeploy in background.
+  // Designed to bypass the Cloudflare 524 (~100s upstream timeout) that
+  // killed bulk redeploys of large solutions in sync mode.
+  if (isAsync) {
+    const headers = { ...sbHeaders(req), 'Content-Type': 'application/json' };
+    const body = { ...(req.body || {}), async: false }; // prevent recursion
+    return res.json(startAsyncDeployJob('redeploy-bulk', solId, async (updateJob) => {
+      updateJob({ stage: 'invoking-builder', message: 'Calling Builder bulk-redeploy...' });
+      const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/redeploy`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(600000), // 10 min — far above the upstream tunnel 100s
+      });
+      const data = await resp.json();
+      return { ok: resp.ok && data.ok !== false, ...data };
+    }));
+  }
+
+  // Sync mode (legacy / wait=true) — kept for back-compat.
   try {
-    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(req.params.solutionId)}/redeploy`, {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/solutions/${encodeURIComponent(solId)}/redeploy`, {
       method: 'POST',
       headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body || {}),
-      signal: AbortSignal.timeout(300000), // 5 min for large solutions
+      signal: AbortSignal.timeout(300000),
     });
     const data = await resp.json();
     res.status(resp.status).json(data);
@@ -3004,6 +3091,38 @@ router.get('/solutions/:solutionId/github/log', async (req, res) => {
  * Reads .ateam/export.json from the repo and feeds it into the deploy pipeline.
  */
 router.post('/solutions/:solutionId/github/pull', async (req, res) => {
+  // Async mode: github_pull is the longest deploy in the system (lists every
+  // file, reads each one, uploads N connectors to Core, restarts each). It's
+  // the #1 524 victim. Return a job_id and let it run in background.
+  if (req.body?.async === true) {
+    const tenant = req.headers['x-adas-tenant'];
+    if (!github.isEnabled()) {
+      return res.status(503).json({ ok: false, error: 'GitHub integration disabled' });
+    }
+    if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
+    const solId = req.params.solutionId;
+    const headers = { ...req.headers };
+    return res.json(startAsyncDeployJob('github-pull', solId, async (updateJob) => {
+      updateJob({ stage: 'pulling-from-github', message: 'Pulling solution from GitHub...' });
+      // Re-invoke this same endpoint synchronously by calling Builder directly.
+      // Builder's /github/pull does the heavy lifting (read files, upload to Core,
+      // restart connectors, deploy skills).
+      const url = `http://localhost:${process.env.PORT || 3200}/deploy/solutions/${encodeURIComponent(solId)}/github/pull`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json',
+          ...(headers['x-adas-tenant'] ? { 'x-adas-tenant': headers['x-adas-tenant'] } : {}),
+          ...(headers['x-api-key'] ? { 'x-api-key': headers['x-api-key'] } : {}),
+          ...(headers['x-adas-token'] ? { 'x-adas-token': headers['x-adas-token'] } : {}),
+        },
+        body: JSON.stringify({ ...(req.body || {}), async: false }),
+        signal: AbortSignal.timeout(900000), // 15 min — github_pull on big solutions can take 5-10
+      });
+      const data = await resp.json();
+      return { ok: resp.ok && data.ok !== false, ...data };
+    }));
+  }
+
   try {
     if (!github.isEnabled()) {
       return res.status(503).json({ ok: false, error: 'GitHub integration disabled' });

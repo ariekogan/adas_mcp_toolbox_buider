@@ -690,9 +690,9 @@ function buildIndex() {
         },
       },
       'POST /deploy/solutions/:solutionId/redeploy': {
-        description: 'Re-deploy ALL skills in a solution at once. Iterates every linked skill, regenerates MCP servers, pushes to A-Team Core.',
-        body: { _note: 'No body required. Just POST with empty body.' },
-        returns: {
+        description: 'Re-deploy ALL skills in a solution at once. Iterates every linked skill, regenerates MCP servers, pushes to A-Team Core. ASYNC SUPPORTED — pass { async: true } in the body to run in background and avoid the upstream 100s Cloudflare 524 timeout on large solutions.',
+        body: { async: 'optional boolean — true returns job_id immediately, false (default) blocks until done' },
+        returns_sync: {
           ok: true,
           solution_id: 'solution-id',
           deployed: 2,
@@ -700,6 +700,14 @@ function buildIndex() {
           total: 2,
           skills: [{ skill_id: 'skill-1', ok: true, skillSlug: '...', mcpUri: '...' }],
         },
+        returns_async: {
+          ok: true,
+          async: true,
+          job_id: 'redeploy-bulk-<solid>-<timestamp>',
+          poll_url: '/deploy/jobs/<job_id>',
+          message: 'redeploy-bulk started in background. Poll job_id for status.',
+        },
+        polling: 'GET /deploy/jobs/:job_id — returns the job entry. status field cycles in_progress → done | failed. The full result is merged into the entry on completion (same shape as the sync response).',
       },
       'POST /deploy/solutions/:solutionId/skills': {
         description: 'Add a new skill to an existing deployed solution. Creates the skill, populates it with the provided definition, and links it to the solution.',
