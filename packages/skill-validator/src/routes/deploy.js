@@ -76,7 +76,14 @@ const _deployJobs = new Map();
  * Cleanup: completed jobs auto-evict after 30 minutes.
  */
 function startAsyncDeployJob(label, key, runFn) {
-  const jobId = `${label}-${key}-${Date.now()}`;
+  // Sanitize the key — composite keys like `${solId}/${skillId}` introduced
+  // a literal `/` into job_ids, breaking the /deploy/jobs/:jobId Express
+  // route (which interprets the slash as a path segment separator and
+  // returns its default HTML 404). Polling silently loops forever until the
+  // MCP client's stdio timeout fires. Replace any `/` with `--` so jobIds
+  // stay URL-safe.
+  const safeKey = String(key).replace(/\//g, '--');
+  const jobId = `${label}-${safeKey}-${Date.now()}`;
   const setJob = (patch) => _deployJobs.set(jobId, { ...(_deployJobs.get(jobId) || {}), ...patch });
   setJob({ job_id: jobId, status: 'in_progress', label, key, started_at: new Date().toISOString() });
 
