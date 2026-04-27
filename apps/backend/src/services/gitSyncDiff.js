@@ -19,16 +19,46 @@ import { getMemoryRoot } from '../utils/tenantContext.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Re-serialize JSON content with stable formatting so whitespace / key-order
- * drift doesn't trigger false-positive content differences.
+ * Fields whose values are local-write-time bookkeeping rather than
+ * authoritative content. They get bumped on every save (e.g. by intent
+ * enrichment running after a deploy, or by the post-deploy phase update).
+ * If two saves happen on FS but only one pushes to GH, the FS file ends up
+ * with a slightly newer `updated_at` while every other byte matches. That
+ * was producing false-positive drift on mobile-pa: 7 skills flagged
+ * content_differs even though the post-push state was byte-identical aside
+ * from a 30s difference in `updated_at`.
+ *
+ * We strip these fields before comparison so verifyConsistency only fires
+ * on REAL content drift (a tool was added/removed, intents changed, etc.),
+ * not on benign timestamp churn.
+ */
+const EPHEMERAL_FIELDS = new Set(['updated_at', 'last_modified_at', 'last_save_at']);
+
+/**
+ * Re-serialize JSON content with stable formatting and ephemeral fields
+ * stripped so whitespace / key-order / timestamp drift doesn't trigger
+ * false-positive content differences.
  * Non-JSON inputs are returned unchanged.
  */
 export function canonicalizeJson(str) {
   try {
-    return JSON.stringify(JSON.parse(str), null, 2);
+    return JSON.stringify(stripEphemeral(JSON.parse(str)), null, 2);
   } catch {
     return str;
   }
+}
+
+function stripEphemeral(value) {
+  if (Array.isArray(value)) return value.map(stripEphemeral);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (EPHEMERAL_FIELDS.has(k)) continue;
+      out[k] = stripEphemeral(v);
+    }
+    return out;
+  }
+  return value;
 }
 
 /** Byte-identical comparison after optional JSON canonicalization. */
