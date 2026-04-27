@@ -253,7 +253,7 @@ async function load(id) {
  * @param {Object} solution
  * @returns {Promise<void>}
  */
-async function save(solution) {
+async function save(solution, opts = {}) {
   validateSolutionId(solution?.id, 'save');
   const solDir = path.join(getSolutionsDir(), solution.id);
   await ensureDir(solDir);
@@ -263,8 +263,15 @@ async function save(solution) {
   // F3 PR-3: write-couple FS to GitHub. Loose mode by default — if GH push
   // fails, log + still write FS, and the boot sync (gitSyncBootstrap) will
   // reconcile on next restart. See services/gitSync.js for mode behavior.
+  //
+  // F3 PR-6: opts.skipGhPush=true is set by the /github/patch FS-mirror
+  // endpoint, which is the FS half of an external ateam_github_patch call.
+  // The agent-api already pushed to GH; we just mirror to FS without a
+  // second push (avoids double commits and preserves the agent's commit
+  // message verbatim).
   await gitSync.saveSolutionWithSync(solution, {
     fsWrite: () => writeJson(path.join(solDir, 'solution.json'), solution),
+    skipGhPush: opts.skipGhPush === true,
   });
 }
 

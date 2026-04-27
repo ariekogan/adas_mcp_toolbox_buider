@@ -107,13 +107,18 @@ async function withRepoLock(tenant, solutionId, fn) {
  * @param {string} content           serialized content
  * @param {string} commitMessage
  * @param {() => Promise<void>} fsWrite  the FS-side write (always runs in loose mode)
+ * @param {Object} [opts]
+ * @param {boolean} [opts.skipGhPush]    when true, do not push to GH (caller already did).
+ *                                        Used by /github/patch flow where the agent already
+ *                                        committed to GH and we just need to mirror FS.
  * @returns {Promise<{ok: true, commit_sha?: string, ghWarning?: string, fsOk: boolean}>}
  */
-async function pushAndWrite(solutionId, repoPath, content, commitMessage, fsWrite) {
-  if (!shouldPush()) {
-    // GH disabled / mode off — FS only
+async function pushAndWrite(solutionId, repoPath, content, commitMessage, fsWrite, { skipGhPush = false } = {}) {
+  if (skipGhPush || !shouldPush()) {
+    // FS-only write. skipGhPush is set when the caller (e.g. /github/patch flow)
+    // already pushed to GH and just needs FS to mirror that change.
     await fsWrite();
-    return { ok: true, fsOk: true, gh: 'skipped' };
+    return { ok: true, fsOk: true, gh: skipGhPush ? 'skipped_external_push' : 'skipped' };
   }
 
   const tenant = getCurrentTenant();
@@ -175,7 +180,7 @@ async function pushAndWrite(solutionId, repoPath, content, commitMessage, fsWrit
  * @param {Object} opts
  * @param {() => Promise<void>} opts.fsWrite  the existing FS-side write
  */
-export async function saveSolutionWithSync(solution, { fsWrite } = {}) {
+export async function saveSolutionWithSync(solution, { fsWrite, skipGhPush = false } = {}) {
   if (!solution?.id) throw new Error('gitSync.saveSolutionWithSync: solution.id required');
   return await pushAndWrite(
     solution.id,
@@ -183,6 +188,7 @@ export async function saveSolutionWithSync(solution, { fsWrite } = {}) {
     JSON.stringify(solution, null, 2),
     `update solution.json (${solution.id})`,
     fsWrite,
+    { skipGhPush },
   );
 }
 
@@ -196,13 +202,13 @@ export async function saveSolutionWithSync(solution, { fsWrite } = {}) {
  * @param {() => Promise<void>} opts.fsWrite
  * @param {string} [opts.solutionId]   override (for stores that have it externally)
  */
-export async function saveSkillWithSync(skill, { fsWrite, solutionId } = {}) {
+export async function saveSkillWithSync(skill, { fsWrite, solutionId, skipGhPush = false } = {}) {
   if (!skill?.id) throw new Error('gitSync.saveSkillWithSync: skill.id required');
 
   const effectiveSolutionId = solutionId || skill.solution_id;
   if (!effectiveSolutionId) {
     // Without a solution id we can't pick a repo. FS write still happens.
-    if (shouldPush()) {
+    if (shouldPush() && !skipGhPush) {
       console.warn(`[gitSync] saveSkillWithSync: skill "${skill.id}" has no solution_id; GH push skipped, FS write proceeds.`);
     }
     if (typeof fsWrite === 'function') await fsWrite();
@@ -215,6 +221,7 @@ export async function saveSkillWithSync(skill, { fsWrite, solutionId } = {}) {
     JSON.stringify(skill, null, 2),
     `update skills/${skill.id}/skill.json`,
     fsWrite,
+    { skipGhPush },
   );
 }
 

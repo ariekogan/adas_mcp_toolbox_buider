@@ -432,7 +432,7 @@ async function load(solutionId, slug) {
  * @param {DraftSkill} skill
  * @returns {Promise<void>}
  */
-async function save(skill) {
+async function save(skill, opts = {}) {
   const slugDir = path.join(getMemoryRoot(), skill.id);
   await ensureDir(slugDir);
   await ensureDir(path.join(slugDir, 'exports'));
@@ -443,8 +443,14 @@ async function save(skill) {
   // F3 PR-3: write-couple FS to GitHub. Skill must carry solution_id for
   // gitSync to know which repo to push to; without it, FS-only with a warning.
   // Loose-mode default: GH push failures log + fall back to FS-only.
+  //
+  // F3 PR-6: opts.skipGhPush=true is set by the /github/patch FS-mirror
+  // endpoint, which is the FS half of an external ateam_github_patch call.
+  // The agent-api already pushed to GH; we just mirror to FS without a
+  // second push.
   await gitSync.saveSkillWithSync(skill, {
     fsWrite: () => writeJson(path.join(slugDir, 'skill.json'), skill),
+    skipGhPush: opts.skipGhPush === true,
   });
 }
 

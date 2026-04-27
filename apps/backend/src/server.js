@@ -17,6 +17,7 @@ import deployRouter from "./routes/deploy.js";
 import solutionsRouter from "./routes/solutions.js";
 import agentApiRouter from "./routes/agentApi.js";
 import settingsRouter from "./routes/settings.js";
+import gitsyncRouter from "./routes/gitsync.js";
 import { attachTenant } from "./middleware/attachTenant.js";
 import { isSearchAvailable } from "./services/webSearch.js";
 import { warmCoreSettings } from "./services/llm/adapter.js";
@@ -186,6 +187,7 @@ app.use("/api/deploy", rateLimit({ key: "deploy", windowMs: 10 * 60 * 1000, max:
 app.use("/api/solutions", solutionsRouter);
 app.use("/api/agent-api", agentApiRouter);
 app.use("/api/settings", settingsRouter);
+app.use("/api/gitsync", gitsyncRouter);
 
 // Error handler
 app.use((err, req, res, _next) => {

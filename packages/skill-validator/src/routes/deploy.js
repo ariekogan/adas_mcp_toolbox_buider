@@ -3041,24 +3041,35 @@ router.post('/solutions/:solutionId/github/patch', async (req, res) => {
     const { path: filePath, content, search, replace, message } = req.body || {};
     if (!filePath) return res.status(400).json({ ok: false, error: 'Missing path in body' });
 
-    // Search/replace mode
+    // Step 1: push to GitHub (search/replace OR full-content mode).
+    let result;
+    let effectiveContent = content;
+    let mode;
     if (search !== undefined) {
       if (replace === undefined) return res.status(400).json({ ok: false, error: 'Missing replace in body (required with search)' });
-      const result = await github.searchReplacePatchFile(tenant, req.params.solutionId, filePath, search, replace, message);
-      return res.json({ ok: true, mode: 'search_replace', ...result });
+      result = await github.searchReplacePatchFile(tenant, req.params.solutionId, filePath, search, replace, message);
+      mode = 'search_replace';
+      // For FS mirror, we need the post-replace content. Re-read from GH so
+      // FS gets the same bytes that were just committed.
+      try {
+        const fresh = await github.readFile(tenant, req.params.solutionId, filePath);
+        effectiveContent = fresh.content;
+      } catch (readErr) {
+        console.warn(`[GitHub Patch] could not re-read ${filePath} for FS mirror: ${readErr.message}`);
+        effectiveContent = null;
+      }
+    } else {
+      if (content === undefined) return res.status(400).json({ ok: false, error: 'Missing content (or search+replace) in body' });
+      result = await github.patchFile(tenant, req.params.solutionId, filePath, content, message);
+      mode = 'full_content';
     }
-
-    // Full content mode
-    if (content === undefined) return res.status(400).json({ ok: false, error: 'Missing content (or search+replace) in body' });
-
-    const result = await github.patchFile(tenant, req.params.solutionId, filePath, content, message);
 
     // If a skill or solution file was patched, update .ateam/export.json to stay in sync
     if (filePath === 'solution.json' || /^skills\/[^/]+\/skill\.json$/.test(filePath)) {
       try {
         const exportRaw = await github.readFile(tenant, req.params.solutionId, '.ateam/export.json');
         const exportBundle = JSON.parse(exportRaw.content);
-        const patchedData = JSON.parse(content);
+        const patchedData = JSON.parse(effectiveContent ?? content);
 
         if (filePath === 'solution.json') {
           exportBundle.solution = patchedData;
@@ -3079,7 +3090,46 @@ router.post('/solutions/:solutionId/github/patch', async (req, res) => {
       }
     }
 
-    res.json({ ok: true, ...result, _hint: 'Committed to main. Create a checkpoint with ateam_github_promote() before risky changes.' });
+    // Step 2 (F3 PR-6): mirror the patched file into Builder FS so external
+    // ateam_github_patch / ateam_github_write callers don't drift Builder
+    // out of sync with GH. The FS-mirror endpoint runs the appropriate
+    // store.save() with skipGhPush:true (since we already pushed in step 1).
+    //
+    // Best-effort: a Builder-side failure logs but doesn't fail the patch
+    // (the GH commit landed cleanly; verifyConsistency will surface the
+    // drift on next probe and boot sync will heal on next restart). This
+    // matches the loose-mode philosophy used elsewhere in gitSync.
+    let fsMirror = null;
+    if (effectiveContent !== null && effectiveContent !== undefined) {
+      try {
+        const url = `${SKILL_BUILDER_URL}/api/gitsync/fs-mirror?solutionId=${encodeURIComponent(req.params.solutionId)}`;
+        const mirrorResp = await fetch(url, {
+          method: 'POST',
+          headers: { ...sbHeaders(req), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: filePath, content: effectiveContent }),
+          signal: AbortSignal.timeout(15000),
+        });
+        const mirrorData = await mirrorResp.json().catch(() => ({}));
+        if (mirrorResp.ok && mirrorData.ok !== false) {
+          fsMirror = { ok: true, kind: mirrorData.kind || 'unknown' };
+          console.log(`[GitHub Patch] FS mirror OK for ${filePath} (kind=${mirrorData.kind})`);
+        } else {
+          fsMirror = { ok: false, error: mirrorData.error || `status ${mirrorResp.status}` };
+          console.warn(`[GitHub Patch] FS mirror FAILED for ${filePath}: ${fsMirror.error} — Builder FS will lag GH until next boot sync`);
+        }
+      } catch (mirrorErr) {
+        fsMirror = { ok: false, error: mirrorErr.message };
+        console.warn(`[GitHub Patch] FS mirror error for ${filePath}: ${mirrorErr.message}`);
+      }
+    }
+
+    res.json({
+      ok: true,
+      mode,
+      ...result,
+      ...(fsMirror && { fs_mirror: fsMirror }),
+      _hint: 'Committed to main. Create a checkpoint with ateam_github_promote() before risky changes.',
+    });
   } catch (err) {
     console.error('[GitHub] Patch error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
