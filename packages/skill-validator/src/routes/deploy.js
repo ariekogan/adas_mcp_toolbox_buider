@@ -1760,11 +1760,20 @@ router.post('/solutions/:solutionId/skills/:skillId/redeploy', async (req, res) 
           signal: AbortSignal.timeout(120000),
         });
         const deployData = await deployResp.json();
+        // On failure, return ok:false with the underlying error so the MCP
+        // wrapper (ateam_redeploy) can surface it instead of reporting 0/0/0.
         return res.json({
           ok: deployData.ok,
           source: 'github',
           skill_id: skillId,
           tools: deployData.tools || 0,
+          deployed: deployData.ok ? 1 : 0,
+          failed: deployData.ok ? 0 : 1,
+          total: 1,
+          skills: [{ id: skillId, ok: !!deployData.ok, ...(deployData.error && { error: deployData.error }) }],
+          ...(!deployData.ok && deployData.error && { error: deployData.error }),
+          ...(!deployData.ok && deployData.details && { details: deployData.details }),
+          ...(!deployData.ok && deployData.hint && { hint: deployData.hint }),
           message: deployData.ok
             ? `Re-deployed "${skillId}" from GitHub. ${deployData.tools || 0} tools.`
             : `GitHub deploy failed: ${deployData.error || 'unknown'}`,
