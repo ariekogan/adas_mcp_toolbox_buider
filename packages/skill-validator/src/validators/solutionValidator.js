@@ -9,6 +9,7 @@
  */
 
 import vm from 'node:vm';
+import { isPlatformConnector } from '../services/platformConnectorRegistry.js';
 
 /**
  * Validate a solution definition
@@ -295,8 +296,18 @@ export function validateSolution(solution, context) {
       }
     }
 
+    // Brief #2 phase A: platform-managed connectors have their source at the
+    // platform level (ai-dev-assistant/connectors/<id>/), NOT in user repos.
+    // Skip ALL "user must provide source code" checks for them — those checks
+    // apply only to user-defined connectors. Without this skip, the validator
+    // chokes on either missing source (no mcp_store entry) or sentinel-file
+    // source (broken JS / JSON), blocking deploys for reasons unrelated to
+    // the user's actual change.
+    // (isPlatformConnector imported at module top.)
+
     // Check stdio connectors have server code when mcp_store is expected
     for (const connector of connectors) {
+      if (isPlatformConnector(connector.id)) continue;
       const transport = connector.transport || 'stdio';
       if (transport === 'stdio' && !mcpStore[connector.id]) {
         errors.push({
@@ -312,6 +323,7 @@ export function validateSolution(solution, context) {
     // Catch common deployment failures: missing package.json, wrong paths,
     // missing dependencies, deprecated paths.
     for (const connector of connectors) {
+      if (isPlatformConnector(connector.id)) continue; // platform-managed — skip user-repo checks
       const storeFiles = mcpStore[connector.id];
       if (!storeFiles || !Array.isArray(storeFiles)) continue;
 

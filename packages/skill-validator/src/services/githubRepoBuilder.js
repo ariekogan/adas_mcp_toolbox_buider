@@ -6,6 +6,8 @@
  * Output: [{ path, content }] — ready for githubService.pushFiles()
  */
 
+import { isPlatformConnector } from './platformConnectorRegistry.js';
+
 /**
  * Build the complete file list for a solution repo.
  *
@@ -15,6 +17,7 @@
  */
 export function buildRepoFiles(exportBundle, connectorSources = {}) {
   const files = [];
+  const skipped = [];
 
   const solution = exportBundle.solution || {};
   const skills = exportBundle.skills || [];
@@ -36,8 +39,16 @@ export function buildRepoFiles(exportBundle, connectorSources = {}) {
   }
 
   // ── connectors/<connector-id>/* ──
+  // Brief #2 phase A: SKIP platform-managed connectors entirely. Their source
+  // lives in ai-dev-assistant/ and shouldn't be duplicated in user repos.
+  // Pre-existing sentinel files in older repos still work (we just don't add
+  // new ones); the cleanup script in phase C will remove them retroactively.
   for (const [connId, sourceFiles] of Object.entries(connectorSources)) {
     if (!Array.isArray(sourceFiles)) continue;
+    if (isPlatformConnector(connId)) {
+      skipped.push(connId);
+      continue;
+    }
     for (const file of sourceFiles) {
       // Skip binary placeholders
       if (file.content && file.content.startsWith('[binary file')) continue;
@@ -47,6 +58,10 @@ export function buildRepoFiles(exportBundle, connectorSources = {}) {
         content: file.content || '',
       });
     }
+  }
+
+  if (skipped.length > 0) {
+    console.log(`[githubRepoBuilder] Skipped ${skipped.length} platform connector(s) from repo push: ${skipped.join(', ')}`);
   }
 
   // ── .ateam/export.json — full re-importable bundle ──

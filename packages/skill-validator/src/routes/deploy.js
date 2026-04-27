@@ -3220,7 +3220,17 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
       }
 
       // 2c. Read connector source files
-      const connectorFiles = allFiles.filter(f => f.path.startsWith('connectors/'));
+      // Brief #2 phase A: SKIP platform-managed connectors. Their source lives
+      // at the platform level — restoring sentinel/stale code from a user repo
+      // into Core would either fail (broken sentinel) or overwrite the real
+      // platform-level code (data corruption). Filter at the read boundary.
+      const { isPlatformConnector: _isPlatformConn } = await import('../services/platformConnectorRegistry.js');
+      const connectorFiles = allFiles.filter(f => {
+        if (!f.path.startsWith('connectors/')) return false;
+        const parts = f.path.split('/');
+        if (parts.length < 3) return false;
+        return !_isPlatformConn(parts[1]);
+      });
       // Group by connector ID
       let connectorReadErrors = 0;
       for (const f of connectorFiles) {
@@ -3449,7 +3459,16 @@ router.post('/solutions/:solutionId/github/pull-bundle', async (req, res) => {
     }
 
     // 3. Read connector source files
-    const connectorFiles = allFiles.filter(f => f.path.startsWith('connectors/'));
+    // Brief #2 phase A: SKIP platform-managed connectors. Same reasoning as
+    // /github/pull above — platform connectors have their real source at
+    // the platform level. User-repo content for them is sentinel/stale/empty.
+    const { isPlatformConnector: _isPlatformConn } = await import('../services/platformConnectorRegistry.js');
+    const connectorFiles = allFiles.filter(f => {
+      if (!f.path.startsWith('connectors/')) return false;
+      const parts = f.path.split('/');
+      if (parts.length < 3) return false;
+      return !_isPlatformConn(parts[1]);
+    });
     if (connectorFiles.length > 0) {
       const mcpStore = {};
       for (const f of connectorFiles) {
