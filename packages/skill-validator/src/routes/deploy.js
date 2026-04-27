@@ -91,9 +91,15 @@ function startAsyncDeployJob(label, key, runFn) {
   (async () => {
     try {
       const result = await runFn(updateJob);
+      // CRITICAL: spread `...result` BEFORE setting status. The proxied
+      // single-skill redeploy returns `{ok, skill_id, status:"deployed", ...}`
+      // — letting that status clobber our canonical "done" would leave
+      // pollDeployJob (which only stops on "done"|"failed") looping until
+      // its 15-min deadline, which surfaces in the MCP stdio wrapper as
+      // a -32000 "Connection closed" after the host's idle timeout.
       setJob({
-        status: result?.ok === false ? 'failed' : 'done',
         ...result,
+        status: result?.ok === false ? 'failed' : 'done',
         completed_at: new Date().toISOString(),
       });
     } catch (err) {
