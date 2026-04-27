@@ -23,6 +23,7 @@ import templatesStore from './templates.js';
 import solutionsStore from './solutions.js';
 
 import { getMemoryRoot } from '../utils/tenantContext.js';
+import gitSync from '../services/gitSync.js';
 
 /**
  * @typedef {import('../types/DraftSkill.js').DraftSkill} DraftSkill
@@ -439,7 +440,12 @@ async function save(skill) {
   // Update timestamp
   skill.updated_at = new Date().toISOString();
 
-  await writeJson(path.join(slugDir, 'skill.json'), skill);
+  // F3 PR-3: write-couple FS to GitHub. Skill must carry solution_id for
+  // gitSync to know which repo to push to; without it, FS-only with a warning.
+  // Loose-mode default: GH push failures log + fall back to FS-only.
+  await gitSync.saveSkillWithSync(skill, {
+    fsWrite: () => writeJson(path.join(slugDir, 'skill.json'), skill),
+  });
 }
 
 /**

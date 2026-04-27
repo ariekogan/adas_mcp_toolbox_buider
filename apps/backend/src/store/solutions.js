@@ -19,6 +19,7 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { getMemoryRoot } from '../utils/tenantContext.js';
 import { ensureSolutionDefaults } from '@adas/skill-validator';
+import gitSync from '../services/gitSync.js';
 
 // ═══════════════════════════════════════════════════════════════
 // HELPERS
@@ -258,7 +259,13 @@ async function save(solution) {
   await ensureDir(solDir);
 
   solution.updated_at = new Date().toISOString();
-  await writeJson(path.join(solDir, 'solution.json'), solution);
+
+  // F3 PR-3: write-couple FS to GitHub. Loose mode by default — if GH push
+  // fails, log + still write FS, and the boot sync (gitSyncBootstrap) will
+  // reconcile on next restart. See services/gitSync.js for mode behavior.
+  await gitSync.saveSolutionWithSync(solution, {
+    fsWrite: () => writeJson(path.join(solDir, 'solution.json'), solution),
+  });
 }
 
 /**
