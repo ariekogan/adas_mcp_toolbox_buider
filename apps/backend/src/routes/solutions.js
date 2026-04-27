@@ -199,7 +199,11 @@ router.delete('/:id/connectors/:connectorId', async (req, res, next) => {
           await skillsStore.save(solutionId, ref.id, skill);
           results.skills_updated.push(ref.id);
         }
-      } catch { /* skip missing skills */ }
+      } catch (err) {
+        // #4 Silent-catch audit: was silently dropping skills with FS read
+        // failures during connector cleanup, leaving orphan connector refs.
+        console.warn(`[solutions] skill load failed during connector cleanup: ${err.message}`);
+      }
     }
 
     // 4. Delete mcp-store files (best-effort)
@@ -341,7 +345,11 @@ router.get('/:id/connectors/health', async (req, res, next) => {
         for (const cid of (skill.connectors || [])) {
           connectorIds.add(cid);
         }
-      } catch { /* skip missing skills */ }
+      } catch (err) {
+        // #4 Silent-catch audit: was silently dropping skills with FS read
+        // failures during connector cleanup, leaving orphan connector refs.
+        console.warn(`[solutions] skill load failed during connector cleanup: ${err.message}`);
+      }
     }
 
     // Query ADAS Core for each connector

@@ -2145,7 +2145,10 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
           const data = await github.readFile(tenant, solutionId, f.path);
           const relPath = f.path.split('/').slice(2).join('/');
           files.push({ path: relPath, content: data.content });
-        } catch { /* skip */ }
+        } catch (err) {
+          // #4 Silent-catch audit: log instead of dropping.
+          console.warn(`[Deploy] Could not read connector file ${f.path}: ${err.message}`);
+        }
       }
     }
 
@@ -3256,7 +3259,9 @@ router.post('/solutions/:solutionId/github/pull-connectors', async (req, res) =>
       try {
         const fileData = await github.readFile(tenant, solId, f.path);
         mcpStore[connId].push({ path: filePath, content: fileData.content });
-      } catch { /* skip unreadable files */ }
+      } catch (err) {
+        console.warn(`[GitHub PullBundle] Could not read ${f.path}: ${err.message} (file dropped from mcp_store)`);
+      }
     }
 
     res.json({
@@ -3318,7 +3323,9 @@ router.post('/solutions/:solutionId/github/pull-bundle', async (req, res) => {
         try {
           const skillData = await github.readFile(tenant, solId, f.path);
           result.skills.push(JSON.parse(skillData.content));
-        } catch { /* skip unreadable */ }
+        } catch (err) {
+          console.warn(`[GitHub PullBundle] Could not read skill ${f.path}: ${err.message} (skill dropped from bundle)`);
+        }
       }
     }
 
@@ -3335,7 +3342,9 @@ router.post('/solutions/:solutionId/github/pull-bundle', async (req, res) => {
         try {
           const fileData = await github.readFile(tenant, solId, f.path);
           mcpStore[connId].push({ path: filePath, content: fileData.content });
-        } catch { /* skip unreadable files */ }
+        } catch (err) {
+          console.warn(`[GitHub PullBundle/connector] Could not read ${f.path}: ${err.message} (file dropped)`);
+        }
       }
       result.mcp_store = mcpStore;
       result.connectors_found = Object.keys(mcpStore).length;

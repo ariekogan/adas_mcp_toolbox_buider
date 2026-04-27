@@ -581,7 +581,14 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
         // Parse if wrapped in MCP content format
         let parsed = manifest;
         if (manifest?.content?.[0]?.type === 'text') {
-          try { parsed = JSON.parse(manifest.content[0].text); } catch {}
+          try { parsed = JSON.parse(manifest.content[0].text); }
+          catch (err) {
+            // #4 Silent-catch audit: log non-JSON manifest text. Without the
+            // log, an invalid manifest silently fell through to the
+            // "missing render.iframeUrl" error a few lines down — agents
+            // saw the symptom, not the cause.
+            log.warn(`[MCP Deploy] Plugin manifest text was not JSON for "${pluginId}": ${err.message}`);
+          }
         }
 
         const iframeUrl = parsed?.render?.iframeUrl;
