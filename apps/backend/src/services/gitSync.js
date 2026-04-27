@@ -290,10 +290,16 @@ export async function verifyConsistency(solutionId) {
     if (solContent) {
       const sol = JSON.parse(solContent);
       const linked = Array.isArray(sol.linked_skills) ? sol.linked_skills : [];
+      // sol.skills[] can be either string slugs or {id, ...} objects depending
+      // on schema version. Pick the id string in either case, drop anything
+      // else — without this, an object without .id falls back to the object
+      // itself and we end up with "[object Object]" in path strings.
       const fromTopo = Array.isArray(sol.skills)
-        ? sol.skills.map(s => s?.id || s).filter(Boolean)
+        ? sol.skills
+            .map(s => (typeof s === 'string' ? s : s?.id))
+            .filter(s => typeof s === 'string' && s.length > 0)
         : [];
-      const allFsSlugs = new Set([...linked, ...fromTopo]);
+      const allFsSlugs = new Set([...linked.filter(s => typeof s === 'string'), ...fromTopo]);
       for (const slug of allFsSlugs) {
         if (!ghSkillSlugs.has(slug)) {
           drifts.push({ path: `skills/${slug}/skill.json`, kind: 'gh_missing' });

@@ -179,7 +179,13 @@ async function reconcileSolution(tenant, solutionId) {
     const solContent = await readFsIfExists(solAbs);
     if (solContent) {
       const sol = JSON.parse(solContent);
-      const linked = Array.isArray(sol.linked_skills) ? sol.linked_skills : [];
+      // linked_skills can contain mixed types in the wild — pure slug strings
+      // and partial-object entries like {id, description, ...}. Normalize.
+      const linked = Array.isArray(sol.linked_skills)
+        ? sol.linked_skills
+            .map(s => (typeof s === 'string' ? s : s?.id))
+            .filter(s => typeof s === 'string' && s.length > 0)
+        : [];
       const ghSkillSlugs = new Set(
         ghFiles
           .map(f => f.path.match(/^skills\/([^/]+)\/skill\.json$/))
