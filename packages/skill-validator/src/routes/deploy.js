@@ -2550,6 +2550,32 @@ router.get('/solutions/:solutionId/skills/:skillId/validate', async (req, res) =
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
+ * GET /deploy/solutions/:solutionId/verify — Builder FS ↔ GitHub consistency probe
+ *
+ * Read-only. Returns { consistent, drifts: [{path, kind}] } where kind is one
+ * of fs_missing | content_differs | gh_missing | gh_read_error | repo_unreachable.
+ * No deploy is triggered. Use this any time an agent is unsure whether a
+ * recent change landed on GitHub or whether FS and GH have drifted — much
+ * faster than scrolling ateam_github_log manually.
+ *
+ * Backed by Builder's GET /api/deploy/verify/:solutionId (added in F3 PR-5,
+ * which also runs this same check at the top of every deploy).
+ */
+router.get('/solutions/:solutionId/verify', async (req, res) => {
+  try {
+    const resp = await fetch(`${SKILL_BUILDER_URL}/api/deploy/verify/${encodeURIComponent(req.params.solutionId)}`, {
+      headers: sbHeaders(req),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Deploy] verify error:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * GET /deploy/solutions/:solutionId/logs — Execution logs
  * Query: ?skill_id=X&limit=10&job_id=X
  */

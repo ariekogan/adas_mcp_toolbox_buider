@@ -2830,6 +2830,37 @@ function buildWorkflows() {
             'ateam_build_and_run(github:true)': 'Full solution redeploy from GitHub. Use for first deploy or when multiple skills+connectors changed. Auto-falls back to async mode if it times out.',
             'ateam_build_and_run(mcp_store)': 'First deploy only — pass connector code inline to create the GitHub repo.',
             'ateam_redeploy(solution_id, skill_id)': 'Re-deploy a single skill without changing its definition. Use after connector changes that affect a skill.',
+            'ateam_verify_consistency': 'Read-only check: do Builder FS and the GitHub repo agree for this solution? Returns drift list. Use after any unusual error to confirm state — much faster than scrolling commit logs.',
+          },
+
+          // CRITICAL FOR AGENT TRUST: which tools push to GitHub synchronously
+          // (response is authoritative — if it says "done", the commit is on GH)
+          // and which run the push as a background task (response is optimistic
+          // — must verify with ateam_github_status / ateam_verify_consistency).
+          //
+          // The agent class of bug this prevents: "ateam_patch returned
+          // github_write:done but I think the commit didn't land" — that's
+          // false. ateam_patch IS synchronous. The CLAUDE.md note about
+          // "GitHub push runs in background, 15s + 2x retries" applies ONLY
+          // to ateam_build_and_run.
+          gh_write_semantics: {
+            description: 'Whether each tool\'s GitHub push is synchronous (await commit SHA before responding) or async (fire-and-forget; verify separately).',
+            synchronous_trust_response: {
+              tools: ['ateam_patch', 'ateam_github_patch', 'ateam_github_write', 'ateam_github_promote', 'ateam_github_rollback'],
+              guarantee: 'When the response phase says github_write:done (or returns a commit_sha), the commit is on GitHub. The wrapper awaits GitHub\'s Contents API 200 response before resolving. F3 PR-6 also mirrors the change into Builder FS in the same call.',
+              if_failed: 'The wrapper throws and you see {ok:false, phase:"github_write", error:"..."}. There is no silent failure mode here.',
+            },
+            async_verify_separately: {
+              tools: ['ateam_build_and_run'],
+              behavior: 'Validates + deploys to A-Team Core synchronously, returns the deploy result, THEN runs the GH push in the background with 15s timeouts + 2x retries.',
+              verify_with: 'ateam_github_status(solution_id) to confirm the push landed, OR ateam_verify_consistency(solution_id) for a full FS↔GH drift report.',
+              why: 'The full deploy bundle can be large; making the GH push synchronous would push response time over the upstream Cloudflare 100s limit on big solutions.',
+            },
+            no_gh_write: {
+              tools: ['ateam_redeploy', 'ateam_test_skill', 'ateam_test_pipeline', 'ateam_get_solution', 'ateam_status_all', 'ateam_sync_all'],
+              behavior: 'These tools do not write to GitHub at all. They only deploy to Core, run tests, or read state.',
+            },
+            self_check: 'Always available: ateam_verify_consistency(solution_id) returns {consistent:bool, drifts:[{path, kind}]}. If consistent:true, FS and GH agree on every byte (after JSON canonicalization + ephemeral-field stripping). Use this any time you suspect drift instead of grepping commit logs.',
           },
           large_solution_strategy: {
             description: 'Solutions with 5+ skills may timeout on full build_and_run (Cloudflare 100s limit). Use incremental tools instead.',
