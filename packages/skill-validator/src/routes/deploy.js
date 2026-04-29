@@ -3028,6 +3028,40 @@ router.get('/solutions/:solutionId/github/status', async (req, res) => {
 });
 
 /**
+ * Enrich a GitHub 404 error with a clear "solution not found" body that lists
+ * the solution_ids that DO exist for this tenant.
+ *
+ * Why: when an agent passes the wrong solution_id (e.g. the tenant slug
+ * itself), every github/* route returns "GitHub API GET /repos/.../...
+ * → 404: Not Found". Agents read that and conclude "the repo doesn't
+ * exist, let me create it" instead of "wait, this solution_id is wrong"
+ * — caused 30+ minutes of confused investigation today. This wraps the
+ * raw 404 with: ok:false, code:SOLUTION_NOT_FOUND, available:[...],
+ * hint:"...". The agent gets the right answer in one round-trip.
+ */
+async function explainGhNotFound(err, tenant, solutionId) {
+  if (!/404|Not Found/i.test(err.message)) return null; // not a not-found
+  let available = [];
+  try {
+    const repos = await github.listTenantRepos(tenant);
+    available = repos.map(r => r.solutionId);
+  } catch { /* listing itself failed — fall through with empty list */ }
+  if (available.includes(solutionId)) return null; // 404 wasn't about a missing solution
+  return {
+    ok: false,
+    code: 'SOLUTION_NOT_FOUND',
+    error: `Solution "${solutionId}" not found for tenant "${tenant}".`,
+    requested_solution_id: solutionId,
+    tenant,
+    available_solutions: available,
+    hint: available.length > 0
+      ? `Did you mean one of: ${available.join(', ')}? Always run ateam_list_solutions() first and pass the returned id, never the tenant slug.`
+      : `No solutions exist for this tenant on GitHub. Create one via ateam_build_and_run with mcp_store on the FIRST deploy.`,
+    raw: err.message,
+  };
+}
+
+/**
  * GET /deploy/solutions/:solutionId/github/read?path=... — Read a file
  */
 router.get('/solutions/:solutionId/github/read', async (req, res) => {
@@ -3046,6 +3080,8 @@ router.get('/solutions/:solutionId/github/read', async (req, res) => {
     res.json({ ok: true, branch, ...file });
   } catch (err) {
     console.error('[GitHub] Read error:', err.message);
+    const enriched = await explainGhNotFound(err, req.headers['x-adas-tenant'], req.params.solutionId);
+    if (enriched) return res.status(404).json(enriched);
     res.status(err.message.includes('404') ? 404 : 500).json({ ok: false, error: err.message });
   }
 });
@@ -3158,6 +3194,8 @@ router.post('/solutions/:solutionId/github/patch', async (req, res) => {
     });
   } catch (err) {
     console.error('[GitHub] Patch error:', err.message);
+    const enriched = await explainGhNotFound(err, req.headers['x-adas-tenant'], req.params.solutionId);
+    if (enriched) return res.status(404).json(enriched);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
