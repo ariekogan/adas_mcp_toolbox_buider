@@ -6,7 +6,7 @@ import { syncConnectorToADAS, startConnectorInADAS, stopConnectorInADAS, uploadM
 import { buildConnectorPayload } from "../utils/connectorPayload.js";
 import { compileUiPlugins } from "../utils/skillFieldHelpers.js";
 import adasCore from "./adasCoreClient.js";
-import { verifyConsistency } from "./gitSync.js";
+import gitSync, { verifyConsistency } from "./gitSync.js";
 import { enrichSkillIntentsWithLLM } from "@adas/skill-validator";
 
 /**
@@ -118,6 +118,14 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
   if (!skipGuard) {
     await runSkillDeployGuard(solutionId, log);
   }
+
+  // Wrap the deploy body in a gitSync.txn so the 3 saves to skill.json that
+  // happen inside (intent enrichment, mcp regen, post-deploy phase stamp)
+  // collapse into one GH commit per skill instead of three. Pure batching;
+  // FS writes still happen as they go. No behavior change to callers.
+  // (Re-entrant: outer callers can wrap their own txn around multiple
+  // deploys to collapse a bulk solution deploy into one commit per repo.)
+  return await gitSync.txn(`deploy-skill ${skillId}`, async () => {
 
   const skill = await skillsStore.load(solutionId, skillId);
   let version = skill.version;
@@ -778,4 +786,5 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
       ? `Skill "${skillSlug}" deployed but ${uiFailed.length} UI plugin(s) FAILED verification: ${uiFailed.map(u => u.issue).join('; ')}`
       : `Skill "${skillSlug}" deployed to ADAS Core and running!`
   };
+  }); // end gitSync.txn
 }

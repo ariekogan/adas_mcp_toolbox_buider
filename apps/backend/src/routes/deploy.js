@@ -16,7 +16,7 @@ import solutionsStore from '../store/solutions.js';
 import skillsStore from '../store/skills.js';
 import { deploySkillToADAS, deployIdentityToADAS } from '../services/exportDeploy.js';
 import adasCore from '../services/adasCoreClient.js';
-import { verifyConsistency } from '../services/gitSync.js';
+import gitSync, { verifyConsistency } from '../services/gitSync.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -131,6 +131,12 @@ router.post('/solution', async (req, res, next) => {
     } else {
       log.info('[Deploy Guard] Skipped (github=true — pull will reconcile)');
     }
+
+    // Wrap the entire bulk deploy in one gitSync.txn so all writes for this
+    // solution + N skills collapse into one GH commit per repo. The inner
+    // deploySkillToADAS calls (each their own txn) re-enter this outer txn,
+    // so a 9-skill bulk deploy goes from 9*3+1 = 28 commits down to 1.
+    return await gitSync.txn(`deploy-solution ${solution.id}`, async () => {
 
     // Step 0: Backup existing solution before overwriting (for rollback on deploy failure)
     let previousSolution = null;
@@ -362,6 +368,7 @@ router.post('/solution', async (req, res, next) => {
         skills_deployed: 0
       });
     }
+    }); // end gitSync.txn
 
   } catch (err) {
     req.app.locals.log.error(`[Deploy] Unexpected error: ${err.message}`);

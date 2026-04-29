@@ -23,6 +23,7 @@
  */
 
 import path from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 import {
   isEnabled as githubEnabled,
@@ -97,6 +98,89 @@ async function withRepoLock(tenant, solutionId, fn) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Transaction scope — batch many saves into one GH commit
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Without txn, every solutionsStore.save() / skillsStore.save() pushes its own
+// commit. A single deploy of one skill triggers 3 saves (intent enrichment,
+// mcp regen, post-deploy phase stamp), and a bulk deploy multiplies that by
+// the skill count. ateam_patch was producing 5-7 commits per call on personal-adas;
+// the noise made commit logs unreadable and tripped a parallel agent into a
+// non-bug investigation today.
+//
+// With txn, every save inside the body still writes to FS immediately (no
+// behavior change to callers) but the GH push is buffered. At txn exit, all
+// buffered writes for the SAME repo collapse into one atomic Trees-API commit
+// — last-write-wins per path so duplicate saves to the same file produce one
+// final commit, not N.
+//
+// Re-entrant: nested txn(...) joins the outer one. Errors propagate without
+// flushing (partial state shouldn't ship to GH). FS writes are unaffected by
+// txn errors (boot sync reconciles if FS partial state matters).
+//
+// Different repos in the same txn each get their own commit; the lock is
+// per-repo so they push in parallel.
+const _txnStorage = new AsyncLocalStorage();
+
+/** True iff a save is happening inside a txn() scope. */
+function activeTxn() {
+  return _txnStorage.getStore() || null;
+}
+
+/**
+ * Run `fn` inside a transaction. Saves inside the body buffer their GH pushes
+ * and flush as a single commit per repo when the body completes.
+ *
+ * @param {string} label  short identifier used in the commit message
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+export async function txn(label, fn) {
+  // Re-entrant: if already inside a txn, just run inline (use the outer buffer)
+  if (activeTxn()) return await fn();
+
+  const buffer = new Map(); // `${tenant}::${solutionId}::${repoPath}` → entry
+  const state = { buffer, label };
+  const result = await _txnStorage.run(state, async () => fn());
+  // Body succeeded — flush. If it threw, _txnStorage.run rejects before this
+  // line, so we never push partial state.
+  await flushTxn(buffer, label);
+  return result;
+}
+
+async function flushTxn(buffer, label) {
+  if (!shouldPush() || buffer.size === 0) return;
+
+  // Group by repo so each repo gets one push.
+  const byRepo = new Map();
+  for (const entry of buffer.values()) {
+    const key = `${entry.tenant}::${entry.solutionId}`;
+    if (!byRepo.has(key)) {
+      byRepo.set(key, { tenant: entry.tenant, solutionId: entry.solutionId, files: [] });
+    }
+    byRepo.get(key).files.push({ path: entry.repoPath, content: entry.content });
+  }
+
+  for (const { tenant, solutionId, files } of byRepo.values()) {
+    const summary = files.length === 1
+      ? files[0].path
+      : `${files.length} files: ${files.map(f => f.path).join(', ').slice(0, 100)}`;
+    const message = `txn(${label}): ${summary}`;
+    try {
+      await withRepoLock(tenant, solutionId, () =>
+        pushFiles(tenant, solutionId, files, message)
+      );
+    } catch (err) {
+      const mode = resolveMode();
+      if (mode === 'strict') {
+        throw new Error(`gitSync.txn(${label}) push failed for ${repoName(tenant, solutionId)}: ${err.message}`);
+      }
+      console.warn(`[gitSync.txn:${label}] push failed for ${repoName(tenant, solutionId)} (loose mode): ${err.message}`);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Push a single file (path + content) to the tenant's solution repo, then
@@ -122,6 +206,31 @@ async function pushAndWrite(solutionId, repoPath, content, commitMessage, fsWrit
   }
 
   const tenant = getCurrentTenant();
+
+  // Inside a txn? Buffer the GH write for end-of-txn flush, but still run the
+  // FS write immediately. Last-write-wins per path: subsequent saves to the
+  // same skill.json overwrite the buffered content, so the deploy pipeline's
+  // 3-write sequence (enrich → regen → phase) collapses into one commit.
+  const active = activeTxn();
+  if (active) {
+    const key = `${tenant}::${solutionId}::${repoPath}`;
+    active.buffer.set(key, { tenant, solutionId, repoPath, content });
+    let fsError = null;
+    try {
+      await fsWrite();
+    } catch (err) {
+      fsError = err.message;
+      console.error(`[gitSync.txn:${active.label}] FS write failed for ${tenant}/${solutionId}/${repoPath}: ${err.message}`);
+    }
+    return {
+      ok: true,
+      fsOk: !fsError,
+      gh: 'queued_in_txn',
+      txn_label: active.label,
+      ...(fsError && { fsWarning: fsError }),
+    };
+  }
+
   const mode = resolveMode();
   let commitSha = null;
   let ghError = null;
@@ -372,4 +481,5 @@ export default {
   saveSkillWithSync,
   describeGitSyncState,
   verifyConsistency,
+  txn,
 };
