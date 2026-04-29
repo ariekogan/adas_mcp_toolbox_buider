@@ -185,13 +185,40 @@ router.post('/solution', async (req, res, next) => {
       }
     }
 
-    // Step 3: Save connector source code (mcp_store) if provided
+    // Step 3: Save connector source code (mcp_store) if provided.
+    //
+    // Writes go to TWO destinations:
+    //   (a) <TENANTS_ROOT>/connectors/<id>/<file>   — cross-tenant shared dir
+    //       (back-compat path; some legacy code reads from here)
+    //   (b) <memoryRoot>/solution-packs/<solName>/mcp-store/<id>/<file>
+    //       — the per-tenant solution-pack mcp-store. exportDeploy.js's
+    //       deploySkillToADAS reads from here when uploading to Core. If we
+    //       skip this write, mcpStoreBase keeps stale content from a prior
+    //       build and the next redeploy ships those stale bytes to Core,
+    //       silently regressing what the user just pulled (the rn-bundle
+    //       regression bug — DEPLOYER_BUNDLE_REGRESSION_HANDOFF.md).
     if (Object.keys(mcp_store).length > 0) {
       try {
         log.info(`[Deploy] Saving connector source code from mcp_store...`);
         const connectorDir = path.join(process.env.TENANTS_ROOT || '/memory', 'connectors');
         if (!fs.existsSync(connectorDir)) {
           fs.mkdirSync(connectorDir, { recursive: true });
+        }
+
+        // Resolve the per-tenant solution-pack mcp-store base. mcpStoreBase is
+        // <memoryRoot>/solution-packs/<solution.name>/mcp-store/. Best-effort:
+        // if we can't load the solution name (very early first deploy), we
+        // skip the secondary write and let the primary cross-tenant write
+        // serve as the only source.
+        let mcpStoreBase = null;
+        try {
+          const { getMemoryRoot } = await import('../utils/tenantContext.js');
+          const stored = await solutionsStore.load(solution.id);
+          const solutionName = stored?.name || solution.name || solution.id;
+          mcpStoreBase = path.join(getMemoryRoot(), 'solution-packs', solutionName, 'mcp-store');
+          fs.mkdirSync(mcpStoreBase, { recursive: true });
+        } catch {
+          mcpStoreBase = null;
         }
 
         // Validate connectorId — only [a-z0-9_-] allowed; reject path-traversal
@@ -209,6 +236,18 @@ router.post('/solution', async (req, res, next) => {
             continue;
           }
           fs.mkdirSync(connPath, { recursive: true });
+
+          // Mirror destination (per-tenant solution-pack mcp-store) — only
+          // computed if mcpStoreBase resolved. Same path-validation rules
+          // applied independently per destination.
+          const mirrorPath = mcpStoreBase ? path.resolve(mcpStoreBase, connectorId) : null;
+          if (mirrorPath) {
+            if (!mirrorPath.startsWith(path.resolve(mcpStoreBase) + path.sep)) {
+              log.warn(`[Deploy] Skipping mcpStoreBase mirror for "${connectorId}" — escapes mcpStoreBase`);
+            } else {
+              fs.mkdirSync(mirrorPath, { recursive: true });
+            }
+          }
 
           for (const file of files) {
             // file.path is user-controlled; must stay inside connPath.
@@ -229,8 +268,18 @@ router.post('/solution', async (req, res, next) => {
             const fileDir = path.dirname(filePath);
             fs.mkdirSync(fileDir, { recursive: true });
             fs.writeFileSync(filePath, file.content, 'utf-8');
-            log.info(`[Deploy] Saved connector file: ${connectorId}/${file.path}`);
+
+            // Mirror to per-tenant solution-pack mcp-store. Same validation
+            // applied to the mirror path.
+            if (mirrorPath && mirrorPath.startsWith(path.resolve(mcpStoreBase) + path.sep)) {
+              const mirrorFilePath = path.resolve(mirrorPath, file.path);
+              if (mirrorFilePath.startsWith(mirrorPath + path.sep)) {
+                fs.mkdirSync(path.dirname(mirrorFilePath), { recursive: true });
+                fs.writeFileSync(mirrorFilePath, file.content, 'utf-8');
+              }
+            }
           }
+          log.info(`[Deploy] Saved ${files.length} file(s) for connector "${connectorId}"${mirrorPath ? ' (cross-tenant + solution-pack)' : ' (cross-tenant only)'}`);
         }
       } catch (err) {
         log.warn(`[Deploy] Failed to save connector source code: ${err.message}`);

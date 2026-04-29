@@ -494,27 +494,36 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
           // Non-fatal: connector may not be running yet (first deploy)
         }
 
-        // Upload connector source code to ADAS Core mcp-store ONLY if Core doesn't have it yet.
-        // If Core already has connector code (from GitHub deploy or direct edit), don't overwrite —
-        // the _builder copy may be stale. Connector code changes should go through GitHub.
+        // Always upload connector source code to ADAS Core (F3 PR-4 finishing).
+        // The previous `coreHasCode` skip caused the rn-bundle regression bug:
+        // pull writes fresh GH bytes to Core, then we stop the connector,
+        // coreHasCode becomes false (status disconnected after stop), and the
+        // fallback upload reads from mcpStoreBase — which lags one build
+        // behind because the bulk-deploy mcp_store handler only writes to the
+        // cross-tenant /connectors/<id>/ dir, not to mcpStoreBase. Result:
+        // the fallback ships stale bytes to Core, undoing the fresh upload.
+        //
+        // Fix: always upload, and prefer the freshest source:
+        //   1. mcpStoreBase/<connId>/ if it has server.js (kept fresh by the
+        //      mcp_store mirror in routes/deploy.js)
+        //   2. <TENANTS_ROOT>/connectors/<connId>/ (cross-tenant fallback;
+        //      bulk deploy writes here for back-compat).
+        // First-deploy and pull both end up here. uploadMcpCodeToADAS is
+        // idempotent — sending the same bytes that Core already has is a
+        // no-op and returns quickly.
         if (mcpStoreBase) {
           const mcpCodeDir = path.join(mcpStoreBase, connectorId);
+          const crossTenantDir = path.join(process.env.TENANTS_ROOT || '/memory', 'connectors', connectorId);
           try {
             const { default: fsSync } = await import('fs');
-            // Check if Core already has this connector's code
-            const coreHasCode = await (async () => {
-              try {
-                const existing = await adasCore.getConnector(connectorId);
-                return existing?.status === 'connected' || (existing?.tools_count || 0) > 0;
-              } catch { return false; }
-            })();
-
-            if (coreHasCode) {
-              log.info(`[MCP Deploy] Skipping mcp-store upload for "${connectorId}" — Core already has working code. Use ateam_upload_connector(github:true) to update connector code.`);
-            } else if (fsSync.existsSync(mcpCodeDir)) {
-              // First deploy or Core lost the code — upload from _builder
-              await uploadMcpCodeToADAS(connectorId, mcpCodeDir);
-              log.info(`[MCP Deploy] Uploaded mcp-store for "${connectorId}" (first deploy / recovery)`);
+            const sourceDir = fsSync.existsSync(path.join(mcpCodeDir, 'server.js'))
+              ? mcpCodeDir
+              : (fsSync.existsSync(path.join(crossTenantDir, 'server.js')) ? crossTenantDir : null);
+            if (sourceDir) {
+              await uploadMcpCodeToADAS(connectorId, sourceDir);
+              log.info(`[MCP Deploy] Uploaded mcp-store for "${connectorId}" (source: ${sourceDir === mcpCodeDir ? 'solution-pack' : 'cross-tenant'})`);
+            } else {
+              log.info(`[MCP Deploy] No connector code on FS for "${connectorId}" — relying on Core's existing copy.`);
             }
           } catch (uploadErr) {
             log.warn(`[MCP Deploy] mcp-store upload for "${connectorId}" failed (non-fatal): ${uploadErr.message}`);
