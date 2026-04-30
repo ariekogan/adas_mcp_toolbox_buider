@@ -144,7 +144,7 @@ app.get("/api/health", (_req, res) => {
 // describeGitSyncState() lives on the runtime gitSync module; getDriftLog()
 // + getLastSyncAt() come from gitSyncBootstrap. Combined response gives a
 // single-call diagnostic for "is gitSync working in this deployment?"
-app.get("/api/health/gitsync", (_req, res) => {
+app.get("/api/health/gitsync", async (_req, res) => {
   let state;
   try {
     state = describeGitSyncState();
@@ -163,6 +163,13 @@ app.get("/api/health/gitsync", (_req, res) => {
       actions: entry.actions || {},
     };
   }
+  // GH read cache stats — hit rate is the leading indicator of whether
+  // we're going to hit the 5000/hour rate limit again.
+  let readCache = null;
+  try {
+    const ghMod = await import('@adas/skill-validator/src/services/githubService.js');
+    if (typeof ghMod.getReadCacheStats === 'function') readCache = ghMod.getReadCacheStats();
+  } catch { /* older validator without cache stats */ }
   res.json({
     ok: true,
     gitsync: state,
@@ -170,6 +177,7 @@ app.get("/api/health/gitsync", (_req, res) => {
       tenants_synced: Object.keys(tenantSummary).length,
       per_tenant: tenantSummary,
     },
+    ...(readCache && { gh_read_cache: readCache }),
   });
 });
 

@@ -26,6 +26,76 @@ const GH_RETRIES = 2;           // total attempts = 2
 const GH_BACKOFF_MS = 1000;     // initial backoff between retries
 const BLOB_BATCH_SIZE = 5;      // parallel blob uploads
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Read response cache — 60s TTL
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Why: GitHub's authenticated REST API allows 5000 calls/hour. A single
+// ateam_github_pull on a 12-skill solution reads ~50 files. A pre-deploy
+// guard verifyConsistency reads ~50 more. A redeploy verifies again. Two
+// agents working in parallel + a couple of pulls + verifies = quota gone
+// in 30 minutes.
+//
+// Most of those reads hit the same files repeatedly within a short window
+// (single deploy cycle). 60s TTL catches the common cases without staleness
+// risk: any GH write through this module busts the relevant cache keys
+// before returning, so the cache is never out of sync with our own writes.
+// External writes (e.g. someone editing the GH repo via the web UI) are
+// reflected after 60s — acceptable trade-off.
+//
+// Cache key conventions:
+//   readFile:        readFile::<tenant>::<solId>::<path>::<branch>
+//   listFiles:       listFiles::<tenant>::<solId>::<branch>
+//   listTenantRepos: listTenantRepos::<tenant>
+//   getRepoStatus:   getRepoStatus::<tenant>::<solId>
+//   getLog:          getLog::<tenant>::<solId>::<limit>::<branch>
+//
+// Default TTL is 60s, but each call can override per-key.
+const READ_CACHE_TTL_MS = parseInt(process.env.GH_READ_CACHE_TTL_MS || '60000', 10);
+const _readCache = new Map(); // key → { value, fetchedAt, ttl }
+let _cacheStats = { hits: 0, misses: 0, writes: 0, busts: 0 };
+
+function cacheGet(key) {
+  const entry = _readCache.get(key);
+  if (!entry) { _cacheStats.misses++; return null; }
+  if (Date.now() - entry.fetchedAt > entry.ttl) {
+    _readCache.delete(key);
+    _cacheStats.misses++;
+    return null;
+  }
+  _cacheStats.hits++;
+  return entry.value;
+}
+
+function cacheSet(key, value, ttl = READ_CACHE_TTL_MS) {
+  _readCache.set(key, { value, fetchedAt: Date.now(), ttl });
+  _cacheStats.writes++;
+}
+
+/**
+ * Bust all cache entries for a given <tenant>::<solId> repo. Called by every
+ * write path so a subsequent read sees the freshly-written content.
+ */
+function cacheBustRepo(tenant, solutionId) {
+  const prefixA = `::${tenant}::${solutionId}::`;
+  const prefixB = `::${tenant}::${solutionId}`; // exact-match keys
+  let busted = 0;
+  for (const k of _readCache.keys()) {
+    if (k.includes(prefixA) || k.endsWith(prefixB)) {
+      _readCache.delete(k);
+      busted++;
+    }
+  }
+  // Also bust the per-tenant repo list — a write may create a new repo
+  if (_readCache.delete(`listTenantRepos::${tenant}`)) busted++;
+  _cacheStats.busts += busted;
+}
+
+/** Diagnostic — exposed via the gitsync health endpoint. */
+export function getReadCacheStats() {
+  return { ..._cacheStats, size: _readCache.size, ttlMs: READ_CACHE_TTL_MS };
+}
+
 function headers() {
   return {
     'Authorization': `Bearer ${PAT}`,
@@ -151,14 +221,20 @@ export function isEnabled() {
  * @returns {Array<{solutionId: string, repo_url: string}>}
  */
 export async function listTenantRepos(tenant) {
+  const cacheKey = `listTenantRepos::${tenant}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const prefix = `${tenant}--`;
   const repos = await gh('GET', `/users/${OWNER}/repos?per_page=100&sort=updated`);
-  return repos
+  const result = repos
     .filter(r => r.name.startsWith(prefix))
     .map(r => ({
       solutionId: r.name.slice(prefix.length),
       repo_url: r.html_url,
     }));
+  cacheSet(cacheKey, result);
+  return result;
 }
 
 /**
@@ -264,6 +340,10 @@ export async function pushFiles(tenant, solutionId, files, message = 'Update sol
       await gh('PATCH', `/repos/${fullName}/git/refs/heads/main`, {
         sha: commit.sha,
       });
+      // Bust the read cache for this repo — the freshly-pushed content
+      // is what subsequent reads should see, not whatever we cached
+      // before the push.
+      cacheBustRepo(tenant, solutionId);
       return {
         commit_sha: commit.sha,
         commit_url: commit.html_url,
@@ -290,9 +370,14 @@ export async function pushFiles(tenant, solutionId, files, message = 'Update sol
  * Get repo status — existence, latest commit, URL.
  */
 export async function getRepoStatus(tenant, solutionId) {
+  const cacheKey = `getRepoStatus::${tenant}::${solutionId}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
+  let result;
   try {
     const repo = await gh('GET', `/repos/${fullName}`);
     // Get latest commit
@@ -309,7 +394,7 @@ export async function getRepoStatus(tenant, solutionId) {
       }
     } catch { /* no commits yet */ }
 
-    return {
+    result = {
       exists: true,
       repo_url: repo.html_url,
       full_name: fullName,
@@ -317,8 +402,11 @@ export async function getRepoStatus(tenant, solutionId) {
       latest_commit,
     };
   } catch {
-    return { exists: false, repo_url: null, full_name: fullName };
+    result = { exists: false, repo_url: null, full_name: fullName };
   }
+  // Shorter TTL for "exists:false" so a freshly-created repo is detected fast.
+  cacheSet(cacheKey, result, result.exists ? READ_CACHE_TTL_MS : 5_000);
+  return result;
 }
 
 /**
@@ -326,6 +414,10 @@ export async function getRepoStatus(tenant, solutionId) {
  * @returns {{ path, content, sha, size }}
  */
 export async function readFile(tenant, solutionId, filePath, branch = 'main') {
+  const cacheKey = `readFile::${tenant}::${solutionId}::${filePath}::${branch}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
@@ -336,12 +428,14 @@ export async function readFile(tenant, solutionId, filePath, branch = 'main') {
   }
 
   const content = Buffer.from(data.content, 'base64').toString('utf-8');
-  return {
+  const result = {
     path: filePath,
     content,
     sha: data.sha,
     size: data.size,
   };
+  cacheSet(cacheKey, result);
+  return result;
 }
 
 /**
@@ -367,6 +461,7 @@ export async function patchFile(tenant, solutionId, filePath, content, message =
   if (existingSha) body.sha = existingSha;
 
   const result = await gh('PUT', `/repos/${fullName}/contents/${encodePath(filePath)}`, body);
+  cacheBustRepo(tenant, solutionId);
 
   return {
     path: filePath,
@@ -410,6 +505,7 @@ export async function searchReplacePatchFile(tenant, solutionId, filePath, searc
   };
 
   const result = await gh('PUT', `/repos/${fullName}/contents/${encodePath(filePath)}`, body);
+  cacheBustRepo(tenant, solutionId);
 
   return {
     path: filePath,
@@ -426,12 +522,16 @@ export async function searchReplacePatchFile(tenant, solutionId, filePath, searc
  * @returns {{ commits: Array<{ sha, message, date, author }> }}
  */
 export async function getLog(tenant, solutionId, limit = 10, branch = 'main') {
+  const cacheKey = `getLog::${tenant}::${solutionId}::${limit}::${branch}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
   const commits = await gh('GET', `/repos/${fullName}/commits?sha=${branch}&per_page=${limit}`);
 
-  return {
+  const result = {
     repo_url: `https://github.com/${fullName}`,
     commits: commits.map(c => ({
       sha: c.sha.substring(0, 7),
@@ -442,6 +542,8 @@ export async function getLog(tenant, solutionId, limit = 10, branch = 'main') {
       url: c.html_url,
     })),
   };
+  cacheSet(cacheKey, result);
+  return result;
 }
 
 /**
@@ -449,14 +551,20 @@ export async function getLog(tenant, solutionId, limit = 10, branch = 'main') {
  * @returns {{ path, type, size }[] }
  */
 export async function listFiles(tenant, solutionId, branch = 'main') {
+  const cacheKey = `listFiles::${tenant}::${solutionId}::${branch}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
   const tree = await gh('GET', `/repos/${fullName}/git/trees/${branch}?recursive=1`);
 
-  return tree.tree
+  const result = tree.tree
     .filter(t => t.type === 'blob')
     .map(t => ({ path: t.path, size: t.size }));
+  cacheSet(cacheKey, result);
+  return result;
 }
 
 /**
@@ -530,6 +638,7 @@ export async function deleteDirectory(tenant, solutionId, dirPath, message = `De
   }
 
   const totalDeleted = Object.values(results).reduce((sum, r) => sum + (r.files_deleted || 0), 0);
+  if (totalDeleted > 0) cacheBustRepo(tenant, solutionId);
   return { branches: results, total_files_deleted: totalDeleted };
 }
 
