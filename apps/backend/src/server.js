@@ -24,7 +24,8 @@ import { warmCoreSettings } from "./services/llm/adapter.js";
 import mcpManager from "./services/mcpConnector.js";
 import connectorState from "./store/connectorState.js";
 import { registerImportedConnector } from "./routes/connectors.js";
-import { syncAllTenantsFromGitHub } from "./services/gitSyncBootstrap.js";
+import { syncAllTenantsFromGitHub, getDriftLog, getLastSyncAt } from "./services/gitSyncBootstrap.js";
+import { describeGitSyncState } from "./services/gitSync.js";
 import { refreshTenantCache } from "./utils/tenantContext.js";
 
 const app = express();
@@ -133,6 +134,42 @@ app.get("/api/health", (_req, res) => {
       available: isSearchAvailable(),
       provider: searchProvider
     }
+  });
+});
+
+// gitSync diagnostic — current write-coupling mode + GH reachability + last
+// boot-sync per tenant + per-tenant drift counts. Operator-facing (no auth
+// guard required since it leaks no tenant data, only counts and modes).
+//
+// describeGitSyncState() lives on the runtime gitSync module; getDriftLog()
+// + getLastSyncAt() come from gitSyncBootstrap. Combined response gives a
+// single-call diagnostic for "is gitSync working in this deployment?"
+app.get("/api/health/gitsync", (_req, res) => {
+  let state;
+  try {
+    state = describeGitSyncState();
+  } catch (err) {
+    // describeGitSyncState calls getCurrentTenantOrNull which is safe outside
+    // ALS. Anything else throwing here is unexpected — surface it but keep
+    // returning the rest.
+    state = { error: err.message };
+  }
+  const driftLog = getDriftLog();
+  const tenantSummary = {};
+  for (const [tenant, entry] of Object.entries(driftLog)) {
+    tenantSummary[tenant] = {
+      last_sync_at: getLastSyncAt(tenant),
+      drifts: (entry.drifts || []).reduce((acc, d) => acc + (Array.isArray(d.drifts) ? d.drifts.length : 0), 0),
+      actions: entry.actions || {},
+    };
+  }
+  res.json({
+    ok: true,
+    gitsync: state,
+    boot_sync: {
+      tenants_synced: Object.keys(tenantSummary).length,
+      per_tenant: tenantSummary,
+    },
   });
 });
 

@@ -3217,6 +3217,8 @@ router.get('/solutions/:solutionId/github/log', async (req, res) => {
     res.json({ ok: true, branch, ...log });
   } catch (err) {
     console.error('[GitHub] Log error:', err.message);
+    const enriched = await explainGhNotFound(err, req.headers['x-adas-tenant'], req.params.solutionId);
+    if (enriched) return res.status(404).json(enriched);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -3506,6 +3508,8 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
     });
   } catch (err) {
     console.error('[GitHub] Pull error:', err.message);
+    const enriched = await explainGhNotFound(err, req.headers['x-adas-tenant'], req.params.solutionId);
+    if (enriched) return res.status(404).json(enriched);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -3571,6 +3575,8 @@ router.post('/solutions/:solutionId/github/pull-connectors', async (req, res) =>
     });
   } catch (err) {
     console.error('[GitHub] Pull connectors error:', err.message);
+    const enriched = await explainGhNotFound(err, req.headers['x-adas-tenant'], req.params.solutionId);
+    if (enriched) return res.status(404).json(enriched);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -3668,6 +3674,8 @@ router.post('/solutions/:solutionId/github/pull-bundle', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('[GitHub] Pull bundle error:', err.message);
+    const enriched = await explainGhNotFound(err, req.headers['x-adas-tenant'], req.params.solutionId);
+    if (enriched) return res.status(404).json(enriched);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -3757,6 +3765,8 @@ router.post('/solutions/:solutionId/promote', async (req, res) => {
     res.json({ ok: true, ...result });
   } catch (e) {
     console.error('[Deploy] checkpoint error:', e.message);
+    const enriched = await explainGhNotFound(e, req.headers['x-adas-tenant'], req.params.solutionId);
+    if (enriched) return res.status(404).json(enriched);
     res.status(400).json({ ok: false, error: `Checkpoint failed: ${e.message}` });
   }
 });
@@ -3796,6 +3806,8 @@ router.get('/solutions/:solutionId/versions/dev', async (req, res) => {
     res.json({ ok: true, ...result });
   } catch (e) {
     console.error('[Deploy] list-versions error:', e.message);
+    const enriched = await explainGhNotFound(e, req.headers['x-adas-tenant'], req.params.solutionId);
+    if (enriched) return res.status(404).json(enriched);
     res.status(400).json({ ok: false, error: `Failed to list versions: ${e.message}` });
   }
 });
@@ -3850,6 +3862,8 @@ router.post('/solutions/:solutionId/rollback', async (req, res) => {
     res.json({ ok: true, ...result });
   } catch (e) {
     console.error('[Deploy] rollback error:', e.message);
+    const enriched = await explainGhNotFound(e, req.headers['x-adas-tenant'], req.params.solutionId);
+    if (enriched) return res.status(404).json(enriched);
     res.status(400).json({ ok: false, error: `Rollback failed: ${e.message}` });
   }
 });

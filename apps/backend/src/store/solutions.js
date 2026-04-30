@@ -258,6 +258,16 @@ async function save(solution, opts = {}) {
   const solDir = path.join(getSolutionsDir(), solution.id);
   await ensureDir(solDir);
 
+  // Strip transient flags before persisting. _force_redeploy is meant as a
+  // one-shot trigger (PATCH solution with _force_redeploy:true → deploy
+  // pipeline notices → rebuilds everything). If it leaks into solution.json,
+  // every subsequent save persists it, every redeploy treats itself as
+  // "forced," and the redeploy semantics get sticky. The flag should never
+  // outlive the request that set it.
+  if ('_force_redeploy' in solution) {
+    delete solution._force_redeploy;
+  }
+
   solution.updated_at = new Date().toISOString();
 
   // F3 PR-3: write-couple FS to GitHub. Loose mode by default — if GH push
