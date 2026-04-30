@@ -3409,20 +3409,42 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
     if (coreMcpSecret) coreHeaders['x-adas-token'] = coreMcpSecret;
     if (req.headers['x-adas-tenant']) coreHeaders['X-ADAS-TENANT'] = req.headers['x-adas-tenant'];
     // Upload connector code in parallel
+    //
+    // BUG FIX: previous code used /api/connectors/<id>/stop and /start —
+    // Core has NO such routes. The actual routes are /disconnect (stop)
+    // and /connect (start). The fetch returned 404, the try/catch swallowed
+    // it, and the connector process kept running in-memory with the OLD
+    // code even though fresh files landed in mcp-store. Symptom: agents
+    // edit a file, pull, and "nothing changes" because the bundled JS
+    // is fresh on disk but the running process has the old version.
+    //
+    // Now using the correct endpoints. Also throw on stop failures (other
+    // than 404 = "wasn't running") so we don't continue if the previous
+    // process is still alive when we try to start a new one.
     if (Object.keys(connectorSources).length > 0) {
       console.log(`[GitHub Pull] Uploading ${Object.keys(connectorSources).length} connector(s) in parallel...`);
       await Promise.all(
         Object.entries(connectorSources).map(async ([connId, files]) => {
           try {
-            // Stop old connector so it picks up new code
+            // Stop the running connector BEFORE swapping its source — otherwise
+            // the live process holds the old code in memory.
             try {
-              await fetch(`${adasCoreUrl}/api/connectors/${connId}/stop`, {
+              const stopResp = await fetch(`${adasCoreUrl}/api/connectors/${connId}/disconnect`, {
                 method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(10000),
               });
-              console.log(`[GitHub Pull] Stopped connector "${connId}" before code update`);
-            } catch { /* may not be running */ }
+              if (stopResp.ok) {
+                console.log(`[GitHub Pull] Stopped connector "${connId}" before code update`);
+              } else if (stopResp.status === 404) {
+                // Connector not registered yet — fine, will be registered by the deploy phase.
+                console.log(`[GitHub Pull] Connector "${connId}" not registered yet — will register during deploy`);
+              } else {
+                console.warn(`[GitHub Pull] Stop "${connId}" returned ${stopResp.status} — proceeding anyway`);
+              }
+            } catch (stopErr) {
+              console.warn(`[GitHub Pull] Stop "${connId}" failed (proceeding): ${stopErr.message}`);
+            }
 
-            // Upload new code
+            // Upload new code (writes to Core's mcp-store filesystem)
             const uploadResp = await fetch(`${adasCoreUrl}/api/mcp-store/upload`, {
               method: 'POST',
               headers: coreHeaders,
@@ -3432,12 +3454,19 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
             const uploadResult = await uploadResp.json().catch(() => ({}));
             console.log(`[GitHub Pull] Uploaded ${files.length} files for "${connId}" to Core mcp-store: ${uploadResult.ok !== false ? 'OK' : uploadResult.error || 'failed'}`);
 
-            // Restart connector with new code
-            const startResp = await fetch(`${adasCoreUrl}/api/connectors/${connId}/start`, {
+            // Respawn the connector with the new code in memory.
+            const startResp = await fetch(`${adasCoreUrl}/api/connectors/${connId}/connect`, {
               method: 'POST', headers: coreHeaders, signal: AbortSignal.timeout(30000),
             });
             const startResult = await startResp.json().catch(() => ({}));
-            console.log(`[GitHub Pull] Restarted connector "${connId}": ${startResult.tools?.length || 0} tools`);
+            if (startResp.ok) {
+              console.log(`[GitHub Pull] Respawned connector "${connId}": ${startResult.tools?.length || 0} tools`);
+            } else if (startResp.status === 404) {
+              // Not registered yet — the deploy phase will register + start it.
+              console.log(`[GitHub Pull] Connector "${connId}" not registered — deploy phase will start it`);
+            } else {
+              console.warn(`[GitHub Pull] Respawn "${connId}" returned ${startResp.status}: ${startResult.error || ''}`);
+            }
           } catch (err) {
             console.warn(`[GitHub Pull] Failed to update connector "${connId}" in Core: ${err.message}`);
           }
