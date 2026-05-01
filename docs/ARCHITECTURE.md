@@ -326,14 +326,24 @@ See `docs/IDENTITY_ACCESS_CONTROL_SPEC.md`.
 
 Honest about what's still wrong:
 
-### A1. Skills as HTTP MCPs (should be stdio)
-Today, every skill is a long-running Python process binding a port in 8100-8299. This causes:
-- Port exhaustion at scale
-- Race conditions on parallel deploy (mitigated by atomic reservation)
-- Zombie processes holding ports (mitigated by verified kill)
-- Cloudflare 524 timeouts (mitigated by async deploys)
+### A1. Skills as HTTP MCPs (should be stdio) — ✅ DONE 2026-05-01
 
-All three mitigations are band-aids. **The real fix is stdio MCP per skill** — child process model, no port allocation, no race. Estimated 2-3 weeks of work; planned for Q3 2026.
+**Migrated.** Skills are now stdio MCPs. Core's `apps/backend/utils/skillMcpClient.js` spawns each skill's `mcp_server.py` with `MCP_TRANSPORT=stdio` and pipes JSON-RPC over stdin/stdout. One session per `<tenant>::<skillSlug>`, lazy-spawned on first use, reused thereafter.
+
+What this killed permanently:
+- Port allocation in 8100-8299 — no ports used for skills
+- Port-conflict bugs (4 skills sharing 8106) — impossible
+- EADDRINUSE on Core restart — children die with parent, respawn fresh
+- Lazy-start race + concurrent picker collision
+- The `lsof`/`ss`-dependent zombie kill saga (Alpine container ships neither)
+- ~400 lines of HTTP code path in `routes/skills.js`
+
+Migration audit (all 68 skills across 10 tenants on stdio):
+- ai-dev-team: 4, ateam-mcp-test: 1, dark-data: 2, dev: 15
+- fleet-managment: 3, gpt-clinic: 4, main: 13, mobile-pa: 12
+- smart-home: 1, test1: 1
+
+Phases shipped: 1–5 (`5e178c53`, `dda440b8`, `c3ee6448`, `dd7d5ac1`, `40a359f3`, `b6a83a03`) on 2026-05-01.
 
 ### A2. F3 PR-5 + PR-6 (still held)
 - **Pre-deploy consistency guard** — would catch FS ↔ GH drift before deploy starts. Currently writes happen optimistically.
