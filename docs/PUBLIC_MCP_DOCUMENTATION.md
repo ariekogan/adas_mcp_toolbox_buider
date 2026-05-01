@@ -139,18 +139,19 @@ Search all skills to find which skill and tools can handle a request. Uses a pre
 
 The capability index auto-builds from skill definitions (tool names, descriptions, intents) and auto-rebuilds on skill deploy.
 
-#### `sys.askSkill(to_skill, message, timeout_seconds?)`
-Query another skill and wait for the answer. **Non-terminal** — the calling skill continues with the response.
+#### `sys.askAnySkill(query, target_skill?, exclude_skills?, timeout_seconds?)`
+Ask the system to route a request to whichever skill can handle it, run a sub-job there, and wait for the answer. **Non-terminal** — the calling skill continues with the response. Wraps capability lookup + sub-job start into a single call.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `to_skill` | string | Yes | Target skill slug |
-| `message` | string | Yes | Natural language request |
-| `timeout_seconds` | number | No | Max wait (default: 60, max: 120) |
+| `query` | string | Yes | Natural-language request describing what you need |
+| `target_skill` | string | No | Optional explicit target slug (skips routing) |
+| `exclude_skills` | array | No | Skill slugs to exclude from routing |
+| `timeout_seconds` | number | No | Hard ceiling on the wait (default: 300, max: 600). Idle window detection runs in parallel — 60s of complete silence in the chain also fails. |
 
 **Returns:** `{ ok, answer, sub_job_id, skill, elapsed_ms }`
 
-Creates a sub-job on the target skill, polls for completion, returns the answer text.
+The sub-job inherits the parent's `chainId`, so its tool executions are visible to the parent's effect ledger. Heartbeat-based wait: any descendant tool call keeps the chain alive.
 
 #### `sys.listSkills()`
 List all skills in the solution with descriptions, connectors, and supported intents. Zero cost.
@@ -172,9 +173,9 @@ Transfer the conversation entirely to another skill. **Terminal** — the callin
 
 **Discover then delegate:** `sys.findCapability("delete old emails")` finds messaging-agent, then `sys.handoffToSkill("messaging-agent")` transfers the conversation.
 
-**Discover then query:** `sys.findCapability("calendar events")` finds life-manager, then `sys.askSkill("life-manager", "What's on my calendar today?")` gets the answer, and the calling skill continues building its response.
+**Discover then query:** `sys.findCapability("calendar events")` confirms life-manager handles calendar, then `sys.askAnySkill({ query: "What's on my calendar today?" })` routes the request and returns the answer, and the calling skill continues building its response.
 
-**Direct query:** `sys.askSkill("messaging-agent", "Check for unread emails from GitHub")` when the target skill is already known.
+**Direct query:** `sys.askAnySkill({ query: "Check for unread emails from GitHub", target_skill: "messaging-agent" })` when the target skill is already known.
 
 #### Cost Profile
 
@@ -182,7 +183,7 @@ Transfer the conversation entirely to another skill. **Terminal** — the callin
 |------|----------|---------|
 | `sys.findCapability` | Zero (query) | ~5ms |
 | `sys.listSkills` | Zero | ~10ms |
-| `sys.askSkill` | Target skill's execution | 2-60s |
+| `sys.askAnySkill` | Target skill's execution | 2s–5min (heartbeat-based) |
 | `sys.handoffToSkill` | Zero (relay starts async) | ~50ms |
 
 ### Skill Tool Naming & Wildcards

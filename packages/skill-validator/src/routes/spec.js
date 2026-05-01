@@ -1208,10 +1208,10 @@ function buildSkillSpec() {
       exclude_bootstrap_tools: {
         type: 'string[]', required: false,
         description: 'System bootstrap tools to UN-PIN for this skill. By default the platform force-pins 9 system tools (readFile, getCurrentProjectPath, getChatTranscript, sys.callAiWithTools, sys.step, sys.handoffToSkill, run_python_script, sys.askForContextAndTools, sys.finalizePlan). Three are MANDATORY and cannot be excluded: run_python_script, sys.askForContextAndTools, sys.finalizePlan. The remaining 6 CAN be excluded here. Excluded tools are NOT removed — they stay in the tool catalog and the LLM can still select them via tool ranking. They just won\'t be force-pinned. Use this to free up planner token budget for skills that don\'t need certain system tools. If also set at the solution level, both lists are merged (union).',
-        excludable_tools: ['readFile', 'getCurrentProjectPath', 'getChatTranscript', 'sys.callAiWithTools', 'sys.step', 'sys.handoffToSkill', 'sys.askSkill', 'sys.findCapability', 'sys.listSkills'],
+        excludable_tools: ['readFile', 'getCurrentProjectPath', 'getChatTranscript', 'sys.callAiWithTools', 'sys.step', 'sys.handoffToSkill', 'sys.askAnySkill', 'sys.findCapability', 'sys.listSkills'],
         mandatory_tools_note: 'These 3 are ALWAYS pinned and CANNOT be excluded: run_python_script, sys.askForContextAndTools, sys.finalizePlan',
         example: ['readFile', 'getCurrentProjectPath', 'getChatTranscript'],
-        tip: 'For single-skill solutions, exclude sys.handoffToSkill, sys.askSkill, sys.findCapability, and sys.listSkills to save planner token budget — these are only useful in multi-skill solutions.',
+        tip: 'For single-skill solutions, exclude sys.handoffToSkill, sys.askAnySkill, sys.findCapability, and sys.listSkills to save planner token budget — these are only useful in multi-skill solutions.',
       },
 
       // ── Triggers ──
@@ -1418,7 +1418,7 @@ function buildSkillSpec() {
                 note: 'ALWAYS pinned. Cannot be excluded.',
               },
               excludable: {
-                tools: ['readFile', 'getCurrentProjectPath', 'getChatTranscript', 'sys.callAiWithTools', 'sys.step', 'sys.handoffToSkill', 'sys.askSkill', 'sys.findCapability', 'sys.listSkills'],
+                tools: ['readFile', 'getCurrentProjectPath', 'getChatTranscript', 'sys.callAiWithTools', 'sys.step', 'sys.handoffToSkill', 'sys.askAnySkill', 'sys.findCapability', 'sys.listSkills'],
                 note: 'Can be un-pinned. They remain in the tool catalog — the LLM can still select them via ranking, they just won\'t be force-pinned.',
               },
               configuration: {
@@ -1428,7 +1428,7 @@ function buildSkillSpec() {
               common_excludes: {
                 'readFile + getCurrentProjectPath': 'Most skills don\'t need filesystem access.',
                 'getChatTranscript': 'Skills that don\'t review conversation history.',
-                'sys.handoffToSkill + sys.askSkill + sys.findCapability + sys.listSkills': 'Single-skill solutions — exclude all multi-agent routing tools to save planner token budget.',
+                'sys.handoffToSkill + sys.askAnySkill + sys.findCapability + sys.listSkills': 'Single-skill solutions — exclude all multi-agent routing tools to save planner token budget.',
                 'sys.step + sys.callAiWithTools': 'Simple skills that don\'t need sub-agent delegation.',
               },
             },
@@ -1642,7 +1642,7 @@ function buildSkillSpec() {
         'sys.finalizePlan': 'Finalize and polish the agent response with persona application',
         'sys.emitUserMessage': 'Send a message to the user mid-workflow (e.g., ask for OTP code)',
         'sys.handoffToSkill': 'Transfer the conversation to another skill (TERMINAL). Built-in, zero config — always available. Args: to_skill (required), grants, summary, original_goal, ttl_seconds. Platform auto-injects channel context.',
-        'sys.askSkill': 'Query another skill and wait for the answer (NON-TERMINAL). Creates a sub-job on the target skill, polls for completion, returns the answer. The calling skill continues its plan with the response. Args: to_skill (required), message (required), timeout_seconds (default: 60, max: 120). Returns: { ok, answer, sub_job_id, skill, elapsed_ms }. Use when you need data from another skill\'s domain without fully handing off.',
+        'sys.askAnySkill': 'Ask the system to route a request to whichever skill can handle it, run a sub-job there, and wait for the answer (NON-TERMINAL). Wraps capability lookup + sub-job start into a single call. The sub-job inherits the parent\'s chainId so its tool executions are visible to the parent\'s effect ledger. Heartbeat-based wait — any descendant tool call keeps the chain alive. Args: query (required, natural-language request), target_skill (optional, explicit slug to skip routing), exclude_skills (optional array), timeout_seconds (optional hard ceiling, default 300, max 600; 60s of complete chain silence also fails). Returns: { ok, answer, sub_job_id, skill, elapsed_ms }. Use when you need data or action from another skill\'s domain without fully handing off.',
         'sys.findCapability': 'Search all skills in the solution to find which skill and tools can handle a given request. Uses a prebuilt capability index — zero LLM cost at query time. Args: query (required, natural language e.g. "delete old emails"), top_k (default: 5, max: 10), rebuild (force index rebuild, expensive). Returns: results[{ capability, skill, skillName, tools, intent, confidence, matchScore }], indexMeta. The index auto-rebuilds on skill deploy.',
         'sys.listSkills': 'List all skills in the solution with descriptions, connectors, and supported intents. Zero LLM cost. Returns: { ok, count, skills[{ slug, name, description, connectors, intentCount, intents, toolCount }] }. Use for an overview of available skills before routing decisions.',
         'sys.focusUiPlugin': 'Bring a UI plugin into focus in the user\'s context panel. Fire-and-forget. Args: plugin_id (required, full plugin ID e.g. "mcp:connector-id:plugin-name"). Use this to show a dashboard or visualization to the user.',
@@ -2637,7 +2637,7 @@ function buildWorkflows() {
           tips: [
             'Map each scenario step to a tool',
             'Use naming convention: connector-prefix.resource.action (e.g., orders.order.get)',
-            'Don\'t forget system tools (sys.askUser, sys.emitUserMessage, sys.handoffToSkill, sys.askSkill, sys.findCapability, sys.listSkills, sys.focusUiPlugin, sys.trigger) for user interaction, multi-agent routing, UI control, and dynamic trigger management',
+            'Don\'t forget system tools (sys.askUser, sys.emitUserMessage, sys.handoffToSkill, sys.askAnySkill, sys.findCapability, sys.listSkills, sys.focusUiPlugin, sys.trigger) for user interaction, multi-agent routing, UI control, and dynamic trigger management',
           ],
         },
         {
@@ -2687,7 +2687,7 @@ function buildWorkflows() {
           tips: [
             'Guardrails should be specific and actionable',
             'Workflow steps use tool NAMES not IDs',
-            'System tools (sys.askUser, sys.emitUserMessage, sys.handoffToSkill, sys.askSkill, sys.findCapability, sys.focusUiPlugin, sys.trigger) are valid workflow steps',
+            'System tools (sys.askUser, sys.emitUserMessage, sys.handoffToSkill, sys.askAnySkill, sys.findCapability, sys.focusUiPlugin, sys.trigger) are valid workflow steps',
           ],
         },
         {
@@ -3208,7 +3208,7 @@ function buildSolutionSpec() {
       exclude_bootstrap_tools: {
         type: 'string[]', required: false,
         description: 'System bootstrap tools to UN-PIN across ALL skills in this solution. By default the platform force-pins system tools for every skill. Three are MANDATORY (run_python_script, sys.askForContextAndTools, sys.finalizePlan) and cannot be excluded. The rest CAN be excluded here. Excluded tools are NOT removed from the tool catalog — the LLM tool finder can still select them. They just won\'t be force-pinned. This applies to ALL skills. Individual skills can add more excludes via their own exclude_bootstrap_tools field (lists are merged).',
-        excludable_tools: ['readFile', 'getCurrentProjectPath', 'getChatTranscript', 'sys.callAiWithTools', 'sys.step', 'sys.handoffToSkill', 'sys.askSkill', 'sys.findCapability', 'sys.listSkills'],
+        excludable_tools: ['readFile', 'getCurrentProjectPath', 'getChatTranscript', 'sys.callAiWithTools', 'sys.step', 'sys.handoffToSkill', 'sys.askAnySkill', 'sys.findCapability', 'sys.listSkills'],
         mandatory_tools_note: 'These 3 are ALWAYS pinned and CANNOT be excluded: run_python_script, sys.askForContextAndTools, sys.finalizePlan',
         example: ['readFile', 'getCurrentProjectPath'],
       },
@@ -4153,11 +4153,11 @@ function buildSolutionSpec() {
             when_to_use: 'Simple use cases with one domain (e.g., order support, FAQ bot).',
             solution_config: 'Just one entry in skills[]. No orchestrator_skill, no routing needed.',
             auto_behavior: [
-              'No multi-agent system tools injected (sys.handoffToSkill, sys.askSkill, sys.findCapability, sys.listSkills are excluded).',
+              'No multi-agent system tools injected (sys.handoffToSkill, sys.askAnySkill, sys.findCapability, sys.listSkills are excluded).',
               'Messages go directly to the single skill.',
               'No persona augmentation for routing.',
             ],
-            tip: 'Set exclude_bootstrap_tools: ["sys.handoffToSkill", "sys.askSkill", "sys.findCapability", "sys.listSkills"] to save planner token budget.',
+            tip: 'Set exclude_bootstrap_tools: ["sys.handoffToSkill", "sys.askAnySkill", "sys.findCapability", "sys.listSkills"] to save planner token budget.',
           },
           orchestrator_based: {
             description: 'One skill acts as the central router/coordinator. All inbound messages go to the orchestrator first, which decides which worker skill should handle each request.',
@@ -4171,8 +4171,8 @@ function buildSolutionSpec() {
               example: '{ "orchestrator_skill": "pa-orchestrator", "skills": [{ "id": "pa-orchestrator", "role": "orchestrator" }, { "id": "device-manager", "role": "worker" }, { "id": "messaging-agent", "role": "worker" }] }',
             },
             auto_behavior: [
-              'Orchestrator skill gets: sys.findCapability, sys.handoffToSkill, sys.askSkill, sys.listSkills auto-injected as bootstrap tools.',
-              'Worker skills get: sys.handoffToSkill, sys.askSkill auto-injected (so they can hand back to orchestrator or query siblings).',
+              'Orchestrator skill gets: sys.findCapability, sys.handoffToSkill, sys.askAnySkill, sys.listSkills auto-injected as bootstrap tools.',
+              'Worker skills get: sys.handoffToSkill, sys.askAnySkill auto-injected (so they can hand back to orchestrator or query siblings).',
               'Core auto-injects routing instructions into each skill\'s persona at runtime — the orchestrator knows to discover and delegate, workers know to hand back when out of scope.',
               'All inbound messages route to the orchestrator first. The orchestrator uses sys.findCapability + sys.handoffToSkill to route to the right worker.',
               'After a worker finishes, subsequent messages from the same actor continue with that worker (conversation continuity) until the session expires or the worker hands back.',
@@ -4191,7 +4191,7 @@ function buildSolutionSpec() {
               example: '{ "skills": [{ "id": "life-manager", "role": "worker" }, { "id": "messaging-agent", "role": "worker" }], "routing": { "api": { "default_skill": "life-manager" } } }',
             },
             auto_behavior: [
-              'ALL skills get: sys.findCapability, sys.handoffToSkill, sys.askSkill, sys.listSkills auto-injected as bootstrap tools.',
+              'ALL skills get: sys.findCapability, sys.handoffToSkill, sys.askAnySkill, sys.listSkills auto-injected as bootstrap tools.',
               'Core auto-injects handoff instructions into each skill\'s persona — every skill knows how to discover capabilities and hand off.',
               'Messages route to the default_skill for that channel. If the default skill can\'t handle the request, it discovers and hands off.',
               'Any skill can hand off to any other skill directly — no orchestrator in the middle.',
@@ -4202,7 +4202,7 @@ function buildSolutionSpec() {
         what_core_auto_handles: {
           description: 'The solution builder does NOT need to implement any of these manually. Core handles them automatically based on the topology.',
           auto_features: [
-            'System tool injection — sys.handoffToSkill, sys.askSkill, sys.findCapability, sys.listSkills are auto-pinned as bootstrap tools based on routing mode.',
+            'System tool injection — sys.handoffToSkill, sys.askAnySkill, sys.findCapability, sys.listSkills are auto-pinned as bootstrap tools based on routing mode.',
             'Persona augmentation — Core injects handoff instructions into each skill\'s prompt context at runtime, telling it when and how to hand off.',
             'Conversation continuity — after a handoff, subsequent messages from the same actor automatically route to the current skill (no manual session tracking).',
             'Handoff session management — sessions are created, tracked, and expired automatically by the platform.',
@@ -4267,22 +4267,24 @@ function buildSolutionSpec() {
               'Query matching is pure keyword intersection — no LLM call',
             ],
           },
-          'sys.askSkill': {
-            description: 'Query another skill and wait for the answer. Non-terminal — the calling skill continues its plan with the response.',
+          'sys.askAnySkill': {
+            description: 'Ask the system to route a request to whichever skill can handle it, run a sub-job there, and wait for the answer. Non-terminal — the calling skill continues its plan with the response. Wraps capability lookup + sub-job start into a single call.',
             args: {
-              to_skill: { type: 'string', required: true, description: 'Target skill slug' },
-              message: { type: 'string', required: true, description: 'Natural language request for the target skill' },
-              timeout_seconds: { type: 'number', required: false, description: 'Max wait time (default: 60, max: 120)' },
+              query: { type: 'string', required: true, description: 'Natural-language request describing what you need' },
+              target_skill: { type: 'string', required: false, description: 'Optional explicit target slug — skips routing' },
+              exclude_skills: { type: 'array', required: false, description: 'Skill slugs to exclude from routing' },
+              timeout_seconds: { type: 'number', required: false, description: 'Hard ceiling on the wait (default: 300, max: 600). Idle window detection runs in parallel — 60s of complete chain silence also fails.' },
             },
             returns: '{ ok, answer, sub_job_id, skill, elapsed_ms }',
-            cost: 'Target skill\'s execution cost (LLM + tools). Latency: 2-60s.',
+            cost: 'Target skill\'s execution cost (LLM + tools). Latency: 2s–5min (heartbeat-based wait).',
             how_it_works: [
-              '1. Creates a sub-job on the target skill with the same actor context',
-              '2. Polls for completion (1s intervals) until done or timeout',
-              '3. Extracts the answer text from the sub-job result',
-              '4. Returns to the calling skill — execution continues',
+              '1. Resolves target via sys.findCapability when target_skill is omitted',
+              '2. Creates a sub-job on the chosen skill with the same actor context — sub-job inherits the parent chainId so its tool executions are visible to the parent\'s effect ledger',
+              '3. Heartbeat-based wait: any descendant tool call across the chain keeps the wait alive. Hard ceiling caps pathological cases; 60s of complete chain silence fails fast.',
+              '4. Extracts the answer text from the sub-job result',
+              '5. Returns to the calling skill — execution continues',
             ],
-            vs_handoff: 'sys.askSkill is non-terminal (calling skill keeps running) and synchronous (waits for answer). sys.handoffToSkill is terminal (calling skill ends) and the target skill takes over the conversation.',
+            vs_handoff: 'sys.askAnySkill is non-terminal (calling skill keeps running) and synchronous (waits for answer). sys.handoffToSkill is terminal (calling skill ends) and the target skill takes over the conversation.',
           },
           'sys.listSkills': {
             description: 'List all skills in the solution with descriptions, connectors, and supported intents. Zero LLM cost.',
@@ -4298,17 +4300,17 @@ function buildSolutionSpec() {
           },
           'discover_then_query': {
             description: 'Skill needs data from another domain but wants to continue its own plan.',
-            flow: 'sys.findCapability("calendar events") → life-manager found → sys.askSkill({ to_skill: "life-manager", message: "What\'s on my calendar today?" }) → answer received → continue building response',
+            flow: 'sys.findCapability("calendar events") → life-manager found → sys.askAnySkill({ query: "What\'s on my calendar today?", target_skill: "life-manager" }) → answer received → continue building response',
           },
           'direct_query': {
             description: 'Skill already knows which skill to ask (no discovery needed).',
-            flow: 'sys.askSkill({ to_skill: "messaging-agent", message: "Check for unread emails from GitHub" }) → answer received → use in current plan',
+            flow: 'sys.askAnySkill({ query: "Check for unread emails from GitHub", target_skill: "messaging-agent" }) → answer received → use in current plan',
           },
         },
         design_tips: [
           'Design skills with clear domain boundaries — findCapability works best when skills have distinct problem statements and tool sets',
           'Use descriptive intent IDs and tool descriptions — the capability index tokenizes these for search',
-          'For single-skill solutions, exclude all routing tools: exclude_bootstrap_tools: ["sys.handoffToSkill", "sys.askSkill", "sys.findCapability", "sys.listSkills"]',
+          'For single-skill solutions, exclude all routing tools: exclude_bootstrap_tools: ["sys.handoffToSkill", "sys.askAnySkill", "sys.findCapability", "sys.listSkills"]',
         ],
       },
 
@@ -4686,7 +4688,7 @@ if (hostReady) tryLiveData();`,
         skill_roles: 'gateway = entry point (identity/routing), worker = does the work, orchestrator = coordinates multiple workers, approval = authorizes actions',
         grant_lifecycle: '1. Skill calls tool → 2. grant_mapping extracts value from result → 3. Grant stored in conversation → 4. On handoff, grants_passed propagate → 5. Target skill access_policy checks grants — denied tools are HIDDEN from the LLM (it cannot see or select them), constrained tools remain visible with modified args/response → 6. When grants are acquired, hidden tools become visible on the next iteration → 7. Grants expire after ttl_seconds',
         handoff_mechanisms: '"handoff-controller-mcp" = live conversation transfer. The skill calls sys.handoffToSkill(to_skill, grants) — a built-in platform tool, no connector wiring needed. Platform auto-injects channel context and creates a routing session. Subsequent messages are routed to the target skill. "internal-message" = async skill-to-skill (background coordination, no user redirect).',
-        multi_agent_routing: 'For multi-skill solutions (3+ skills): sys.findCapability(query) discovers which skill handles a request (zero LLM cost). sys.askSkill(to_skill, message) queries another skill and waits for the answer (non-terminal). sys.listSkills() lists all skills with their intents and tools. sys.handoffToSkill(to_skill) transfers the conversation entirely (terminal). Single-skill solutions should exclude these tools via exclude_bootstrap_tools.',
+        multi_agent_routing: 'For multi-skill solutions (3+ skills): sys.findCapability(query) discovers which skill handles a request (zero LLM cost). sys.askAnySkill(query, target_skill?) routes a request, runs a sub-job there, and waits for the answer (non-terminal; chain-aware heartbeat wait). sys.listSkills() lists all skills with their intents and tools. sys.handoffToSkill(to_skill) transfers the conversation entirely (terminal). Single-skill solutions should exclude these tools via exclude_bootstrap_tools.',
         security_contracts: 'Cross-skill agreements: "skill X cannot use tools Y and Z unless skill W has issued grants A and B". Enforced at the solution level.',
         voice_channel: 'Optional voice channel configuration. Enables phone/web voice interactions for the solution. Supports caller verification (phone lookup, security question, or custom skill), persona customization, and per-skill voice overrides. On deploy, voice settings are automatically pushed to the voice backend — no manual voice setup needed.',
         ui_plugins: {
