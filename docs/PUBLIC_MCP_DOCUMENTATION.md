@@ -213,6 +213,42 @@ Each tool in a skill's `tools` array has a `name` that matches an MCP connector 
 - When the skill should only access specific tools for security/policy reasons
 - When you need per-tool policy rules (approval, rate limits)
 
+### Home-screen Suggestion Cards
+
+The mobile shell shows a small set of tappable cards as cold-start prompts on the home screen. Tapping a card sends a pre-canned prompt to a SPECIFIC skill — bypassing the conversation-continuity logic and the capability index, so taps route deterministically to the owning skill.
+
+**Cards are 100% LLM-generated from existing skill data — no schema changes needed.**
+
+The platform reads each skill's `name`, `problem.statement`, `role.persona`, `intents`, and `tools`, and emits ~6 cards per solution via one cheap LLM call (`storage/homeCards.js`). The LLM sees all skills together so it picks a punchy, diverse cross-section across domains. Each card is automatically tagged with the owning `skill_slug` (anchored against the live skill list — invalid slugs are rejected).
+
+**To shape the generated cards, edit the skill itself.** Make intent descriptions vivid, add good `examples`, write a clear `role.persona`. The LLM looks at exactly the same fields users would care about — there's no separate "cards override" field on skills, because that would just duplicate the data.
+
+**Cache:** result is stored at the solution level (per-tenant Mongo collection `home_cards_cache`, doc id `current`) and invalidated on any skill change via `saveSkill`. TTL: 7 days (env: `HOME_CARDS_TTL_S`).
+
+**Card limit:** default 6, hard max 12 (env: `HOME_CARDS_MAX`).
+
+**Retrieval (called by the mobile shell):** `cp.fe_api.listHomeCards({ max?: number, lang?: string }) → { cards: [...], count }`
+
+`lang` (e.g., `"Hebrew"`, `"Spanish"`) is optional — when set, LLM-generated card text is in that language. The language is part of the cache key so different users get different localized caches.
+
+**Card shape returned by the API:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Snake_case identifier, unique within the result |
+| `icon` | string | Single emoji shown on the card |
+| `title` | string | User voice ("Talk to my nutritionist"), not skill voice |
+| `subtitle` | string | Hint at the card's value |
+| `prompt` | string | Complete sentence sent to the skill when tapped |
+| `skill_slug` | string | Owning skill — used by the mobile to bypass conversation-continuity routing |
+
+**LLM design principles (already baked into the prompt):**
+- User voice, not skill voice
+- Top-of-mind cold-start prompts only — not niche capabilities
+- Diverse cross-section across skills (avoid 3 cards from one skill)
+- Concrete prompts the skill can act on directly
+- Most-engaging cards ordered first
+
 ---
 
 ## Tool Reference
