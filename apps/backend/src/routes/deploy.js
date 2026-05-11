@@ -18,6 +18,8 @@ import { deploySkillToADAS, deployIdentityToADAS } from '../services/exportDeplo
 import adasCore from '../services/adasCoreClient.js';
 import gitSync, { verifyConsistency } from '../services/gitSync.js';
 import { enrichPluginList } from '../services/uiActionsAutoDefaults.js';
+import { discoverPluginsForSolution } from '../services/pluginDiscovery.js';
+import { getMemoryRoot } from '../utils/tenantContext.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -151,6 +153,28 @@ router.post('/solution', async (req, res, next) => {
     // Plugins returned at runtime by a connector's ui.getPlugin handler are
     // NOT touched here — those need either author update or a Core-side
     // fetch-time hook (out of scope for this layer).
+    // ── Phase 5 of §20 strip: plugin auto-discovery ──
+    // When solution.ui_plugins[] is empty/missing, walk the deployed
+    // mcp-store directories and produce manifests from the file layout
+    // (ui-dist/<name>/index.html, plugins/<name>/index.tsx). Authors
+    // get plugins for free without declaring them. REPLACE wins:
+    // explicit solution.ui_plugins[] (mobile-pa case) is preserved.
+    if (!Array.isArray(solution.ui_plugins) || solution.ui_plugins.length === 0) {
+      try {
+        const memRoot = getMemoryRoot();
+        const mcpStoreRoot = path.join(memRoot, '_builder', 'solution-packs', solution.id, 'mcp-store');
+        if (fs.existsSync(mcpStoreRoot)) {
+          const discovered = discoverPluginsForSolution(mcpStoreRoot);
+          if (discovered.length > 0) {
+            solution.ui_plugins = discovered;
+            log.info(`[Deploy] Auto-discovered ${discovered.length} UI plugin(s) from connector folders: ${discovered.map(p => p.id).join(', ')}`);
+          }
+        }
+      } catch (discoErr) {
+        log.warn(`[Deploy] Plugin discovery failed (non-fatal): ${discoErr.message}`);
+      }
+    }
+
     if (Array.isArray(solution.ui_plugins) && solution.ui_plugins.length > 0) {
       const r = enrichPluginList(solution.ui_plugins);
       solution.ui_plugins = r.plugins;
