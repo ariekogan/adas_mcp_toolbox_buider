@@ -1,0 +1,160 @@
+# mobile-pa Regression Suite — Strip Project
+#
+# Each test drives a single chat turn against the deployed mobile-pa solution
+# and verifies the routing decision + tool selection + response style.
+#
+# Run via: node scripts/run-strip-regression.mjs --solution personal-adas
+#
+# Test contract:
+#   - input:           the user message that drives the turn
+#   - expect.route:    which skill the orchestrator should hand off to
+#                      (or `pa-orchestrator` itself if it answers inline)
+#   - expect.tool:     a tool name (or pattern) that should appear in the
+#                      plan/execution trace (optional — some tests are about
+#                      routing only)
+#   - expect.style:    "brief" (≤30 words) | "confirmation" | "detail"
+#   - expect.contains_any: list of substrings; ≥1 must appear (optional)
+#   - expect.absent:   list of substrings that must NOT appear (optional)
+#   - fail_on:         which mismatches are hard failures (others are warnings)
+#
+# A "green" run requires ALL tests in this file to pass.
+# A "red" run rolls the current strip phase back to its pre-tag.
+
+solution_id: personal-adas
+tenant: mobile-pa
+timeout_ms: 30000
+
+tests:
+  # ── Memory ────────────────────────────────────────────────────────────
+  - name: memory_store
+    input: "remember that my wife's name is Sarah"
+    expect:
+      route: memory-keeper
+      style: brief
+      contains_any: ["got it", "saved", "stored", "noted", "remembered", "ok"]
+    fail_on: [route_mismatch, style_mismatch]
+
+  - name: memory_recall
+    input: "what did I tell you about my food allergies"
+    expect:
+      route: memory-keeper
+      style: brief
+    fail_on: [route_mismatch]
+
+  # ── Calendar / Life Management ───────────────────────────────────────
+  - name: calendar_today
+    input: "what's on my calendar tomorrow"
+    expect:
+      route: life-manager
+      style: brief
+    fail_on: [route_mismatch]
+
+  # ── Messaging ────────────────────────────────────────────────────────
+  - name: send_message
+    input: "text my wife I'll be home late"
+    expect:
+      route: messaging-agent
+      style: brief
+    fail_on: [route_mismatch]
+
+  # ── Smart Home ───────────────────────────────────────────────────────
+  - name: home_control
+    input: "turn off the bedroom lights"
+    expect:
+      route: home-control
+      style: brief
+      contains_any: ["off", "done", "turned", "ok"]
+    fail_on: [route_mismatch]
+
+  # ── Coaching / Nutrition (note: nutrition merged into mycoach) ──────
+  - name: log_workout
+    input: "log my morning run for 30 minutes"
+    expect:
+      route: mycoach
+      style: brief
+    fail_on: [route_mismatch]
+
+  - name: log_meal
+    input: "I had eggs and toast for breakfast"
+    expect:
+      route: mycoach
+      style: brief
+    fail_on: [route_mismatch]
+
+  # ── Daily Briefing ───────────────────────────────────────────────────
+  - name: morning_brief
+    input: "give me my morning briefing"
+    expect:
+      route: daily-intel
+      style: detail
+    fail_on: [route_mismatch]
+
+  # ── Notification Triage ──────────────────────────────────────────────
+  - name: missed_notifications
+    input: "what did I miss today"
+    expect:
+      route: notification-triage
+      style: brief
+    fail_on: [route_mismatch]
+
+  # ── Documents ────────────────────────────────────────────────────────
+  - name: find_document
+    input: "find the report I uploaded last week"
+    expect:
+      route: my-docs
+      style: brief
+    fail_on: [route_mismatch]
+
+  # ── Travel ───────────────────────────────────────────────────────────
+  - name: book_travel
+    input: "book a flight to New York next Tuesday"
+    expect:
+      route: travel-agent
+      style: brief
+    fail_on: [route_mismatch]
+
+  # ── Teach (about the system itself) ──────────────────────────────────
+  - name: teach_query
+    input: "how do I add a new memory"
+    expect:
+      route: teach-this
+      style: brief
+    fail_on: [route_mismatch]
+
+  # ── Disambiguation edge cases ────────────────────────────────────────
+  # These are the hardest tests — close-call routing the orchestrator must
+  # get right. Failure here means handoff trigger overrides may be needed.
+
+  - name: disambig_thing_vs_doc
+    input: "find that thing I told you about my preferences"
+    expect:
+      route: memory-keeper      # NOT my-docs — "thing I told you" = memory
+      style: brief
+    fail_on: [route_mismatch]
+
+  - name: disambig_report_vs_memory
+    input: "find the report I wrote last week"
+    expect:
+      route: my-docs            # NOT memory-keeper — "report I wrote" = document
+      style: brief
+    fail_on: [route_mismatch]
+
+  - name: disambig_reminder_vs_memory
+    input: "remind me to call John tomorrow at 3pm"
+    expect:
+      route: messaging-agent    # OR life-manager (calendar) — both acceptable
+      style: brief
+      contains_any: ["remind", "reminder", "calendar", "scheduled"]
+    fail_on: [route_mismatch_strict]   # softer fail mode — accept either route
+    accepted_routes: [messaging-agent, life-manager]
+
+# ── Pass/fail thresholds ─────────────────────────────────────────────────
+thresholds:
+  min_pass_rate: 1.0           # ALL tests must pass for the phase to be green
+  warning_pass_rate: 0.9       # below this, halt with red
+  baseline_ms_per_test: 5000   # tests slower than this flag a performance regression
+
+# ── How to interpret results ─────────────────────────────────────────────
+#   GREEN  = 100% pass → phase tags `-post`, proceed
+#   YELLOW = 90-99% pass → halt, notify user, do not rollback yet (human decision)
+#   RED    = <90% pass → auto-rollback to phase `-pre` tag, notify user
