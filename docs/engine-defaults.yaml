@@ -1,0 +1,197 @@
+# engine-defaults.yaml — Engine config presets (Phase 4 of §20 v2.3 strip)
+# ════════════════════════════════════════════════════════════════════════
+# Skills currently carry ~80 lines of identical engine.* configuration —
+# rv2 iteration limits, HLR critic settings, autonomy level, finalization
+# gate retries, internal error handling. mobile-pa has 11 skills, all with
+# very similar engine blocks. ~880 lines of rote config.
+#
+# This file defines reusable presets. A skill opts in via:
+#   skill.engine: "careful"        # preset name → expand to full block
+#   skill.engine: "fast"
+# Or keeps a full override (which always wins):
+#   skill.engine: { rv2: { max_iterations: 25 }, ... }
+#
+# Missing skill.engine → default preset applied at deploy. mobile-pa's
+# explicit engine blocks → REPLACE wins, untouched.
+# ════════════════════════════════════════════════════════════════════════
+
+presets:
+
+  # ── "standard" — the most-common config (matches mobile-pa default shape) ──
+  # Use for: most chat-driven worker skills. Balanced iteration limits,
+  # mid-strictness critic, supervised autonomy.
+  standard:
+    label: "Standard (balanced)"
+    rv2:
+      max_iterations: 10
+      iteration_timeout_ms: 30000
+      allow_parallel_tools: false
+      on_max_iterations: "ask_user"
+    hlr:
+      enabled: true
+      critic:
+        enabled: true
+        check_interval: 3
+        strictness: "medium"
+      reflection:
+        enabled: true
+        depth: "shallow"
+      replanning:
+        enabled: true
+        max_replans: 5
+    autonomy:
+      level: "supervised"
+    finalization_gate:
+      enabled: true
+      max_retries: 2
+    internal_error:
+      enabled: true
+      tool_not_found:
+        enter_resolution_after: 1
+        retryable: false
+      resolution:
+        max_iterations: 1
+        allowed_capabilities: ["read", "search", "document_output"]
+      loop_detection:
+        enabled: true
+        identical_call_threshold: 2
+
+  # ── "careful" — more critic, more reflection, fewer iterations ──
+  # Use for: high-stakes skills (financial, destructive operations).
+  # The critic checks more often and reflection is deeper, trading
+  # cost for quality.
+  careful:
+    label: "Careful (high-quality, slower)"
+    rv2:
+      max_iterations: 15
+      iteration_timeout_ms: 45000
+      allow_parallel_tools: false
+      on_max_iterations: "ask_user"
+    hlr:
+      enabled: true
+      critic:
+        enabled: true
+        check_interval: 2
+        strictness: "high"
+      reflection:
+        enabled: true
+        depth: "deep"
+      replanning:
+        enabled: true
+        max_replans: 7
+    autonomy:
+      level: "supervised"
+    finalization_gate:
+      enabled: true
+      max_retries: 3
+    internal_error:
+      enabled: true
+      tool_not_found:
+        enter_resolution_after: 1
+        retryable: false
+      resolution:
+        max_iterations: 2
+        allowed_capabilities: ["read", "search", "document_output"]
+      loop_detection:
+        enabled: true
+        identical_call_threshold: 2
+
+  # ── "fast" — minimal overhead, short iterations ──
+  # Use for: simple lookup/read-only skills (memory recall, weather,
+  # status checks). No critic, no reflection. Trades quality for speed.
+  fast:
+    label: "Fast (minimal overhead)"
+    rv2:
+      max_iterations: 5
+      iteration_timeout_ms: 15000
+      allow_parallel_tools: true
+      on_max_iterations: "finalize"
+    hlr:
+      enabled: false
+      critic:
+        enabled: false
+        check_interval: 5
+        strictness: "low"
+      reflection:
+        enabled: false
+        depth: "shallow"
+      replanning:
+        enabled: false
+        max_replans: 0
+    autonomy:
+      level: "supervised"
+    finalization_gate:
+      enabled: false
+      max_retries: 1
+    internal_error:
+      enabled: true
+      tool_not_found:
+        enter_resolution_after: 0
+        retryable: false
+      resolution:
+        max_iterations: 0
+        allowed_capabilities: ["read"]
+      loop_detection:
+        enabled: true
+        identical_call_threshold: 2
+
+  # ── "autonomous" — for background skills with no user-in-loop ──
+  # Use for: triggered skills (cron, webhook) that finish without
+  # asking for confirmation. autonomy:autonomous skips clarification
+  # prompts; gates pass through.
+  autonomous:
+    label: "Autonomous (no user prompts)"
+    rv2:
+      max_iterations: 20
+      iteration_timeout_ms: 60000
+      allow_parallel_tools: true
+      on_max_iterations: "finalize"
+    hlr:
+      enabled: true
+      critic:
+        enabled: true
+        check_interval: 3
+        strictness: "medium"
+      reflection:
+        enabled: true
+        depth: "shallow"
+      replanning:
+        enabled: true
+        max_replans: 5
+    autonomy:
+      level: "autonomous"
+    finalization_gate:
+      enabled: false
+      max_retries: 1
+    internal_error:
+      enabled: true
+      tool_not_found:
+        enter_resolution_after: 1
+        retryable: false
+      resolution:
+        max_iterations: 2
+        allowed_capabilities: ["read", "search", "document_output"]
+      loop_detection:
+        enabled: true
+        identical_call_threshold: 2
+
+# Default preset when skill.engine is missing entirely.
+# Conservative choice — "standard" matches the most common mobile-pa shape.
+default: standard
+
+# ── Override semantics (REPLACE) ──
+# 1. skill.engine is an OBJECT (existing mobile-pa style) → use as-is.
+#    Author wins. No default merge.
+# 2. skill.engine is a STRING matching a preset name → expand to preset.
+# 3. skill.engine missing/null → apply `default` preset above.
+#
+# Partial overrides are NOT merged. To customize a single field, write
+# the full object explicitly. This avoids hidden inheritance bugs.
+
+# ── Authoring notes ──
+# - Adjusting these presets affects every new stripped skill at next
+#   deploy. Test before pushing.
+# - Skills that need unusual config (e.g., 50 iterations for a deep
+#   research skill) use explicit objects — that's the override path.
+# - Add new presets here for emerging skill archetypes. Document the
+#   intended use case in the `label` field.

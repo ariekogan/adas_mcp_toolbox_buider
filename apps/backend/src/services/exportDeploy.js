@@ -11,6 +11,7 @@ import { enrichSkillIntentsWithLLM } from "@adas/skill-validator";
 import { resolveEffectiveStyle, prependStyleToPersona } from "./styleCompiler.js";
 import { classifyToolList, applyExclusions } from "./toolSecurityClassifier.js";
 import { synthesizeIntentsForSkill } from "./intentSynthesizer.js";
+import { resolveEngine } from "./engineCompiler.js";
 
 /**
  * Pre-deploy guard for the single-skill paths (per-skill redeploy, import,
@@ -356,6 +357,25 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
       log.warn(`[MCP Deploy] Style resolution failed for ${skillSlug} (non-fatal): ${styleErr.message}`);
     }
 
+    // ── Phase 4 of §20 strip: engine config preset expansion ─────────
+    // Resolves skill.engine into a full engine block.
+    //   - Object → use as-is (REPLACE — author wins). mobile-pa path.
+    //   - String preset name → expand from docs/engine-defaults.yaml.
+    //   - Missing → apply default preset.
+    // See services/engineCompiler.js.
+    let effectiveEngine = skill.engine;
+    try {
+      const engineResult = resolveEngine(skill.engine);
+      if (engineResult.engine) {
+        effectiveEngine = engineResult.engine;
+        if (engineResult.source !== "explicit") {
+          log.info(`[MCP Deploy] Engine resolved for ${skillSlug} via ${engineResult.source}`);
+        }
+      }
+    } catch (engineErr) {
+      log.warn(`[MCP Deploy] Engine resolution failed for ${skillSlug} (non-fatal): ${engineErr.message}`);
+    }
+
     const skillDef = {
       id: skillSlug,
       name: skill.name || skillSlug,
@@ -389,7 +409,8 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
       ...(skill.policy ? { policy: skill.policy } : {}),
       ...(skill.intents ? { intents: skill.intents } : {}),
       ...(skill.scenarios ? { scenarios: skill.scenarios } : {}),
-      ...(skill.engine ? { engine: skill.engine } : {}),
+      // Phase 4: engine resolved from preset name OR explicit object (REPLACE wins)
+      ...(effectiveEngine ? { engine: effectiveEngine } : {}),
       ...(skill.triggers?.length ? { triggers: skill.triggers } : {}),
       ...(skill.bootstrap_tools?.length ? { bootstrap_tools: skill.bootstrap_tools } : {}),
       ...(skill.exclude_bootstrap_tools?.length ? { exclude_bootstrap_tools: skill.exclude_bootstrap_tools } : {}),
