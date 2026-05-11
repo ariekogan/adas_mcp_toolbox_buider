@@ -1,12 +1,138 @@
 # AI-Driven Solution Authoring — Schema Strip + Self-Healing Plan
 
 **Created:** 2026-05-05
-**Last amended:** 2026-05-05 evening (binding decisions, see AMENDMENT below)
+**Last amended:** 2026-05-10 (Q&A clarifications — see SECOND AMENDMENT below)
+**Previous amendment:** 2026-05-05 evening (Core untouched, voice-prompt pattern, chat-only UI)
 **Owner:** Arie + Claude
-**Status:** Approved, scheduled to start 2026-05-06 morning, full autonomous execution
+**Status:** Approved, full autonomous execution, ready to start Phase 0
 **Reference truth:** `mobile-pa` solution (`personal-adas`) at `/Users/arie/Projects/ateam_solutions/personal-adas`
 
 This document is the authoritative plan for a 6-week effort to strip the verbose authoring schema and make AI-driven solution authoring (the actual model that built mobile-pa) ~10× more efficient.
+
+---
+
+## SECOND AMENDMENT 2026-05-10 — Q&A CLARIFICATIONS
+
+Additional binding clarifications surfaced through a Q&A drill on 2026-05-10. These refine (and in one case CORRECT) decisions in the first amendment. Read after the first amendment.
+
+### Clarification 1: Handoff triggers are NOT a required authored field
+
+The first amendment listed handoff triggers as something the author writes. **This was wrong.** Handoffs are implemented in Core via `sys.handoffToSkill` + `handoff-controller-mcp`. The built-in orchestrator (Phase 6) reads each skill's persona and decides routing. Handoff trigger sentences are **only needed as overrides** for cases where the orchestrator's persona-based inference is wrong.
+
+**Corrected "what the author keeps writing":**
+
+- Persona (prose per skill)
+- Policy guardrails (never/always rules)
+- Connector picks (which integrations a skill uses)
+- Connector integration code (real API logic — strippable boilerplate via Phase 7 scaffolds)
+- Custom UI plugin source (real UI — strippable boilerplate via Phase 7 scaffolds)
+- Secrets (per-tenant, out of band)
+
+**Authored only when overriding a platform default:**
+
+- Handoff triggers (override file `skills/<id>/handoff_when.md` — one sentence, only when orchestrator routing is wrong)
+- Engine config tweaks (override file `skills/<id>/engine.json` — only for skills that need non-default engine behavior)
+- Intent precision (override file `skills/<id>/intents.json` — only when description-based intent synthesis loses precision on close calls)
+- Tool security classifications (override file `skills/<id>/tool_classifications.json` — only when auto-classification by name pattern is wrong)
+- Solution style override (override file at solution level — only when one skill needs different style from solution default)
+
+### Clarification 2: Discoverability via chat is a first-class capability
+
+The new Builder must support questions like "what can I tweak on memory-keeper that we haven't?" The user must be able to discover deep configurability through conversation, not by reading docs.
+
+**Three sources the chat-based Builder queries on demand:**
+
+1. **YAML defaults files in repo** (self-documenting — every configurable field is listed with its default value)
+   - `Docs/style-defaults.yaml`, `Docs/engine-defaults.yaml`, `Docs/identity-presets.yaml`, etc.
+
+2. **Focused ateam-mcp tools (Phase 9 deliverables):**
+   - `ateam_get_field_spec(field_path)` — what a field does, valid values, default
+   - `ateam_show_skill_resolved(skill_id)` — current effective state (defaults + overrides merged), same shape as today's verbose schema, generated on demand
+   - `ateam_diff_authored_vs_resolved(skill_id)` — side-by-side: what was explicitly authored ↔ what platform derived
+   - `ateam_inspect_intent_synthesis(skill_id)` — the LLM prompt + response + hash that produced synthesized intents
+   - `ateam_inspect_router_decision(conversation_id)` — why the orchestrator picked the skill it did, with alternatives + confidence
+
+3. **Validator feedback** — typos and unknown fields return "field X not recognized, did you mean Y?" with suggestions.
+
+**Conversation patterns the chat-based Builder must support:**
+
+- "what can I tweak on `<skill>` that we haven't?" → list of inherited defaults
+- "set `<skill>`'s `<field>` to `<value>`" → write override, redeploy, confirm
+- "show me what's customized vs default for `<skill>`" → `diff_authored_vs_resolved` output
+- "why did you route to `<skill>` instead of `<other>`?" → `inspect_router_decision` output
+- "reset `<skill>` to platform defaults" → delete override file(s), redeploy
+
+These conversation patterns are not optional — they're how "visibility + control" is preserved in the stripped model. The author can drill into any configurability that the verbose schema used to expose. The strip eliminates required authoring, not exposed capability.
+
+### Clarification 3: Reversibility is the foundational guarantee
+
+The user's primary concern is not interference (production traffic is safe by architecture) — it's **the ability to keep mobile-pa exactly as it was until the new approach is proven**. The plan must make this explicit.
+
+**Five reversibility guarantees:**
+
+1. **mobile-pa data is never modified during the strip.** Same Mongo collections, same GitHub repo content, same skill.json files. The strip works on a parallel tenant (`personal-adas-stripped`), not on mobile-pa.
+
+2. **mobile-pa never uses the new features.** REPLACE semantics ensure mobile-pa's explicit fields make every new code path inert. Even if a strip phase is buggy, mobile-pa is executing zero new logic.
+
+3. **Every phase is git-tagged.** `safe-strip-phase-N-pre` and `safe-strip-phase-N-post` on every affected repo. Rollback is one `ateam_github_rollback` call + Docker rebuild.
+
+4. **Phase-level rollback time: ~5 minutes** (revert tag, rebuild Builder Docker container).
+   **Full-strip rollback time: ~30 minutes** (revert to `safe-strip-phase-0-pre`, rebuild Builder, delete `personal-adas-stripped` tenant).
+
+5. **Phase 10 outcome is fully reversible.** If `personal-adas-stripped` looks good, the user *chooses* to migrate (or not). If it looks bad, delete it via `ateam_delete_solution`. mobile-pa stays exactly as-is. There is no "schema dependency" or "data migration" forced on mobile-pa by the strip's existence.
+
+### Clarification 4: The new Builder is a strict superset of the old one
+
+There's only one Builder running on mac1. When mobile-pa redeploys during the strip window (or after), it uses the new Builder. **This is safe because:**
+
+- New Builder treats explicit-field skills (like mobile-pa's) identically to the old Builder. REPLACE wins. Same bytes deployed.
+- Skills can mix old-style (verbose, explicit) and new-style (minimal, derived) within the same solution.
+- Migration of an existing skill from verbose to minimal is opt-in, granular (one skill at a time), and reversible (just restore the explicit fields).
+
+The new Builder is to the old Builder what TypeScript is to JavaScript: a strict superset that handles old code identically and adds new capabilities for new code.
+
+### Clarification 5: Override mechanics happen via chat, not manual file editing
+
+The user does not open file editors. Override files are created and edited by Claude via ateam-mcp tools, driven by chat:
+
+```
+You: "increase max_iterations on memory-keeper to 25"
+Me: writes skills/memory-keeper/engine.json with the override
+    runs ateam_redeploy(solution_id: "personal-adas")
+    confirms the override is in effect
+```
+
+Same pattern for every override type:
+- Persona edits → `ateam_patch` with new persona text
+- Engine tweaks → write `engine.json` override file
+- Handoff trigger correction → write `handoff_when.md` override file
+- Intent precision → write `intents.json` override file
+- Style change → patch `solution.style` field
+
+**The author's authoring surface is chat. The override-file mechanism is platform internals.**
+
+### Clarification 6: Same Builder, different tenants — operational isolation acknowledged
+
+The strip development uses:
+- **Same mac1 instance** (no separate `mcp-dev.ateam-ai.com`)
+- **Same Builder Docker container**, restarted between phases
+- **Same Core Docker container** (untouched per first amendment)
+- **Two different tenants**: `mobile-pa` (production, frozen) and `personal-adas-stripped` (Phase 10 validation, new)
+
+The single-instance model gives **~99% isolation**:
+- Production runtime path (mobile/voice/web → Core → skills → connectors) is fully isolated. Builder is not in this path.
+- Design-time path (chat → ateam-mcp → Builder) is shared. ~30-second Builder restart windows during phase transitions are the only operational overlap.
+
+The remaining ~1% risk: if the user triggers an emergency mobile-pa redeploy during a Builder restart, the deploy fails — retry works. Mitigation: I tag stable points (`safe-strip-phase-N-post`), and mobile-pa redeploys at any tagged state are safe.
+
+**A truly separate dev instance is possible but not recommended.** It would require a second docker-compose project on mac1 with different ports and a `mcp-dev.ateam-ai.com` Cloudflare route. Heavier infra, marginal gain. Single-instance plan is the chosen path.
+
+### Common mistakes a fresh agent might make (adds to first amendment's list)
+
+8. **Treating handoff triggers as required authored content.** They're optional overrides. Default is built-in orchestrator reading personas.
+9. **Hiding deep capabilities from the chat-based Builder.** Discoverability via chat is mandatory. Every configurable field must be queryable.
+10. **Forcing migration of mobile-pa to stripped form.** It's optional, opt-in, reversible.
+11. **Manual override file editing.** Author does not edit files. Claude writes overrides via ateam-mcp, driven by chat.
 
 ---
 
