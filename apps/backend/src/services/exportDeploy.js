@@ -8,6 +8,7 @@ import { compileUiPlugins } from "../utils/skillFieldHelpers.js";
 import adasCore from "./adasCoreClient.js";
 import gitSync, { verifyConsistency } from "./gitSync.js";
 import { enrichSkillIntentsWithLLM } from "@adas/skill-validator";
+import { resolveEffectiveStyle, prependStyleToPersona } from "./styleCompiler.js";
 
 /**
  * Pre-deploy guard for the single-skill paths (per-skill redeploy, import,
@@ -257,6 +258,33 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
 
   // Register skill definition in ADAS Core so it appears in GET /api/skills
   try {
+    // Load solution definition FIRST — needed for solution-level style
+    // resolution + for the import call below. Loaded once, used twice.
+    let solutionDef = null;
+    try {
+      solutionDef = await solutionsStore.load(solutionId);
+    } catch { /* solution not in Builder FS — OK, deploy without it */ }
+
+    // ── Phase 1 of §20 strip: solution-level style inheritance ────────
+    // If solution.style (or skill.style as override) is set, prepend the
+    // resolved style prose to the skill's persona before shipping.
+    // REPLACE semantics: missing fields → no change (mobile-pa case →
+    // byte-identical output). See services/styleCompiler.js.
+    let effectiveRole = skill.role || null;
+    try {
+      const style = resolveEffectiveStyle(solutionDef, skill);
+      if (style && effectiveRole) {
+        const originalPersona = effectiveRole.persona || "";
+        const newPersona = prependStyleToPersona(originalPersona, style);
+        if (newPersona !== originalPersona) {
+          effectiveRole = { ...effectiveRole, persona: newPersona };
+          log.info(`[MCP Deploy] Style applied to ${skillSlug} persona (${skill.style ? 'skill-level' : 'solution-level'} style, +${newPersona.length - originalPersona.length} chars)`);
+        }
+      }
+    } catch (styleErr) {
+      log.warn(`[MCP Deploy] Style resolution failed for ${skillSlug} (non-fatal): ${styleErr.message}`);
+    }
+
     const skillDef = {
       id: skillSlug,
       name: skill.name || skillSlug,
@@ -280,7 +308,8 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
       ...(skill.ui_capable ? { ui_capable: skill.ui_capable } : {}),
       // Preserve full skill config for runtime (prompt, role, policy, etc.)
       ...(skill.problem ? { problem: skill.problem } : {}),
-      ...(skill.role ? { role: skill.role } : {}),
+      // role uses effectiveRole — style-prepended if applicable, otherwise identical to skill.role
+      ...(effectiveRole ? { role: effectiveRole } : {}),
       ...(skill.prompt ? { prompt: skill.prompt } : {}),
       ...(skill.policy ? { policy: skill.policy } : {}),
       ...(skill.intents ? { intents: skill.intents } : {}),
@@ -298,12 +327,6 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
     if (compiledPlugins) {
       skillDef.ui_plugins = compiledPlugins;
     }
-
-    // Load solution definition to pass to Core (for solution-level routing/orchestrator config)
-    let solutionDef = null;
-    try {
-      solutionDef = await solutionsStore.load(solutionId);
-    } catch { /* solution not in Builder FS — OK, deploy without it */ }
 
     await adasCore.importSkill(skillSlug, skillDef, solutionDef);
     log.info(`[MCP Deploy] Registered skill definition for "${skillSlug}" in ADAS Core${solutionDef ? ' (with solution)' : ''}`);

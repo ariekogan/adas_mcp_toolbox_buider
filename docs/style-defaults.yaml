@@ -1,0 +1,85 @@
+# style-defaults.yaml — Solution-level style preset library
+# ════════════════════════════════════════════════════════════════════
+# Phase 1 of the schema strip (§20 v2.3 of the design).
+#
+# Solutions can opt into a style by setting `solution.style: "<preset-name>"`
+# OR by providing free-form prose: `solution.style: "<custom text>"`.
+# Skills can override locally with `skill.style` (REPLACE wins).
+#
+# When non-empty, the resolved style is prepended to each skill's persona
+# at deploy time. This eliminates the rote duplication of style instructions
+# across personas (mobile-pa repeats "MOBILE CHAT — 1-3 sentences" inside
+# 10 different personas, ~3,300 chars of duplication).
+#
+# Per-tenant CUSTOMIZATIONS live in Mongo (styleCustomizations.js) and
+# follow the voice-prompt-editor pattern — chat-driven edits via Claude
+# write deltas to Mongo, defaults remain source-controlled here.
+#
+# Override semantics:
+#   1. skill.style (per-skill, REPLACE if set) — explicit wins
+#   2. solution.style as raw prose (per-solution, free-form) — explicit wins
+#   3. solution.style as preset name → look up preset here
+#   4. Empty/missing → no style prepended (preserves pre-Phase-1 behavior)
+#
+# IMPORTANT: missing `solution.style` produces ZERO behavior change.
+# mobile-pa has no `solution.style` field → identical bytes deployed.
+# This protects production via REPLACE semantics.
+# ════════════════════════════════════════════════════════════════════
+
+# ── Preset library ──────────────────────────────────────────────────
+# Each preset's `prose` field is the text prepended to skill personas.
+# Keep them tight — they're going on TOP of every skill's existing
+# persona, so brevity matters.
+
+presets:
+
+  mobile:
+    label: "Mobile chat (1-3 sentences)"
+    prose: |
+      MOBILE CHAT — This is a mobile chat interface with small real estate. Keep responses short and casual.
+      - Max 2-3 sentences for most replies.
+      - No bullet lists unless absolutely necessary (and then max 3 items).
+      - No headings, no markdown sections.
+      - Conversational tone like texting a friend.
+      - Skip preamble — get to the point immediately.
+      - For task confirmations: "Done.", "Sent.", "Got it."
+      - For errors: explain in 1 sentence, suggest one fix.
+      - Never explain what you're about to do — just do it.
+
+  voice:
+    label: "Voice (live phone-call style)"
+    prose: |
+      VOICE MODE — This is a live phone-call style conversation.
+      - Speak naturally with concise responses unless the user asks for details.
+      - No markdown, no code blocks, no bullet lists — those don't read aloud.
+      - If something is ambiguous, ask ONE clarifying question.
+      - Acknowledge tool calls immediately ("Let me check that…") — never leave dead air.
+      - Numbers and emails: read in natural groups, spell out unusual parts.
+
+  web:
+    label: "Web chat (richer formatting OK)"
+    prose: |
+      WEB CHAT — This is a web chat interface; richer formatting is acceptable.
+      - Use markdown for clarity when helpful (headers, lists, code blocks).
+      - Keep responses focused but not artificially short.
+      - For technical content, code blocks improve readability.
+      - For lists of 4+ items, bullets are preferred over inline.
+
+  kiosk:
+    label: "Kiosk display (large, scannable)"
+    prose: |
+      KIOSK DISPLAY — This is a public/shared kiosk display. Responses are read by users at a glance.
+      - Headings + short scannable text only.
+      - Keep critical info above the fold.
+      - No conversational filler — direct, factual.
+      - Never include personal/private data unless explicitly requested.
+
+# ── Default preset ──────────────────────────────────────────────────
+# Solutions that don't specify a style get this. `null` means no style
+# prepended (preserves pre-Phase-1 behavior).
+default: null
+
+# ── Notes for future maintainers ────────────────────────────────────
+# - Add new presets here when a new surface emerges (watch, AR glasses, etc.).
+# - Tenant-specific deltas go in Mongo (styleCustomizations.js), not here.
+# - This file is source-controlled, diffable, and the canonical default set.
