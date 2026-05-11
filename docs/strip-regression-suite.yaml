@@ -21,8 +21,12 @@
 # A "red" run rolls the current strip phase back to its pre-tag.
 
 solution_id: personal-adas
-tenant: mobile-pa
-timeout_ms: 30000
+tenant: mobile-pa-test    # Cloned snapshot of mobile-pa. The PRODUCTION
+                           # tenant `mobile-pa` is FROZEN and never targeted
+                           # by strip phases. See docs/STRIP_BASELINE_2026-05-10.md.
+timeout_ms: 90000          # Bumped — orchestrator handoffs can take 60s
+                           # in the test tenant (one fails with no_channel_context,
+                           # then falls back to sys.askAnySkill which succeeds).
 
 tests:
   # ── Memory ────────────────────────────────────────────────────────────

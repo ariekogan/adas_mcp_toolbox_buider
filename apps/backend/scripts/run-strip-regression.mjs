@@ -177,37 +177,81 @@ async function pollJob({ coreUrl, token, service, tenant, jobId, timeoutMs = 300
 // Result comparison
 // ─────────────────────────────────────────────────────────────────────
 
-function extractRoute(job) {
-  // Try several places where the executed-skill slug might live.
+/**
+ * Extract the routing decision from a job/test response.
+ *
+ * The orchestrator routes via sys.handoffToSkill. In test-via-API mode the
+ * handoff itself often fails (no channel context, no device pairing), but
+ * the DECISION is preserved in the step's args.to_skill. That's the signal
+ * we test — the strip phases change Builder code that shouldn't affect
+ * routing decisions, just deploy-time enrichment.
+ *
+ * Resolution order:
+ *   1. sys.handoffToSkill step → args.to_skill (the orchestrator's pick)
+ *   2. sys.askAnySkill step → args.to_skill (delegation alternative)
+ *   3. job.skillSlug / __skill.slug (skill that actually ran)
+ *   4. handoff_chain last entry (if present)
+ */
+function extractRoute(jobOrResult) {
+  // Normalize: ateam_conversation returns { ok, status, result, steps, ... }
+  // The Builder's /api/solutions/:id/test returns same shape via adasCore.
+  const steps = jobOrResult?.steps || jobOrResult?.history || [];
+
+  for (const step of steps) {
+    const tool = step?.tool || step?.toolName;
+    if (tool === "sys.handoffToSkill" && step?.args?.to_skill) {
+      return step.args.to_skill;
+    }
+    if (tool === "sys.askAnySkill" && step?.args?.to_skill) {
+      return step.args.to_skill;
+    }
+  }
+
+  // Fallback paths for when the route is implicit (no explicit handoff —
+  // the orchestrator answered inline, or sys.teach fired without a handoff
+  // step). These signal "the skill that EXECUTED tools" which equals the
+  // route when no handoff happened.
+  for (const step of steps) {
+    const tool = step?.tool || step?.toolName;
+    // Detect sys.teach — that's teach-this's signature tool
+    if (tool === "sys.teach") return "teach-this";
+    // Detect memory.* tools → memory-keeper (if no other handoff fired)
+    if (typeof tool === "string" && tool.startsWith("memory.") && !tool.startsWith("memory-mcp")) {
+      // Only attribute to memory-keeper if NO explicit handoff was found above
+      // (and we wouldn't reach here if one was). For routing tests, this is fine.
+      return "memory-keeper";
+    }
+  }
+
   return (
-    job?.skillSlug ||
-    job?.__skill?.slug ||
-    job?.state?.skillSlug ||
-    job?.state?.activeSkill ||
-    job?.handoff_chain?.[job?.handoff_chain?.length - 1]?.to ||
+    jobOrResult?.skillSlug ||
+    jobOrResult?.__skill?.slug ||
+    jobOrResult?.state?.skillSlug ||
+    jobOrResult?.state?.activeSkill ||
+    jobOrResult?.handoff_chain?.[jobOrResult?.handoff_chain?.length - 1]?.to ||
     null
   );
 }
 
-function extractTools(job) {
-  // Best effort — collect any tool names referenced in the job's history/state.
+function extractTools(jobOrResult) {
   const tools = new Set();
-  const hist = job?.history || [];
-  for (const h of hist) {
-    if (typeof h?.tool === "string") tools.add(h.tool);
-    if (typeof h?.toolName === "string") tools.add(h.toolName);
-    if (Array.isArray(h?.tool_calls)) for (const tc of h.tool_calls) tools.add(tc?.name);
+  const steps = jobOrResult?.steps || jobOrResult?.history || [];
+  for (const s of steps) {
+    if (typeof s?.tool === "string") tools.add(s.tool);
+    if (typeof s?.toolName === "string") tools.add(s.toolName);
+    if (Array.isArray(s?.tool_calls)) for (const tc of s.tool_calls) tools.add(tc?.name);
   }
   return [...tools];
 }
 
-function extractResponseText(job) {
+function extractResponseText(jobOrResult) {
   return (
-    job?.result?.final_reply ||
-    job?.result?.reply ||
-    job?.result?.message ||
-    job?.result?.text ||
-    job?.final_reply ||
+    jobOrResult?.result?.content ||
+    jobOrResult?.result?.final_reply ||
+    jobOrResult?.result?.reply ||
+    jobOrResult?.result?.message ||
+    jobOrResult?.result?.text ||
+    jobOrResult?.final_reply ||
     ""
   );
 }
