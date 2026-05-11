@@ -10,6 +10,7 @@ import gitSync, { verifyConsistency } from "./gitSync.js";
 import { enrichSkillIntentsWithLLM } from "@adas/skill-validator";
 import { resolveEffectiveStyle, prependStyleToPersona } from "./styleCompiler.js";
 import { classifyToolList, applyExclusions } from "./toolSecurityClassifier.js";
+import { synthesizeIntentsForSkill } from "./intentSynthesizer.js";
 
 /**
  * Pre-deploy guard for the single-skill paths (per-skill redeploy, import,
@@ -150,6 +151,36 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
   // and the skill definition sent to ADAS Core below. This is the
   // single-skill path; the full-solution path has the same call in
   // skill-validator/src/routes/deploy.js.
+  // ── Phase 3 of §20 strip: intent SYNTHESIS (Builder-side, deploy-time) ──
+  // BEFORE enriching examples, check if the skill has any intents at all.
+  // If `intents.supported[]` is empty/missing AND we have a persona + tools,
+  // synthesize a fresh intent set via LLM. The existing enrichSkillIntents
+  // (below) then handles example enrichment on whichever intents exist
+  // (synthesized or author-written).
+  //
+  // REPLACE: skills with explicit non-empty intents.supported[] are
+  // skipped. mobile-pa has hand-curated intents → synthesis is a no-op.
+  //
+  // Source-hash cached in skill.intents._auto_hash, so a no-op redeploy
+  // doesn't re-burn LLM tokens. Hash invalidates when persona OR tool list
+  // changes.
+  try {
+    if (onProgress) onProgress('synthesizing_intents', 'Synthesizing intents (if missing)...');
+    const synthResult = await synthesizeIntentsForSkill(skill, skill.tools || []);
+    if (synthResult.status === "synthesized") {
+      await skillsStore.save(skill);
+      log.info(`[MCP Deploy] Synthesized ${synthResult.intents_count} intents for ${skillId} (hash=${synthResult.source_hash.slice(0,12)})`);
+    }
+    // For "skip" results, only log when reason is informative (not for the
+    // mobile-pa-style "explicit_intents" case which is the expected REPLACE
+    // protection path).
+    if (synthResult.status === "skip" && synthResult.reason !== "explicit_intents") {
+      log.info(`[MCP Deploy] Intent synthesis skipped for ${skillId}: ${synthResult.reason}`);
+    }
+  } catch (synthErr) {
+    log.warn(`[MCP Deploy] Intent synthesis failed for ${skillId} (non-fatal): ${synthErr.message}`);
+  }
+
   try {
     if (onProgress) onProgress('enriching_intents', 'Enriching intent examples...');
     await enrichSkillIntentsWithLLM(skill, skill.tools || []);
