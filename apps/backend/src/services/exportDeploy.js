@@ -9,6 +9,7 @@ import adasCore from "./adasCoreClient.js";
 import gitSync, { verifyConsistency } from "./gitSync.js";
 import { enrichSkillIntentsWithLLM } from "@adas/skill-validator";
 import { resolveEffectiveStyle, prependStyleToPersona } from "./styleCompiler.js";
+import { classifyToolList, applyExclusions } from "./toolSecurityClassifier.js";
 
 /**
  * Pre-deploy guard for the single-skill paths (per-skill redeploy, import,
@@ -160,6 +161,45 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
     log.warn(`[MCP Deploy] Intent enrichment failed for ${skillId} (non-fatal): ${enrichErr.message}`);
   }
 
+  // ── Phase 2 of §20 strip: auto-classify tool security + apply exclusions ──
+  // Tools without explicit security.classification get classified by pattern
+  // (see docs/tool-security-defaults.yaml). Fail-safe to "internal" when no
+  // pattern matches; "destructive" for delete/send/transfer/cancel/etc.
+  // REPLACE wins: explicit author classifications are preserved.
+  //
+  // Also applies skill.excluded_tools[] (glob patterns) — a hard deny-list
+  // that drops tools regardless of classification. Common pattern:
+  //   excluded_tools: ["gmail.send*", "memory.delete*"]
+  //
+  // Both transformations are non-destructive: explicit fields are preserved,
+  // missing data is filled in. Mobile-pa has many UNCLASSIFIED_TOOL warnings
+  // in its existing skills — Phase 2 auto-fills those at deploy without
+  // requiring author intervention. New skills don't need to think about
+  // classification at all unless they're overriding.
+  if (Array.isArray(skill.tools) && skill.tools.length > 0) {
+    try {
+      // Exclusion first — drop denied tools from the list.
+      const exclResult = applyExclusions(skill.tools, skill.excluded_tools || []);
+      if (exclResult.summary.excluded.length > 0) {
+        log.info(`[MCP Deploy] Excluded ${exclResult.summary.excluded.length} tool(s) for ${skillId}: ${exclResult.summary.excluded.map(e => e.name).join(', ')}`);
+      }
+      // Then classify the survivors.
+      const clsResult = classifyToolList(exclResult.tools);
+      skill.tools = clsResult.tools;
+      const destructive = clsResult.summary.classified.filter(c => c.classification === "destructive");
+      if (destructive.length > 0) {
+        log.info(`[MCP Deploy] Auto-classified ${destructive.length} destructive tool(s) for ${skillId}: ${destructive.map(c => c.name).join(', ')}`);
+      }
+      if (clsResult.summary.classified.length > 0 || exclResult.summary.excluded.length > 0) {
+        // Persist so the classifications land on disk + GH and the Core
+        // import below ships them. Same pattern as intent enrichment above.
+        await skillsStore.save(skill);
+      }
+    } catch (clsErr) {
+      log.warn(`[MCP Deploy] Tool security classification failed for ${skillId} (non-fatal): ${clsErr.message}`);
+    }
+  }
+
   // Phase 0: Deploy solution-level identity config (actor types, roles)
   if (solutionId) {
     try {
@@ -301,6 +341,10 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
         const out = { name: t.name, description: t.description || "" };
         if (t.script_cache) out.script_cache = t.script_cache;
         if (typeof t.script_hint === "string") out.script_hint = t.script_hint;
+        // Phase 2 strip: ship security classification to Core for tool-call gating
+        if (t?.security?.classification) {
+          out.security = { classification: t.security.classification };
+        }
         return out;
       }),
       // Preserve ui_plugins and ui_capable for Tier-4 virtual tool generation

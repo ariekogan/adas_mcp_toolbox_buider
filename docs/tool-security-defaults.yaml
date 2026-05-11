@@ -1,0 +1,118 @@
+# tool-security-defaults.yaml — Auto-classification rules for tool security
+# ════════════════════════════════════════════════════════════════════════
+# Phase 2 of the schema strip. Pattern-based default security classifications
+# for tools that haven't been explicitly classified by the author.
+#
+# Security classification space (matches existing validator):
+#   - public         — safe for anyone, no auth needed
+#   - internal       — needs an authenticated actor (default for unclassified)
+#   - pii_read       — reads personally identifiable data (memories, contacts, etc.)
+#   - pii_write      — modifies personally identifiable data
+#   - financial      — touches money, billing, payment instruments
+#   - destructive    — irreversible state changes (delete, send, post, transfer)
+#
+# Override semantics (REPLACE):
+#   - Explicit `tool.security.classification` → use as-is. Author wins.
+#   - Missing/empty → match against the patterns below.
+#   - No pattern matches → default to "internal".
+#
+# Fail-safe principle: when in doubt, classify as MORE restrictive. A tool
+# misclassified as `destructive` causes a confirmation prompt (annoying but
+# safe). A tool misclassified as `internal` when it's actually destructive
+# causes data loss. We bias towards over-restriction.
+#
+# Pattern matching is case-insensitive against the tool's full name (e.g.,
+# "gmail.send", "memory.recall", "device.calendar.create"). First match wins.
+# ════════════════════════════════════════════════════════════════════════
+
+# Rules are evaluated TOP-DOWN. First pattern that matches a tool name
+# determines its classification. Be careful with ordering.
+
+rules:
+
+  # ── DESTRUCTIVE — irreversible or external side-effects ──
+  # These get gated by user confirmation in the engine (per skill policy).
+
+  - pattern: '\.(delete|drop|destroy|remove|purge|wipe|clear|reset|cancel|revoke)(_|$|\.)'
+    classification: destructive
+    rationale: "Removes or revokes data — typically irreversible"
+
+  - pattern: '\.(send|post|publish|tweet|share|forward|broadcast|email|sms|call|dial)(_|$|\.)'
+    classification: destructive
+    rationale: "External communication — cannot be unsent"
+
+  - pattern: '\.(transfer|pay|charge|refund|cancel_subscription|cancel_order)(_|$|\.)'
+    classification: financial
+    rationale: "Moves money"
+
+  - pattern: '\.(turn_on|turn_off|toggle|activate|set_state|set_brightness|set_color|lock|unlock|arm|disarm)(_|$|\.)'
+    classification: destructive
+    rationale: "Physical world state change (smart home)"
+
+  - pattern: '\.(create|add|insert|schedule)(_|$|\.)'
+    classification: pii_write
+    rationale: "Creates new PII data (events, contacts, memories, etc.)"
+
+  - pattern: '\.(update|modify|edit|patch|move|rename|archive|mark_read|mark_unread|trash)(_|$|\.)'
+    classification: pii_write
+    rationale: "Modifies existing data"
+
+  # ── PII_READ — reads personal data without modifying ──
+
+  - pattern: '\.(contacts|memories?|emails?|messages|calendar|events|profile|tokens?)(\.|$)'
+    classification: pii_read
+    rationale: "Reads personally identifiable data"
+
+  - pattern: '\.(recall|list|search|find|fetch|read|get|view|show|inspect|history)(_|$|\.)'
+    classification: pii_read
+    rationale: "Read operation on user-scoped data"
+
+  # ── ADMIN.* — explicitly destructive admin operations ──
+  # Already denied at the MCP proxy boundary in Core (sec(mcpProxy):
+  # 2026-05-10 commit 6b3eabfe). Classify as destructive here too so
+  # any path that DOES reach them gets a confirmation gate.
+
+  - pattern: '^admin\.'
+    classification: destructive
+    rationale: "Admin operation — denied at proxy, gated if reached"
+
+  - pattern: '\.deleteActor(_|$|\.)'
+    classification: destructive
+    rationale: "Per-connector actor purge — account deletion path"
+
+  # ── PUBLIC — explicitly safe operations ──
+
+  - pattern: '^sys\.(findCapability|finalizePlan|askAnySkill|handoffToSkill|teach|setStatus)(_|$|\.)'
+    classification: public
+    rationale: "System-level planner orchestration tools"
+
+  - pattern: '\.(echo|ping|health|version|status)(_|$|\.)'
+    classification: public
+    rationale: "Diagnostic / introspection — no side effects"
+
+  # ── INTERNAL — fallback ──
+  # Anything that doesn't match the patterns above. Requires an
+  # authenticated actor but is otherwise unrestricted. This is the
+  # default for unclassified tools.
+
+# Default for tools that match no pattern.
+default: internal
+
+# ── Skill-level enforcement ──
+# Each skill can declare `excluded_tools` to deny-list specific tools
+# regardless of their classification. Wildcards supported via the same
+# patterns as above (e.g., "gmail.send*" excludes all gmail.send_* tools).
+#
+# This file does NOT enforce — it just classifies. Enforcement happens
+# in the engine's tool-call gates based on classification + skill policy.
+
+# ── Authoring notes ──
+# - Add patterns here as new tool families emerge (e.g., a calendar
+#   integration that uses unusual verbs like "book", "reserve").
+# - Update the rationale field — it's read by the classifier and
+#   surfaces in deploy logs / audit so authors understand the decision.
+# - Test your patterns against existing tool names BEFORE shipping.
+# - If a tool gets misclassified in production, the AUTHOR's path to
+#   correct it is to add explicit `tool.security.classification` in
+#   the skill.json (REPLACE wins). Don't tune the patterns to fit one
+#   bad case — that risks breaking others.
