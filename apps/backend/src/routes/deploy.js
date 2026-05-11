@@ -419,6 +419,12 @@ router.post('/solution', async (req, res, next) => {
 
       log.info(`[Deploy] Deployment complete. ${deployedSkills.filter(s => s.status === 'deployed').length}/${deployedSkills.length} skills deployed`);
 
+      // Note (§20 v2.2 architecture): Tier 2 uiActions for connector-returned
+      // plugins (those NOT in solution.ui_plugins[]) is synthesized lazily by
+      // Core at runtime on first chat that needs them — NOT here. Builder
+      // owns Tier 1 only (heuristic enrichment of declared plugins, applied
+      // above before save). See docs/UI_ACTIONS_DESIGN.md §20.
+
       // Return success response
       return res.json({
         ok: true,

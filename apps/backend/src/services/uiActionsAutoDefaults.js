@@ -1,24 +1,30 @@
 /**
- * uiActionsAutoDefaults — synthesize sensible default `uiActions` blocks for
- * plugin manifests that don't have one. Implements §20 of UI_ACTIONS_DESIGN.md
- * (auto-generated defaults for the long tail of plugins).
+ * uiActionsAutoDefaults — Tier 1 of §20 (heuristic-only).
  *
- * Design decisions locked down in the §20 review:
- *   - Override semantics: REPLACE. Explicit `uiActions` (including {}) wins.
- *     We only synthesize when the field is `undefined`. This makes auto-vs-
- *     hand-authored distinguishable and gives authors full control.
- *   - Generation timing: deploy-time. The synthesized block is written into
- *     the manifest as it flows through the deploy pipeline, so it lands in
+ * Two-tier auto-generation in the platform:
+ *   - Tier 1 (THIS FILE, Builder, deploy-time): heuristic synthesis for
+ *     plugins DECLARED in `solution.ui_plugins[]` / `skill.ui_plugins[]`.
+ *     Result is written back into the manifest before save, so it lands in
  *     mongo + GitHub. Greppable, debuggable, copy-editable by the author.
+ *   - Tier 2 (Core, runtime, cache-once): LLM synthesis for plugins
+ *     RETURNED by a connector's `ui.listPlugins` at runtime that don't
+ *     ship a `uiActions` block. Lives in Core's `cp.uiActions_api`
+ *     synthesizer. Result is written to the `ui_actions_generated`
+ *     mongo side-table on first miss and read from there forever after
+ *     (until source_hash changes). NOT this file's concern.
  *
- * Skip rules (return plugin unchanged):
+ * Override semantics (REPLACE): explicit `uiActions` (even `{}`) wins. We
+ * only synthesize when the field is `undefined`. Same rule applies in both
+ * tiers. Authors keep full control.
+ *
+ * Skip rules (return plugin unchanged) — Tier 1:
  *   - plugin.uiActions is already defined (REPLACE rule)
  *   - plugin.type === "service" (headless — no UI to render chips on)
  *   - plugin.internal === true (utility plugins not meant for the planner)
  *   - we cannot derive at least one intent (no commands AND no inferable
  *     entity kinds → empty `intents:{}` would be invalid per spec)
  *
- * Heuristics for synthesis:
+ * Heuristics:
  *   surfaces: ["chip"]                         — only v1 surface
  *   deeplink: "?focus=:focusId"                — common case
  *   intents.suggested_action.tool_names        — from plugin.commands[]
