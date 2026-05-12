@@ -12,6 +12,7 @@ import { resolveEffectiveStyle, prependStyleToPersona } from "./styleCompiler.js
 import { classifyToolList, applyExclusions } from "./toolSecurityClassifier.js";
 import { synthesizeIntentsForSkill } from "./intentSynthesizer.js";
 import { resolveEngine } from "./engineCompiler.js";
+import { autoImportToolsForSkill } from "./connectorTools.js";
 
 /**
  * Pre-deploy guard for the single-skill paths (per-skill redeploy, import,
@@ -191,6 +192,28 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
     log.info(`[MCP Deploy] Enriched intent examples for ${skillId} (${(skill.intents?.supported || []).length} intents)`);
   } catch (enrichErr) {
     log.warn(`[MCP Deploy] Intent enrichment failed for ${skillId} (non-fatal): ${enrichErr.message}`);
+  }
+
+  // ── Phase 2b of §20 strip: auto-import tool bridges from connectors ──
+  // When skill.tools[] is empty/missing, fetch the live tool schemas from
+  // each connector listed in skill.connectors[] (via Core's
+  // /api/connectors/:id/tools), build bridge entries, and inject into
+  // skill.tools[]. REPLACE wins: explicit tools[] preserved.
+  //
+  // After this, Phase 2's classification + exclusion fires on the
+  // populated tools[] — so security classifications and excluded_tools[]
+  // work uniformly on author-written OR auto-imported tools.
+  try {
+    const importResult = await autoImportToolsForSkill(skill);
+    if (importResult.imported > 0) {
+      // Persist auto-imported tools so the classifier in Phase 2 sees them
+      await skillsStore.save(skill);
+      log.info(`[MCP Deploy] Auto-imported ${importResult.imported} tool bridges for ${skillId} from ${importResult.connectors_queried} connector(s)`);
+    } else if (importResult.skipped_reason !== "explicit_tools" && importResult.skipped_reason !== "no_connectors") {
+      log.info(`[MCP Deploy] Tool auto-import skipped for ${skillId}: ${importResult.skipped_reason}`);
+    }
+  } catch (importErr) {
+    log.warn(`[MCP Deploy] Tool auto-import failed for ${skillId} (non-fatal): ${importErr.message}`);
   }
 
   // ── Phase 2 of §20 strip: auto-classify tool security + apply exclusions ──

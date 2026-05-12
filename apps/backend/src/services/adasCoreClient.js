@@ -187,6 +187,20 @@ async function getConnector(connectorId) {
 }
 
 /**
+ * Generic Core fetch — used by Phase 2b (auto-import tool bridges from
+ * GET /api/connectors/:id/tools). Returns the parsed JSON response,
+ * or {ok: false, error} on failure. Does NOT throw — caller handles
+ * the error in the response shape.
+ */
+async function fetchCore(endpoint, { method = 'GET', body, timeout = 15000 } = {}) {
+  try {
+    return await request(endpoint, { method, body, timeout });
+  } catch (err) {
+    return { ok: false, error: err.message, status: err.status };
+  }
+}
+
+/**
  * Create or update a connector in ADAS Core.
  * Checks if the connector exists first, then PATCHes or POSTs.
  */
@@ -517,6 +531,7 @@ export default {
   stopConnector,
   deleteConnector,
   deleteAllConnectors,
+  fetchCore,
   getConnectors,
   getSkills,
   deleteSkill,
@@ -553,6 +568,7 @@ export {
   stopConnector,
   deleteConnector,
   deleteAllConnectors,
+  fetchCore,
   getConnectors,
   getSkills,
   deleteSkill,
