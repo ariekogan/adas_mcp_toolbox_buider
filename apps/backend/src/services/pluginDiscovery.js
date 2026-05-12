@@ -39,53 +39,61 @@ import adasCore from "./adasCoreClient.js";
 
 /**
  * Call ui.listPlugins on a single connector via Core's bridge.
- * Returns array of plugin manifests; empty on any failure.
+ *
+ * Returns `{ plugins: [...], reason: "ok" }` on success.
+ * Returns `{ plugins: [], reason: "no_ui_listPlugins" }` ONLY when the
+ *   connector legitimately doesn't expose the tool (tool-not-found error).
+ *   This is a legitimate skip, not an error.
+ *
+ * Any other failure (network, parse, malformed payload) THROWS. The deploy
+ * should fail loudly — partial plugin discovery is worse than no discovery
+ * because the UI loses plugins silently.
  */
 async function fetchPluginsForConnector(connectorId) {
+  let result;
   try {
-    const result = await adasCore.callConnectorTool(connectorId, "ui.listPlugins", {});
-    if (!result) return { plugins: [], reason: "empty_result" };
-    // ui.listPlugins typically returns { content: [{ type: "text", text: "<json>" }] }
-    // or { plugins: [...] } depending on MCP convention. Handle both.
-    let plugins = null;
-    if (Array.isArray(result.plugins)) {
-      plugins = result.plugins;
-    } else if (Array.isArray(result?.content)) {
-      // MCP text-response shape — pluck the JSON
-      const textBlock = result.content.find(c => c?.type === "text" && c.text);
-      if (textBlock) {
-        try {
-          const parsed = JSON.parse(textBlock.text);
-          plugins = Array.isArray(parsed?.plugins) ? parsed.plugins
-                  : Array.isArray(parsed)          ? parsed
-                  : null;
-        } catch (parseErr) {
-          return { plugins: [], reason: `parse_error: ${parseErr.message}` };
-        }
-      }
-    } else if (Array.isArray(result)) {
-      plugins = result;
-    }
-    if (!Array.isArray(plugins)) return { plugins: [], reason: "unrecognized_shape" };
-    // Normalize: ensure plugin.id is fully qualified
-    const normalized = plugins.filter(p => p && (p.id || p.name)).map(p => {
-      const pid = p.id || `mcp:${connectorId}:${p.name}`;
-      return {
-        ...p,
-        id: pid,
-        _source: "mcp_introspection",
-        _connector_id: connectorId,
-      };
-    });
-    return { plugins: normalized, reason: "ok" };
+    result = await adasCore.callConnectorTool(connectorId, "ui.listPlugins", {});
   } catch (err) {
     const msg = err?.message || String(err);
-    // Tool-not-found = connector legitimately doesn't expose plugins
+    // Legitimate skip: connector doesn't implement the tool
     if (/Unknown tool|not found|method not found/i.test(msg)) {
       return { plugins: [], reason: "no_ui_listPlugins" };
     }
-    return { plugins: [], reason: `error: ${msg}` };
+    // All other errors propagate — the deploy must fail visibly
+    throw new Error(`ui.listPlugins call to connector "${connectorId}" failed: ${msg}`);
   }
+  if (!result) {
+    throw new Error(`ui.listPlugins on "${connectorId}" returned empty/null result`);
+  }
+  // Normalize across MCP response shapes
+  let plugins = null;
+  if (Array.isArray(result.plugins)) {
+    plugins = result.plugins;
+  } else if (Array.isArray(result?.content)) {
+    const textBlock = result.content.find(c => c?.type === "text" && c.text);
+    if (textBlock) {
+      // JSON parse errors propagate — a malformed MCP response is a bug
+      const parsed = JSON.parse(textBlock.text);
+      plugins = Array.isArray(parsed?.plugins) ? parsed.plugins
+              : Array.isArray(parsed)          ? parsed
+              : null;
+    }
+  } else if (Array.isArray(result)) {
+    plugins = result;
+  }
+  if (!Array.isArray(plugins)) {
+    throw new Error(`ui.listPlugins on "${connectorId}" returned unrecognized shape — expected {plugins:[...]} or array, got ${JSON.stringify(result).slice(0, 200)}`);
+  }
+  const normalized = plugins.filter(p => p && (p.id || p.name)).map(p => {
+    const pid = p.id || `mcp:${connectorId}:${p.name}`;
+    return {
+      ...p,
+      id: pid,
+      _source: "mcp_introspection",
+      _connector_id: connectorId,
+    };
+  });
+  return { plugins: normalized, reason: "ok" };
 }
 
 /**

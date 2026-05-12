@@ -155,23 +155,17 @@ router.post('/solution', async (req, res, next) => {
     // NOT touched here — those need either author update or a Core-side
     // fetch-time hook (out of scope for this layer).
     // ── Phase 5 of §20 strip: plugin discovery via MCP introspection ──
-    // When solution.ui_plugins[] is empty/missing, call ui.listPlugins on
-    // each connector via Core. MCPs are the source of truth — they know
-    // their own version, surface, uiActions, capabilities. FS layout is
-    // not consulted (it over-discovers and misses MCP-internal fields).
-    // REPLACE wins: explicit solution.ui_plugins[] (mobile-pa case) is
-    // preserved verbatim.
+    // Errors propagate — a deploy with broken plugin discovery should
+    // fail loudly. If a connector legitimately doesn't expose
+    // ui.listPlugins, fetchPluginsForConnector returns 0 plugins for it
+    // (correct: non-UI connector has no plugins) without throwing.
     if (!Array.isArray(solution.ui_plugins) || solution.ui_plugins.length === 0) {
-      try {
-        const { plugins: discovered, summary } = await discoverPluginsViaIntrospection(solution, skills);
-        if (discovered.length > 0) {
-          solution.ui_plugins = discovered;
-          log.info(`[Deploy] Plugin introspection: ${discovered.length} unique plugin(s) from ${summary.connectors_with_plugins}/${summary.connectors_queried} connectors${summary.conflicts.length > 0 ? ` (${summary.conflicts.length} id conflicts deduped)` : ''}: ${discovered.map(p => p.id).join(', ')}`);
-        } else {
-          log.info(`[Deploy] Plugin introspection: 0 plugins from ${summary.connectors_queried} connectors. Per-connector: ${summary.per_connector.map(c => `${c.connector_id}(${c.reason})`).join(', ')}`);
-        }
-      } catch (discoErr) {
-        log.warn(`[Deploy] Plugin introspection failed (non-fatal): ${discoErr.message}`);
+      const { plugins: discovered, summary } = await discoverPluginsViaIntrospection(solution, skills);
+      if (discovered.length > 0) {
+        solution.ui_plugins = discovered;
+        log.info(`[Deploy] Plugin introspection: ${discovered.length} unique plugin(s) from ${summary.connectors_with_plugins}/${summary.connectors_queried} connectors${summary.conflicts.length > 0 ? ` (${summary.conflicts.length} id conflicts deduped)` : ''}: ${discovered.map(p => p.id).join(', ')}`);
+      } else {
+        log.info(`[Deploy] Plugin introspection: 0 plugins from ${summary.connectors_queried} connectors. Per-connector: ${summary.per_connector.map(c => `${c.connector_id}(${c.reason})`).join(', ')}`);
       }
     }
 
@@ -207,29 +201,22 @@ router.post('/solution', async (req, res, next) => {
     // routing_mode:"auto" nor a need for this — generation skipped.
     try {
       const orchResult = await generateOrchestratorIfNeeded(solution, skills);
-      // Drop legacy orchestrator IDs (renamed-from values) regardless of
-      // whether new generation runs. Both Core + FS + linked_skills must be
-      // cleaned. Idempotent: ignores 404 if already gone.
-      const legacyOrphans = orchResult.legacy_ids_to_drop || [];
-      for (const legacyId of legacyOrphans) {
-        try {
-          await adasCore.deleteSkill(legacyId);
-          log.info(`[Deploy] Dropped legacy orchestrator id "${legacyId}" from Core`);
-        } catch (e) {
-          log.warn(`[Deploy] Core deletion of legacy "${legacyId}" failed (non-fatal): ${e.message}`);
-        }
-        try {
-          const { default: skillsStoreLocal } = await import('../store/skills.js');
-          await skillsStoreLocal.remove(solution.id, legacyId);
-        } catch (e) {
-          log.warn(`[Deploy] FS deletion of legacy "${legacyId}" failed (non-fatal): ${e.message}`);
-        }
+      // Drop stale auto-generated orchestrators. Detection is marker-based
+      // (skill._auto_generated === true AND role_type === "orchestrator"
+      // AND id !== currentORCH_ID) — author-written skills are NEVER touched
+      // regardless of their id. Core 404 on delete = already gone, fine.
+      // Any other delete failure aborts the deploy.
+      const staleIds = orchResult.stale_orchestrator_ids || [];
+      for (const staleId of staleIds) {
+        const { default: skillsStoreLocal } = await import('../store/skills.js');
+        await adasCore.deleteSkill(staleId);  // returns ok on 404, throws on real error
+        await skillsStoreLocal.remove(solution.id, staleId);
+        log.info(`[Deploy] Dropped stale auto-orchestrator "${staleId}" (replaced by current ORCH_ID)`);
         // Drop from in-memory skills array so deploy loop ignores it
-        const idx = skills.findIndex(s => s?.id === legacyId);
+        const idx = skills.findIndex(s => s?.id === staleId);
         if (idx >= 0) skills.splice(idx, 1);
-        // Drop from solution.linked_skills if present
         if (Array.isArray(solution.linked_skills)) {
-          solution.linked_skills = solution.linked_skills.filter(s => s !== legacyId);
+          solution.linked_skills = solution.linked_skills.filter(s => s !== staleId);
         }
       }
       if (orchResult.generated) {

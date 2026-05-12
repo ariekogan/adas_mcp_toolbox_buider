@@ -48,13 +48,14 @@ import { createAdapter } from "./llm/adapter.js";
 // generated without violating the slug convention.
 const ORCH_ID = "auto-orchestrator";
 
-// Previous ORCH_ID values from earlier iterations. When the constant
-// changes, the deploy pipeline must drop any leftover skills using
-// these legacy slugs (otherwise the topology shows phantom orchestrators
-// — observed manually with "I see 2 orchestrators" on 2026-05-12).
-// Append the OLD value here BEFORE changing ORCH_ID, then drop the
-// previous entry on the next major release.
-const LEGACY_ORCH_IDS = ["_orchestrator", "orchestrator"];
+// Stale-orchestrator detection is done by MARKER, not by hardcoded ID list.
+// Every skill we generate carries:
+//   _auto_generated: true
+//   role_type: "orchestrator"
+// On deploy, anything with both flags that isn't the current ORCH_ID is a
+// stale record from a previous generator iteration and must be dropped.
+// An author-written skill called "orchestrator" without _auto_generated
+// is NEVER touched (no destructive guess).
 
 // ─────────────────────────────────────────────────────────────────────
 // handoff_when synthesis (Phase 6b — generalization fix, 2026-05-12)
@@ -159,12 +160,10 @@ async function synthesizeHandoffWhenForSkill(skill) {
     return { cached: true, source_hash: hash };
   }
 
-  let adapter;
-  try {
-    adapter = createAdapter(process.env.LLM_PROVIDER || "openai");
-  } catch (err) {
-    return null;  // LLM unavailable, fall through to description
-  }
+  // createAdapter throws on missing creds / misconfig — propagate. The
+  // deploy should fail loudly if the LLM is unreachable rather than
+  // silently producing description-fallback triggers.
+  const adapter = createAdapter(process.env.LLM_PROVIDER || "openai");
 
   const systemPrompt = `You write ONE-LINE routing triggers for skill handoffs in a multi-skill AI agent platform.
 
@@ -202,27 +201,29 @@ ${persona.slice(0, 3000)}
 
 Write the routing trigger now (one sentence, 15-50 words, mentioning specific user-facing verbs/nouns drawn from the tool inventory and connectors above):`;
 
-  try {
-    const res = await adapter.chat({
-      systemPrompt,
-      messages: [{ role: "user", content: userMessage }],
-      maxTokens: 200,
-      temperature: 0.2,
-      enableTools: false,
-    });
-    const trigger = (res?.content || "").trim()
-      .replace(/^["']/, "").replace(/["']$/, "")
-      .replace(/^[-•*]\s+/, "")
-      .split(/\n+/)[0]
-      .trim();
-    if (trigger.length < 10 || trigger.length > 400) return null;
-    skill.handoff_when = trigger;
-    skill._auto_handoff_when = trigger;
-    skill._auto_handoff_hash = hash;
-    return { synthesized: true, source_hash: hash, trigger };
-  } catch (err) {
-    return null;
+  // LLM call errors propagate — caller decides whether to abort the
+  // whole deploy or only this skill. No silent description-fallback.
+  const res = await adapter.chat({
+    systemPrompt,
+    messages: [{ role: "user", content: userMessage }],
+    maxTokens: 200,
+    temperature: 0.2,
+    enableTools: false,
+  });
+  const trigger = (res?.content || "").trim()
+    .replace(/^["']/, "").replace(/["']$/, "")
+    .replace(/^[-•*]\s+/, "")
+    .split(/\n+/)[0]
+    .trim();
+  if (trigger.length < 10 || trigger.length > 400) {
+    // LLM returned a clearly bad output (empty / too long). This IS an
+    // error worth surfacing — bad prompt or bad model — not a silent skip.
+    throw new Error(`handoff_when synthesis for skill "${skill.id}" returned malformed trigger (${trigger.length} chars): ${JSON.stringify(trigger).slice(0, 200)}`);
   }
+  skill.handoff_when = trigger;
+  skill._auto_handoff_when = trigger;
+  skill._auto_handoff_hash = hash;
+  return { synthesized: true, source_hash: hash, trigger };
 }
 
 /**
@@ -233,16 +234,24 @@ Write the routing trigger now (one sentence, 15-50 words, mentioning specific us
  * @returns {Promise<{ synthesized: number, cached: number, skipped: number, failures: number }>}
  */
 export async function synthesizeHandoffsForWorkers(workers) {
-  const summary = { synthesized: 0, cached: 0, skipped: 0, failures: 0 };
+  const summary = { synthesized: 0, cached: 0, skipped: 0 };
   if (!Array.isArray(workers)) return summary;
   for (const w of workers) {
     if (typeof w?.handoff_when === "string" && w.handoff_when.trim().length > 0) {
       summary.skipped++;  // explicit author value
       continue;
     }
+    // Errors from synthesizeHandoffWhenForSkill propagate — no per-skill
+    // swallow. If one skill can't be synthesized, the whole deploy fails.
     const result = await synthesizeHandoffWhenForSkill(w);
-    if (!result) summary.failures++;
-    else if (result.cached) summary.cached++;
+    if (!result) {
+      // Returned null = "skill has too little signal to synthesize".
+      // Legitimate skip (not an error), but the orchestrator persona
+      // will fall back to description for this worker. Document via summary.
+      summary.skipped++;
+      continue;
+    }
+    if (result.cached) summary.cached++;
     else if (result.synthesized) summary.synthesized++;
   }
   return summary;
@@ -439,31 +448,44 @@ Routing rules:
  *   handoff_synthesis?: { synthesized, cached, skipped, failures },
  * }>}
  */
+/**
+ * Identify stale auto-generated orchestrators in a skill set.
+ *
+ * Criterion: skill carries our marker (_auto_generated:true + role_type:"orchestrator")
+ * AND its id is NOT the current ORCH_ID. Author-written skills (no marker)
+ * are NEVER returned — they are owned by the author and we never touch them.
+ *
+ * @returns {string[]} ids of stale records to delete from Core + FS.
+ */
+export function findStaleOrchestratorIds(skills) {
+  if (!Array.isArray(skills)) return [];
+  return skills
+    .filter(s =>
+      s &&
+      s.id &&
+      s.id !== ORCH_ID &&
+      s._auto_generated === true &&
+      s.role_type === "orchestrator"
+    )
+    .map(s => s.id);
+}
+
 export async function generateOrchestratorIfNeeded(solution, skills) {
   const decision = shouldGenerateOrchestrator(solution, skills);
 
-  // Compute legacy orphans regardless of generate decision — if the
-  // bundle still carries an old ORCH_ID slug, callers should clean it
-  // up even when generation is skipped (e.g. author wrote their own
-  // orchestrator after we already deployed an auto- one).
-  const legacy_ids_to_drop = LEGACY_ORCH_IDS.filter(legacyId =>
-    (Array.isArray(skills) ? skills : []).some(s => s?.id === legacyId)
-  );
+  // Identify stale auto-generated orchestrators (renamed-from records).
+  // Marker-based detection — never deletes author-written skills.
+  const stale_orchestrator_ids = findStaleOrchestratorIds(skills);
 
   if (!decision.generate) {
-    return { generated: false, reason: decision.reason, legacy_ids_to_drop };
+    return { generated: false, reason: decision.reason, stale_orchestrator_ids };
   }
   // Synthesize handoff_when on workers BEFORE building the orchestrator.
-  // The persona-routing block (in buildOrchestratorSkill) reads w.handoff_when,
-  // so this needs to fire first.
-  const workers = (skills || []).filter(s => s?.id && s.id !== ORCH_ID && !LEGACY_ORCH_IDS.includes(s.id));
-  let handoff_synthesis = { synthesized: 0, cached: 0, skipped: 0, failures: 0 };
-  try {
-    handoff_synthesis = await synthesizeHandoffsForWorkers(workers);
-  } catch (err) {
-    // LLM unavailable / network fail — fall through with description fallback.
-    handoff_synthesis = { synthesized: 0, cached: 0, skipped: 0, failures: workers.length, error: err.message };
-  }
+  // The persona-routing block reads w.handoff_when, so this fires first.
+  // Synthesis errors propagate — a deploy with a broken LLM should fail
+  // loudly, not silently produce description-fallback triggers.
+  const workers = (skills || []).filter(s => s?.id && s.id !== ORCH_ID && !stale_orchestrator_ids.includes(s.id));
+  const handoff_synthesis = await synthesizeHandoffsForWorkers(workers);
   const orch = buildOrchestratorSkill(solution, skills);
   return {
     generated: true,
@@ -471,7 +493,7 @@ export async function generateOrchestratorIfNeeded(solution, skills) {
     orchestrator: orch,
     handoffs: orch._generated_handoffs || [],
     handoff_synthesis,
-    legacy_ids_to_drop,
+    stale_orchestrator_ids,
   };
 }
 
@@ -480,8 +502,8 @@ export default {
   buildOrchestratorSkill,
   generateOrchestratorIfNeeded,
   synthesizeHandoffsForWorkers,
+  findStaleOrchestratorIds,
   ORCH_ID,
-  LEGACY_ORCH_IDS,
 };
 
-export { ORCH_ID, LEGACY_ORCH_IDS };
+export { ORCH_ID };
