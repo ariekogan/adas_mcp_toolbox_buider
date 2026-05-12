@@ -40,7 +40,10 @@
  *     as precisely as a hand-coded one?) — validated only at Phase 10.
  */
 
-const ORCH_ID = "_orchestrator";
+// Note: Core reserves `_`-prefix slugs for system skills (per skillBootstrap.js
+// validation). Use a normal id with `auto-` prefix to flag it as platform-
+// generated without violating the slug convention.
+const ORCH_ID = "auto-orchestrator";
 
 /**
  * Decide whether to generate the orchestrator for this solution.
@@ -141,7 +144,7 @@ Routing rules:
   // Authors can still write explicit handoffs at solution-level for
   // overrides; those compose with the ones generated here.
   const generatedHandoffs = workers.map(w => ({
-    id: `_orch-to-${w.id}`,
+    id: `auto-orch-to-${w.id}`,
     from: ORCH_ID,
     to: w.id,
     trigger: w.handoff_when || w.description || `Route to ${w.name || w.id}`,
