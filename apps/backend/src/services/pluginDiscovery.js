@@ -65,6 +65,18 @@ async function fetchPluginsForConnector(connectorId) {
   if (!result) {
     throw new Error(`ui.listPlugins on "${connectorId}" returned empty/null result`);
   }
+  // Detect MCP-protocol error responses (per MCP spec: result with
+  // isError:true, or text content starting with "MCP error" which is
+  // how some Core bridges relay tool-call errors). Tool-not-found is a
+  // legitimate skip — connector simply doesn't expose ui.listPlugins.
+  if (result?.isError === true || result?.content?.[0]?.isError === true) {
+    const errText = result?.content?.[0]?.text || "MCP error";
+    if (/Unknown tool|not found|method not found|Method not found|-32601/i.test(errText)) {
+      return { plugins: [], reason: "no_ui_listPlugins" };
+    }
+    throw new Error(`ui.listPlugins on "${connectorId}" returned MCP error: ${errText}`);
+  }
+
   // Normalize across MCP response shapes
   let plugins = null;
   if (Array.isArray(result.plugins)) {
@@ -72,8 +84,19 @@ async function fetchPluginsForConnector(connectorId) {
   } else if (Array.isArray(result?.content)) {
     const textBlock = result.content.find(c => c?.type === "text" && c.text);
     if (textBlock) {
-      // JSON parse errors propagate — a malformed MCP response is a bug
-      const parsed = JSON.parse(textBlock.text);
+      // Text block starting with "MCP error" is a wrapped tool-call
+      // error (no isError flag set, just an error string). Treat as
+      // legitimate skip if it's a method-not-found variant.
+      const t = textBlock.text.trim();
+      if (t.startsWith("MCP error")) {
+        if (/Unknown tool|not found|method not found|-32601/i.test(t)) {
+          return { plugins: [], reason: "no_ui_listPlugins" };
+        }
+        throw new Error(`ui.listPlugins on "${connectorId}" returned MCP error: ${t}`);
+      }
+      // Otherwise treat as JSON payload — JSON.parse errors propagate
+      // (malformed MCP response is a bug worth surfacing).
+      const parsed = JSON.parse(t);
       plugins = Array.isArray(parsed?.plugins) ? parsed.plugins
               : Array.isArray(parsed)          ? parsed
               : null;
