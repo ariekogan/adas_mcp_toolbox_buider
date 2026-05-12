@@ -90,6 +90,18 @@ When `sys.handoffToSkill` fails due to no channel (the common test-harness path)
 
 Difference is in the auto-generated orchestrator persona vs mobile-pa's hand-tuned pa-orchestrator. Not a routing-quality issue; a prompt-tuning issue.
 
+### ⚠️ `sys.askAnySkill` fallback re-routes instead of reusing the handoff target (Bug A from E2E parity test)
+When `sys.handoffToSkill(X)` fails with `no_channel_context`, the orchestrator should retry `sys.askAnySkill(X)` with the SAME target. Mobile-pa's pa-orchestrator does this. Stripped's auto-orchestrator can re-evaluate and pick a different skill (observed in E2E Test 3 — `"I'm feeling tired"` correctly identified mycoach via findCapability+handoff, but askAnySkill drifted to home-control). **1-line fix in `buildOrchestratorSkill()` persona** — make the "same skill" rule explicit.
+
+---
+
+## OUT OF STRIP SCOPE (architectural, leave for separate Core work)
+
+### Channel-driven response style (was "Bug B" in E2E parity test)
+Per-skill MOBILE CHAT guardrails in `policy.guardrails.always[]` are the wrong abstraction. Channel TYPE (`voice` / `mobile-chat` / `web` / `api`) should drive the finalization-gate's style rules automatically. Authors shouldn't write style guardrails per skill — the platform knows the channel.
+
+This is a Core-side change. Schema strip is the wrong layer to fix it. **Stripped responses will be verbose vs mobile-pa's 1-sentence replies** until channel-driven style is implemented.
+
 ---
 
 ## 3) LEFT TO DO — to declare the migration complete

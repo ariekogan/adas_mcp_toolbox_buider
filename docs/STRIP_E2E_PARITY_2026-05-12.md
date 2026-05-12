@@ -52,7 +52,7 @@ Tests chosen to avoid auth walls (memory + coaching, real connectors).
 | Tests routed identically (first skill chosen) | 3/3 | 3/3 |
 | Tests delivered to same final skill | 3/3 | **2/3** |
 | Tests with on-target final response | 2/3 | 2/3 |
-| MOBILE CHAT guardrail enforced | 3/3 | **0/3** |
+| MOBILE CHAT guardrail enforced (per-skill `policy.guardrails`) | 3/3 | 0/3 — **out of strip scope**, channel-driven enforcement is the right Core fix |
 | Avg duration | ~104s | ~67s |
 
 ---
@@ -71,15 +71,13 @@ It does NOT say "**reuse the same target skill**". The LLM is free to re-run cap
 
 > "If `sys.handoffToSkill(X)` fails, call `sys.askAnySkill(X)` with the **same** target skill — do not re-route. Routing decisions made in the handoff must be honored by the askAnySkill fallback."
 
-### Bug B — MOBILE CHAT guardrail not enforced on stripped
+### Bug B — MOBILE CHAT verbose responses on stripped (NOT a strip bug — architectural)
 
-Mobile-pa's responses are tight 1-sentence replies because every `sys.finalizePlan` runs through a gate that checks the worker's `policy.guardrails.always` rules and BLOCKS drafts that violate them. The MOBILE CHAT block in mobile-pa's skills enforces "1-2 sentences max, casual tone, no markdown".
+**Observation:** Stripped's `sys.finalizePlan` drafts pass through with multi-sentence/markdown content. Mobile-pa's same drafts get gate-blocked and rewritten to 1-sentence casual tone, because mobile-pa carries MOBILE CHAT guardrails inside each skill's `policy.guardrails.always[]`.
 
-On the stripped tenant, the same block is supposed to be **inherited from the solution-level `style: "mobile"`** by Phase 1 (style inheritance), but the gate isn't triggering. Either:
-- Phase 1 didn't run for these skills (likely — it runs in `POST /api/deploy/solution`, not in `ateam_redeploy`), or
-- The gate reads guardrails from a field stripped doesn't populate.
+**Reclassified out of strip scope (2026-05-12):** Per-skill style guardrails are the wrong abstraction. Channel TYPE (`voice` / `mobile-chat` / `web` / `api`) should drive formatting at runtime — the finalization gate should read the inbound channel and apply the appropriate style profile automatically. Authors shouldn't be writing "1-2 sentences max" inside every skill's policy block; the platform should know that mobile-chat = short, voice = speech-friendly, web = longer markdown OK.
 
-**Where to look:** `services/styleInheritance.js` + verify `policy.guardrails.always[]` includes the MOBILE CHAT lines on each stripped worker skill.
+This is a Core-side architectural change, separate from the schema strip. **Leaving as-is** until that work happens. Verbose stripped responses are cosmetic until then.
 
 ---
 
@@ -90,10 +88,10 @@ On the stripped tenant, the same block is supposed to be **inherited from the so
 | Stripped solution can route correctly to the right worker skill | ✅ |
 | LLM-synthesized `handoff_when` enables routing parity | ✅ (2/3 perfect, 3/3 identified correct target) |
 | Auto-orchestrator handles handoff failures gracefully | ⚠️ Sometimes drifts to wrong skill (Bug A) |
-| MOBILE CHAT style inherited correctly | ❌ Gate not enforced — author-visible behavior diverges |
-| End-user experience equivalent to mobile-pa | ❌ Yet. Bugs A and B both reach the user. |
+| MOBILE CHAT style inherited correctly | N/A — wrong abstraction (channel-driven, not skill-level) |
+| End-user experience equivalent to mobile-pa | Once Bug A is fixed, yes for routing/execution. Style cosmetics depend on the separate Core channel-style work. |
 
-**Net:** routing core works. Two specific bugs (one in orchestrator persona, one in style-inheritance enforcement) explain every quality gap observed. Both are 1-commit fixes once root-caused.
+**Net:** routing core works. **Bug A (orchestrator askAnySkill re-route)** is the only strip-side regression and is a 1-line persona fix.
 
 ---
 
