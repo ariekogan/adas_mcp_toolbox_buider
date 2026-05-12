@@ -73,9 +73,16 @@ const ORCH_ID = "auto-orchestrator";
  *
  * Filters out internal/setup tools (names starting with _ or "ui.*" or
  * "*._*") so the trigger reflects user-facing capability, not plumbing.
- * Caps at ~40 tools and ~80 chars per description to keep prompts bounded.
+ *
+ * Round-robin sampling by tool-name prefix (the bit before the first
+ * ".") so every connector / capability cluster is represented even
+ * when one cluster has many more tools than the others. Without this,
+ * a skill that lists 115 tools (life-manager) would have its first
+ * connector eat all 40 slots and the gmail.* tools never reach the
+ * prompt — which was the actual bug behind the 'clean my emails'
+ * misroute.
  */
-function summarizeToolsForSynthesis(tools) {
+function summarizeToolsForSynthesis(tools, maxTools = 50) {
   if (!Array.isArray(tools)) return "";
   const filtered = tools.filter(t => {
     const n = (t?.name || "").toString();
@@ -87,19 +94,39 @@ function summarizeToolsForSynthesis(tools) {
     const desc = (t?.description || "").toLowerCase();
     if (desc.startsWith("internal") || desc.startsWith("[internal]")) return false;
     return true;
-  }).slice(0, 40);
-  return filtered.map(t => {
+  });
+  // Group by prefix (text before the first ".")
+  const groups = new Map();
+  for (const t of filtered) {
+    const prefix = (t.name || "").split(".")[0] || "_";
+    if (!groups.has(prefix)) groups.set(prefix, []);
+    groups.get(prefix).push(t);
+  }
+  // Round-robin pull from each group until we hit maxTools
+  const picked = [];
+  let exhausted = false;
+  while (picked.length < maxTools && !exhausted) {
+    exhausted = true;
+    for (const arr of groups.values()) {
+      if (arr.length > 0 && picked.length < maxTools) {
+        picked.push(arr.shift());
+        exhausted = false;
+      }
+    }
+  }
+  return picked.map(t => {
     const name = t.name;
     const desc = (t.description || "").replace(/\s+/g, " ").slice(0, 80).trim();
     return `  - ${name}: ${desc}`;
   }).join("\n");
 }
 
-function computeHandoffHash(persona, description, toolSummary) {
+function computeHandoffHash(persona, description, toolSummary, connectors) {
   const src = JSON.stringify({
     persona: String(persona || "").trim(),
     description: String(description || "").trim(),
     tools: String(toolSummary || "").trim(),
+    connectors: Array.isArray(connectors) ? [...connectors].sort() : [],
   });
   return crypto.createHash("sha256").update(src).digest("hex");
 }
@@ -117,7 +144,7 @@ async function synthesizeHandoffWhenForSkill(skill) {
     return null;  // not enough signal
   }
 
-  const hash = computeHandoffHash(persona, description, toolSummary);
+  const hash = computeHandoffHash(persona, description, toolSummary, skill?.connectors);
   if (skill._auto_handoff_hash === hash && skill._auto_handoff_when) {
     // Cache hit — use cached value
     skill.handoff_when = skill._auto_handoff_when;
@@ -148,19 +175,24 @@ Examples of good triggers:
 DO NOT include the word "skill" or the skill name in the trigger.
 DO NOT explain. Just the trigger sentence.`;
 
+  const connectors = Array.isArray(skill?.connectors) ? skill.connectors : [];
+  const connectorsLine = connectors.length > 0
+    ? `\nConnectors (services this skill can call): ${connectors.join(", ")}`
+    : "";
+
   const toolsBlock = toolSummary
-    ? `\n\nTool inventory (representative subset; this is what the skill can DO):\n${toolSummary}`
+    ? `\n\nTool inventory (round-robin sample across connectors; this is what the skill can DO):\n${toolSummary}`
     : "";
 
   const userMessage = `Skill name: ${skill.name || skill.id || "(unknown)"}
-Skill description: ${description}
+Skill description: ${description}${connectorsLine}
 
 Skill persona:
 \`\`\`
 ${persona.slice(0, 3000)}
 \`\`\`${toolsBlock}
 
-Write the routing trigger now (one sentence, 15-50 words, mentioning specific user-facing verbs/nouns from the tool inventory):`;
+Write the routing trigger now (one sentence, 15-50 words, mentioning specific user-facing verbs/nouns drawn from the tool inventory and connectors above):`;
 
   try {
     const res = await adapter.chat({
