@@ -118,20 +118,55 @@ async function fetchPluginsForConnector(connectorId) {
   if (!Array.isArray(plugins)) {
     throw new Error(`ui.listPlugins on "${connectorId}" returned unrecognized shape — expected {plugins:[...]} or array, got ${JSON.stringify(result).slice(0, 200)}`);
   }
-  const normalized = plugins.filter(p => p && (p.id || p.name)).map(p => {
-    // Canonicalize id to mcp:<connectorId>:<slug>. MCPs sometimes return
-    // just the bare slug as id; the runtime expects the qualified form
-    // (Core's cp.listContextPlugins, mobile app's plugin store, etc).
+  const indexEntries = plugins.filter(p => p && (p.id || p.name));
+
+  // For each plugin in the index, fetch the FULL manifest via ui.getPlugin.
+  // ui.listPlugins returns just {id, name, version, description, [uiActions]};
+  // ui.getPlugin returns {render, surface, capabilities, channels, commands,
+  // ...} — the fields runtime needs to actually mount the plugin in the UI.
+  // Per CLAUDE.md: ui_capable:true MCPs implement both. Two roundtrips per
+  // plugin is acceptable at deploy time (cached in solution.ui_plugins[]).
+  const normalized = [];
+  for (const idx of indexEntries) {
     const qualifiedPrefix = `mcp:${connectorId}:`;
-    let pid = p.id || p.name;
+    let pid = idx.id || idx.name;
     if (!pid.startsWith("mcp:")) pid = qualifiedPrefix + pid;
-    return {
-      ...p,
+
+    let manifest = {};
+    try {
+      const detail = await adasCore.callConnectorTool(connectorId, "ui.getPlugin", { id: idx.id || idx.name });
+      // Same response-shape handling as ui.listPlugins
+      if (detail?.content?.[0]?.text) {
+        const t = detail.content[0].text.trim();
+        if (!t.startsWith("MCP error")) {
+          const parsed = JSON.parse(t);
+          if (parsed && parsed.ok !== false && !parsed.error) {
+            manifest = parsed;
+          }
+        }
+      } else if (detail && typeof detail === "object") {
+        manifest = detail;
+      }
+    } catch (err) {
+      // ui.getPlugin failure: same legitimate-skip rule as listPlugins
+      const msg = err?.message || String(err);
+      if (!/Unknown tool|not found|method not found|-32601/i.test(msg)) {
+        throw new Error(`ui.getPlugin("${idx.id || idx.name}") on "${connectorId}" failed: ${msg}`);
+      }
+      // Tool not found → fall through with just the index entry
+    }
+
+    normalized.push({
+      // Index entry has id/name/version/description/maybe uiActions
+      ...idx,
+      // Full manifest layered on top: render, surface, capabilities, etc.
+      ...manifest,
+      // Force canonical id (never trust either source to get it right)
       id: pid,
       _source: "mcp_introspection",
       _connector_id: connectorId,
-    };
-  });
+    });
+  }
   return { plugins: normalized, reason: "ok" };
 }
 
