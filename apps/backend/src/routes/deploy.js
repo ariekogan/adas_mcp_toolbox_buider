@@ -19,6 +19,7 @@ import adasCore from '../services/adasCoreClient.js';
 import gitSync, { verifyConsistency } from '../services/gitSync.js';
 import { enrichPluginList } from '../services/uiActionsAutoDefaults.js';
 import { discoverPluginsForSolution } from '../services/pluginDiscovery.js';
+import { generateOrchestratorIfNeeded } from '../services/builtinOrchestrator.js';
 import { getMemoryRoot } from '../utils/tenantContext.js';
 import fs from 'fs';
 import path from 'path';
@@ -197,6 +198,47 @@ router.post('/solution', async (req, res, next) => {
           log.info(`[Deploy] Auto-generated uiActions for ${r.summary.synthesized.length} plugin(s) in skill "${skill.id}": ${r.summary.synthesized.map(s => `${s.id}[${s.intents.join('+')}]`).join(', ')}`);
         }
       }
+    }
+
+    // ── Phase 6 of §20 strip: built-in orchestrator generation ──
+    // When solution.routing_mode === "auto", generate an _orchestrator
+    // skill from sibling worker skills' descriptions + handoff_when fields.
+    // Generated skill is injected into the skills[] array so it gets
+    // deployed like any other skill. REPLACE wins: mobile-pa has neither
+    // routing_mode:"auto" nor a need for this — generation skipped.
+    try {
+      const orchResult = generateOrchestratorIfNeeded(solution, skills);
+      if (orchResult.generated) {
+        // Insert orchestrator skill at the front of the skills array
+        skills.unshift(orchResult.orchestrator);
+        // Add to solution.linked_skills if not already there
+        if (!Array.isArray(solution.linked_skills)) solution.linked_skills = [];
+        if (!solution.linked_skills.includes(orchResult.orchestrator.id)) {
+          solution.linked_skills.unshift(orchResult.orchestrator.id);
+        }
+        // Merge auto-generated handoffs into solution.handoffs[]
+        if (!Array.isArray(solution.handoffs)) solution.handoffs = [];
+        const existingHandoffIds = new Set(solution.handoffs.map(h => h.id));
+        for (const h of orchResult.handoffs) {
+          if (!existingHandoffIds.has(h.id)) solution.handoffs.push(h);
+        }
+        // Set routing channels to point at the generated orchestrator
+        if (!solution.routing || typeof solution.routing !== 'object') solution.routing = {};
+        for (const ch of ['voice', 'chat', 'api']) {
+          if (!solution.routing[ch] || !solution.routing[ch].default_skill) {
+            solution.routing[ch] = {
+              default_skill: orchResult.orchestrator.id,
+              description: `Auto-routed via generated orchestrator`,
+            };
+          }
+        }
+        log.info(`[Deploy] Generated built-in orchestrator "${orchResult.orchestrator.id}" with ${orchResult.handoffs.length} handoff(s)`);
+      } else if (orchResult.reason !== 'routing_mode_not_auto' && orchResult.reason !== 'orchestrator_role_already_declared') {
+        // Informative log only for unusual skip reasons (not the common mobile-pa case)
+        log.info(`[Deploy] Orchestrator generation skipped: ${orchResult.reason}`);
+      }
+    } catch (orchErr) {
+      log.warn(`[Deploy] Orchestrator generation failed (non-fatal): ${orchErr.message}`);
     }
 
     // Step 0: Backup existing solution before overwriting (for rollback on deploy failure)
