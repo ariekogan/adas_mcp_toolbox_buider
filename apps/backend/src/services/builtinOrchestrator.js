@@ -184,9 +184,13 @@ Routing rules:
       thresholds: { accept: 0.5, clarify: 0.3, reject: 0.2 },
       out_of_domain: { action: "redirect", message: "" },
     },
-    // Use the "fast" engine preset — orchestrator is just routing, no
-    // deep iteration needed.
-    engine: "fast",
+    // Use "standard" engine — Phase 10 validation surfaced that "fast"
+    // (5 iter, no HLR) is too tight for fallback chains (handoff fails
+    // due to no_channel_context → planner needs to try sys.askAnySkill
+    // → read sub-result → finalize). "standard" gives 10 iterations
+    // which comfortably handles the fallback. No critic/reflection
+    // needed for routing per se, but iteration headroom matters.
+    engine: "standard",
     policy: {
       guardrails: {
         never: [
