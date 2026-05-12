@@ -1,4 +1,6 @@
-# Schema Strip — Master Status (2026-05-12)
+# Schema Strip — Master Status (2026-05-12, updated end-of-day)
+
+**End-of-day update (commit `a0a0221`):** four follow-up fixes landed and were verified live on `personal-adas-stripped`. See [§1.5 below](#15--end-of-day-fixes-commit-a0a0221) for what shipped and how it was validated.
 
 **Owner:** Arie + Claude
 **Authoritative plan:** [`STRIP_PLAN_2026-05-05.md`](./STRIP_PLAN_2026-05-05.md)
@@ -49,9 +51,35 @@ Updated whenever a phase lands or a real-world test surfaces a gap.
 
 ---
 
+## 1.5) END-OF-DAY FIXES (commit `a0a0221`)
+
+Four bugs from §2 landed, deployed to mac1, and were verified live.
+
+### ✅ Bug A — `sys.askAnySkill` drift after handoff failure
+**Was:** "I'm feeling tired today" → handoff(mycoach) failed → askAnySkill drifted to **home-control**.
+**Fix:** persona rule 4 + new guardrails.always entry — "If handoffToSkill(X) fails, askAnySkill MUST target the SAME X."
+**Verified 2026-05-12 18:24:** same prompt → handoff(mycoach) fails → askAnySkill(**mycoach**) succeeds → finalize. 118s, 3 iter.
+
+### ✅ Phase 5 — MCP introspection replaces FS-scan
+**Was:** `pluginDiscovery.js` walked `mcp-store/*/plugins/` folders, over-discovered + missed MCP-internal fields.
+**Fix:** new `discoverPluginsViaIntrospection(solution, skills)` iterates `skill.connectors[]`, calls Core's `POST /api/connectors/<id>/call` with tool `ui.listPlugins`, dedups by plugin id. MCPs are the source of truth.
+**Validated end-to-end:** TBD by next deploy (the in-place 13-plugin hack from earlier is still in solution.ui_plugins; once it's cleared the new path will re-discover canonically).
+
+### ✅ `ateam_redeploy` strip meta-phases
+**Was:** bulk-redeploy iterated `solution.skills[]` only; Phase 5 + Phase 6 never ran.
+**Fix:** `routes/solutions.js` `/redeploy` handler now runs Phase 5 + Phase 6 before the per-skill deploy loop; persists results via stores.
+**Verified:** end-of-day redeploy logged `[BulkRedeploy] Phase 6 orchestrator regen: persona 4890 chars; handoff_when synthesis: 0 new, 0 cached, 10 skipped, 0 failed`.
+
+### ✅ Orphan-cleanup on skill rename
+**Was:** when `ORCH_ID` changed (e.g. `orchestrator` → `auto-orchestrator`), old records lingered in Mongo + FS. User caught it as "I see 2 orchestrators".
+**Fix:** `LEGACY_ORCH_IDS = ["_orchestrator", "orchestrator"]` exported from builtinOrchestrator. `generateOrchestratorIfNeeded` returns `legacy_ids_to_drop[]`; both deploy paths call `adasCore.deleteSkill` + `skillsStore.remove` on each. Idempotent.
+**Verified:** structurally — next rename will auto-clean.
+
+---
+
 ## 2) NEEDS FIX — known wrong, blocking real e2e validation
 
-### ⚠️ Phase 5 is wrong (FS-scan, not MCP-introspection)
+### ✅ ~~Phase 5 is wrong (FS-scan, not MCP-introspection)~~ — FIXED in `a0a0221`, see §1.5
 **Current behavior:** `pluginDiscovery.js` walks `mcp-store/<connector>/plugins/` and `ui-dist/` folders, infers manifest from filenames.
 
 **Why it's wrong:**
@@ -65,7 +93,7 @@ Updated whenever a phase lands or a real-world test surfaces a gap.
 
 **Current state on `personal-adas-stripped`:** 13 plugins visible (from FS-scan hack). Compared to mobile-pa's curated 14: missing `connections-panel` + `auth-webview`; extras `login-webview`, `home-setup-panel`. **Cosmetic but not canonical.**
 
-### ⚠️ `ateam_redeploy` doesn't run strip phases
+### ✅ ~~`ateam_redeploy` doesn't run strip phases~~ — FIXED in `a0a0221`, see §1.5
 Per-skill MCP-server regeneration only. **Skips:**
 - Phase 5 (plugin discovery)
 - Phase 6 (orchestrator generation + handoff_when synthesis)
@@ -73,7 +101,7 @@ Per-skill MCP-server regeneration only. **Skips:**
 
 Full strip pipeline only runs in `POST /api/deploy/solution` (initial bulk deploy). Net effect: tenants iterated only via `ateam_redeploy` silently drift from the strip's intended output.
 
-### ⚠️ Orphan-skill cleanup on rename
+### ✅ ~~Orphan-skill cleanup on rename~~ — FIXED in `a0a0221`, see §1.5
 When `ORCH_ID` constant changed (`_orchestrator` → `orchestrator` → `auto-orchestrator`), each rename deployed a new skill but didn't delete the previous one. Discovered by user in the topology view ("I see 2 orchestrators").
 
 **Today's manual fix:** Mongo `deleteOne` + FS `rm -rf`. **Real fix:** deploy pipeline should track previous `_id` per skill and drop the old record on rename.
@@ -90,8 +118,7 @@ When `sys.handoffToSkill` fails due to no channel (the common test-harness path)
 
 Difference is in the auto-generated orchestrator persona vs mobile-pa's hand-tuned pa-orchestrator. Not a routing-quality issue; a prompt-tuning issue.
 
-### ⚠️ `sys.askAnySkill` fallback re-routes instead of reusing the handoff target (Bug A from E2E parity test)
-When `sys.handoffToSkill(X)` fails with `no_channel_context`, the orchestrator should retry `sys.askAnySkill(X)` with the SAME target. Mobile-pa's pa-orchestrator does this. Stripped's auto-orchestrator can re-evaluate and pick a different skill (observed in E2E Test 3 — `"I'm feeling tired"` correctly identified mycoach via findCapability+handoff, but askAnySkill drifted to home-control). **1-line fix in `buildOrchestratorSkill()` persona** — make the "same skill" rule explicit.
+### ✅ ~~`sys.askAnySkill` fallback re-routes (Bug A)~~ — FIXED in `a0a0221`, see §1.5
 
 ---
 
@@ -106,30 +133,14 @@ This is a Core-side change. Schema strip is the wrong layer to fix it. **Strippe
 
 ## 3) LEFT TO DO — to declare the migration complete
 
-### A. Rewrite Phase 5 (proper MCP-introspection)
-**Target:** `apps/backend/src/services/pluginDiscovery.js` rewritten as:
-- Spawn each `ui_capable` connector once at deploy time (via `connectorManager.start(connId)`).
-- Call `manager.callTool(connId, "ui.listPlugins", {})`.
-- Capture returned plugins, write into `solution.ui_plugins[]`.
-- Shut down spawned-just-for-discovery connectors that aren't otherwise needed.
+### A. Validate the new Phase 5 introspection live
+Plugin list currently in `personal-adas-stripped` is the leftover from the FS-scan hack (13 plugins). Clear `solution.ui_plugins[]` and trigger a fresh bulk-redeploy → the new MCP-introspection path will populate it canonically. Compare result to mobile-pa's 14.
 
-**Wire into:** `routes/deploy.js` already calls `discoverPluginsForSolution` — just swap implementations. Also wire into a refresh-only endpoint so `ateam_redeploy` can pick it up.
-
-### B. Patch the stripped tenant plugin list to canonical
-Either (i) run the new Phase 5 once it's written, or (ii) port mobile-pa's hand-curated 14 directly. Recommended: do (i) so we validate the new code path end-to-end.
-
-### C. Wire strip phases into `ateam_redeploy`
-Either:
-- `ateam_redeploy` calls `POST /api/deploy/solution` under the hood (full pipeline), or
-- Add a separate `POST /api/deploy/solution/refresh-strip-phases` endpoint that runs phases 5/6/6b without redeploying every skill.
-
-Per-skill `ateam_patch` is fine — that's user-driven targeted update. The bug is bulk-redeploy skipping the meta-phases.
-
-### D. Connect Gmail (or pick one real connector) on `personal-adas-stripped`
+### B. Connect Gmail (or pick one real connector) on `personal-adas-stripped`
 Without a working OAuth on this tenant, every email-touching e2e test hits the auth wall. ~10 min via the Gmail Setup plugin once it's visible.
 
-### E. Run side-by-side e2e parity tests (mobile-pa vs stripped)
-Once D is done, fixed test set. Should include:
+### C. Run full side-by-side e2e parity test set (mobile-pa vs stripped)
+Today's 3-prompt test was the smoke. Real parity test should include:
 - Memory ops (`"remember X"`, `"what do you know about Y"`)
 - Daily briefing (`"good morning"`, `"how is my day"`)
 - Email management (`"summarize my unread"`, `"archive newsletters"`)
@@ -140,10 +151,7 @@ Once D is done, fixed test set. Should include:
 
 Pass criterion: **stripped routes to the same skill as mobile-pa, executes the same primary tool, returns a similar shape**. Differences in wording/style are fine; differences in routing or tool selection are bugs.
 
-### F. Orphan-cleanup-on-rename in deploy pipeline
-When a skill's stable identifier changes (e.g., generator constants like `ORCH_ID`), the deploy must drop the previous `_id` in Core Mongo + FS. Today this requires manual `deleteOne` + `rm -rf`.
-
-### G. (Optional, low-priority) Improve `sys.findCapability` disambiguation
+### D. (Optional, low-priority) Improve `sys.findCapability` disambiguation
 The "clean my emails → messaging-agent" routing IS what mobile-pa does — but is it what the **author** intended? Documenting as "not a strip bug" is correct; if user wants behavior changed, that's a Core-side ranking change, separate work.
 
 ---
