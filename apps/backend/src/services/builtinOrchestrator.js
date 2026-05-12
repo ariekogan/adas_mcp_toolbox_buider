@@ -40,10 +40,133 @@
  *     as precisely as a hand-coded one?) — validated only at Phase 10.
  */
 
+import crypto from "node:crypto";
+import { createAdapter } from "./llm/adapter.js";
+
 // Note: Core reserves `_`-prefix slugs for system skills (per skillBootstrap.js
 // validation). Use a normal id with `auto-` prefix to flag it as platform-
 // generated without violating the slug convention.
 const ORCH_ID = "auto-orchestrator";
+
+// ─────────────────────────────────────────────────────────────────────
+// handoff_when synthesis (Phase 6b — generalization fix, 2026-05-12)
+//
+// Previously, generating an auto-orchestrator with high routing precision
+// required the author to write `handoff_when` per skill (or copy them
+// from an existing solution's hand-curated handoffs[] table). That made
+// migration solution-specific.
+//
+// Generalization: at deploy time, if a skill has no explicit handoff_when,
+// the platform synthesizes one from the skill's persona using LLM. The
+// result is cached per skill via source-hash so no-op redeploys don't
+// re-invoke the LLM.
+//
+// Cached on the skill object as `_auto_handoff_when` + `_auto_handoff_hash`.
+// Author can always set explicit `handoff_when` — REPLACE wins.
+// ─────────────────────────────────────────────────────────────────────
+
+function computeHandoffHash(persona, description) {
+  const src = JSON.stringify({
+    persona: String(persona || "").trim(),
+    description: String(description || "").trim(),
+  });
+  return crypto.createHash("sha256").update(src).digest("hex");
+}
+
+async function synthesizeHandoffWhenForSkill(skill) {
+  if (!skill || typeof skill !== "object") return null;
+  // REPLACE: author's explicit value wins
+  if (typeof skill.handoff_when === "string" && skill.handoff_when.trim().length > 0) {
+    return null;  // already set, no synthesis
+  }
+  const persona = skill?.role?.persona || "";
+  const description = skill?.description || "";
+  if (persona.length < 20 && description.length < 20) return null;  // not enough signal
+
+  const hash = computeHandoffHash(persona, description);
+  if (skill._auto_handoff_hash === hash && skill._auto_handoff_when) {
+    // Cache hit — use cached value
+    skill.handoff_when = skill._auto_handoff_when;
+    return { cached: true, source_hash: hash };
+  }
+
+  let adapter;
+  try {
+    adapter = createAdapter(process.env.LLM_PROVIDER || "openai");
+  } catch (err) {
+    return null;  // LLM unavailable, fall through to description
+  }
+
+  const systemPrompt = `You write ONE-LINE routing triggers for skill handoffs in a multi-skill AI agent platform.
+
+Given a skill's persona + description, write a single concise sentence describing WHEN an orchestrator should route to this skill. The trigger is read by a routing LLM at runtime to decide skill selection.
+
+Output STRICTLY: just the trigger sentence. No prose, no quotes, no markdown, no preamble. One sentence, 10-40 words, in the imperative voice that matches the persona's domain.
+
+Examples of good triggers:
+  "User wants to store, recall, update, or delete memories."
+  "User asks for a morning briefing, daily summary, or schedule overview."
+  "User wants to control smart home devices, lights, thermostats, or scenes."
+  "User wants to send a message via SMS, email, or chat."
+
+DO NOT include the word "skill" or the skill name in the trigger.
+DO NOT explain. Just the trigger sentence.`;
+
+  const userMessage = `Skill name: ${skill.name || skill.id || "(unknown)"}
+Skill description: ${description}
+
+Skill persona:
+\`\`\`
+${persona.slice(0, 3000)}
+\`\`\`
+
+Write the routing trigger now (one sentence, 10-40 words):`;
+
+  try {
+    const res = await adapter.chat({
+      systemPrompt,
+      messages: [{ role: "user", content: userMessage }],
+      maxTokens: 200,
+      temperature: 0.2,
+      enableTools: false,
+    });
+    const trigger = (res?.content || "").trim()
+      .replace(/^["']/, "").replace(/["']$/, "")
+      .replace(/^[-•*]\s+/, "")
+      .split(/\n+/)[0]
+      .trim();
+    if (trigger.length < 10 || trigger.length > 400) return null;
+    skill.handoff_when = trigger;
+    skill._auto_handoff_when = trigger;
+    skill._auto_handoff_hash = hash;
+    return { synthesized: true, source_hash: hash, trigger };
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Batch helper — synthesize handoff_when for all workers that don't have one.
+ * Returns summary for logging.
+ *
+ * @param {Array} workers       skill objects (mutated in place when applicable)
+ * @returns {Promise<{ synthesized: number, cached: number, skipped: number, failures: number }>}
+ */
+export async function synthesizeHandoffsForWorkers(workers) {
+  const summary = { synthesized: 0, cached: 0, skipped: 0, failures: 0 };
+  if (!Array.isArray(workers)) return summary;
+  for (const w of workers) {
+    if (typeof w?.handoff_when === "string" && w.handoff_when.trim().length > 0) {
+      summary.skipped++;  // explicit author value
+      continue;
+    }
+    const result = await synthesizeHandoffWhenForSkill(w);
+    if (!result) summary.failures++;
+    else if (result.cached) summary.cached++;
+    else if (result.synthesized) summary.synthesized++;
+  }
+  return summary;
+}
 
 /**
  * Decide whether to generate the orchestrator for this solution.
@@ -216,20 +339,37 @@ Routing rules:
 
 /**
  * Main entry. Inspects solution + skills; if generation criteria met,
- * returns the orchestrator skill + auto-generated handoffs to merge.
- * Caller is responsible for inserting them into the deploy bundle.
+ * synthesizes missing handoff_when fields on workers via LLM, then builds
+ * the orchestrator skill. Caller is responsible for inserting the result
+ * into the deploy bundle.
  *
- * @returns {{
+ * Async because handoff_when synthesis calls the LLM. Skills already
+ * carrying explicit `handoff_when` are not re-synthesized (REPLACE wins).
+ * Cached per skill via source-hash → no-op redeploys skip the LLM.
+ *
+ * @returns {Promise<{
  *   generated: boolean,
  *   reason: string,
  *   orchestrator?: Object,
  *   handoffs?: Array,
- * }}
+ *   handoff_synthesis?: { synthesized, cached, skipped, failures },
+ * }>}
  */
-export function generateOrchestratorIfNeeded(solution, skills) {
+export async function generateOrchestratorIfNeeded(solution, skills) {
   const decision = shouldGenerateOrchestrator(solution, skills);
   if (!decision.generate) {
     return { generated: false, reason: decision.reason };
+  }
+  // Synthesize handoff_when on workers BEFORE building the orchestrator.
+  // The persona-routing block (in buildOrchestratorSkill) reads w.handoff_when,
+  // so this needs to fire first.
+  const workers = (skills || []).filter(s => s?.id && s.id !== ORCH_ID);
+  let handoff_synthesis = { synthesized: 0, cached: 0, skipped: 0, failures: 0 };
+  try {
+    handoff_synthesis = await synthesizeHandoffsForWorkers(workers);
+  } catch (err) {
+    // LLM unavailable / network fail — fall through with description fallback.
+    handoff_synthesis = { synthesized: 0, cached: 0, skipped: 0, failures: workers.length, error: err.message };
   }
   const orch = buildOrchestratorSkill(solution, skills);
   return {
@@ -237,6 +377,7 @@ export function generateOrchestratorIfNeeded(solution, skills) {
     reason: "ok",
     orchestrator: orch,
     handoffs: orch._generated_handoffs || [],
+    handoff_synthesis,
   };
 }
 
@@ -244,5 +385,6 @@ export default {
   shouldGenerateOrchestrator,
   buildOrchestratorSkill,
   generateOrchestratorIfNeeded,
+  synthesizeHandoffsForWorkers,
   ORCH_ID,
 };

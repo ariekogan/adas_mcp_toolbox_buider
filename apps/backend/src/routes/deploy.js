@@ -207,7 +207,7 @@ router.post('/solution', async (req, res, next) => {
     // deployed like any other skill. REPLACE wins: mobile-pa has neither
     // routing_mode:"auto" nor a need for this — generation skipped.
     try {
-      const orchResult = generateOrchestratorIfNeeded(solution, skills);
+      const orchResult = await generateOrchestratorIfNeeded(solution, skills);
       if (orchResult.generated) {
         // Insert orchestrator skill at the front of the skills array
         skills.unshift(orchResult.orchestrator);
@@ -232,7 +232,8 @@ router.post('/solution', async (req, res, next) => {
             };
           }
         }
-        log.info(`[Deploy] Generated built-in orchestrator "${orchResult.orchestrator.id}" with ${orchResult.handoffs.length} handoff(s)`);
+        const hs = orchResult.handoff_synthesis || {};
+        log.info(`[Deploy] Generated built-in orchestrator "${orchResult.orchestrator.id}" with ${orchResult.handoffs.length} handoff(s); handoff_when synthesis: ${hs.synthesized || 0} new, ${hs.cached || 0} cached, ${hs.skipped || 0} skipped (explicit), ${hs.failures || 0} failures`);
       } else if (orchResult.reason !== 'routing_mode_not_auto' && orchResult.reason !== 'orchestrator_role_already_declared') {
         // Informative log only for unusual skip reasons (not the common mobile-pa case)
         log.info(`[Deploy] Orchestrator generation skipped: ${orchResult.reason}`);
