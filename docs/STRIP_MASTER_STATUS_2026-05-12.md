@@ -124,6 +124,13 @@ Difference is in the auto-generated orchestrator persona vs mobile-pa's hand-tun
 
 ## OUT OF STRIP SCOPE (architectural, leave for separate Core work)
 
+### Voice agent: orchestrator placement
+The Skill Voice Editor lets users pick which skills are voice-enabled and in what priority order. The first skill in the order is PRIMARY — every voice call enters through it. On a fresh tenant with no user-set selection (`voice_skill_selections` empty), the manifest compiler falls back to natural order (creation timestamp), which places `life-manager` first instead of `auto-orchestrator`. Voice calls then bypass the orchestrator entirely.
+
+**Immediate fix (manual, 2026-05-12):** wrote `voice_skill_selections` doc for `personal-adas-stripped` with `auto-orchestrator` at index 0.
+
+**Structural fix (voice-service-side, NOT strip):** the voice manifest compiler should auto-detect any skill with `role_type:"orchestrator"` or `_auto_generated:true` and place it at position 0 when no explicit user selection exists. That's a voice-backend change — separate work from this strip.
+
 ### Channel-driven response style (was "Bug B" in E2E parity test)
 Per-skill MOBILE CHAT guardrails in `policy.guardrails.always[]` are the wrong abstraction. Channel TYPE (`voice` / `mobile-chat` / `web` / `api`) should drive the finalization-gate's style rules automatically. Authors shouldn't write style guardrails per skill — the platform knows the channel.
 
