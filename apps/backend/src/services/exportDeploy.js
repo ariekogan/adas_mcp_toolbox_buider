@@ -29,13 +29,9 @@ async function runSkillDeployGuard(solutionId, log) {
   const mode = (process.env.GITSYNC_DEPLOY_GUARD || 'warn').toLowerCase();
   if (mode === 'off') return;
 
-  let consistency;
-  try {
-    consistency = await verifyConsistency(solutionId);
-  } catch (err) {
-    log.warn(`[MCP Deploy Guard] verifyConsistency(${solutionId}) crashed (non-fatal): ${err.message}`);
-    return;
-  }
+  // verifyConsistency errors propagate — a deploy with broken consistency
+  // checks is worse than a slow start. Loud all the way.
+  const consistency = await verifyConsistency(solutionId);
   if (consistency.skipped || consistency.ok) return;
 
   log.warn(`[MCP Deploy Guard] ${solutionId}: ${consistency.drifts.length} drift(s) detected`);
@@ -166,33 +162,24 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
   // Source-hash cached in skill.intents._auto_hash, so a no-op redeploy
   // doesn't re-burn LLM tokens. Hash invalidates when persona OR tool list
   // changes.
-  try {
-    if (onProgress) onProgress('synthesizing_intents', 'Synthesizing intents (if missing)...');
-    const synthResult = await synthesizeIntentsForSkill(skill, skill.tools || []);
-    if (synthResult.status === "synthesized") {
-      await skillsStore.save(skill);
-      log.info(`[MCP Deploy] Synthesized ${synthResult.intents_count} intents for ${skillId} (hash=${synthResult.source_hash.slice(0,12)})`);
-    }
-    // For "skip" results, only log when reason is informative (not for the
-    // mobile-pa-style "explicit_intents" case which is the expected REPLACE
-    // protection path).
-    if (synthResult.status === "skip" && synthResult.reason !== "explicit_intents") {
-      log.info(`[MCP Deploy] Intent synthesis skipped for ${skillId}: ${synthResult.reason}`);
-    }
-  } catch (synthErr) {
-    log.warn(`[MCP Deploy] Intent synthesis failed for ${skillId} (non-fatal): ${synthErr.message}`);
+  // Intent synthesis errors propagate — a skill deployed without intents
+  // is functionally broken (no intent metadata for routing/UX). Loud.
+  if (onProgress) onProgress('synthesizing_intents', 'Synthesizing intents (if missing)...');
+  const synthResult = await synthesizeIntentsForSkill(skill, skill.tools || []);
+  if (synthResult.status === "synthesized") {
+    await skillsStore.save(skill);
+    log.info(`[MCP Deploy] Synthesized ${synthResult.intents_count} intents for ${skillId} (hash=${synthResult.source_hash.slice(0,12)})`);
+  }
+  if (synthResult.status === "skip" && synthResult.reason !== "explicit_intents") {
+    log.info(`[MCP Deploy] Intent synthesis skipped for ${skillId}: ${synthResult.reason}`);
   }
 
-  try {
-    if (onProgress) onProgress('enriching_intents', 'Enriching intent examples...');
-    await enrichSkillIntentsWithLLM(skill, skill.tools || []);
-    // Persist the enriched intents so future deploys reuse the cached
-    // output and the Builder UI shows the real examples.
-    await skillsStore.save(skill);
-    log.info(`[MCP Deploy] Enriched intent examples for ${skillId} (${(skill.intents?.supported || []).length} intents)`);
-  } catch (enrichErr) {
-    log.warn(`[MCP Deploy] Intent enrichment failed for ${skillId} (non-fatal): ${enrichErr.message}`);
-  }
+  // Intent enrichment errors propagate — same reasoning. A skill without
+  // enriched examples ships with stale or missing UI hints.
+  if (onProgress) onProgress('enriching_intents', 'Enriching intent examples...');
+  await enrichSkillIntentsWithLLM(skill, skill.tools || []);
+  await skillsStore.save(skill);
+  log.info(`[MCP Deploy] Enriched intent examples for ${skillId} (${(skill.intents?.supported || []).length} intents)`);
 
   // ── Phase 2b of §20 strip: auto-import tool bridges from connectors ──
   // When skill.tools[] is empty/missing, fetch the live tool schemas from
@@ -234,39 +221,31 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
   // requiring author intervention. New skills don't need to think about
   // classification at all unless they're overriding.
   if (Array.isArray(skill.tools) && skill.tools.length > 0) {
-    try {
-      // Exclusion first — drop denied tools from the list.
-      const exclResult = applyExclusions(skill.tools, skill.excluded_tools || []);
-      if (exclResult.summary.excluded.length > 0) {
-        log.info(`[MCP Deploy] Excluded ${exclResult.summary.excluded.length} tool(s) for ${skillId}: ${exclResult.summary.excluded.map(e => e.name).join(', ')}`);
-      }
-      // Then classify the survivors.
-      const clsResult = classifyToolList(exclResult.tools);
-      skill.tools = clsResult.tools;
-      const destructive = clsResult.summary.classified.filter(c => c.classification === "destructive");
-      if (destructive.length > 0) {
-        log.info(`[MCP Deploy] Auto-classified ${destructive.length} destructive tool(s) for ${skillId}: ${destructive.map(c => c.name).join(', ')}`);
-      }
-      if (clsResult.summary.classified.length > 0 || exclResult.summary.excluded.length > 0) {
-        // Persist so the classifications land on disk + GH and the Core
-        // import below ships them. Same pattern as intent enrichment above.
-        await skillsStore.save(skill);
-      }
-    } catch (clsErr) {
-      log.warn(`[MCP Deploy] Tool security classification failed for ${skillId} (non-fatal): ${clsErr.message}`);
+    // Phase 2 errors propagate — a skill deployed with mis-classified or
+    // un-classified destructive tools is a security regression. Loud.
+    const exclResult = applyExclusions(skill.tools, skill.excluded_tools || []);
+    if (exclResult.summary.excluded.length > 0) {
+      log.info(`[MCP Deploy] Excluded ${exclResult.summary.excluded.length} tool(s) for ${skillId}: ${exclResult.summary.excluded.map(e => e.name).join(', ')}`);
+    }
+    const clsResult = classifyToolList(exclResult.tools);
+    skill.tools = clsResult.tools;
+    const destructive = clsResult.summary.classified.filter(c => c.classification === "destructive");
+    if (destructive.length > 0) {
+      log.info(`[MCP Deploy] Auto-classified ${destructive.length} destructive tool(s) for ${skillId}: ${destructive.map(c => c.name).join(', ')}`);
+    }
+    if (clsResult.summary.classified.length > 0 || exclResult.summary.excluded.length > 0) {
+      await skillsStore.save(skill);
     }
   }
 
-  // Phase 0: Deploy solution-level identity config (actor types, roles)
+  // Phase 0: Deploy solution-level identity config (actor types, roles).
+  // Errors propagate — a skill deployed against a wrong identity config
+  // can produce unauthorized actor records.
   if (solutionId) {
-    try {
-      if (onProgress) onProgress('deploying_identity', 'Deploying identity config...');
-      const identityResult = await deployIdentityToADAS(solutionId, log);
-      if (!identityResult.ok && !identityResult.skipped) {
-        log.warn(`[MCP Deploy] Identity deploy failed (non-fatal): ${identityResult.error}`);
-      }
-    } catch (err) {
-      log.warn(`[MCP Deploy] Identity deploy error (non-fatal): ${err.message}`);
+    if (onProgress) onProgress('deploying_identity', 'Deploying identity config...');
+    const identityResult = await deployIdentityToADAS(solutionId, log);
+    if (!identityResult.ok && !identityResult.skipped) {
+      throw new Error(`[MCP Deploy] Identity deploy failed for ${solutionId}: ${identityResult.error}`);
     }
   }
 
@@ -354,51 +333,49 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
   }
 
   // Register skill definition in ADAS Core so it appears in GET /api/skills
-  try {
+  {
     // Load solution definition FIRST — needed for solution-level style
     // resolution + for the import call below. Loaded once, used twice.
+    // Solution-not-in-Builder-FS is a legitimate state for some deploy paths
+    // (single-skill import without a solution context); other load errors
+    // propagate so we surface bad solution state instead of shipping silently.
     let solutionDef = null;
     try {
       solutionDef = await solutionsStore.load(solutionId);
-    } catch { /* solution not in Builder FS — OK, deploy without it */ }
+    } catch (err) {
+      if (!/not found|ENOENT|no such/i.test(err.message || "")) throw err;
+      log.info(`[MCP Deploy] Solution "${solutionId}" not in Builder FS — proceeding without solution context`);
+    }
 
     // ── Phase 1 of §20 strip: solution-level style inheritance ────────
     // If solution.style (or skill.style as override) is set, prepend the
     // resolved style prose to the skill's persona before shipping.
     // REPLACE semantics: missing fields → no change (mobile-pa case →
     // byte-identical output). See services/styleCompiler.js.
+    // Phase 1 errors propagate — skill ships with raw persona, missing
+    // channel-style block; observable in user-facing responses (verbose
+    // markdown vs tight one-liner).
     let effectiveRole = skill.role || null;
-    try {
-      const style = resolveEffectiveStyle(solutionDef, skill);
-      if (style && effectiveRole) {
-        const originalPersona = effectiveRole.persona || "";
-        const newPersona = prependStyleToPersona(originalPersona, style);
-        if (newPersona !== originalPersona) {
-          effectiveRole = { ...effectiveRole, persona: newPersona };
-          log.info(`[MCP Deploy] Style applied to ${skillSlug} persona (${skill.style ? 'skill-level' : 'solution-level'} style, +${newPersona.length - originalPersona.length} chars)`);
-        }
+    const style = resolveEffectiveStyle(solutionDef, skill);
+    if (style && effectiveRole) {
+      const originalPersona = effectiveRole.persona || "";
+      const newPersona = prependStyleToPersona(originalPersona, style);
+      if (newPersona !== originalPersona) {
+        effectiveRole = { ...effectiveRole, persona: newPersona };
+        log.info(`[MCP Deploy] Style applied to ${skillSlug} persona (${skill.style ? 'skill-level' : 'solution-level'} style, +${newPersona.length - originalPersona.length} chars)`);
       }
-    } catch (styleErr) {
-      log.warn(`[MCP Deploy] Style resolution failed for ${skillSlug} (non-fatal): ${styleErr.message}`);
     }
 
     // ── Phase 4 of §20 strip: engine config preset expansion ─────────
-    // Resolves skill.engine into a full engine block.
-    //   - Object → use as-is (REPLACE — author wins). mobile-pa path.
-    //   - String preset name → expand from docs/engine-defaults.yaml.
-    //   - Missing → apply default preset.
-    // See services/engineCompiler.js.
+    // Errors propagate — skill shipping with wrong engine config = wrong
+    // iteration budget / timeouts / loop detection. Loud.
+    const engineResult = resolveEngine(skill.engine);
     let effectiveEngine = skill.engine;
-    try {
-      const engineResult = resolveEngine(skill.engine);
-      if (engineResult.engine) {
-        effectiveEngine = engineResult.engine;
-        if (engineResult.source !== "explicit") {
-          log.info(`[MCP Deploy] Engine resolved for ${skillSlug} via ${engineResult.source}`);
-        }
+    if (engineResult.engine) {
+      effectiveEngine = engineResult.engine;
+      if (engineResult.source !== "explicit") {
+        log.info(`[MCP Deploy] Engine resolved for ${skillSlug} via ${engineResult.source}`);
       }
-    } catch (engineErr) {
-      log.warn(`[MCP Deploy] Engine resolution failed for ${skillSlug} (non-fatal): ${engineErr.message}`);
     }
 
     const skillDef = {
@@ -449,10 +426,11 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
       skillDef.ui_plugins = compiledPlugins;
     }
 
+    // Skill import errors propagate — a skill that didn't register in
+    // Core won't appear in the runtime registry, won't get planner
+    // invocations. Silent skip = invisible breakage.
     await adasCore.importSkill(skillSlug, skillDef, solutionDef);
     log.info(`[MCP Deploy] Registered skill definition for "${skillSlug}" in ADAS Core${solutionDef ? ' (with solution)' : ''}`);
-  } catch (err) {
-    log.warn(`[MCP Deploy] Skill import warning (non-fatal): ${err.message}`);
   }
 
   // Update skill status
@@ -658,19 +636,18 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
         if (mcpStoreBase) {
           const mcpCodeDir = path.join(mcpStoreBase, connectorId);
           const crossTenantDir = path.join(process.env.TENANTS_ROOT || '/memory', 'connectors', connectorId);
-          try {
-            const { default: fsSync } = await import('fs');
-            const sourceDir = fsSync.existsSync(path.join(mcpCodeDir, 'server.js'))
-              ? mcpCodeDir
-              : (fsSync.existsSync(path.join(crossTenantDir, 'server.js')) ? crossTenantDir : null);
-            if (sourceDir) {
-              await uploadMcpCodeToADAS(connectorId, sourceDir);
-              log.info(`[MCP Deploy] Uploaded mcp-store for "${connectorId}" (source: ${sourceDir === mcpCodeDir ? 'solution-pack' : 'cross-tenant'})`);
-            } else {
-              log.info(`[MCP Deploy] No connector code on FS for "${connectorId}" — relying on Core's existing copy.`);
-            }
-          } catch (uploadErr) {
-            log.warn(`[MCP Deploy] mcp-store upload for "${connectorId}" failed (non-fatal): ${uploadErr.message}`);
+          // mcp-store upload errors propagate — a connector whose source
+          // didn't make it to Core means the skill's tool bridges resolve
+          // to a stale or missing implementation.
+          const { default: fsSync } = await import('fs');
+          const sourceDir = fsSync.existsSync(path.join(mcpCodeDir, 'server.js'))
+            ? mcpCodeDir
+            : (fsSync.existsSync(path.join(crossTenantDir, 'server.js')) ? crossTenantDir : null);
+          if (sourceDir) {
+            await uploadMcpCodeToADAS(connectorId, sourceDir);
+            log.info(`[MCP Deploy] Uploaded mcp-store for "${connectorId}" (source: ${sourceDir === mcpCodeDir ? 'solution-pack' : 'cross-tenant'})`);
+          } else {
+            log.info(`[MCP Deploy] No connector code on FS for "${connectorId}" — relying on Core's existing copy.`);
           }
         }
 
@@ -744,20 +721,16 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
 
   // ── Post-deploy skill registration verification ─────────────
   // Confirm the skill actually appears in ADAS Core's skill registry.
-  // Without this, the skill dropdown shows "No custom skills installed".
-  let skillRegistered = false;
-  try {
-    const registeredSkills = await adasCore.getSkills();
-    skillRegistered = registeredSkills.some(s =>
-      (s.id === skillSlug || s.skillSlug === skillSlug || s.slug === skillSlug)
-    );
-    if (!skillRegistered) {
-      log.warn(`[MCP Deploy] POST-DEPLOY: Skill "${skillSlug}" deployed but NOT found in ADAS Core skill registry (GET /api/skills). The skill may not appear in the UI dropdown.`);
-    } else {
-      log.info(`[MCP Deploy] POST-DEPLOY: Skill "${skillSlug}" confirmed in ADAS Core skill registry`);
-    }
-  } catch (err) {
-    log.warn(`[MCP Deploy] POST-DEPLOY: Could not verify skill registration (non-fatal): ${err.message}`);
+  // Errors propagate — a deploy that we can't VERIFY is a deploy we
+  // shouldn't claim succeeded.
+  const registeredSkills = await adasCore.getSkills();
+  const skillRegistered = registeredSkills.some(s =>
+    (s.id === skillSlug || s.skillSlug === skillSlug || s.slug === skillSlug)
+  );
+  if (!skillRegistered) {
+    log.warn(`[MCP Deploy] POST-DEPLOY: Skill "${skillSlug}" deployed but NOT found in ADAS Core skill registry. UI will report missing.`);
+  } else {
+    log.info(`[MCP Deploy] POST-DEPLOY: Skill "${skillSlug}" confirmed in ADAS Core skill registry`);
   }
 
   // ── Post-deploy UI contract verification ─────────────────────

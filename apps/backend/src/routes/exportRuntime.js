@@ -35,15 +35,13 @@ router.post("/:skillId/adas", async (req, res, next) => {
 
     log.info(`Exporting skill ${skillId} (solution=${solution_id}) to ADAS Core format`);
 
-    // Deploy solution-level identity config before skill deployment
+    // Deploy solution-level identity config before skill deployment.
+    // Errors propagate — wrong identity config = unauthorized actor
+    // records at runtime.
     if (deploy === "true" && solution_id) {
-      try {
-        const identityResult = await deployIdentityToADAS(solution_id, log);
-        if (identityResult.ok && !identityResult.skipped) {
-          log.info(`[ADAS Export] Identity config deployed: ${identityResult.actor_types?.length || 0} actor types`);
-        }
-      } catch (err) {
-        log.warn(`[ADAS Export] Identity deploy failed (non-fatal): ${err.message}`);
+      const identityResult = await deployIdentityToADAS(solution_id, log);
+      if (identityResult.ok && !identityResult.skipped) {
+        log.info(`[ADAS Export] Identity config deployed: ${identityResult.actor_types?.length || 0} actor types`);
       }
     }
 

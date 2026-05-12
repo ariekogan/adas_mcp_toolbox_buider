@@ -1123,17 +1123,15 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
     const solutionId = pkg.solution?.id;
     if (solutionId) {
       sendEvent('identity_progress', { status: 'deploying', message: 'Deploying identity config...' });
-      try {
-        const identityResult = await deployIdentityToADAS(solutionId, console);
-        if (identityResult.ok && !identityResult.skipped) {
-          sendEvent('identity_progress', { status: 'done', message: `Deployed ${identityResult.actor_types?.length || 0} actor types` });
-        } else if (identityResult.skipped) {
-          sendEvent('identity_progress', { status: 'skipped', message: 'No identity config defined' });
-        } else {
-          sendEvent('identity_progress', { status: 'warning', message: `Identity deploy failed: ${identityResult.error}` });
-        }
-      } catch (err) {
-        sendEvent('identity_progress', { status: 'warning', message: `Identity deploy error: ${err.message}` });
+      // Errors propagate. A solution that imported without identity config
+      // produces runtime authorization failures that look mysterious.
+      const identityResult = await deployIdentityToADAS(solutionId, console);
+      if (identityResult.ok && !identityResult.skipped) {
+        sendEvent('identity_progress', { status: 'done', message: `Deployed ${identityResult.actor_types?.length || 0} actor types` });
+      } else if (identityResult.skipped) {
+        sendEvent('identity_progress', { status: 'skipped', message: 'No identity config defined' });
+      } else {
+        throw new Error(`Identity deploy failed: ${identityResult.error}`);
       }
     }
 
@@ -1142,26 +1140,25 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
     // This preserves existing connectors when doing a skills-only redeploy
     // (no mcp_store). Skills are always wiped since they're always in the package.
     sendEvent('cleanup_progress', { status: 'starting', message: 'Cleaning ADAS Core...' });
-    try {
-      if (pkg.mcps.length > 0) {
-        for (const mcp of pkg.mcps) {
-          try {
-            await deleteConnectorFromADAS(mcp.id);
-            console.log(`[Deploy] Deleted connector "${mcp.id}" from ADAS Core (will re-register)`);
-          } catch (e) {
-            // Connector might not exist yet — that's fine
-            console.log(`[Deploy] Connector "${mcp.id}" not in ADAS Core (skip delete): ${e.message}`);
-          }
+    // Errors propagate — if pre-import cleanup fails, the import would
+    // ship stale skills/connectors alongside the new ones. Per-connector
+    // 404 ("not yet registered") is the legitimate skip; everything else
+    // aborts the import so the operator sees it.
+    if (pkg.mcps.length > 0) {
+      for (const mcp of pkg.mcps) {
+        try {
+          await deleteConnectorFromADAS(mcp.id);
+          console.log(`[Deploy] Deleted connector "${mcp.id}" from ADAS Core (will re-register)`);
+        } catch (e) {
+          if (!/not found|404/i.test(e.message || "")) throw e;
+          console.log(`[Deploy] Connector "${mcp.id}" not in ADAS Core (skip delete)`);
         }
-      } else {
-        console.log('[Deploy] No connectors in package — preserving existing ADAS Core connectors');
       }
-      await deleteAllSkillsFromADAS();
-      sendEvent('cleanup_progress', { status: 'done', message: 'ADAS Core cleaned' });
-    } catch (err) {
-      sendEvent('cleanup_progress', { status: 'warning', message: `Cleanup warning (non-fatal): ${err.message}` });
-      console.warn('[Deploy] ADAS cleanup failed (continuing):', err.message);
+    } else {
+      console.log('[Deploy] No connectors in package — preserving existing ADAS Core connectors');
     }
+    await deleteAllSkillsFromADAS();
+    sendEvent('cleanup_progress', { status: 'done', message: 'ADAS Core cleaned' });
 
     // ── Phase 1: Deploy connectors ──────────────────────────────────
     for (let i = 0; i < totalConnectors; i++) {

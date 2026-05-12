@@ -56,15 +56,10 @@ export async function runPreDeployGuard(solutionId, log) {
   const mode = resolveGuardMode();
   if (mode === 'off') return { blocked: false };
 
-  let consistency;
-  try {
-    consistency = await verifyConsistency(solutionId);
-  } catch (err) {
-    // Verification itself crashed (network, parse, etc.). Never block deploys
-    // because the guard is broken — log loudly and let the deploy through.
-    log.warn(`[Deploy Guard] verifyConsistency(${solutionId}) crashed (non-fatal, deploy proceeds): ${err.message}`);
-    return { blocked: false };
-  }
+  // verifyConsistency errors propagate. A broken guard is worse than a
+  // missing one — the operator must see and fix it instead of guessing
+  // that the deploy was "checked".
+  const consistency = await verifyConsistency(solutionId);
 
   if (consistency.skipped) {
     // GitHub disabled or off-mode — nothing to verify, proceed.
@@ -199,7 +194,9 @@ router.post('/solution', async (req, res, next) => {
     // Generated skill is injected into the skills[] array so it gets
     // deployed like any other skill. REPLACE wins: mobile-pa has neither
     // routing_mode:"auto" nor a need for this — generation skipped.
-    try {
+    {
+      // Phase 6 errors propagate — a routing_mode:auto solution that
+      // failed to generate an orchestrator ships without a routing layer.
       const orchResult = await generateOrchestratorIfNeeded(solution, skills);
       // Drop stale auto-generated orchestrators. Detection is marker-based
       // (skill._auto_generated === true AND role_type === "orchestrator"
@@ -249,8 +246,6 @@ router.post('/solution', async (req, res, next) => {
         // Informative log only for unusual skip reasons (not the common mobile-pa case)
         log.info(`[Deploy] Orchestrator generation skipped: ${orchResult.reason}`);
       }
-    } catch (orchErr) {
-      log.warn(`[Deploy] Orchestrator generation failed (non-fatal): ${orchErr.message}`);
     }
 
     // Step 0: Backup existing solution before overwriting (for rollback on deploy failure)
@@ -406,39 +401,39 @@ router.post('/solution', async (req, res, next) => {
     // This ensures connectors exist before skill deployment tries to sync them.
     const connectorResults = [];
     for (const [connId, files] of Object.entries(mcp_store)) {
+      // Errors propagate — connector upload/sync/start failures all
+      // ship a broken runtime. Per-connector try/catch was the kind of
+      // swallow that hid Phase 2b regressions all day.
+      log.info(`[Deploy] Uploading source code for connector "${connId}" to ADAS Core...`);
+      await adasCore.uploadMcpCode(connId, files);
+      log.info(`[Deploy] Source code uploaded for "${connId}"`);
+
+      const connMeta = connectors.find(c => c.id === connId) || {};
+      await adasCore.syncConnector({
+        id: connId,
+        name: connMeta.name || connId,
+        type: 'mcp',
+        transport: connMeta.transport || 'stdio',
+        config: {
+          command: 'node',
+          args: ['server.js'],
+          env: connMeta.env || {},
+        },
+      });
+      log.info(`[Deploy] Connector "${connId}" registered in ADAS Core`);
+
+      // Stop old process before starting with new code. "Not running"
+      // is the legitimate prior-state we tolerate; other errors propagate.
       try {
-        // Upload source code to ADAS Core's mcp-store
-        log.info(`[Deploy] Uploading source code for connector "${connId}" to ADAS Core...`);
-        await adasCore.uploadMcpCode(connId, files);
-        log.info(`[Deploy] Source code uploaded for "${connId}"`);
-
-        // Register connector in ADAS Core (create or update)
-        const connMeta = connectors.find(c => c.id === connId) || {};
-        await adasCore.syncConnector({
-          id: connId,
-          name: connMeta.name || connId,
-          type: 'mcp',
-          transport: connMeta.transport || 'stdio',
-          config: {
-            command: 'node',
-            args: ['server.js'],
-            env: connMeta.env || {},
-          },
-        });
-        log.info(`[Deploy] Connector "${connId}" registered in ADAS Core`);
-
-        // Stop old process before starting with new code
-        try { await adasCore.stopConnector(connId); } catch { /* may not be running */ }
-
-        // Start connector with updated code
-        const startResult = await adasCore.startConnector(connId);
-        const toolCount = startResult?.tools?.length || 0;
-        connectorResults.push({ id: connId, ok: toolCount > 0, tools: toolCount });
-        log.info(`[Deploy] Connector "${connId}" started (${toolCount} tools)`);
-      } catch (err) {
-        log.warn(`[Deploy] Connector "${connId}" setup failed (non-fatal): ${err.message}`);
-        connectorResults.push({ id: connId, ok: false, error: err.message });
+        await adasCore.stopConnector(connId);
+      } catch (e) {
+        if (!/not running|not found|404/i.test(e.message || "")) throw e;
       }
+
+      const startResult = await adasCore.startConnector(connId);
+      const toolCount = startResult?.tools?.length || 0;
+      connectorResults.push({ id: connId, ok: toolCount > 0, tools: toolCount });
+      log.info(`[Deploy] Connector "${connId}" started (${toolCount} tools)`);
     }
 
     // Step 4: Deploy to ADAS Core
@@ -450,31 +445,26 @@ router.post('/solution', async (req, res, next) => {
       const identityResult = await deployIdentityToADAS(solution.id, log);
       log.info(`[Deploy] Identity deployed`, identityResult);
 
-      // Deploy solution-level config (bootstrap_tools, exclude_bootstrap_tools)
+      // Deploy solution-level config (bootstrap_tools, exclude_bootstrap_tools).
+      // Errors propagate — wrong/missing bootstrap config = wrong skill
+      // initialization at runtime.
       if (solution.bootstrap_tools || solution.exclude_bootstrap_tools) {
-        try {
-          log.info(`[Deploy] Deploying solution config...`);
-          await adasCore.deploySolutionConfig({
-            bootstrap_tools: solution.bootstrap_tools,
-            exclude_bootstrap_tools: solution.exclude_bootstrap_tools,
-          });
-          log.info(`[Deploy] Solution config deployed`);
-        } catch (err) {
-          log.warn(`[Deploy] Solution config deployment failed (non-fatal): ${err.message}`);
-        }
+        log.info(`[Deploy] Deploying solution config...`);
+        await adasCore.deploySolutionConfig({
+          bootstrap_tools: solution.bootstrap_tools,
+          exclude_bootstrap_tools: solution.exclude_bootstrap_tools,
+        });
+        log.info(`[Deploy] Solution config deployed`);
       }
 
-      // Deploy UI plugins (if any)
+      // Deploy UI plugins. Errors propagate — UI plugins not pushed to
+      // Core means the UI can't render the panels even though the
+      // solution doc says they exist.
       let uiPluginResult = null;
       if (solution.ui_plugins && solution.ui_plugins.length > 0) {
-        try {
-          log.info(`[Deploy] Deploying ${solution.ui_plugins.length} UI plugin(s) to Core...`);
-          uiPluginResult = await adasCore.deployUiPlugins(solution.ui_plugins, { solutionId: solution.id });
-          log.info(`[Deploy] UI plugins deployed: ${uiPluginResult.count || solution.ui_plugins.length} plugin(s)`);
-        } catch (err) {
-          log.warn(`[Deploy] UI plugins deployment failed (non-fatal): ${err.message}`);
-          uiPluginResult = { ok: false, error: err.message };
-        }
+        log.info(`[Deploy] Deploying ${solution.ui_plugins.length} UI plugin(s) to Core...`);
+        uiPluginResult = await adasCore.deployUiPlugins(solution.ui_plugins, { solutionId: solution.id });
+        log.info(`[Deploy] UI plugins deployed: ${uiPluginResult.count || solution.ui_plugins.length} plugin(s)`);
       }
 
       // Deploy skills in parallel — 9 skills × 15s sequential = 135s, parallel = ~15s
