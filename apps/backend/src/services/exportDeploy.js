@@ -203,17 +203,19 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
   // After this, Phase 2's classification + exclusion fires on the
   // populated tools[] — so security classifications and excluded_tools[]
   // work uniformly on author-written OR auto-imported tools.
-  try {
-    const importResult = await autoImportToolsForSkill(skill);
-    if (importResult.imported > 0) {
-      // Persist auto-imported tools so the classifier in Phase 2 sees them
-      await skillsStore.save(skill);
-      log.info(`[MCP Deploy] Auto-imported ${importResult.imported} tool bridges for ${skillId} from ${importResult.connectors_queried} connector(s)`);
-    } else if (importResult.skipped_reason !== "explicit_tools" && importResult.skipped_reason !== "no_connectors") {
-      log.info(`[MCP Deploy] Tool auto-import skipped for ${skillId}: ${importResult.skipped_reason}`);
-    }
-  } catch (importErr) {
-    log.warn(`[MCP Deploy] Tool auto-import failed for ${skillId} (non-fatal): ${importErr.message}`);
+  // Errors propagate — a Phase 2b failure (e.g., connector regressed from
+  // contributing tools to returning 0) means we'd silently ship a broken
+  // skill missing critical capabilities. The mycoach/nutrition-mcp hang
+  // on 2026-05-12 was this class of bug. Fail loudly and surface.
+  const importResult = await autoImportToolsForSkill(skill);
+  if (importResult.imported > 0 || importResult.refreshed > 0) {
+    // Persist auto-imported tools so the classifier in Phase 2 sees them
+    await skillsStore.save(skill);
+    const refreshNote = importResult.refreshed > 0 ? ` (refreshed ${importResult.refreshed} previously-auto-imported)` : '';
+    const preserveNote = importResult.preserved_explicit > 0 ? `, preserved ${importResult.preserved_explicit} author-written` : '';
+    log.info(`[MCP Deploy] Phase 2b: ${importResult.imported} tool bridges for ${skillId} from ${importResult.connectors_queried} connector(s)${refreshNote}${preserveNote}`);
+  } else if (importResult.skipped_reason && !["all_explicit", "no_connectors"].includes(importResult.skipped_reason)) {
+    log.info(`[MCP Deploy] Phase 2b skipped for ${skillId}: ${importResult.skipped_reason}`);
   }
 
   // ── Phase 2 of §20 strip: auto-classify tool security + apply exclusions ──

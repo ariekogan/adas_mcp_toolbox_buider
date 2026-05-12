@@ -60,20 +60,35 @@ async function fetchConnectorTools(connectorId) {
 }
 
 /**
- * Auto-import tools for one skill. Mutates skill.tools[] in place ONLY
- * when it's currently empty (REPLACE semantics).
+ * Auto-import tools for one skill. Mutates skill.tools[] in place.
+ *
+ * REPLACE semantics (revised 2026-05-12):
+ *   - PRESERVE any tool with `_auto_imported !== true` — that's an author-
+ *     written explicit tool, never touched.
+ *   - REFRESH all auto-imported tools (`_auto_imported === true`) on every
+ *     call by re-fetching from connectors. Catches the case where a
+ *     connector was unavailable on the previous run and contributed 0
+ *     tools — surfaced as the mycoach/nutrition-mcp hang on 2026-05-12.
  *
  * @param {Object} skill              skill object (mutated in place when applicable)
- * @returns {Promise<{ imported: number, skipped_reason?: string, connectors_queried: number, summary: Array }>}
+ * @returns {Promise<{ imported: number, refreshed: number, skipped_reason?: string, connectors_queried: number, summary: Array }>}
  */
 export async function autoImportToolsForSkill(skill) {
   if (!skill || typeof skill !== "object") {
     return { imported: 0, skipped_reason: "not_object", connectors_queried: 0, summary: [] };
   }
 
-  // REPLACE: explicit non-empty tools[] preserved.
-  if (Array.isArray(skill.tools) && skill.tools.length > 0) {
-    return { imported: 0, skipped_reason: "explicit_tools", connectors_queried: 0, summary: [] };
+  const existingTools = Array.isArray(skill.tools) ? skill.tools : [];
+  const authorWrittenTools = existingTools.filter(t => t && t._auto_imported !== true);
+  const previousAutoImported = existingTools.filter(t => t && t._auto_imported === true);
+  const wasAllAuthorWritten = authorWrittenTools.length === existingTools.length && existingTools.length > 0;
+
+  // If the existing list is ENTIRELY author-written, preserve it verbatim
+  // (this is the mobile-pa path — explicit hand-curated tools[], no
+  // auto-import desired). We can't tell author intent from a previously-
+  // auto-imported partial result, so we always refresh those.
+  if (wasAllAuthorWritten) {
+    return { imported: 0, refreshed: 0, skipped_reason: "all_explicit", connectors_queried: 0, summary: [] };
   }
 
   const connectors = Array.isArray(skill.connectors) ? skill.connectors : [];
@@ -109,7 +124,14 @@ export async function autoImportToolsForSkill(skill) {
     }
   }
 
+  // If NO tools came back at all but we previously had auto-imported ones,
+  // this is a transient connector failure — KEEP the previous list and
+  // surface the issue rather than wiping the skill.
   if (tools.length === 0) {
+    if (previousAutoImported.length > 0) {
+      const failing = summary.filter(s => s.reason !== "ok").map(s => `${s.connector_id}(${s.reason})`).join(", ");
+      throw new Error(`Phase 2b tool refresh failed for "${skill.id}": all ${connectors.length} connectors returned 0 tools (${failing}). Refusing to wipe previous ${previousAutoImported.length} auto-imported tools — fix connector availability and retry.`);
+    }
     return {
       imported: 0,
       skipped_reason: "no_tools_returned",
@@ -128,17 +150,45 @@ export async function autoImportToolsForSkill(skill) {
     finalTools = tools.filter(t => regexes.some(r => r.test(t.name)));
   }
 
-  // Dedup by name (in case the same tool somehow gets imported twice)
+  // Dedup auto-imported tools by name
   const seen = new Set();
-  const deduped = finalTools.filter(t => {
+  const dedupedAuto = finalTools.filter(t => {
     if (seen.has(t.name)) return false;
     seen.add(t.name);
     return true;
   });
 
-  skill.tools = deduped;
+  // Merge: author-written tools take precedence by name (REPLACE wins
+  // per-tool, not just per-skill).
+  const authorNames = new Set(authorWrittenTools.map(t => t.name));
+  const autoToKeep = dedupedAuto.filter(t => !authorNames.has(t.name));
+  const merged = [...authorWrittenTools, ...autoToKeep];
+
+  // Detect connectors that USED to contribute tools but returned 0 this time
+  const prevConns = new Map();  // connector_id → previous tool count
+  for (const t of previousAutoImported) {
+    const cid = t?.source?.connection_id;
+    if (cid) prevConns.set(cid, (prevConns.get(cid) || 0) + 1);
+  }
+  const newConns = new Map();
+  for (const t of autoToKeep) {
+    const cid = t?.source?.connection_id;
+    if (cid) newConns.set(cid, (newConns.get(cid) || 0) + 1);
+  }
+  const lostConnectors = [...prevConns.entries()]
+    .filter(([cid, _]) => (newConns.get(cid) || 0) === 0)
+    .map(([cid, n]) => `${cid} (${n} tools)`);
+  if (lostConnectors.length > 0) {
+    // Loud: connector(s) that previously had tools now return nothing.
+    // This is the mycoach/nutrition-mcp incident class — fail visibly.
+    throw new Error(`Phase 2b tool refresh for "${skill.id}": connector(s) that previously contributed tools returned 0 this time — ${lostConnectors.join(", ")}. Refusing to silently drop them. Fix connector availability and retry.`);
+  }
+
+  skill.tools = merged;
   return {
-    imported: deduped.length,
+    imported: autoToKeep.length,
+    refreshed: previousAutoImported.length > 0 ? autoToKeep.length : 0,
+    preserved_explicit: authorWrittenTools.length,
     connectors_queried: connectors.length,
     summary,
   };
