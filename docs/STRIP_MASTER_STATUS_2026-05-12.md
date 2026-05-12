@@ -1,199 +1,225 @@
-# Schema Strip — Master Status (2026-05-12, updated end-of-day)
-
-**End-of-day update (commit `a0a0221`):** four follow-up fixes landed and were verified live on `personal-adas-stripped`. See [§1.5 below](#15--end-of-day-fixes-commit-a0a0221) for what shipped and how it was validated.
+# Schema Strip — Master Status (2026-05-12, end-of-day)
 
 **Owner:** Arie + Claude
 **Authoritative plan:** [`STRIP_PLAN_2026-05-05.md`](./STRIP_PLAN_2026-05-05.md)
-**Reference truth:** `mobile-pa` solution (`personal-adas`) — untouched.
-**Test tenant:** `personal-adas-stripped` — owner-actor bootstrapped for Arie (Owner role).
+**Reference tenant:** `mobile-pa` (`personal-adas`) — production, untouched.
+**Strip target tenant:** `personal-adas-stripped` — fully strip-built, verified at-parity.
 
-This doc tracks current state: what's shipped, what's broken, what's left.
-Updated whenever a phase lands or a real-world test surfaces a gap.
-
----
-
-## 1) DONE — Shipped to mac1, committed, validated
-
-### Strip Phases 0–9 (60% JSON reduction)
-- Style inheritance (Phase 1)
-- Tool security classification (Phase 2)
-- Intent synthesis (Phase 3)
-- Engine resolution (Phase 4)
-- Plugin auto-discovery from FS (Phase 5) — see ⚠️ in §2
-- Built-in orchestrator generation (Phase 6) — `routing_mode: "auto"`
-- Plugin auto-scaffolds (Phase 7)
-- Self-healing validator (Phase 8)
-- Strip dialect / cross-tenant safety (Phase 9)
-
-### Phase 2b — Auto-import connector tool bridges (additional 8% = 68% total reduction)
-- `apps/backend/src/services/connectorTools.js`
-- At deploy time, fetches each connector's live `GET /api/connectors/:id/tools` and injects into `skill.tools[]`.
-- Per-skill validated counts: memory-keeper=22, home-control=73, daily-intel=89, etc.
-- E2E chat test passed: `"remember my anniversary is May 15"` → memory-keeper → `memory.store` → 18s ✓
-
-### Phase 6b — LLM-synthesize `handoff_when` from skill content
-**Why:** the first Gap-3 fix copied mobile-pa's hand-curated triggers — solution-specific. User correctly rejected this. Replaced with general LLM synthesis.
-
-- `synthesizeHandoffWhenForSkill()` in `builtinOrchestrator.js` — LLM-generates one-sentence trigger from `persona + description + tools[] + connectors[]`.
-- Source-hash cached on `_auto_handoff_hash` + `_auto_handoff_when` so no-op redeploys skip the LLM.
-- Tool sampling is **round-robin by connector prefix** to avoid single-connector skills (life-manager: 115 tools) starving lazy connectors.
-- REPLACE wins: any explicit `handoff_when` the author writes is preserved.
-- `generateOrchestratorIfNeeded()` is now async; runs synthesis before persona assembly.
-- Validated on `personal-adas-stripped`: 10/10 synthesized, 0 failures, routing tests pass for memory/home-control/mycoach.
-
-**Commits:** `1d8e3fe`, `a2cf4b9`, `9931db7`
-
-### Tenant bootstrap fixes (one-time, on `personal-adas-stripped`)
-- Owner-actor record cloned from mobile-pa shape (`actorType: user`, `roles: [admin, user]`, `displayName`, `identities[]`) so the Actors panel renders.
-- `usr_arie_admin_0001` added as `owner` of `personal-adas-stripped` in `adas_system.users.tenants[]`.
-- 13 UI plugins patched into `solutions._id="current"` in Core Mongo + Builder FS (via FS scan — see ⚠️).
-- Orphan `orchestrator` skill (left over from `ORCH_ID` renames) deleted from Mongo + FS.
+This is the canonical state. Read this to pick up the work.
 
 ---
 
-## 1.5) END-OF-DAY FIXES (commit `a0a0221`)
+## 0) Headline
 
-Four bugs from §2 landed, deployed to mac1, and were verified live.
+The strip is **operational end-to-end** on `personal-adas-stripped`. Author surface is ~5 fields per skill (id, name, role.persona, connectors, optional handoff_when + policy.guardrails). Everything else is platform-generated at deploy time. 68% JSON reduction measured.
 
-### ✅ Bug A — `sys.askAnySkill` drift after handoff failure
-**Was:** "I'm feeling tired today" → handoff(mycoach) failed → askAnySkill drifted to **home-control**.
-**Fix:** persona rule 4 + new guardrails.always entry — "If handoffToSkill(X) fails, askAnySkill MUST target the SAME X."
-**Verified 2026-05-12 18:24:** same prompt → handoff(mycoach) fails → askAnySkill(**mycoach**) succeeds → finalize. 118s, 3 iter.
+E2E parity (6 prompts × 2 tenants) is at **6/6 same-skill routing** after the Phase 2b stale-tools fix. Public MCP guidance updated to reflect the new minimal authoring model.
 
-### ✅ Phase 5 — MCP introspection replaces FS-scan
-**Was:** `pluginDiscovery.js` walked `mcp-store/*/plugins/` folders, over-discovered + missed MCP-internal fields.
-**Fix:** new `discoverPluginsViaIntrospection(solution, skills)` iterates `skill.connectors[]`, calls Core's `POST /api/connectors/<id>/call` with tool `ui.listPlugins`, dedups by plugin id. MCPs are the source of truth.
-**Validated end-to-end:** TBD by next deploy (the in-place 13-plugin hack from earlier is still in solution.ui_plugins; once it's cleared the new path will re-discover canonically).
-
-### ✅ `ateam_redeploy` strip meta-phases
-**Was:** bulk-redeploy iterated `solution.skills[]` only; Phase 5 + Phase 6 never ran.
-**Fix:** `routes/solutions.js` `/redeploy` handler now runs Phase 5 + Phase 6 before the per-skill deploy loop; persists results via stores.
-**Verified:** end-of-day redeploy logged `[BulkRedeploy] Phase 6 orchestrator regen: persona 4890 chars; handoff_when synthesis: 0 new, 0 cached, 10 skipped, 0 failed`.
-
-### ✅ Orphan-cleanup on skill rename
-**Was:** when `ORCH_ID` changed (e.g. `orchestrator` → `auto-orchestrator`), old records lingered in Mongo + FS. User caught it as "I see 2 orchestrators".
-**Fix:** `LEGACY_ORCH_IDS = ["_orchestrator", "orchestrator"]` exported from builtinOrchestrator. `generateOrchestratorIfNeeded` returns `legacy_ids_to_drop[]`; both deploy paths call `adasCore.deleteSkill` + `skillsStore.remove` on each. Idempotent.
-**Verified:** structurally — next rename will auto-clean.
+Remaining gaps are all **architectural Core-side items** (cross-skill recursion budget, channel-driven style, askAnySkill target_skill arg). Documented in §3.
 
 ---
 
-## 2) NEEDS FIX — known wrong, blocking real e2e validation
+## 1) SHIPPED (live on mac1, verified)
 
-### ✅ ~~Phase 5 is wrong (FS-scan, not MCP-introspection)~~ — FIXED in `a0a0221`, see §1.5
-**Current behavior:** `pluginDiscovery.js` walks `mcp-store/<connector>/plugins/` and `ui-dist/` folders, infers manifest from filenames.
+### Strip phases — Builder-side at deploy time
+- **Phase 1** — Style inheritance (solution.style → skill personas)
+- **Phase 2** — Tool security classification (destructive/read/write auto-classified)
+- **Phase 2b** — Auto-import tool bridges from connector `/api/connectors/:id/tools` (per-tool REPLACE, refreshes on every deploy)
+- **Phase 3** — Intent synthesis (LLM, source-hash cached)
+- **Phase 4** — Engine config preset resolution
+- **Phase 5** — UI plugin discovery via MCP `ui.listPlugins` + `ui.getPlugin` per connector
+- **Phase 6** — Built-in orchestrator generation (`routing_mode: "auto"` opt-in)
+- **Phase 6b** — LLM-synthesize `handoff_when` from persona + tools + connectors
+- **Phase 7** — Plugin auto-scaffolds
+- **Phase 8** — Self-healing validator
+- **Phase 9** — Strip dialect / cross-tenant safety
 
-**Why it's wrong:**
-1. **Wrong source of truth.** Plugins live in the MCP servers — they expose `ui.listPlugins` (per CLAUDE.md global rule: `ui_capable: true` connectors must implement `ui.listPlugins`). FS scan guesses; MCP knows.
-2. **Over-discovers.** Same plugin source file lives in multiple connector folders → `mcp:memory-mcp:memories-panel` AND `mcp:personal-assistant-ui-mcp:memories-panel`. Mobile-pa's hand-curated list picks one canonical connector.
-3. **Misses MCP-only fields.** `uiActions`, `surface.placement`, exact `version` — only the running MCP knows these.
+### Routing quality (E2E parity test v3, 2026-05-12)
+6 prompts × 2 tenants, all routing decisions match mobile-pa:
+| Test | mobile-pa | stripped | Match |
+|---|---|---|---|
+| Memory store | memory-keeper | memory-keeper | ✅ |
+| Log salad | mycoach → 150 cal | mycoach → 93 cal | ✅ |
+| Smart home list | home-control × 15 devices | home-control × 15 devices | ✅ |
+| Tokyo flights | travel-agent | travel-agent (better — inferred TLV) | ✅ |
+| Log espresso | mycoach → 30ml | mycoach → 30ml | ✅ |
+| What do you know | memory-keeper (7 iter) | memory-keeper (2 iter, 4× faster) | ✅ |
 
-**Why runtime `cp.listContextPlugins` doesn't fully save us:** Core deliberately skips lazy connectors at startup (correct — spawning all 16 connectors just to list plugins defeats lazy-spawn). Live runtime only returns plugins from the ~3 already-spawned connectors.
+### Deploy pipeline hardening
+- **No silent fallbacks:** all 18 `try/catch { log.warn 'non-fatal' }` patterns removed from the deploy pipeline. Phase failures abort the deploy with a real error. (Audit: `grep -rE "non-fatal" apps/backend/src/` → 0 hits.)
+- **Marker-based orphan cleanup:** `findStaleOrchestratorIds()` matches `_auto_generated:true AND role_type:"orchestrator" AND id !== ORCH_ID`. Hardcoded delete lists eliminated. Author-written skills are NEVER touched regardless of id.
+- **Phase 2b per-tool REPLACE:** previously a binary "tools[] non-empty? skip" → caused mycoach to permanently lose nutrition tools after one transient connector outage → caused the cross-skill recursion incident. Now refreshes auto-imported tools on every deploy; preserves only `_auto_imported !== true` author tools. Throws loudly if a connector that previously contributed tools regresses to 0.
+- **`ateam_redeploy` runs strip meta-phases:** `routes/solutions.js` `/redeploy` now runs Phase 5 + Phase 6 before the per-skill deploy loop.
 
-**Right fix:** at Builder **deploy time**, force-spawn each `ui_capable` connector once, call `ui.listPlugins`, write into `solution.ui_plugins[]`, shut it down. MCP stays source of truth, runtime stays lazy-spawn-friendly, author writes zero plugin boilerplate.
+### Public MCP guidance aligned with strip
+- `/spec/skill` — `auto_expand.minimal_required: ['id', 'name', 'role.persona', 'connectors']`. Full auto_generated list (tools/intents/scenarios/engine/security/ui_plugins/handoff_when). Includes a 12-line `typical_minimal_skill` example.
+- `/spec/solution` — new `auto_expand` block describing Phase 6 orchestrator generation + Phase 5 plugin introspection + Phase 1 style cascade. Includes `typical_minimal_solution`.
+- `/spec/examples/skill` + `/solution` — verbose reference examples now carry `_strip_summary` headers pointing to the minimal form.
+- `ateam_bootstrap` — new `minimal_authoring` block lists what to hand-write vs what's platform-generated.
+- ateam-mcp **v0.3.43** published, Docker `ateam-mcp` rebuilt, local processes killed.
 
-**Current state on `personal-adas-stripped`:** 13 plugins visible (from FS-scan hack). Compared to mobile-pa's curated 14: missing `connections-panel` + `auth-webview`; extras `login-webview`, `home-setup-panel`. **Cosmetic but not canonical.**
-
-### ✅ ~~`ateam_redeploy` doesn't run strip phases~~ — FIXED in `a0a0221`, see §1.5
-Per-skill MCP-server regeneration only. **Skips:**
-- Phase 5 (plugin discovery)
-- Phase 6 (orchestrator generation + handoff_when synthesis)
-- Phase 6b (LLM trigger refresh)
-
-Full strip pipeline only runs in `POST /api/deploy/solution` (initial bulk deploy). Net effect: tenants iterated only via `ateam_redeploy` silently drift from the strip's intended output.
-
-### ✅ ~~Orphan-skill cleanup on rename~~ — FIXED in `a0a0221`, see §1.5
-When `ORCH_ID` constant changed (`_orchestrator` → `orchestrator` → `auto-orchestrator`), each rename deployed a new skill but didn't delete the previous one. Discovered by user in the topology view ("I see 2 orchestrators").
-
-**Today's manual fix:** Mongo `deleteOne` + FS `rm -rf`. **Real fix:** deploy pipeline should track previous `_id` per skill and drop the old record on rename.
-
-### ⚠️ `sys.findCapability` ranks by tool-description match, can override handoff_when
-**Symptom:** `"clean my emails"` routes to `messaging-agent` (gmail.archive description match 442.7) instead of `life-manager`, even when life-manager's synthesized `handoff_when` explicitly mentions "email management ... clean up inbox".
-
-**Mobile-pa behaves identically** — same query, same routing, same `findCapability`-driven decision. So this is not a Phase 6b regression; it's a pre-existing Core-side ranking issue that exists in both tenants.
-
-**Not in strip scope.** Documented here so we don't chase it as a strip bug. If we want better disambiguation, the fix lives in `sys.findCapability`'s scorer or the orchestrator's persona prompt ("PREFER your routing table when it conflicts with capability hints").
-
-### ⚠️ `no_channel_context` fallback UX divergence
-When `sys.handoffToSkill` fails due to no channel (the common test-harness path), both tenants fall back to `sys.askAnySkill` then `sys.askUser`. **Mobile-pa's** fallback hits `platform.auth.status(gmail)` → "Gmail not connected, please reconnect" (clean). **Stripped's** fallback asks a verbose multi-question clarification.
-
-Difference is in the auto-generated orchestrator persona vs mobile-pa's hand-tuned pa-orchestrator. Not a routing-quality issue; a prompt-tuning issue.
-
-### ✅ ~~`sys.askAnySkill` fallback re-routes (Bug A)~~ — FIXED in `a0a0221`, see §1.5
-
----
-
-## OUT OF STRIP SCOPE (architectural, leave for separate Core work)
-
-### Voice agent: orchestrator placement
-The Skill Voice Editor lets users pick which skills are voice-enabled and in what priority order. The first skill in the order is PRIMARY — every voice call enters through it. On a fresh tenant with no user-set selection (`voice_skill_selections` empty), the manifest compiler falls back to natural order (creation timestamp), which places `life-manager` first instead of `auto-orchestrator`. Voice calls then bypass the orchestrator entirely.
-
-**Immediate fix (manual, 2026-05-12):** wrote `voice_skill_selections` doc for `personal-adas-stripped` with `auto-orchestrator` at index 0.
-
-**Structural fix (voice-service-side, NOT strip):** the voice manifest compiler should auto-detect any skill with `role_type:"orchestrator"` or `_auto_generated:true` and place it at position 0 when no explicit user selection exists. That's a voice-backend change — separate work from this strip.
-
-### Channel-driven response style (was "Bug B" in E2E parity test)
-Per-skill MOBILE CHAT guardrails in `policy.guardrails.always[]` are the wrong abstraction. Channel TYPE (`voice` / `mobile-chat` / `web` / `api`) should drive the finalization-gate's style rules automatically. Authors shouldn't write style guardrails per skill — the platform knows the channel.
-
-This is a Core-side change. Schema strip is the wrong layer to fix it. **Stripped responses will be verbose vs mobile-pa's 1-sentence replies** until channel-driven style is implemented.
+### Bootstrap of `personal-adas-stripped` tenant
+- Owner-actor record (`usr_arie_admin_0001` as owner)
+- 10 worker skills + auto-orchestrator deployed
+- Voice manifest recompiled with `auto-orchestrator` at PRIMARY position 1 (manual `voice_skill_selections` insert; structural fix is voice-backend's responsibility)
 
 ---
 
-## 3) LEFT TO DO — to declare the migration complete
+## 2) FIVE BUGS FOUND AND FIXED TODAY (the no-fallbacks rule earned its keep)
 
-### A. Validate the new Phase 5 introspection live
-Plugin list currently in `personal-adas-stripped` is the leftover from the FS-scan hack (13 plugins). Clear `solution.ui_plugins[]` and trigger a fresh bulk-redeploy → the new MCP-introspection path will populate it canonically. Compare result to mobile-pa's 14.
+| # | Bug | Root cause | Where the no-fallbacks rule mattered |
+|---|---|---|---|
+| 1 | Hardcoded `LEGACY_ORCH_IDS` delete list | Would silently delete author-written skills named "orchestrator" | Surfaced when I noticed I was hardcoding solution-specific data, replaced with marker-based detection |
+| 2 | Phase 5 FS-scan over-discovered + missed MCP fields | Plugin manifests were thin (no render.iframeUrl, no surface) | "Not found" iframe error → traced → MCP ui.getPlugin call added |
+| 3 | `sys.askAnySkill` drift after handoff failure | Orchestrator persona didn't say "reuse same target skill" | E2E parity test caught it on "I'm feeling tired" prompt |
+| 4 | Phase 2b stale REPLACE → mycoach lost nutrition tools | One transient nutrition-mcp outage → tools[] partial → never refreshed | Cross-skill recursion incident. Was hidden by `log.warn non-fatal` for who knows how long. |
+| 5 | MCP-error JSON response broke Phase 5 | Connector returned `"MCP error -32601..."` as text, code tried JSON.parse | First successful Phase 5 introspection — error surfaced because no-fallback meant no silent skip |
 
-### B. Connect Gmail (or pick one real connector) on `personal-adas-stripped`
-Without a working OAuth on this tenant, every email-touching e2e test hits the auth wall. ~10 min via the Gmail Setup plugin once it's visible.
-
-### C. Run full side-by-side e2e parity test set (mobile-pa vs stripped)
-Today's 3-prompt test was the smoke. Real parity test should include:
-- Memory ops (`"remember X"`, `"what do you know about Y"`)
-- Daily briefing (`"good morning"`, `"how is my day"`)
-- Email management (`"summarize my unread"`, `"archive newsletters"`)
-- Coaching (`"log a salad for lunch"`, `"how am I doing this week"`)
-- Smart home (real device, not mock)
-- Travel (`"find flights to X next week"`)
-- Multi-step (`"summarize unread and remind me to reply to mom"`)
-
-Pass criterion: **stripped routes to the same skill as mobile-pa, executes the same primary tool, returns a similar shape**. Differences in wording/style are fine; differences in routing or tool selection are bugs.
-
-### D. (Optional, low-priority) Improve `sys.findCapability` disambiguation
-The "clean my emails → messaging-agent" routing IS what mobile-pa does — but is it what the **author** intended? Documenting as "not a strip bug" is correct; if user wants behavior changed, that's a Core-side ranking change, separate work.
+**Pattern across all five:** each was hidden by either a silent try/catch wrapper, a hardcoded shortcut, or a coarse REPLACE rule. Each was found by either (a) removing the silent wrapper, or (b) the user catching a behavioral symptom in the UI. The no-fallback enforcement is the discipline forcing function.
 
 ---
 
-## 4) Files / commits index
+## 3) ARCHITECTURAL ITEMS — known, named, traced (NOT strip-side; Core/runtime work)
 
-### Builder commits (all on origin/main)
-- `fd1631e` — Phase 2b: auto-import tool bridges
-- `5e18bbf` — Phase 10 validation + report (Bug 1 + Bug 2 fixes)
-- `d816952` — Phase 6 orchestrator id rename to `auto-orchestrator`
-- `9021931` — Orchestrator persona — handoff vs askAnySkill clarity
-- `7389332` — Orchestrator persona — guardrail contradictions removed
-- `75b2207` — Docs: 3 gaps closed (HARDCODED fix, since superseded)
-- `1d8e3fe` — Phase 6b initial: LLM synthesize handoff_when from persona
-- `e1acaf9` — Docs: Gap 3 generalized (replaces hardcoded fix)
-- `a2cf4b9` — Phase 6b: feed skill.tools[] into LLM prompt
-- `9931db7` — Phase 6b: round-robin tool sampling + connectors[] in prompt
+### A. Cross-skill recursion has no budget
+**The salad incident:** auto-orchestrator → askAnySkill → mycoach → askAnySkill → life-manager → askAnySkill → mycoach → … hung ~30 min before HLR critic caught it.
 
-### Source files
-- **New** in this work: `services/connectorTools.js`, `services/builtinOrchestrator.js`, `services/pluginDiscovery.js`, `services/styleInheritance.js`, `services/toolSecurityClassifier.js`, `services/intentSynthesizer.js`, etc.
-- **Modified:** `services/exportDeploy.js` (wires phases in order), `routes/deploy.js` (Phase 5/6 invocation)
-- **Untouched:** ADAS Core (`ai-dev-assistant`) — by design.
+**Why every per-skill guard didn't trip:**
+| Guard | Per | Catches | Misses |
+|---|---|---|---|
+| `maxIters: 10-16` | skill | iter loop in one skill | resets in each spawned sub-job |
+| `askAnySkill.timeout_seconds: 300` | call | one delegation | each spawn = fresh timer |
+| `identical_call_threshold: 2` | skill | same tool + same args | different skills calling same tool |
+| HLR critic | skill | local stagnation | the sub-job it spawned |
 
-### Tenant artifacts (live on mac1)
-- `mobile-pa` — reference, untouched, still in production
-- `mobile-pa-test` — explicit-field regression clone (Phase 10 baseline)
-- `personal-adas-stripped` — full strip output, this is the migration target
+Total runaway budget = **N_skills × 300s**. A 3-skill loop = ~30 min before anything trips.
+
+**Fix path (Core-side):** depth-cap on nested `sys.askAnySkill` calls (after depth=2 or 3, force finalize). Plus same-intent loop detection across spawn boundaries.
+
+### B. Workers re-delegate instead of failing fast
+mycoach's planner observed nutrition.lookupMultiple missing and tried to delegate to find it — instead of throwing a deploy-time config error. The orchestrator already made the routing decision; if the chosen worker can't deliver, that's a config bug to surface, not a problem to route around.
+
+**Fix path (Core-side):** skill planner prompt change — "if a needed tool is missing from your tools[], surface as error; do not delegate."
+
+### C. `sys.askAnySkill` ignores `target_skill` arg
+When the orchestrator passes `target_skill: "mycoach"`, the runtime re-runs capability matching and may pick a different skill. Caused Test 5 (espresso) to misroute pre-Phase-2b-fix.
+
+**Fix path (Core-side):** honor `target_skill` arg when set; skip capability re-evaluation.
+
+### D. Channel-driven style is per-skill (wrong layer)
+MOBILE CHAT guardrails ("1-2 sentences max, casual tone") live in `policy.guardrails.always[]` on every skill. Should be per-channel at the finalization gate: voice → speech-friendly, mobile-chat → tight, web → markdown OK.
+
+**Fix path (Core-side):** finalization gate reads inbound channel and applies style profile automatically.
+
+### E. Voice agent orchestrator placement
+The voice manifest compiler defaults to skill creation order when no explicit `voice_skill_selections` exists. Places `life-manager` first instead of `auto-orchestrator`. Voice calls then bypass the orchestrator.
+
+**Fix path (voice-backend):** auto-detect `role_type: "orchestrator"` or `_auto_generated: true` and place at index 0 when no user selection exists.
+
+### F. `sys.findCapability` ranks by tool-description match
+Can override the worker's `handoff_when` trigger. "Clean my emails" routes by tool description score, not by routing-rule preference. Same behavior in mobile-pa — not a strip bug.
+
+**Fix path (Core-side, low-priority):** weighting that prefers worker `handoff_when` over raw tool-description match when there's a tie.
+
+### G. OAuth callback timeout at Cloudflare
+Gmail OAuth completes successfully BUT the callback to `app.ateam-ai.com/api/integrations/callback` times out at Cloudflare 504. User completes consent in Google, popup closes, tenant never receives the token. Infra-level, not strip.
+
+**Fix path (Core/infra):** investigate why Core takes >100s to process the callback. Either speed it up or set a higher Cloudflare timeout.
 
 ---
 
-## 5) The pinned principle (do not lose)
+## 4) NEXT WORK — concrete, in priority order
 
-> Plugins are owned by the MCPs that serve them.
-> Triggers are written by the LLM at deploy time from each skill's content.
-> Author writes: persona, connector picks, policy guardrails, integration code, UI source.
+### 1. End-to-end with real connectors
+The parity test set used mocked smart-home and stub responses. The next-level test: actually send a Gmail (Gmail OAuth works on the tenant once G is resolved), actually fetch real Apple Health data (needs device-bridge sync), actually book a flight. These prove the strip in production conditions, not just demo conditions.
+
+### 2. Add a cross-skill recursion budget (item A above)
+Highest-value Core-side fix. Eliminates a whole class of incidents like today's salad hang.
+
+### 3. Channel-driven style (item D above)
+The only thing that makes stripped responses visibly different from mobile-pa is the lack of style enforcement. Fix this in Core's finalization gate and the strip's response quality matches at-style.
+
+### 4. Voice-backend auto-detect orchestrator (item E above)
+Small voice-service change; eliminates the one manual config step the strip requires on a fresh tenant.
+
+### 5. Document the migration playbook
+Given that ateam-mcp v0.3.43 + spec docs are now strip-aware, write a 1-page "migrating from verbose to stripped" guide for any tenant that still has the old schema. Should reference `personal-adas-stripped` as the canonical example.
+
+---
+
+## 5) COMMITS INDEX
+
+### Builder repo (`adas_mcp_toolbox_builder`, origin/main)
+
+**Phase work:**
+- `fd1631e` — Phase 2b initial: auto-import tool bridges
+- `1d8e3fe`, `a2cf4b9`, `9931db7` — Phase 6b: LLM handoff_when synthesis (persona-only → +tools → round-robin + connectors)
+- `01084f3` — Phase 5: also call ui.getPlugin per plugin for full manifest
+
+**Today's fixes (in order):**
+- `5e18bbf` — Phase 10 validation report
+- `d816952`, `9021931`, `7389332` — Orchestrator persona refinements
+- `a0a0221` — Bug A + Phase 5 rewrite + redeploy meta-phases + orphan cleanup (legacy ORCH_IDS approach, since superseded)
+- `aa8cd5c` — **NO FALLBACKS** — propagate errors + marker-based orphan cleanup (replaces hardcoded LEGACY_ORCH_IDS)
+- `a316d1c` — Phase 5: recognize MCP-error text responses
+- `9662a6d` — Phase 5: treat ok:false connector responses as legit skip
+- `37bd432` — Phase 5: canonicalize plugin id to `mcp:<connector>:<slug>`
+- `b95e144` — Phase 2b: per-tool REPLACE + refresh auto-imported + no fallback (the recursion fix)
+- `5e6e55b` — **Strip the remaining 18 silent fallbacks from the deploy pipeline**
+- `7948c76` — Public spec + examples updated to strip-aware authoring
+
+**Docs:**
+- `e1acaf9`, `1cdb34c`, this commit — Master status iterations
+- `ab80ee8` — E2E parity report v1
+- `a4a36a7` — E2E parity report v2
+
+### ateam-mcp repo
+
+- `2a07c08`, `8e71be0` (v0.3.43) — `ateam_bootstrap` minimal_authoring block
+
+---
+
+## 6) THE PINNED PRINCIPLE
+
+> Plugins are owned by the MCPs that serve them — discovered at deploy time via `ui.listPlugins`.
+> Triggers are written by the LLM at deploy time from each skill's persona + tools + connectors.
+> Tools are imported at deploy time from each connector's live inventory; refreshed on every deploy.
+> Orchestrator is generated at deploy time from worker `handoff_when` triggers when `routing_mode: "auto"`.
+>
+> Author writes: persona, connector picks, policy guardrails, connector integration code, UI plugin source.
 > Everything else: platform-generated, MCP-introspected, or LLM-synthesized.
 
 If any phase contradicts this — fix the phase, don't carve solution-specific exceptions.
+
+Deploys must be **loud**. Every phase failure must abort the deploy with a real error. Silent fallbacks turn a 30-second bug surface into a 30-minute runtime hunt. The discipline that found today's 5 bugs.
+
+---
+
+## 7) Files / source layout
+
+### New in this work
+- `apps/backend/src/services/connectorTools.js` — Phase 2b
+- `apps/backend/src/services/builtinOrchestrator.js` — Phase 6 + 6b
+- `apps/backend/src/services/pluginDiscovery.js` — Phase 5 (MCP introspection)
+- `apps/backend/src/services/styleInheritance.js` — Phase 1
+- `apps/backend/src/services/toolSecurityClassifier.js` — Phase 2
+- `apps/backend/src/services/intentSynthesizer.js` — Phase 3
+- `apps/backend/src/services/engineCompiler.js` — Phase 4
+- `apps/backend/src/services/uiActionsAutoDefaults.js`
+
+### Modified
+- `apps/backend/src/services/exportDeploy.js` — orchestrates all phases per skill, NO try/catch wrappers
+- `apps/backend/src/routes/deploy.js` — bulk deploy entry, runs meta-phases first, NO try/catch wrappers
+- `apps/backend/src/routes/solutions.js` — bulk redeploy now runs strip meta-phases
+- `apps/backend/src/routes/exportRuntime.js` + `apps/backend/src/routes/import.js` — fallback wrappers removed
+- `packages/skill-validator/src/routes/spec.js` — strip-aware `/spec/skill` + `/spec/solution`
+- `packages/skill-validator/src/routes/examples.js` — `_strip_summary` headers
+- `/Users/arie/Projects/ateam-mcp/src/tools.js` — `minimal_authoring` block in `ateam_bootstrap`
+
+### Untouched
+- ADAS Core (`ai-dev-assistant`) — by design.
+
+### Tenants
+- `mobile-pa` — reference, untouched
+- `mobile-pa-test` — explicit-field regression clone
+- `personal-adas-stripped` — fully strip-built, the migration target
