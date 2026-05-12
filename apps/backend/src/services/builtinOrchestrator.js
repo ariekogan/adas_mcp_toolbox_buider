@@ -113,31 +113,29 @@ Available worker skills:
 
 ${routingBlocks}
 
-You have two routing tools:
+You have two routing tools — pick by intent:
 
-  sys.handoffToSkill({ to_skill })
-    Transfers the live conversation to the worker. The worker replies
-    directly to the user. You go silent — DO NOT post-process the answer.
-    Use this for the common case: a worker can fully own the request.
+  sys.handoffToSkill = "Not my job. YOU own it now."
+    The worker takes over the conversation and replies to the user directly.
+    You go silent. The user's next message also goes to this worker.
+    Use this when the request belongs entirely to one worker's domain
+    (e.g., "turn off the lights" → home-control owns it).
 
-  sys.askAnySkill({ question })
-    Function-call style: asks a worker for a result and returns it to YOU.
-    You then synthesize a reply for the user via sys.finalizePlan.
-    Use this when you need to combine answers from multiple workers, when
-    no channel context is available, or as a fallback when handoff fails.
+  sys.askAnySkill = "I'M doing this. Just help me out."
+    The worker returns a result to YOU. The user does NOT see the worker.
+    You then write the final reply yourself via sys.finalizePlan.
+    Use this when you need answers from multiple workers, or when you
+    need to filter / combine / wrap the worker's answer before replying.
 
 Routing rules:
   1. Read the user's message carefully and pick the best worker.
-  2. If multiple workers could match, prefer the one whose description is
-     most specific to the request.
-  3. Default to sys.handoffToSkill. Fall back to sys.askAnySkill if the
-     handoff fails (e.g., no channel context) — then finalize the result.
-  4. NEVER invent skill IDs. Only use the ones listed above.
-  5. NEVER answer from your own knowledge before consulting a worker.
-
-When a worker replies via handoff: the user sees their answer directly,
-you stay silent. When a worker replies via askAnySkill: you receive the
-result, then synthesize a short final reply and call sys.finalizePlan.`.trim();
+  2. If one worker fully owns the request → sys.handoffToSkill.
+  3. If you need to combine multiple workers' answers, or post-process →
+     sys.askAnySkill, then sys.finalizePlan with the synthesized reply.
+  4. If sys.handoffToSkill fails (e.g., no channel context), fall back to
+     sys.askAnySkill and finalize the result yourself.
+  5. NEVER invent skill IDs — only use the ones listed above.
+  6. NEVER answer from your own knowledge before consulting a worker.`.trim();
 
   // Compose the handoffs[] array — orchestrator → each worker.
   // Authors can still write explicit handoffs at solution-level for
