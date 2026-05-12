@@ -61,3 +61,8 @@ export { deleteDirectory as githubDeleteDirectory } from './services/githubServi
 // Used by single-skill redeploy paths (apps/backend/src/services/exportDeploy.js)
 // to ensure the enricher runs regardless of which deploy path is taken.
 export { generateIntentExamples, enrichSkillIntentsWithLLM } from './services/exampleGenerator.js';
+
+// Phase 8 strip: self-healing validator — annotate validation results with
+// suggested_fix entries; high-confidence (>=0.9) fixes can be auto-applied
+// at deploy time to eliminate 3-5 round-trip iteration loops per change.
+export { annotateWithFixes, applyFix, autoApplyHighConfidenceFixes } from './services/fixSuggester.js';
