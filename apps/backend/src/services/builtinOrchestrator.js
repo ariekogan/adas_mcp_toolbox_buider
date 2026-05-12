@@ -65,10 +65,41 @@ const ORCH_ID = "auto-orchestrator";
 // Author can always set explicit `handoff_when` — REPLACE wins.
 // ─────────────────────────────────────────────────────────────────────
 
-function computeHandoffHash(persona, description) {
+/**
+ * Build a compact tool-inventory string for the synthesis prompt — the
+ * LLM uses this to discover capabilities the persona may not mention
+ * (e.g. life-manager's persona is about style/behavior but its tools[]
+ * carry gmail.cleanup, browser.navigate, calendar.list, …).
+ *
+ * Filters out internal/setup tools (names starting with _ or "ui.*" or
+ * "*._*") so the trigger reflects user-facing capability, not plumbing.
+ * Caps at ~40 tools and ~80 chars per description to keep prompts bounded.
+ */
+function summarizeToolsForSynthesis(tools) {
+  if (!Array.isArray(tools)) return "";
+  const filtered = tools.filter(t => {
+    const n = (t?.name || "").toString();
+    if (!n) return false;
+    if (n.startsWith("_") || n.startsWith("sys.")) return false;
+    if (n.includes("._")) return false;  // gmail._storeTokens etc
+    if (/\.(status|setup|connect)$/i.test(n)) return false;  // probes / OAuth flows
+    if (/^ui\./i.test(n)) return false;  // UI plugins, not capabilities
+    const desc = (t?.description || "").toLowerCase();
+    if (desc.startsWith("internal") || desc.startsWith("[internal]")) return false;
+    return true;
+  }).slice(0, 40);
+  return filtered.map(t => {
+    const name = t.name;
+    const desc = (t.description || "").replace(/\s+/g, " ").slice(0, 80).trim();
+    return `  - ${name}: ${desc}`;
+  }).join("\n");
+}
+
+function computeHandoffHash(persona, description, toolSummary) {
   const src = JSON.stringify({
     persona: String(persona || "").trim(),
     description: String(description || "").trim(),
+    tools: String(toolSummary || "").trim(),
   });
   return crypto.createHash("sha256").update(src).digest("hex");
 }
@@ -81,9 +112,12 @@ async function synthesizeHandoffWhenForSkill(skill) {
   }
   const persona = skill?.role?.persona || "";
   const description = skill?.description || "";
-  if (persona.length < 20 && description.length < 20) return null;  // not enough signal
+  const toolSummary = summarizeToolsForSynthesis(skill?.tools);
+  if (persona.length < 20 && description.length < 20 && toolSummary.length < 50) {
+    return null;  // not enough signal
+  }
 
-  const hash = computeHandoffHash(persona, description);
+  const hash = computeHandoffHash(persona, description, toolSummary);
   if (skill._auto_handoff_hash === hash && skill._auto_handoff_when) {
     // Cache hit — use cached value
     skill.handoff_when = skill._auto_handoff_when;
@@ -99,18 +133,24 @@ async function synthesizeHandoffWhenForSkill(skill) {
 
   const systemPrompt = `You write ONE-LINE routing triggers for skill handoffs in a multi-skill AI agent platform.
 
-Given a skill's persona + description, write a single concise sentence describing WHEN an orchestrator should route to this skill. The trigger is read by a routing LLM at runtime to decide skill selection.
+Given a skill's persona + description + tool inventory, write a single concise sentence describing WHEN an orchestrator should route to this skill. The trigger is read by a routing LLM at runtime to decide skill selection.
 
-Output STRICTLY: just the trigger sentence. No prose, no quotes, no markdown, no preamble. One sentence, 10-40 words, in the imperative voice that matches the persona's domain.
+CRITICAL: The trigger must mention the SPECIFIC verbs and nouns the user would say. If the tools include gmail operations, mention "email management" (search, send, archive, clean up). If they include calendar operations, mention "scheduling, calendar". Be specific so the routing LLM can disambiguate when multiple skills share a connector.
+
+Output STRICTLY: just the trigger sentence. No prose, no quotes, no markdown, no preamble. One sentence, 15-50 words, in the imperative voice that matches the persona's domain.
 
 Examples of good triggers:
   "User wants to store, recall, update, or delete memories."
-  "User asks for a morning briefing, daily summary, or schedule overview."
-  "User wants to control smart home devices, lights, thermostats, or scenes."
-  "User wants to send a message via SMS, email, or chat."
+  "User asks for a morning briefing, daily summary of their day, or schedule overview."
+  "User wants to control smart home devices, lights, thermostats, locks, or scenes."
+  "User wants email inbox management: search, archive, trash, clean up, move, label, OR web browsing, OR calendar/contact lookup, OR logging into web services."
 
 DO NOT include the word "skill" or the skill name in the trigger.
 DO NOT explain. Just the trigger sentence.`;
+
+  const toolsBlock = toolSummary
+    ? `\n\nTool inventory (representative subset; this is what the skill can DO):\n${toolSummary}`
+    : "";
 
   const userMessage = `Skill name: ${skill.name || skill.id || "(unknown)"}
 Skill description: ${description}
@@ -118,9 +158,9 @@ Skill description: ${description}
 Skill persona:
 \`\`\`
 ${persona.slice(0, 3000)}
-\`\`\`
+\`\`\`${toolsBlock}
 
-Write the routing trigger now (one sentence, 10-40 words):`;
+Write the routing trigger now (one sentence, 15-50 words, mentioning specific user-facing verbs/nouns from the tool inventory):`;
 
   try {
     const res = await adapter.chat({
