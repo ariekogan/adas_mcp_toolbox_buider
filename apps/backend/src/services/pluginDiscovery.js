@@ -119,7 +119,12 @@ async function fetchPluginsForConnector(connectorId) {
     throw new Error(`ui.listPlugins on "${connectorId}" returned unrecognized shape — expected {plugins:[...]} or array, got ${JSON.stringify(result).slice(0, 200)}`);
   }
   const normalized = plugins.filter(p => p && (p.id || p.name)).map(p => {
-    const pid = p.id || `mcp:${connectorId}:${p.name}`;
+    // Canonicalize id to mcp:<connectorId>:<slug>. MCPs sometimes return
+    // just the bare slug as id; the runtime expects the qualified form
+    // (Core's cp.listContextPlugins, mobile app's plugin store, etc).
+    const qualifiedPrefix = `mcp:${connectorId}:`;
+    let pid = p.id || p.name;
+    if (!pid.startsWith("mcp:")) pid = qualifiedPrefix + pid;
     return {
       ...p,
       id: pid,
