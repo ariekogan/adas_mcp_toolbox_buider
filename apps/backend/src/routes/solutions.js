@@ -14,6 +14,8 @@ import { validateSolution, validateSecurity, validateSolutionQuality, githubDele
 import { getSkillSlug, deploySkillToADAS } from '../services/exportDeploy.js';
 import adasCore from '../services/adasCoreClient.js';
 import { getCurrentTenant } from '../utils/tenantContext.js';
+import { discoverPluginsViaIntrospection } from '../services/pluginDiscovery.js';
+import { generateOrchestratorIfNeeded } from '../services/builtinOrchestrator.js';
 import skillsRouter from './skills.js';
 import validationRouter from "./solutionsValidation.js";
 
@@ -804,6 +806,82 @@ router.post('/:id/redeploy', async (req, res, next) => {
 
     if (linkedSkills.length === 0) {
       return res.json({ ok: true, solution_id: solutionId, skills: [], message: 'No skills to redeploy' });
+    }
+
+    // ── Run strip meta-phases BEFORE per-skill deploy ──
+    // Previously bulk-redeploy skipped Phase 5 (plugin introspection) +
+    // Phase 6 (orchestrator generation), causing tenants iterated only
+    // via ateam_redeploy to drift from the strip's intended output.
+    //
+    // Phase 5: introspect ui.listPlugins on each connector → solution.ui_plugins[]
+    // Phase 6: synthesize handoff_when triggers + (re)generate orchestrator
+    //
+    // Both phases run only if their REPLACE-skip conditions allow (explicit
+    // ui_plugins[] preserved; routing_mode!=auto skips orchestrator gen).
+    try {
+      // Phase 5: only if ui_plugins is empty (REPLACE wins on explicit lists)
+      if (!Array.isArray(solution.ui_plugins) || solution.ui_plugins.length === 0) {
+        const skillObjs = [];
+        for (const ref of linkedSkills) {
+          try {
+            const sk = await skillsStore.load(ref.id);
+            if (sk) skillObjs.push(sk);
+          } catch (_) { /* ignore — skill may not be loadable */ }
+        }
+        const { plugins, summary } = await discoverPluginsViaIntrospection(solution, skillObjs);
+        if (plugins.length > 0) {
+          solution.ui_plugins = plugins;
+          await solutionsStore.save(solution);
+          log.info(`[BulkRedeploy] Phase 5 introspection: ${plugins.length} plugin(s) from ${summary.connectors_with_plugins}/${summary.connectors_queried} connectors`);
+        }
+      }
+
+      // Phase 6: orchestrator regen (only if routing_mode:auto AND no explicit orchestrator)
+      if (solution.routing_mode === 'auto') {
+        const skillObjs = [];
+        for (const ref of linkedSkills) {
+          try {
+            const sk = await skillsStore.load(ref.id);
+            if (sk) skillObjs.push(sk);
+          } catch (_) { /* ignore */ }
+        }
+        const orchResult = await generateOrchestratorIfNeeded(solution, skillObjs);
+        // Drop legacy orchestrator slugs (from renamed-from ORCH_ID values)
+        const legacyOrphans = orchResult.legacy_ids_to_drop || [];
+        for (const legacyId of legacyOrphans) {
+          try {
+            await adasCore.deleteSkill(legacyId);
+            log.info(`[BulkRedeploy] Dropped legacy orchestrator id "${legacyId}" from Core`);
+          } catch (e) {
+            log.warn(`[BulkRedeploy] Core deletion of legacy "${legacyId}" failed (non-fatal): ${e.message}`);
+          }
+          try { await skillsStore.remove(solutionId, legacyId); }
+          catch (e) { log.warn(`[BulkRedeploy] FS deletion of legacy "${legacyId}" failed: ${e.message}`); }
+          // Drop from linked_skills if present
+          if (Array.isArray(solution.linked_skills)) {
+            solution.linked_skills = solution.linked_skills.filter(s => s !== legacyId);
+          }
+        }
+        if (orchResult.generated) {
+          await skillsStore.save(orchResult.orchestrator);
+          // Ensure orchestrator is in linked_skills
+          if (!Array.isArray(solution.linked_skills)) solution.linked_skills = [];
+          if (!solution.linked_skills.includes(orchResult.orchestrator.id)) {
+            solution.linked_skills.unshift(orchResult.orchestrator.id);
+          }
+          await solutionsStore.save(solution);
+          const hs = orchResult.handoff_synthesis || {};
+          log.info(`[BulkRedeploy] Phase 6 orchestrator regen: persona ${orchResult.orchestrator.role.persona.length} chars; handoff_when synthesis: ${hs.synthesized || 0} new, ${hs.cached || 0} cached, ${hs.skipped || 0} skipped, ${hs.failures || 0} failed`);
+          // Also persist any synthesized handoff_when fields on the worker skills
+          for (const sk of skillObjs) {
+            if (sk._auto_handoff_when && sk._auto_handoff_hash) {
+              try { await skillsStore.save(sk); } catch (_) { /* ignore */ }
+            }
+          }
+        }
+      }
+    } catch (stripErr) {
+      log.warn(`[BulkRedeploy] strip meta-phase failure (non-fatal): ${stripErr.message}`);
     }
 
     // Deploy each skill — ref.id IS the skill ID

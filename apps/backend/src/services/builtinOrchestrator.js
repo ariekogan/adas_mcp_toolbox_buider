@@ -48,6 +48,14 @@ import { createAdapter } from "./llm/adapter.js";
 // generated without violating the slug convention.
 const ORCH_ID = "auto-orchestrator";
 
+// Previous ORCH_ID values from earlier iterations. When the constant
+// changes, the deploy pipeline must drop any leftover skills using
+// these legacy slugs (otherwise the topology shows phantom orchestrators
+// — observed manually with "I see 2 orchestrators" on 2026-05-12).
+// Append the OLD value here BEFORE changing ORCH_ID, then drop the
+// previous entry on the next major release.
+const LEGACY_ORCH_IDS = ["_orchestrator", "orchestrator"];
+
 // ─────────────────────────────────────────────────────────────────────
 // handoff_when synthesis (Phase 6b — generalization fix, 2026-05-12)
 //
@@ -330,8 +338,11 @@ Routing rules:
   2. If one worker fully owns the request → sys.handoffToSkill.
   3. If you need to combine multiple workers' answers, or post-process →
      sys.askAnySkill, then sys.finalizePlan with the synthesized reply.
-  4. If sys.handoffToSkill fails (e.g., no channel context), fall back to
-     sys.askAnySkill and finalize the result yourself.
+  4. If sys.handoffToSkill(X) fails (e.g., no channel context), retry
+     with sys.askAnySkill(X) on the EXACT SAME target skill X — do not
+     re-route, do not re-evaluate, do not pick a different worker.
+     The routing decision was already made; the fallback only changes
+     the mechanism (function-call instead of channel-handoff).
   5. NEVER invent skill IDs — only use the ones listed above.
   6. NEVER answer from your own knowledge before consulting a worker.`.trim();
 
@@ -393,6 +404,7 @@ Routing rules:
         ],
         always: [
           "Always route to a worker. Use sys.handoffToSkill when the worker should take over the conversation. Use sys.askAnySkill when you need an answer back to synthesize. After sys.askAnySkill returns, finalize the worker's answer for the user.",
+          "If sys.handoffToSkill(X) fails, the next sys.askAnySkill MUST target the SAME skill X. Do not re-route or pick a different worker on the fallback path.",
         ],
       },
       approvals: [],
@@ -429,13 +441,22 @@ Routing rules:
  */
 export async function generateOrchestratorIfNeeded(solution, skills) {
   const decision = shouldGenerateOrchestrator(solution, skills);
+
+  // Compute legacy orphans regardless of generate decision — if the
+  // bundle still carries an old ORCH_ID slug, callers should clean it
+  // up even when generation is skipped (e.g. author wrote their own
+  // orchestrator after we already deployed an auto- one).
+  const legacy_ids_to_drop = LEGACY_ORCH_IDS.filter(legacyId =>
+    (Array.isArray(skills) ? skills : []).some(s => s?.id === legacyId)
+  );
+
   if (!decision.generate) {
-    return { generated: false, reason: decision.reason };
+    return { generated: false, reason: decision.reason, legacy_ids_to_drop };
   }
   // Synthesize handoff_when on workers BEFORE building the orchestrator.
   // The persona-routing block (in buildOrchestratorSkill) reads w.handoff_when,
   // so this needs to fire first.
-  const workers = (skills || []).filter(s => s?.id && s.id !== ORCH_ID);
+  const workers = (skills || []).filter(s => s?.id && s.id !== ORCH_ID && !LEGACY_ORCH_IDS.includes(s.id));
   let handoff_synthesis = { synthesized: 0, cached: 0, skipped: 0, failures: 0 };
   try {
     handoff_synthesis = await synthesizeHandoffsForWorkers(workers);
@@ -450,6 +471,7 @@ export async function generateOrchestratorIfNeeded(solution, skills) {
     orchestrator: orch,
     handoffs: orch._generated_handoffs || [],
     handoff_synthesis,
+    legacy_ids_to_drop,
   };
 }
 
@@ -459,4 +481,7 @@ export default {
   generateOrchestratorIfNeeded,
   synthesizeHandoffsForWorkers,
   ORCH_ID,
+  LEGACY_ORCH_IDS,
 };
+
+export { ORCH_ID, LEGACY_ORCH_IDS };

@@ -18,7 +18,7 @@ import { deploySkillToADAS, deployIdentityToADAS } from '../services/exportDeplo
 import adasCore from '../services/adasCoreClient.js';
 import gitSync, { verifyConsistency } from '../services/gitSync.js';
 import { enrichPluginList } from '../services/uiActionsAutoDefaults.js';
-import { discoverPluginsForSolution } from '../services/pluginDiscovery.js';
+import { discoverPluginsViaIntrospection } from '../services/pluginDiscovery.js';
 import { generateOrchestratorIfNeeded } from '../services/builtinOrchestrator.js';
 import { getMemoryRoot } from '../utils/tenantContext.js';
 import fs from 'fs';
@@ -154,25 +154,24 @@ router.post('/solution', async (req, res, next) => {
     // Plugins returned at runtime by a connector's ui.getPlugin handler are
     // NOT touched here — those need either author update or a Core-side
     // fetch-time hook (out of scope for this layer).
-    // ── Phase 5 of §20 strip: plugin auto-discovery ──
-    // When solution.ui_plugins[] is empty/missing, walk the deployed
-    // mcp-store directories and produce manifests from the file layout
-    // (ui-dist/<name>/index.html, plugins/<name>/index.tsx). Authors
-    // get plugins for free without declaring them. REPLACE wins:
-    // explicit solution.ui_plugins[] (mobile-pa case) is preserved.
+    // ── Phase 5 of §20 strip: plugin discovery via MCP introspection ──
+    // When solution.ui_plugins[] is empty/missing, call ui.listPlugins on
+    // each connector via Core. MCPs are the source of truth — they know
+    // their own version, surface, uiActions, capabilities. FS layout is
+    // not consulted (it over-discovers and misses MCP-internal fields).
+    // REPLACE wins: explicit solution.ui_plugins[] (mobile-pa case) is
+    // preserved verbatim.
     if (!Array.isArray(solution.ui_plugins) || solution.ui_plugins.length === 0) {
       try {
-        const memRoot = getMemoryRoot();
-        const mcpStoreRoot = path.join(memRoot, '_builder', 'solution-packs', solution.id, 'mcp-store');
-        if (fs.existsSync(mcpStoreRoot)) {
-          const discovered = discoverPluginsForSolution(mcpStoreRoot);
-          if (discovered.length > 0) {
-            solution.ui_plugins = discovered;
-            log.info(`[Deploy] Auto-discovered ${discovered.length} UI plugin(s) from connector folders: ${discovered.map(p => p.id).join(', ')}`);
-          }
+        const { plugins: discovered, summary } = await discoverPluginsViaIntrospection(solution, skills);
+        if (discovered.length > 0) {
+          solution.ui_plugins = discovered;
+          log.info(`[Deploy] Plugin introspection: ${discovered.length} unique plugin(s) from ${summary.connectors_with_plugins}/${summary.connectors_queried} connectors${summary.conflicts.length > 0 ? ` (${summary.conflicts.length} id conflicts deduped)` : ''}: ${discovered.map(p => p.id).join(', ')}`);
+        } else {
+          log.info(`[Deploy] Plugin introspection: 0 plugins from ${summary.connectors_queried} connectors. Per-connector: ${summary.per_connector.map(c => `${c.connector_id}(${c.reason})`).join(', ')}`);
         }
       } catch (discoErr) {
-        log.warn(`[Deploy] Plugin discovery failed (non-fatal): ${discoErr.message}`);
+        log.warn(`[Deploy] Plugin introspection failed (non-fatal): ${discoErr.message}`);
       }
     }
 
@@ -208,6 +207,31 @@ router.post('/solution', async (req, res, next) => {
     // routing_mode:"auto" nor a need for this — generation skipped.
     try {
       const orchResult = await generateOrchestratorIfNeeded(solution, skills);
+      // Drop legacy orchestrator IDs (renamed-from values) regardless of
+      // whether new generation runs. Both Core + FS + linked_skills must be
+      // cleaned. Idempotent: ignores 404 if already gone.
+      const legacyOrphans = orchResult.legacy_ids_to_drop || [];
+      for (const legacyId of legacyOrphans) {
+        try {
+          await adasCore.deleteSkill(legacyId);
+          log.info(`[Deploy] Dropped legacy orchestrator id "${legacyId}" from Core`);
+        } catch (e) {
+          log.warn(`[Deploy] Core deletion of legacy "${legacyId}" failed (non-fatal): ${e.message}`);
+        }
+        try {
+          const { default: skillsStoreLocal } = await import('../store/skills.js');
+          await skillsStoreLocal.remove(solution.id, legacyId);
+        } catch (e) {
+          log.warn(`[Deploy] FS deletion of legacy "${legacyId}" failed (non-fatal): ${e.message}`);
+        }
+        // Drop from in-memory skills array so deploy loop ignores it
+        const idx = skills.findIndex(s => s?.id === legacyId);
+        if (idx >= 0) skills.splice(idx, 1);
+        // Drop from solution.linked_skills if present
+        if (Array.isArray(solution.linked_skills)) {
+          solution.linked_skills = solution.linked_skills.filter(s => s !== legacyId);
+        }
+      }
       if (orchResult.generated) {
         // Insert orchestrator skill at the front of the skills array
         skills.unshift(orchResult.orchestrator);

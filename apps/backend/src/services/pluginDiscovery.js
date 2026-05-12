@@ -1,191 +1,157 @@
 /**
- * pluginDiscovery.js — Phase 5 of §20 v2.3 schema strip.
+ * pluginDiscovery.js — Phase 5 of §20 v2.3 schema strip (2026-05-12 REWRITE).
  *
- * Auto-discover UI plugins by walking the deployed connector folders.
- * When `solution.ui_plugins[]` is empty/missing, this populates it at
- * deploy time. REPLACE wins: an explicit `solution.ui_plugins[]` is
- * preserved verbatim (mobile-pa path).
+ * AUTHORITATIVE DESIGN PRINCIPLE: plugins are owned by the MCPs that serve them.
+ * The MCP's `ui.listPlugins` tool is the source of truth — NOT filesystem layout.
  *
- * Convention-based discovery:
+ * Why this matters:
+ *   - MCP knows its own version, surface, uiActions, capabilities, exact name.
+ *   - FS scan only knows folder names → over-discovers (same plugin slug in
+ *     multiple connector folders becomes N distinct plugin IDs) and misses
+ *     MCP-internal fields.
+ *   - Runtime `cp.listContextPlugins` deliberately skips lazy connectors to
+ *     preserve lazy-spawn. Result: lazy MCPs never get queried unless their
+ *     plugins are declared at solution-level — which is exactly the
+ *     boilerplate the strip is meant to eliminate.
  *
- *   <mcp-store-root>/<connector-id>/ui-dist/<plugin-name>/index.html
- *     → iframe plugin, render.mode = "adaptive", iframeUrl
+ * The mechanism:
+ *   1. At deploy time, for each connector in skill.connectors[] across the
+ *      solution, call Core's POST /api/connectors/:id/call with tool
+ *      "ui.listPlugins". Core will spawn the connector (even if lazy),
+ *      execute the call, and return the result.
+ *   2. Connectors that don't implement ui.listPlugins return an error →
+ *      contribute zero plugins (this is correct: a non-UI connector has none).
+ *   3. Dedup across connectors by plugin id. The id is already fully
+ *      qualified (`mcp:<connector-id>:<plugin-name>`) so collisions only
+ *      occur if two connectors both claim the same plugin — last write wins.
+ *   4. Write result into solution.ui_plugins[]. Core's cp.listContextPlugins
+ *      reads from there at runtime — fast, no lazy-spawn perf hit.
  *
- *   <mcp-store-root>/<connector-id>/plugins/<plugin-name>/index.tsx
- *     → React Native plugin, render.reactNative.component = <plugin-name>
+ * REPLACE wins: an explicit author-written solution.ui_plugins[] is preserved.
  *
- *   <mcp-store-root>/<connector-id>/{ui-dist,plugins}/<plugin-name>/manifest.json
- *     → optional override manifest. Fields here merge over the
- *       auto-generated defaults (commands, capabilities, surface, etc.).
- *
- * The resolved plugin id is always `mcp:<connector-id>:<plugin-name>` —
- * fully qualified, no collisions possible.
- *
- * mobile-pa-test's solution.ui_plugins[] is fully populated (14 plugins)
- * → discovery is a no-op for it. Stripped solutions can omit the field
- * entirely and get all plugins auto-discovered.
+ * Skip rules:
+ *   - Solution has no connectors → no-op.
+ *   - Connector unavailable → log, skip.
+ *   - ui.listPlugins returns malformed payload → log, skip.
  */
 
-import fs from "node:fs";
-import path from "node:path";
+import adasCore from "./adasCoreClient.js";
 
 /**
- * Discover plugins for a single connector by scanning its folders.
- *
- * @param {string} connectorRoot   Absolute path to the connector dir
- *                                 (e.g. ".../mcp-store/personal-assistant-ui-mcp")
- * @param {string} connectorId
- * @returns {Array} list of plugin manifests
+ * Call ui.listPlugins on a single connector via Core's bridge.
+ * Returns array of plugin manifests; empty on any failure.
  */
-export function discoverPluginsForConnector(connectorRoot, connectorId) {
-  const out = [];
-  if (!connectorRoot || !connectorId) return out;
-  if (!fs.existsSync(connectorRoot)) return out;
+async function fetchPluginsForConnector(connectorId) {
+  try {
+    const result = await adasCore.callConnectorTool(connectorId, "ui.listPlugins", {});
+    if (!result) return { plugins: [], reason: "empty_result" };
+    // ui.listPlugins typically returns { content: [{ type: "text", text: "<json>" }] }
+    // or { plugins: [...] } depending on MCP convention. Handle both.
+    let plugins = null;
+    if (Array.isArray(result.plugins)) {
+      plugins = result.plugins;
+    } else if (Array.isArray(result?.content)) {
+      // MCP text-response shape — pluck the JSON
+      const textBlock = result.content.find(c => c?.type === "text" && c.text);
+      if (textBlock) {
+        try {
+          const parsed = JSON.parse(textBlock.text);
+          plugins = Array.isArray(parsed?.plugins) ? parsed.plugins
+                  : Array.isArray(parsed)          ? parsed
+                  : null;
+        } catch (parseErr) {
+          return { plugins: [], reason: `parse_error: ${parseErr.message}` };
+        }
+      }
+    } else if (Array.isArray(result)) {
+      plugins = result;
+    }
+    if (!Array.isArray(plugins)) return { plugins: [], reason: "unrecognized_shape" };
+    // Normalize: ensure plugin.id is fully qualified
+    const normalized = plugins.filter(p => p && (p.id || p.name)).map(p => {
+      const pid = p.id || `mcp:${connectorId}:${p.name}`;
+      return {
+        ...p,
+        id: pid,
+        _source: "mcp_introspection",
+        _connector_id: connectorId,
+      };
+    });
+    return { plugins: normalized, reason: "ok" };
+  } catch (err) {
+    const msg = err?.message || String(err);
+    // Tool-not-found = connector legitimately doesn't expose plugins
+    if (/Unknown tool|not found|method not found/i.test(msg)) {
+      return { plugins: [], reason: "no_ui_listPlugins" };
+    }
+    return { plugins: [], reason: `error: ${msg}` };
+  }
+}
 
-  // Detect iframe plugins under ui-dist/
-  const uiDistDir = path.join(connectorRoot, "ui-dist");
-  if (fs.existsSync(uiDistDir) && fs.statSync(uiDistDir).isDirectory()) {
-    const entries = fs.readdirSync(uiDistDir, { withFileTypes: true });
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      const pluginName = e.name;
-      // Must contain index.html to be a valid iframe plugin
-      const indexHtml = path.join(uiDistDir, pluginName, "index.html");
-      if (!fs.existsSync(indexHtml)) continue;
-      out.push(buildManifest({
-        connectorId,
-        pluginName,
-        hasIframe: true,
-        hasRN: false,
-        overridePath: path.join(uiDistDir, pluginName, "manifest.json"),
-      }));
+/**
+ * Walk solution + skill connectors, call ui.listPlugins on each, return
+ * the deduped union of all returned plugins.
+ *
+ * @param {Object} solution                solution object (read connectors from skills + platform_connectors)
+ * @param {Array}  skills                  worker skill objects
+ * @returns {Promise<{ plugins, summary }>}
+ */
+export async function discoverPluginsViaIntrospection(solution, skills) {
+  const summary = { connectors_queried: 0, connectors_with_plugins: 0, total_plugins: 0, per_connector: [] };
+
+  // Collect unique connector IDs used by this solution
+  const connectorIds = new Set();
+  if (Array.isArray(solution?.platform_connectors)) {
+    for (const c of solution.platform_connectors) connectorIds.add(c?.id || c);
+  }
+  if (Array.isArray(skills)) {
+    for (const sk of skills) {
+      if (Array.isArray(sk?.connectors)) {
+        for (const c of sk.connectors) connectorIds.add(typeof c === "string" ? c : c?.id);
+      }
     }
   }
+  // Drop falsy / system connectors
+  const targets = [...connectorIds].filter(id => id && !["handoff-controller-mcp"].includes(id));
 
-  // Detect RN plugins under plugins/
-  const pluginsDir = path.join(connectorRoot, "plugins");
-  if (fs.existsSync(pluginsDir) && fs.statSync(pluginsDir).isDirectory()) {
-    const entries = fs.readdirSync(pluginsDir, { withFileTypes: true });
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      const pluginName = e.name;
-      // Look for index.tsx / index.ts / index.jsx / index.js
-      const candidates = ["index.tsx", "index.ts", "index.jsx", "index.js"];
-      const hasIndex = candidates.some(f => fs.existsSync(path.join(pluginsDir, pluginName, f)));
-      if (!hasIndex) continue;
+  const pluginMap = new Map(); // id → plugin (last write wins, but we log conflicts)
+  const conflicts = [];
 
-      // Check if iframe entry already exists for this plugin name; if so,
-      // merge RN render mode into the existing entry rather than creating
-      // a duplicate id (e.g., adaptive plugins).
-      const id = `mcp:${connectorId}:${pluginName}`;
-      const existing = out.find(p => p.id === id);
-      if (existing) {
-        // Promote to adaptive — both iframe + RN exist
-        existing.render = {
-          ...existing.render,
-          mode: "adaptive",
-          reactNative: { component: pluginName },
-        };
+  for (const connId of targets) {
+    summary.connectors_queried++;
+    const { plugins, reason } = await fetchPluginsForConnector(connId);
+    summary.per_connector.push({ connector_id: connId, count: plugins.length, reason });
+    if (plugins.length > 0) summary.connectors_with_plugins++;
+    for (const p of plugins) {
+      if (!p?.id) continue;
+      if (pluginMap.has(p.id)) {
+        conflicts.push({ id: p.id, kept_from: pluginMap.get(p.id)._connector_id, dropped_from: p._connector_id });
+        // Keep first writer (deterministic), don't overwrite
         continue;
       }
-
-      out.push(buildManifest({
-        connectorId,
-        pluginName,
-        hasIframe: false,
-        hasRN: true,
-        overridePath: path.join(pluginsDir, pluginName, "manifest.json"),
-      }));
+      pluginMap.set(p.id, p);
     }
   }
-
-  return out;
-}
-
-function buildManifest({ connectorId, pluginName, hasIframe, hasRN, overridePath }) {
-  const id = `mcp:${connectorId}:${pluginName}`;
-
-  // Default render based on what was found
-  const render = { mode: "adaptive" };
-  if (hasIframe) render.iframeUrl = `/ui/${pluginName}/index.html`;
-  if (hasRN) render.reactNative = { component: pluginName };
-
-  // Default manifest. Sensible minimums.
-  let manifest = {
-    id,
-    name: humanizeName(pluginName),
-    version: "1.0.0",
-    type: "ui",
-    render,
-    capabilities: {},
-    channels: ["command"],
-    commands: [],
-    _auto_discovered: true,
-  };
-
-  // Merge author overrides if manifest.json exists next to the plugin
-  if (overridePath && fs.existsSync(overridePath)) {
-    try {
-      const override = JSON.parse(fs.readFileSync(overridePath, "utf8"));
-      manifest = deepMerge(manifest, override);
-      // Re-fix id to the canonical pattern even if override messed it up
-      manifest.id = id;
-      manifest._auto_discovered = true;
-      manifest._has_override = true;
-    } catch (err) {
-      console.warn(`[pluginDiscovery] failed to parse override at ${overridePath}: ${err.message}`);
-    }
-  }
-
-  return manifest;
-}
-
-function humanizeName(slug) {
-  return String(slug || "")
-    .replace(/-/g, " ")
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, c => c.toUpperCase())
-    .trim() || slug;
-}
-
-function deepMerge(a, b) {
-  if (typeof a !== "object" || a === null) return b;
-  if (typeof b !== "object" || b === null) return a;
-  if (Array.isArray(b)) return b; // arrays replace, not merge
-  const out = { ...a };
-  for (const k of Object.keys(b)) {
-    if (typeof b[k] === "object" && b[k] !== null && !Array.isArray(b[k])) {
-      out[k] = deepMerge(a[k], b[k]);
-    } else {
-      out[k] = b[k];
-    }
-  }
-  return out;
+  summary.total_plugins = pluginMap.size;
+  summary.conflicts = conflicts;
+  return { plugins: [...pluginMap.values()], summary };
 }
 
 /**
- * Discover plugins across all connectors in a solution.
+ * Back-compat shim. Old callers passed mcpStoreRoot for FS-scan. The new
+ * implementation needs solution + skills. If only mcpStoreRoot is passed
+ * (legacy call site), return empty — the deploy pipeline will call the
+ * new function directly instead.
  *
- * @param {string} mcpStoreRoot  Absolute path to the solution's mcp-store
- *                                (e.g. ".../solution-packs/personal-adas/mcp-store")
- * @returns {Array} merged list of plugin manifests across all connectors
+ * @deprecated Use discoverPluginsViaIntrospection(solution, skills) instead.
  */
-export function discoverPluginsForSolution(mcpStoreRoot) {
-  const all = [];
-  if (!mcpStoreRoot || !fs.existsSync(mcpStoreRoot)) return all;
-
-  const entries = fs.readdirSync(mcpStoreRoot, { withFileTypes: true });
-  for (const e of entries) {
-    if (!e.isDirectory()) continue;
-    const connectorId = e.name;
-    const connectorRoot = path.join(mcpStoreRoot, connectorId);
-    const plugins = discoverPluginsForConnector(connectorRoot, connectorId);
-    all.push(...plugins);
-  }
-  return all;
+export function discoverPluginsForSolution(_mcpStoreRoot) {
+  // Intentionally empty — legacy FS-scan was the wrong design.
+  // Real call lives in routes/deploy.js, which now uses introspection.
+  return [];
 }
 
 export default {
-  discoverPluginsForConnector,
+  discoverPluginsViaIntrospection,
   discoverPluginsForSolution,
 };
