@@ -860,10 +860,39 @@ function buildSkillSpec() {
     description: 'Complete A-Team skill definition specification. A skill is an autonomous AI agent with tools, policies, and workflows.',
 
     auto_expand: {
-      description: 'You can send a minimal skill definition (just id, name, problem, tools, and optionally guardrails). The platform auto-expands missing fields transparently during validation and deployment. Only define intents, workflows, scenarios, and role explicitly when you need custom logic.',
-      minimal_required: ['id', 'name', 'problem', 'tools'],
-      auto_generated: ['scenarios', 'intents', 'role', 'engine', 'policy.workflows', 'entities', 'access_policy'],
-      rule: 'If default planner behavior works — do not define extra blocks. Complexity is opt-in.',
+      description: 'A skill can be VERY small. The author writes prose + connector picks; the platform fills in the rest at deploy time. This is the §20 v2.3 schema strip — about 68% of what authors used to write is now platform-generated.',
+      minimal_required: ['id', 'name', 'role.persona', 'connectors'],
+      optional_but_useful: ['description', 'handoff_when', 'policy.guardrails'],
+      auto_generated: [
+        'tools  (Phase 2b — auto-imported from each connector\'s live tool inventory at deploy)',
+        'ui_plugins  (Phase 5 — auto-discovered via each connector\'s ui.listPlugins + ui.getPlugin at deploy)',
+        'handoff_when  (Phase 6b — LLM-synthesized from persona + tools + connectors when missing; cached by source hash)',
+        'intents  (Phase 3 — synthesized from tools + persona; cached by source hash)',
+        'scenarios  (auto-generated from tools + intents)',
+        'role.* fields beyond persona  (auto-generated)',
+        'engine config  (Phase 4 — resolved from preset name or default)',
+        'policy.workflows / entities / access_policy  (auto-generated)',
+        'security classification on tools  (Phase 2 — auto-classified destructive/read/etc)',
+      ],
+      auto_orchestrator: {
+        description: 'At the SOLUTION level, set routing_mode:"auto" and the platform generates an orchestrator skill at deploy time. Each worker skill\'s handoff_when (synthesized or author-written) becomes a routing rule. You do NOT write an orchestrator skill yourself.',
+        opt_in_field: 'solution.routing_mode = "auto"',
+        opt_out: 'Provide your own skill with role:"orchestrator", or omit routing_mode.',
+      },
+      rule: 'If default behavior works — do not define extra blocks. Complexity is opt-in. REPLACE wins: any explicit field overrides the platform-generated equivalent.',
+      typical_minimal_skill: {
+        id: 'memory-keeper',
+        name: 'Memory Keeper',
+        version: '1.1.0',
+        description: 'Persistent memory',
+        role: {
+          name: 'Memory Keeper',
+          persona: 'You are the user\'s persistent memory ...',
+        },
+        connectors: ['memory-mcp'],
+        handoff_when: 'User wants to store, recall, update, or delete memories.',
+        policy: { guardrails: { always: ['confirm in 1 short sentence'], never: [] } },
+      },
     },
 
     schema: {
@@ -3189,6 +3218,32 @@ function buildSolutionSpec() {
   return {
     spec_version: '1.0.0',
     description: 'Complete A-Team solution definition specification. A solution orchestrates multiple skills into a cohesive multi-agent system with shared grants, handoffs, and routing.',
+
+    auto_expand: {
+      description: 'A solution can be very small. Author writes: skill picks (id list), routing_mode, optional style. Platform generates: orchestrator skill, handoff rules, ui_plugins, default routing channels, validator manifest.',
+      minimal_required: ['id', 'name', 'linked_skills'],
+      optional_but_useful: ['description', 'routing_mode', 'style', 'platform_connectors'],
+      auto_generated: [
+        'orchestrator skill  (Phase 6 — generated when routing_mode:"auto" AND no orchestrator-role skill exists. Persona is built from each worker\'s handoff_when triggers.)',
+        'handoffs[]  (Phase 6 — orchestrator → each worker, auto_generated:true marker)',
+        'routing.{voice,chat,api}.default_skill  (set to the generated orchestrator when not specified)',
+        'ui_plugins[]  (Phase 5 — MCP introspection at deploy time, calls ui.listPlugins + ui.getPlugin on each ui_capable connector)',
+        'style cascade  (Phase 1 — solution-level style prepended to every skill persona)',
+      ],
+      auto_orchestrator: 'Set routing_mode:"auto" and the platform builds the orchestrator. Each worker\'s handoff_when becomes a routing rule. The orchestrator is a real, deployed skill (id "auto-orchestrator", role_type "orchestrator", _auto_generated:true marker for safe regeneration).',
+      rule: 'REPLACE wins: any explicit field overrides the platform-generated equivalent. Author keeps explicit fields when overriding inferred behavior; deletes them to opt back into automation.',
+      typical_minimal_solution: {
+        id: 'personal-adas',
+        name: 'Personal Assistant',
+        description: 'Situation-aware personal assistant',
+        routing_mode: 'auto',
+        style: 'mobile',
+        linked_skills: [
+          'memory-keeper', 'daily-intel', 'home-control', 'messaging-agent',
+          'mycoach', 'my-docs', 'travel-agent', 'teach-this', 'notification-triage', 'life-manager',
+        ],
+      },
+    },
 
     schema: {
       // ── Metadata ──

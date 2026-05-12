@@ -83,7 +83,26 @@ export default router;
 
 function buildExampleSkill() {
   return {
-    _note: 'This example passes all 5 validation stages (schema, references, completeness, security, export readiness). Use POST /validate/skill to verify.',
+    _note: 'This is the comprehensive example (every field shown) — useful as a REFERENCE when overriding platform defaults. For most new skills you do NOT need most of these blocks. See GET /spec/skill → auto_expand for what the platform fills in automatically.',
+    _strip_summary: {
+      author_writes: [
+        'id, name, version, description',
+        'role.persona (the agent\'s instructions in prose)',
+        'connectors[] (list of MCP connector ids this skill uses)',
+        'handoff_when (one-sentence routing trigger — OPTIONAL, the platform LLM-synthesizes one if omitted)',
+        'policy.guardrails (optional always/never rules)',
+      ],
+      platform_generates_at_deploy: [
+        'tools[] (Phase 2b — fetched from each connector\'s live /api/connectors/:id/tools)',
+        'ui_plugins[] (Phase 5 — MCP introspection via ui.listPlugins + ui.getPlugin)',
+        'intents (Phase 3 — LLM-synthesized from tools + persona)',
+        'scenarios, role.goals/limitations/communication_style (auto)',
+        'engine (Phase 4 — resolved from skill.engine string or default preset)',
+        'security classifications on every tool (Phase 2)',
+        'access_policy defaults',
+      ],
+      see_also: 'GET /spec/skill — auto_expand block has the full list + typical_minimal_skill',
+    },
 
     id: 'order-support',
     name: 'Order Support Agent',
@@ -1239,7 +1258,32 @@ async function tryLiveData() {
 
 function buildExampleSolution() {
   return {
-    _note: 'This example passes validateSolution(). It shows a 3-skill e-commerce customer service system with grant economy, handoffs, and routing. To deploy, use POST /deploy/solution with the deploy_body shown at the bottom.',
+    _note: 'This is the comprehensive solution example (every field shown). For most new solutions you do NOT need most of these blocks. See GET /spec/solution → auto_expand and the example below.',
+    _strip_summary: {
+      author_writes: [
+        'id, name, description, version',
+        'linked_skills[] (list of skill ids — the skills you authored)',
+        'routing_mode: "auto" (opts into orchestrator generation)',
+        'style: "mobile" | "voice" | etc (Phase 1 channel style cascade)',
+        'identity (only if non-default actor types/roles are needed)',
+      ],
+      platform_generates_at_deploy: [
+        'orchestrator skill (Phase 6 — "auto-orchestrator", reads each worker\'s handoff_when)',
+        'handoffs[] (Phase 6 — orchestrator → each worker)',
+        'routing.{voice,chat,api}.default_skill (set to the generated orchestrator)',
+        'ui_plugins[] (Phase 5 — MCP introspection across connectors)',
+        'Style applied to every skill persona (Phase 1)',
+      ],
+      typical_minimal_solution: {
+        id: 'personal-adas',
+        name: 'Personal Assistant',
+        description: 'Situation-aware personal assistant',
+        routing_mode: 'auto',
+        style: 'mobile',
+        linked_skills: ['memory-keeper', 'daily-intel', 'home-control', 'messaging-agent', 'mycoach', 'travel-agent'],
+      },
+      see_also: 'GET /spec/solution — auto_expand block has the full generation list',
+    },
 
     id: 'ecom-customer-service',
     name: 'E-Commerce Customer Service',
