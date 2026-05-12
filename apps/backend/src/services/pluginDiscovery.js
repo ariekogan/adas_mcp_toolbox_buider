@@ -97,6 +97,17 @@ async function fetchPluginsForConnector(connectorId) {
       // Otherwise treat as JSON payload — JSON.parse errors propagate
       // (malformed MCP response is a bug worth surfacing).
       const parsed = JSON.parse(t);
+      // Connector explicitly said "not available right now" (e.g. not
+      // authenticated, not connected). Treat as legitimate skip — the
+      // connector exists but has 0 plugins to surface in this state.
+      // When the user authenticates, the next redeploy will pick them up.
+      // NOTE: ideally the connector's ui.listPlugins would return its
+      // static plugin manifest unconditionally (plugin metadata is not
+      // a runtime concern), but some connectors gate this on auth.
+      // That's a connector-side bug to fix separately.
+      if (parsed && parsed.ok === false) {
+        return { plugins: [], reason: `connector_not_ready: ${parsed.error || "unspecified"}` };
+      }
       plugins = Array.isArray(parsed?.plugins) ? parsed.plugins
               : Array.isArray(parsed)          ? parsed
               : null;
