@@ -238,6 +238,59 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
     }
   }
 
+  // ── Phase 2c of §20 strip: tool resolution validation (deploy-time) ──
+  // Catches the runtime "unknown tool" cases AT DEPLOY TIME so they can't
+  // reach production. Two deterministic checks (persona-scan check deferred
+  // until we have a reliable tool-name detector — too easy to false-positive
+  // on natural-language personas):
+  //
+  //   1. Every skill.tools[] entry with source.connection_id references a
+  //      connector that's actually declared in skill.connectors[]. Catches
+  //      the author config bug where tools[] points at a connector the
+  //      skill doesn't bind.
+  //
+  //   2. skill.connectors[] non-empty but Phase 2b reported "no_tools_returned"
+  //      (every connector queried returned 0 tools) — the stale-auto-import
+  //      class. Phase 2b already throws if connectors that PREVIOUSLY
+  //      contributed regress to 0; this catches the first-deploy variant
+  //      where the skill never had tools to lose.
+  //
+  // Runtime Layer 1 (planUtils.diagnoseUnknownTool) is the safety net for
+  // transient outages. This Layer 2 is structural — bad config never deploys.
+  {
+    const errors = [];
+    const declaredConnectors = new Set(skill.connectors || []);
+    for (const t of (skill.tools || [])) {
+      const name = t?.name;
+      if (!name) continue;
+      // Wildcards aren't names — skip
+      if (name.endsWith(":*") || name.endsWith(".*")) continue;
+      const conn = t?.source?.connection_id || t?.connection_id;
+      if (conn && !declaredConnectors.has(conn)) {
+        errors.push(`Tool "${name}" references connector "${conn}" which is not in skill.connectors[]`);
+      }
+    }
+    if (
+      (skill.tools || []).length === 0 &&
+      declaredConnectors.size > 0 &&
+      importResult?.skipped_reason === "no_tools_returned" &&
+      (importResult?.connectors_queried || 0) > 0
+    ) {
+      errors.push(
+        `skill.tools[] is empty despite ${importResult.connectors_queried} connector(s) queried — Phase 2b returned no tools. ` +
+        `Verify each connector in skill.connectors[] (${[...declaredConnectors].join(", ")}) is running and exposing tools.`
+      );
+    }
+    if (errors.length > 0) {
+      const msg =
+        `[MCP Deploy] Phase 2c (tool resolution validation) failed for ${skillId}:\n` +
+        errors.map((e) => `  - ${e}`).join("\n");
+      log.error(msg);
+      throw new Error(msg);
+    }
+    log.info(`[MCP Deploy] Phase 2c: ${(skill.tools || []).length} tool declaration(s) validated for ${skillId}`);
+  }
+
   // Phase 0: Deploy solution-level identity config (actor types, roles).
   // Errors propagate — a skill deployed against a wrong identity config
   // can produce unauthorized actor records.
