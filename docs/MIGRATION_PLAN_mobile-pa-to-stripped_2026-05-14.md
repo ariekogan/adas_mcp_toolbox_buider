@@ -1,12 +1,44 @@
-# Migration Plan: `mobile-pa` → `personal-adas-stripped`
+# Migration Plan: `mobile-pa` → `ada`
 
 **Owner:** Arie + Claude
-**Goal:** cut over daily-use solution from `mobile-pa` to `personal-adas-stripped`. Keep mobile-pa as immediate rollback. Self-running by Claude end-to-end except where explicitly flagged **Human-required**.
+**Goal:** cut over daily-use solution from `mobile-pa` to a brand-new `ada` tenant, built from the strip template. Keep mobile-pa as immediate rollback. Self-running by Claude end-to-end except where explicitly flagged **Human-required**.
+
+**Note:** `personal-adas-stripped` was the strip-work test tenant. It stays as-is for history. The new production tenant is `ada`, built fresh using the same strip pipeline.
 
 **Hard rules:**
 - Every phase has a pre-check, action, e2e test, rollback.
 - No phase advances until its e2e test passes.
 - Mobile-pa data and bindings are NEVER mutated by this plan — pure copy-out + new-bind-in.
+
+---
+
+## Phase 0a — Provision `ada` tenant (new — runs once)
+
+**Pre-check:** Tenant `ada` does NOT exist yet (no `adas_ada` Mongo DB, no API key issued).
+
+**Action:**
+1. Issue tenant API key: `adas_ada_<hex>`.
+2. Initialize Mongo: `adas_ada` database, TTL indexes on execution_logs / llm_traces / etc.
+3. Initialize Builder FS root for the tenant: `data/tenants/ada/_builder/`.
+4. Copy the strip-built solution from `personal-adas-stripped` as a template:
+   - `solution.json` (rename solution_id to `ada-personal-assistant` or similar).
+   - All `skills/<slug>/skill.json` files.
+   - `bootstrap_tools` lists.
+   - UI plugin declarations.
+   - **Do NOT copy:** memory data, conversations, cron state, integration tokens (those come in Phase 2 + 3 from mobile-pa).
+5. Run `ateam_build_and_run(solution_id: ada's solution)` to deploy.
+6. Push to a new GitHub repo `ariekogan/ada--personal-assistant`.
+
+**E2E test:**
+- `ateam_list_solutions` with `ada` key shows the new solution.
+- `ateam_get_solution(view: skills)` returns all 10 skills.
+- `ateam_get_solution(view: health)` reports all skills healthy.
+- A trivial test prompt (`ateam_test_skill(skill_id: auto-orchestrator, message: "hello")`) returns a finalized response in ≤3 iterations.
+- Routing parity smoke: 5 of the Phase 1 prompts route to the same skill as on mobile-pa.
+
+**Rollback:** Drop the `adas_ada` Mongo DB, delete the Builder FS root, revoke the API key, delete the GitHub repo. No impact on mobile-pa or personal-adas-stripped.
+
+**Output:** `docs/migration/phase0a-provision.json` (API key handle, solution_id, repo URL, smoke result)
 
 ---
 
@@ -58,7 +90,7 @@
 **Action:**
 1. Dump from `adas_mobile-pa`: `memory_facts`, `memory_episodic`, `memory_rules`, `trigger_runs` (recent 90d), `learned_shortcuts`.
 2. Transform: rewrite any tenant-scoped IDs that need rewriting (likely none — IDs are per-tenant).
-3. Insert into `adas_personal-adas-stripped` (same collection names).
+3. Insert into `adas_ada` (same collection names).
 4. Skip `conversations` for now (not critical for daily use; can backfill later).
 
 **E2E test:**
@@ -66,7 +98,7 @@
 - Sample 10 random docs from each collection; spot-check identity (same `_id`, same content).
 - Stripped `sys.memory.recall` against a known memory returns the same content as mobile-pa.
 
-**Rollback:** `db.adas_personal-adas-stripped.memory_*.drop()` per collection. Mobile-pa untouched.
+**Rollback:** `db.adas_ada.memory_*.drop()` per collection. Mobile-pa untouched.
 
 **Output:** `docs/migration/phase2-data.json` (counts before/after) + a dump file backed up.
 
