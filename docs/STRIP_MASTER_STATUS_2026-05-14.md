@@ -112,7 +112,7 @@ All A–H tracked in [05-13 status](./STRIP_MASTER_STATUS_2026-05-13.md). One ne
 
 The migration itself is a real-world validation: items A (recursion budget), B (case-aware tool-not-found), C (matcher convergence) all held under exercise. No `tool_drift` or `routing_divergence` events fired across 14 parity test prompts.
 
-### J (NEW — CRITICAL, partly applied) Duplicate-actor creation on Google sign-in
+### J (NEW — ✅ RESOLVED end-to-end) Duplicate-actor creation on Google sign-in
 
 **Full analysis:** [`ROOT_CAUSE_duplicate-actors_2026-05-14.md`](./ROOT_CAUSE_duplicate-actors_2026-05-14.md)
 
@@ -133,17 +133,26 @@ The migration itself is a real-world validation: items A (recursion budget), B (
 - Losers (`b0d954c9-…`, `consumer_0196b51d-…`) soft-suspended with `mergedInto: consumer_ff4be08a-…` (audit trail preserved, no hard delete).
 - **Per-actor data swept across all 44 collections in `adas_ada`** and repointed to survivor: insights (1264), llm_traces+llm_usage (272), audit_events (58), jobs (35), insight_job_index (35), job_summaries (30), trigger_runs (15), conversations (11), device_tokens (1). trigger_states had 12 (skillSlug, triggerId, actorId) collisions with survivor — survivor's rows kept (canonical), loser rows deleted. Final: **0 docs in ada still owned by either loser**.
 
-**Layer B — STRUCTURAL FIX (pending user approval; Core code change):**
-- Patch the 5 `findActorByIdentity({provider:"google",...})` sites in `apps/backend/routes/auth.js` (lines 347, 441, 494, 543, 702) to also check `provider:"google_oauth"` before creating. Same `LEGACY_PROVIDER_ALIASES` pattern + same security guardrails (only adopt active `external_user`/`external` types) that consumer-auth already has.
+**Layer B + C — ✅ APPLIED (Core commit `bd0067e3`, 2026-05-14 evening):**
+- `actorRegistry.js`: new `CANONICAL_PROVIDERS` alias map (`google_oauth ↔ google`, `apple_oauth ↔ apple`) + `canonicalProvider()` normalizer.
+- `findActorByIdentity` is alias-aware: tries canonical first, then legacy aliases — single source of truth across web auth, consumer-auth, telegram, gmail, voice.
+- `createActor` / `linkIdentity` always write under canonical keys. Uniqueness check uses `findActorByIdentity` (alias-aware), closing the partial-index loophole.
+- `routes/auth.js`: all 10 hardcoded `provider:"google"` sites switched to canonical `google_oauth`.
 
-**Layer C — DEFENSE IN DEPTH (pending user approval; Core code change):**
-- In `apps/backend/utils/actorRegistry.js:createActor`, after the identity_index uniqueness check, also call the `actors.identities[]` fallback (already exists in `dbFindByIdentity`) for each candidate identity. Throw or auto-adopt if found. Closes the partial-index loophole entirely.
+**Data migration — ✅ APPLIED across all 19 tenants (`scripts/canonicalize-provider-keys.js --apply`):**
+- 14 identity_index rows rekeyed from `google::sub` → `google_oauth::sub`.
+- 17 embedded `actors.identities[]` bindings rekeyed in-place.
+- 1 duplicate row deleted as no-op (already canonical).
+- 1 conflict on mobile-pa surfaced + resolved separately:
+  - `migrate-duplicate-identities.js --apply --tenant=mobile-pa` merged legacy actor `28611596-*` into survivor `consumer_ff4be08a-*`.
+  - Data sweep (same pattern as ada Layer A): 749 docs repointed across 10 collections, 8 trigger_states/usage_meters collisions deleted (survivor already canonical), loser status=suspended with `mergedInto` pointer.
+  - Then re-ran canonicalize on mobile-pa to drop the now-redundant legacy lookup row.
 
-**Optional — Cleanup script strengthening (pure additive):**
-- Update `apps/backend/scripts/migrate-duplicate-identities.js` to iterate `actors.find({"identities.provider":...})` instead of (or in addition to) `identities.find({provider:...})`. Catches tenants with partial indexes.
+**Final state (verified):** zero legacy `google::*` or `apple::*` lookup rows anywhere. Zero embedded legacy bindings on active actors. Idempotency confirmed (second dry-run reports 0 work).
 
-**Recommendation:**
-- Apply Layer B + Layer C together. Both are surgical (~30 LOC each), match patterns already in the codebase, and eliminate the entire bug class. Run the strengthened cleanup script on all tenants in dry-run mode first to confirm no other tenants have latent dupes.
+**Runtime safety net:** the alias map stays permanent — any external caller or imported data still using legacy names continues to resolve correctly. New writes are guaranteed canonical because the writer functions all normalize.
+
+The dual-provider-key bug class is now structurally impossible.
 
 ---
 
