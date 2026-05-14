@@ -112,6 +112,39 @@ All A–H tracked in [05-13 status](./STRIP_MASTER_STATUS_2026-05-13.md). One ne
 
 The migration itself is a real-world validation: items A (recursion budget), B (case-aware tool-not-found), C (matcher convergence) all held under exercise. No `tool_drift` or `routing_divergence` events fired across 14 parity test prompts.
 
+### J (NEW — CRITICAL, partly applied) Duplicate-actor creation on Google sign-in
+
+**Full analysis:** [`ROOT_CAUSE_duplicate-actors_2026-05-14.md`](./ROOT_CAUSE_duplicate-actors_2026-05-14.md)
+
+**Symptom:** ada had 3 actor records for the same Google identity (`112678765001062752195` / ariekogan33@gmail.com): one copied from mobile-pa (`consumer_ff4be08a-…`), one created by web auth flow (`b0d954c9-…`, provider="google"), one created by mobile consumer-auth login today (`consumer_0196b51d-…`, provider="google_oauth"). identity_index pointed only at the youngest, two orphans hung off the actor doc collection.
+
+**Root cause (4 sub-causes):**
+1. **Two provider strings for the same IdP**: legacy web flow uses `provider:"google"`, consumer-auth uses `provider:"google_oauth"` (same Apple split: `apple` vs `apple_oauth`). Same `externalId`, different lookup key.
+2. **Asymmetric alias logic**: `apps/consumer-auth/src/server.js:245-306` checks both new key AND legacy key (`LEGACY_PROVIDER_ALIASES`). `apps/backend/routes/auth.js` does NOT. So mobile-first then web-login → dupe; web-first then mobile-login → no dupe.
+3. **`actorRegistry.createActor` uniqueness check is index-only**: only consults `identities` collection, not `actors.identities[]`. When the index is partial (e.g., manual copy during migration), uniqueness check passes and a duplicate is born.
+4. **Cleanup script is index-keyed**: `apps/backend/scripts/migrate-duplicate-identities.js` iterates `identities.find({provider:legacy})` — tenants with a partial index (like ada) are invisible to it.
+
+**Why "second time":** mobile-pa hit this earlier in the year — that's why the migration script exists. The fix only landed on the consumer-auth side, so every new tenant where the user logs in via both web and mobile re-produces it.
+
+**Layer A — ✅ APPLIED to ada (no source changes):**
+- Manual merge: `consumer_ff4be08a-…` chosen as survivor (richest — has Gmail + Telegram + email + google_oauth identities, came from mobile-pa).
+- Survivor's `identities[]` extended with `{provider:"google", externalId:"112678…"}` so the legacy key also resolves to it.
+- `identity_index` repointed + backfilled: 4 rows now, all → survivor (`google_oauth::sub`, `google::sub`, `email::…`, `telegram::1106009191`).
+- Losers (`b0d954c9-…`, `consumer_0196b51d-…`) soft-suspended with `mergedInto: consumer_ff4be08a-…` (audit trail preserved, no hard delete).
+- **Per-actor data swept across all 44 collections in `adas_ada`** and repointed to survivor: insights (1264), llm_traces+llm_usage (272), audit_events (58), jobs (35), insight_job_index (35), job_summaries (30), trigger_runs (15), conversations (11), device_tokens (1). trigger_states had 12 (skillSlug, triggerId, actorId) collisions with survivor — survivor's rows kept (canonical), loser rows deleted. Final: **0 docs in ada still owned by either loser**.
+
+**Layer B — STRUCTURAL FIX (pending user approval; Core code change):**
+- Patch the 5 `findActorByIdentity({provider:"google",...})` sites in `apps/backend/routes/auth.js` (lines 347, 441, 494, 543, 702) to also check `provider:"google_oauth"` before creating. Same `LEGACY_PROVIDER_ALIASES` pattern + same security guardrails (only adopt active `external_user`/`external` types) that consumer-auth already has.
+
+**Layer C — DEFENSE IN DEPTH (pending user approval; Core code change):**
+- In `apps/backend/utils/actorRegistry.js:createActor`, after the identity_index uniqueness check, also call the `actors.identities[]` fallback (already exists in `dbFindByIdentity`) for each candidate identity. Throw or auto-adopt if found. Closes the partial-index loophole entirely.
+
+**Optional — Cleanup script strengthening (pure additive):**
+- Update `apps/backend/scripts/migrate-duplicate-identities.js` to iterate `actors.find({"identities.provider":...})` instead of (or in addition to) `identities.find({provider:...})`. Catches tenants with partial indexes.
+
+**Recommendation:**
+- Apply Layer B + Layer C together. Both are surgical (~30 LOC each), match patterns already in the codebase, and eliminate the entire bug class. Run the strengthened cleanup script on all tenants in dry-run mode first to confirm no other tenants have latent dupes.
+
 ---
 
 ## 3) MIGRATION STATUS
