@@ -61,23 +61,33 @@
 
 ---
 
-## Phase 3 — Smoke test on real flows
+## Phase 3 — Parity test vs `mobile-pa`
 
 **Pre-check:** Phase 2 passes.
 
+**Why parity even without data migration:** ada starts with empty memory, so memory-dependent prompts ("what's my favorite color") will diverge on CONTENT. That's expected. What matters: **routing parity** (same skill picked) and **tool-sequence parity** (same key tools fired). Those should match regardless of memory state.
+
 **Action:**
-- Run a representative set of real-world prompts via `ateam_test_skill` against ada (the user picks 10 — covering email, smart home, mycoach, memory, daily-intel, travel).
-- Watch `execution_logs` for: `tool_drift`, `routing_divergence`, job failures.
+1. Pull last 30 user prompts from `adas_mobile-pa.conversations` (and their already-recorded routed skill + tool sequence from `job_summaries`).
+2. Replay each against ada via `ateam_test_skill`.
+3. For each prompt, compare:
+   - **Routed skill** (ada vs mobile-pa historical) — must match.
+   - **Top-3 tool calls** by name (presence, not order) — should match.
+   - **Final-response status** (succeeded vs errored) — must match.
+   - **Iteration count** — ada within 1.5× of mobile-pa baseline.
+4. Watch `execution_logs` on ada during replay for `tool_drift` and `routing_divergence`.
 
-**E2E test:**
-- All 10 prompts produce a sensible response (subjective: user reviews).
+**E2E test (pass criteria):**
+- ≥90% routing parity (≥27/30).
+- ≥75% top-3 tool-call parity.
+- 0 catastrophic failures (timeouts, infinite loops, validator errors).
 - 0 `tool_drift` events.
-- ≤2 `routing_divergence` events.
-- Iteration count median ≤ 8.
+- ≤2 `routing_divergence` events total.
+- Iteration count median on ada ≤ 1.5× mobile-pa's median.
 
-**Rollback:** Stay on mobile-pa as primary. Investigate failures, fix, re-test.
+**Rollback:** Stay on mobile-pa as primary. Investigate divergences, fix, re-test.
 
-**Output:** `docs/migration/phase3-smoke.json`
+**Output:** `docs/migration/phase3-parity.json` (per-prompt side-by-side + aggregate scores)
 
 ---
 
@@ -140,7 +150,7 @@
 |---|---|---|
 | 1 provision | ✅ all | – |
 | 2 integration | ✅ Telegram/voice/emailPoller | ❌ Gmail OAuth click, Telegram confirm |
-| 3 smoke | ✅ run + check | ❌ "looks right" review |
+| 3 parity test | ✅ run + score | – (optional review of divergences) |
 | 4 cutover | ✅ binding flips | ❌ test prompt per channel, go/no-go |
 | 5 burn-in | ✅ daily checks + alerts | – |
 | 6 decommission | ✅ when you say "yes" | ❌ explicit yes |
@@ -150,8 +160,9 @@
 ## Open Questions Before I Start
 
 1. **Solution_id for ada:** `ada-personal-assistant`, `ada`, something else?
-2. **API key:** I can generate it, or you want to issue it manually?
-3. **Smoke prompts:** I pick 10 representative, or you give me a list?
-4. **Burn-in window:** 7 days or shorter?
+2. **API key:** I generate it, or you want to issue it manually?
+3. **Parity prompts:** I pull the last 30 from mobile-pa's `conversations`, OR you give me a curated list?
+4. **Parity threshold:** routing ≥90% pass / tool-call ≥75% — too strict? too loose?
+5. **Burn-in window:** 7 days or shorter?
 
 Answer those — I can start Phase 1 immediately.
