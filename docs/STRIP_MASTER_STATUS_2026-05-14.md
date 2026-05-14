@@ -15,6 +15,26 @@
 
 ---
 
+## ⭐ LATE-DAY ADDITION: actual source-file strip applied
+
+After validating Phase 3 parity, the ada skill.json files were still verbose (mobile-pa's content copied verbatim, 398 KB total). The user pushed back hard: that's not what "strip" means.
+
+So a real strip was applied: each of 10 worker skill.json files reduced to author-surface-only fields (id, name, version, description, role.persona, role_type, connectors, handoff_when, excluded_tools, engine, bootstrap_tools, solution_id). Verbose `intents.supported[]`, `tools[]`, scenarios, examples — dropped. Verbose backups saved as `skill.verbose.bak.json`.
+
+**Result: 335 KB → 48 KB = 7× smaller author source.**
+
+Per-skill shrink: from ~14× (messaging-agent, daily-intel) to ~3× (memory-keeper, teach-this).
+
+Re-deployed all 10 skills. Strip pipeline regenerated:
+- 5 intents per skill (Phase 3 LLM)
+- tools auto-imported from connectors (Phase 2b)
+
+Post-strip parity smoke: 3/3 representative prompts route correctly (mycoach, travel-agent, home-control).
+
+GitHub commit `5122c9d` on `ariekogan/ada--ada`.
+
+---
+
 ## 1) WHAT SHIPPED TODAY (2026-05-14)
 
 ### A. Migration plan authored
