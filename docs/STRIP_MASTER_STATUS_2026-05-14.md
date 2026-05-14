@@ -31,7 +31,18 @@ Re-deployed all 10 skills. Strip pipeline regenerated:
 
 Post-strip parity smoke: 3/3 representative prompts route correctly (mycoach, travel-agent, home-control).
 
-GitHub commit `5122c9d` on `ariekogan/ada--ada`.
+**Then ran full 14-prompt parity test — strict parity dropped from 11/14 to 8/14 (57%).** Root cause: Phase 3 LLM-synthesized 5 generic intents per skill, less precise than mobile-pa's hand-written ones — especially for activity ("check my steps"), nutrition ("log coffee"), and memory ("remember X") phrasings.
+
+**Surgical fix:**
+1. Restored hand-written `intents.supported[]` on mycoach (11 intents) and memory-keeper (2 intents) — `.verbose.bak.json` → `intents` field only, nothing else.
+2. Added explicit `handoff_when` to mycoach mentioning steps/activity/fitness/exercise/workouts.
+3. Patched the orchestrator persona in Mongo to strengthen mycoach routing for activity-with-today phrasings.
+
+**Final parity: 11/14 strict (back to pre-strip), 12/14 effective.** Author source still ~5× smaller (~70 KB vs 335 KB). Other 8 skills stay fully stripped.
+
+GitHub commits `5122c9d` (strip), `abbcd05` (intent + handoff_when restore) on `ariekogan/ada--ada`.
+
+**Open ROT (long-term):** Phase 6 (auto-orchestrator persona regeneration) appears to ignore manual `handoff_when` updates due to a hash cache — my Mongo patch may be overwritten on next full solution-redeploy. The cleaner fix is for Phase 6 to invalidate cache when worker `handoff_when` changes. Not blocking today; flag for later cleanup.
 
 ---
 
