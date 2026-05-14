@@ -86,7 +86,29 @@ GitHub commits `5122c9d` (strip), `abbcd05` (intent + handoff_when restore) on `
 
 ## 2) ARCHITECTURAL ITEMS — status update
 
-No changes from yesterday. All A–H still tracked in [05-13 status](./STRIP_MASTER_STATUS_2026-05-13.md).
+All A–H tracked in [05-13 status](./STRIP_MASTER_STATUS_2026-05-13.md). One new item added today:
+
+### I (NEW — IMPORTANT) Phase 6 orchestrator regeneration cache is too sticky
+
+**Symptom (observed today):**
+- Manually updated `handoff_when` on a worker skill (mycoach) in both Builder FS and Mongo.
+- Per-skill redeployed mycoach → Mongo updated.
+- Per-skill redeployed auto-orchestrator → expected: regenerate persona from workers' handoff_whens. Actual: **persona unchanged**. Phase 6 used cached output.
+- Worked around it by patching the orchestrator persona directly in Mongo. Fragile — next full solution-redeploy may overwrite the patch.
+
+**Root cause hypothesis:**
+- `builtinOrchestrator.js` (Builder, `apps/backend/src/services/`) caches orchestrator persona by a hash that doesn't include the live worker `handoff_when` fields, or doesn't reread them after a per-skill update.
+
+**Fix path (Builder-side, no Core changes):**
+- Hash the inputs Phase 6 actually consumes: each worker skill's id + handoff_when + routing_mode + ordered skill list. Invalidate cache when any change.
+- On per-skill redeploy of a worker, mark the orchestrator's hash dirty so the next deploy of the orchestrator regenerates the persona.
+
+**Open question (your call, not urgent):** is it better to **move orchestrator generation into Core** entirely?
+- Pro: single source of truth at runtime; no Build/Run drift.
+- Pro: hash can be precise (live worker handoff_whens + bound-tools + routing config).
+- Con: Core gains an LLM-synthesis dependency it doesn't have today.
+- Con: deploy-time fail-loud becomes runtime first-call-fail — bigger blast radius.
+- Recommended: fix the Builder-side cache first; reassess only if drift becomes a recurring problem.
 
 The migration itself is a real-world validation: items A (recursion budget), B (case-aware tool-not-found), C (matcher convergence) all held under exercise. No `tool_drift` or `routing_divergence` events fired across 14 parity test prompts.
 
