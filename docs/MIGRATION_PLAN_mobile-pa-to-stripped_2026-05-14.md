@@ -19,9 +19,15 @@
 1. Issue API key: `adas_ada_<hex>`.
 2. Init Mongo: `adas_ada` database + TTL indexes (`execution_logs`, `llm_traces`, `insights`, etc.).
 3. Init Builder FS root: `data/tenants/ada/_builder/`.
-4. Copy strip-built solution skeleton from `personal-adas-stripped` (solution.json + all skills/*.json + bootstrap_tools + ui_plugins). Rewrite `solution.id` → `ada-personal-assistant`.
-5. **Do NOT copy:** memory data, conversations, cron state, integration tokens.
-6. `ateam_build_and_run` to deploy. Push to new GitHub repo `ariekogan/ada--personal-assistant`.
+4. **Source = mobile-pa's solution structure, stripped to author surface only.** For each of mobile-pa's 10 skills:
+   - Read `mobile-pa/skills/<slug>/skill.json`.
+   - Write a stripped version to `ada/_builder/skills/<slug>/skill.json` containing ONLY: `id`, `name`, `role.persona` (compact), `connectors[]`, `handoff_when` (if author-written; otherwise omit and let Phase 6b synthesize at deploy).
+   - Drop: full intents/supported[], scenarios, persona-bloat, tools[] (Phase 2b auto-imports), engine bloat (Phase 4 resolves preset), excluded_tools (unless deliberate).
+   - Drop the entire orchestrator skill — Phase 6 regenerates it at deploy when `routing_mode: "auto"`.
+5. Solution: copy mobile-pa's `solution.json` with: `id` → `ada`, `style: "mobile"`, `routing_mode: "auto"`, same connector list, same actor model. Strip the `ui_plugins[]` block — Phase 5 introspects connectors at deploy.
+6. **Do NOT copy:** memory data, conversations, cron state, integration tokens, conversation history.
+7. `ateam_build_and_run` to deploy. Strip pipeline runs: Phase 1 (style cascade) → 2b (tool auto-import) → 2 (security classify) → 2c (deploy-time validation) → 3 (intent synthesis) → 4 (engine preset) → 5 (UI plugins) → 6 + 6b (orchestrator + handoff_when synthesis) → 7-9.
+8. Push to new GitHub repo `ariekogan/ada--personal-assistant`.
 
 **E2E test:**
 - `ateam_list_solutions` (with ada key) shows the new solution.
@@ -157,12 +163,12 @@
 
 ---
 
-## Open Questions Before I Start
+## Defaults I'm Using (no questions to you)
 
-1. **Solution_id for ada:** `ada-personal-assistant`, `ada`, something else?
-2. **API key:** I generate it, or you want to issue it manually?
-3. **Parity prompts:** I pull the last 30 from mobile-pa's `conversations`, OR you give me a curated list?
-4. **Parity threshold:** routing ≥90% pass / tool-call ≥75% — too strict? too loose?
-5. **Burn-in window:** 7 days or shorter?
+1. **Tenant:** `ada`. **Solution_id:** `ada`. **Repo:** `ariekogan/ada--personal-assistant`.
+2. **API key:** I generate via system path (master_key / admin tool). If I hit a permission wall I'll surface it.
+3. **Parity prompt source:** ALL representative prompts from mobile-pa's `conversations` covering every one of the 10 skills (5-10 per skill, 50-100 total). I'll classify by routed skill from `job_summaries` and sample evenly. Full e2e coverage, not 30.
+4. **Parity threshold:** routing ≥90% (skill-level), top-3 tool-call presence ≥75%, 0 catastrophic failures, 0 `tool_drift`, ≤2 `routing_divergence` total. Iteration count median ≤ 1.5× mobile-pa's.
+5. **Burn-in:** 7 days, with daily auto-check + alert.
 
-Answer those — I can start Phase 1 immediately.
+If any default is wrong, override here — otherwise I run with these.
