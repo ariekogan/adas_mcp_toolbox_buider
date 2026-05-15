@@ -324,6 +324,27 @@ async function checkUiAsset(tenant, connectorId, assetPath) {
 }
 
 /**
+ * Check if an RN plugin's bundle is reachable via the SAME endpoint the
+ * mobile host hits at runtime: /api/ui-plugins/<plugin-id>/bundle.js.
+ *
+ * Replaces the previous probe that guessed at a static file path. If this
+ * returns exists:false, the mobile app will also fail to load the bundle —
+ * so the probe and the live mobile behavior agree.
+ */
+async function checkPluginBundle(pluginId) {
+  const url = `${BASE_URL}/api/ui-plugins/${encodeURIComponent(pluginId)}/bundle.js`;
+  try {
+    const res = await fetch(url, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(5000),
+    });
+    return { exists: res.ok, status: res.status };
+  } catch (err) {
+    return { exists: false, error: err.message };
+  }
+}
+
+/**
  * Check if ADAS Core is reachable.
  */
 async function isAvailable() {
@@ -540,6 +561,7 @@ export default {
   uploadMcpCode,
   isAvailable,
   checkUiAsset,
+  checkPluginBundle,
   // External Agent API — jobs, testing, insights
   listJobs,
   getJobDetails,
@@ -577,6 +599,7 @@ export {
   uploadMcpCode,
   isAvailable,
   checkUiAsset,
+  checkPluginBundle,
   // External Agent API — jobs, testing, insights
   listJobs,
   getJobDetails,

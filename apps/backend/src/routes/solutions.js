@@ -459,7 +459,13 @@ router.get('/:id/health', async (req, res, next) => {
         const coreData = await adasCore.getConnector(cid);
         adasReachable = true;
         if (coreData) {
-          const healthy = coreData.status === 'connected' || coreData.status === 'running';
+          // "stopped" on a stdio connector with autoStart:true is the NORMAL idle state —
+          // it spawns on the next tool call. Treating it as a warning is false-positive
+          // noise. Only warn for real failure states: "error" / "crashed" / "unreachable".
+          const transport = coreData.transport || 'stdio';
+          const autoStart = coreData.autoStart !== false;
+          const idleStdio = transport === 'stdio' && autoStart && coreData.status === 'stopped';
+          const healthy = coreData.status === 'connected' || coreData.status === 'running' || idleStdio;
           if (!healthy) issues.push({ severity: 'warning', connector: cid, message: `Connector status is "${coreData.status}"` });
           connectorHealth.push({
             id: cid,
@@ -588,14 +594,19 @@ router.get('/:id/health', async (req, res, next) => {
         continue;
       }
 
-      // Check if rn-bundle/index.bundle.js exists on Core
-      const bundleCheck = await adasCore.checkUiAsset(tenant, connectorId, 'rn-bundle/index.bundle.js');
+      // Check the bundle via the SAME endpoint the mobile host hits at runtime
+      // (/api/ui-plugins/<plugin-id>/bundle.js). Previously this probed
+      // /mcp-ui/<tenant>/<connector>/rn-bundle/index.bundle.js — a static file
+      // route that maps to ui-dist/, not to rn-bundle/. The probe always failed
+      // even when the live bundle endpoint returned 200 (false positive every
+      // time, surfaced as a noisy error in `ateam_get_solution(view:health)`).
+      const bundleCheck = await adasCore.checkPluginBundle(plugin.id);
       if (!bundleCheck.exists) {
         issues.push({
           severity: 'error',
           plugin: plugin.id,
           connector: connectorId,
-          message: `RN plugin "${plugin.id}" — rn-bundle/index.bundle.js NOT FOUND on Core. ` +
+          message: `RN plugin "${plugin.id}" — bundle endpoint /api/ui-plugins/${encodeURIComponent(plugin.id)}/bundle.js returned ${bundleCheck.status || 'error'}. ` +
             `Required: connector must have rn-src/index.tsx + package.json with "build:rn" script. ` +
             `The build:rn script must produce rn-bundle/index.bundle.js (CommonJS, externals: react, react-native, @adas/plugin-sdk).`,
         });
