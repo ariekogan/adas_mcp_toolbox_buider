@@ -156,16 +156,36 @@ async function fetchPluginsForConnector(connectorId) {
       // Tool not found → fall through with just the index entry
     }
 
-    normalized.push({
-      // Index entry has id/name/version/description/maybe uiActions
+    // Merge index + manifest. Then sanitize known-broken fields before the
+    // result lands in solution.ui_plugins.
+    const merged = {
       ...idx,
-      // Full manifest layered on top: render, surface, capabilities, etc.
       ...manifest,
-      // Force canonical id (never trust either source to get it right)
       id: pid,
       _source: "mcp_introspection",
       _connector_id: connectorId,
-    });
+    };
+
+    // Sanitize: strip render.reactNative.bundleUrl. The platform serves bundles
+    // at /api/ui-plugins/<id>/bundle.js; the host derives that URL via the
+    // default convention. A connector-injected bundleUrl (typically using
+    // URL-encoded colons that don't match Core's route table) makes the mobile
+    // bundle fetch 404 and silently fall back to the iframe WebView — the bug
+    // pattern that bit ada's coach plugins on 2026-05-15. Strip and warn so
+    // the connector author sees it in deploy logs.
+    if (merged?.render?.reactNative?.bundleUrl) {
+      const badUrl = merged.render.reactNative.bundleUrl;
+      delete merged.render.reactNative.bundleUrl;
+      console.warn(
+        `[pluginDiscovery] stripped render.reactNative.bundleUrl="${badUrl}" ` +
+        `from plugin "${pid}" (connector "${connectorId}"). The platform serves ` +
+        `bundles via the default route; connector-injected URLs cause silent ` +
+        `iframe-WebView fallback on mobile. Remove bundleUrl from this plugin's ` +
+        `ui.getPlugin response.`
+      );
+    }
+
+    normalized.push(merged);
   }
   return { plugins: normalized, reason: "ok" };
 }

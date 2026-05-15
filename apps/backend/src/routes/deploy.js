@@ -154,11 +154,45 @@ router.post('/solution', async (req, res, next) => {
     // fail loudly. If a connector legitimately doesn't expose
     // ui.listPlugins, fetchPluginsForConnector returns 0 plugins for it
     // (correct: non-UI connector has no plugins) without throwing.
-    if (!Array.isArray(solution.ui_plugins) || solution.ui_plugins.length === 0) {
+    //
+    // Re-introspection policy (2026-05-15):
+    //   Previously this only ran when solution.ui_plugins was empty — so once
+    //   an old manifest landed, it stuck. ada's surface-block-missing bug went
+    //   undetected for a day because of this caching behavior. Now we
+    //   re-introspect on every deploy and MERGE: hand-authored solution-level
+    //   plugin fields take precedence over connector-supplied fields, so
+    //   ateam_patch(target:"solution",ui_plugins:...) edits never get clobbered.
+    //   Connector-only fields (render, capabilities, channels, commands) get
+    //   refreshed every deploy. Force-disable via solution._skip_introspection.
+    const skipReintrospect = solution._skip_introspection === true;
+    if (!skipReintrospect) {
       const { plugins: discovered, summary } = await discoverPluginsViaIntrospection(solution, skills);
       if (discovered.length > 0) {
-        solution.ui_plugins = discovered;
-        log.info(`[Deploy] Plugin introspection: ${discovered.length} unique plugin(s) from ${summary.connectors_with_plugins}/${summary.connectors_queried} connectors${summary.conflicts.length > 0 ? ` (${summary.conflicts.length} id conflicts deduped)` : ''}: ${discovered.map(p => p.id).join(', ')}`);
+        const existing = Array.isArray(solution.ui_plugins) ? solution.ui_plugins : [];
+        const existingById = new Map(existing.map(p => [p.id, p]));
+        // Merge: connector fields are base, hand-authored fields layer on top.
+        // Hand-authored = anything that's NOT _source:"mcp_introspection" OR
+        // any field explicitly set by ateam_patch (we detect via _hand_authored
+        // marker, falling back to "treat ALL fields on a non-introspection
+        // plugin as hand-authored").
+        const merged = discovered.map(disc => {
+          const prev = existingById.get(disc.id);
+          if (!prev) return disc;  // fresh from introspection
+          const prevWasHand = prev._source !== 'mcp_introspection';
+          return prevWasHand
+            ? { ...disc, ...prev, _source: prev._source }  // hand-authored wins
+            : { ...prev, ...disc };  // both auto: latest introspection wins
+        });
+        // Also keep any hand-authored plugins that introspection didn't return
+        // (e.g. plugins for connectors that are temporarily offline).
+        const discoveredIds = new Set(discovered.map(p => p.id));
+        for (const e of existing) {
+          if (!discoveredIds.has(e.id) && e._source !== 'mcp_introspection') {
+            merged.push(e);
+          }
+        }
+        solution.ui_plugins = merged;
+        log.info(`[Deploy] Plugin introspection: ${discovered.length} discovered / ${merged.length} total (${summary.connectors_with_plugins}/${summary.connectors_queried} connectors${summary.conflicts.length > 0 ? `, ${summary.conflicts.length} id conflicts deduped` : ''}): ${merged.map(p => p.id).join(', ')}`);
       } else {
         log.info(`[Deploy] Plugin introspection: 0 plugins from ${summary.connectors_queried} connectors. Per-connector: ${summary.per_connector.map(c => `${c.connector_id}(${c.reason})`).join(', ')}`);
       }
