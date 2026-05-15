@@ -588,25 +588,73 @@ export async function deploySkillToADAS(solutionId, skillId, log, onProgress, { 
           if (existing) {
             const existingTools = existing.tools?.length || 0;
             const status = existing.status || 'unknown';
-            // Check if mcp-store or connectors dir has updated code for this connector
+            // Check if mcp-store or connectors dir has SOURCE for this connector
             const fsSync = (await import('fs')).default;
-            const hasNewCode = (mcpStoreBase && fsSync.existsSync(path.join(mcpStoreBase, connectorId, 'server.js')))
+            const cryptoMod = (await import('crypto')).default;
+            const hasSource = (mcpStoreBase && fsSync.existsSync(path.join(mcpStoreBase, connectorId, 'server.js')))
               || fsSync.existsSync(path.join(process.env.TENANTS_ROOT || '/memory', 'connectors', connectorId, 'server.js'));
 
+            // Hash-compare the FS source against Core's stored content to decide
+            // whether to actually re-upload. Previously `hasNewCode = exists`,
+            // so solution-owned connectors got re-uploaded every deploy even
+            // when nothing changed — adding ~30-60s per connector × 7 connectors
+            // to every ada redeploy. Now: only upload if hashes differ.
+            //
+            // sourceHash = sha256 of concatenated server.js + package.json + every
+            // file under rn-bundle/. Excludes node_modules, ui-dist (rebuilt server-
+            // side), test/, .gitignore. Core stores the hash via a sidecar file at
+            // /tenants/<tenant>/mcp-store/<id>/.deployed_hash so this check is local.
+            let hasNewCode = false;
+            let sourceHash = null;
+            if (hasSource) {
+              try {
+                const codeSourceDir = (mcpStoreBase && fsSync.existsSync(path.join(mcpStoreBase, connectorId, 'server.js')))
+                  ? path.join(mcpStoreBase, connectorId)
+                  : path.join(process.env.TENANTS_ROOT || '/memory', 'connectors', connectorId);
+                const hashOf = (filePath) => {
+                  try { return cryptoMod.createHash('sha256').update(fsSync.readFileSync(filePath)).digest('hex'); }
+                  catch { return ''; }
+                };
+                const parts = [];
+                parts.push('server.js:' + hashOf(path.join(codeSourceDir, 'server.js')));
+                if (fsSync.existsSync(path.join(codeSourceDir, 'package.json'))) {
+                  parts.push('package.json:' + hashOf(path.join(codeSourceDir, 'package.json')));
+                }
+                const rnBundleDir = path.join(codeSourceDir, 'rn-bundle');
+                if (fsSync.existsSync(rnBundleDir)) {
+                  for (const f of fsSync.readdirSync(rnBundleDir).sort()) {
+                    parts.push(`rn-bundle/${f}:` + hashOf(path.join(rnBundleDir, f)));
+                  }
+                }
+                sourceHash = cryptoMod.createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 16);
+                const hashFile = path.join(codeSourceDir, '.deployed_hash');
+                const lastHash = fsSync.existsSync(hashFile) ? fsSync.readFileSync(hashFile, 'utf-8').trim() : null;
+                hasNewCode = sourceHash !== lastHash;
+              } catch (e) {
+                log.warn(`[MCP Deploy] Hash check failed for "${connectorId}", treating as new: ${e.message}`);
+                hasNewCode = true;
+              }
+            }
+
             if (status === 'connected' && existingTools > 0 && !hasNewCode) {
-              log.info(`[MCP Deploy] Connector "${connectorId}" already running in ADAS Core (${existingTools} tools, status: ${status}) — keeping`);
+              log.info(`[MCP Deploy] Connector "${connectorId}" already running (${existingTools} tools, hash=${sourceHash || 'no-fs'} matches deployed) — skip`);
               connectorResults.push({ id: connectorId, ok: true, tools: existingTools, source: 'already_running' });
-            } else if (hasNewCode) {
+            } else if (hasSource) {
               // New code on disk — stop, upload, restart
               const connectorsDir = path.join(process.env.TENANTS_ROOT || '/memory', 'connectors', connectorId);
               const codeSourceDir = (mcpStoreBase && fsSync.existsSync(path.join(mcpStoreBase, connectorId, 'server.js')))
                 ? path.join(mcpStoreBase, connectorId)
                 : connectorsDir;
-              log.info(`[MCP Deploy] Connector "${connectorId}" has updated code in ${codeSourceDir} — restarting with new code`);
+              log.info(`[MCP Deploy] Connector "${connectorId}" has updated code in ${codeSourceDir} (hash=${sourceHash || 'unknown'}) — restarting with new code`);
               try { await stopConnectorInADAS(connectorId); } catch { /* may not be running */ }
               await uploadMcpCodeToADAS(connectorId, codeSourceDir);
               const startResult = await startConnectorInADAS(connectorId, { transport: existing.transport || 'stdio' });
               const toolCount = startResult?.tools?.length || 0;
+              // Persist the post-upload hash so next deploy can skip this connector
+              // if the source hasn't changed.
+              if (sourceHash && toolCount > 0) {
+                try { fsSync.writeFileSync(path.join(codeSourceDir, '.deployed_hash'), sourceHash, 'utf-8'); } catch {}
+              }
               connectorResults.push({ id: connectorId, ok: toolCount > 0, tools: toolCount, source: 'updated' });
             } else {
               // Exists but not connected or 0 tools — try to restart
