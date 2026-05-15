@@ -2263,6 +2263,17 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
     const bundleFile = files.find(f => f.path === 'rn-bundle/index.bundle.js');
     let rnWarnings = [];
 
+    // RN bundle validation severity
+    //   - "error" : findings flagged as hard errors → 400 response, no deploy
+    //   - "warn"  (default): findings flagged in warnings[], deploy proceeds
+    //   - "off"   : silent (back-compat)
+    // See docs/DESIGN_plugin-validator-hardening_2026-05-15.md.
+    // Two checks promote to errors regardless of strict mode because they GUARANTEE
+    // the plugin won't load on mobile: missing export default, and PluginSDK.register
+    // (writes to a shared global that doesn't survive lazy-load).
+    const RN_STRICT = (process.env.STRICT_PLUGIN_VALIDATION || 'warn').toLowerCase();
+    let rnErrors = [];
+
     if (hasBuildScript && rnSrcFiles.length > 0) {
       // ── Validate RN plugin source files ──
       for (const f of rnSrcFiles) {
@@ -2270,15 +2281,27 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
         const name = f.path.replace('rn-src/', '').replace('.tsx', '');
         const src = f.content;
 
-        // MUST NOT use PluginSDK.register — causes shared registry conflicts
+        // BLOCKING: PluginSDK.register writes to a shared global registry
+        // that doesn't survive plugin lazy-load on mobile. The bundle loads
+        // but the register() side-effect never fires, and the mobile app
+        // falls back to iframe HTML. Promoted from warning to error
+        // (2026-05-15) because this caused ada's coach plugins to ship broken.
         if (src.includes('PluginSDK.register')) {
-          rnWarnings.push(`${name}: uses PluginSDK.register() — MUST use plain object export instead. ` +
-            `Change to: export default { id: '${name}', type: 'ui', version: '1.0.0', Component: MyComponent }`);
+          const msg = `${name}: uses PluginSDK.register() — MUST use plain object export instead. ` +
+            `Change to: export default { id: '${name}', type: 'ui', version: '1.0.0', Component: MyComponent }. ` +
+            `PluginSDK.register() writes to a shared global that doesn't survive mobile's per-plugin lazy load; ` +
+            `the bundle loads but the registration never fires and the host falls back to iframe HTML.`;
+          if (RN_STRICT === 'off') { /* silent */ }
+          else if (RN_STRICT === 'error') rnErrors.push(msg);
+          else rnWarnings.push(msg);
         }
 
-        // MUST have export default
+        // BLOCKING: no default export means the loader has nothing to mount.
         if (!src.includes('export default')) {
-          rnWarnings.push(`${name}: missing "export default" — plugin will not load on mobile`);
+          const msg = `${name}: missing "export default" — plugin will not load on mobile`;
+          if (RN_STRICT === 'off') { /* silent */ }
+          else if (RN_STRICT === 'error') rnErrors.push(msg);
+          else rnWarnings.push(msg);
         }
 
         // SHOULD have Component field (check for plain object export pattern)
@@ -2306,6 +2329,17 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
 
       if (rnWarnings.length > 0) {
         console.warn(`[Connector Upload] RN plugin warnings:\n  ${rnWarnings.join('\n  ')}`);
+      }
+      if (rnErrors.length > 0) {
+        console.error(`[Connector Upload] RN plugin ERRORS (blocking in strict mode):\n  ${rnErrors.join('\n  ')}`);
+        return res.status(400).json({
+          ok: false,
+          connector_id: connectorId,
+          error: 'RN plugin validation failed (STRICT_PLUGIN_VALIDATION=error)',
+          rn_errors: rnErrors,
+          rn_warnings: rnWarnings,
+          hint: 'Fix the listed issues and re-upload. Or temporarily set STRICT_PLUGIN_VALIDATION=warn to demote errors to non-blocking.',
+        });
       }
 
       // Hash all source files to detect changes

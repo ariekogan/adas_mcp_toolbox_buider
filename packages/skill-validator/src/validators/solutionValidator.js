@@ -536,9 +536,59 @@ export function validateSolution(solution, context) {
     const FEATURED_SOFT_CAP = 3;
     const featuredPluginIds = [];
 
+    // Hardening (2026-05-15): plugins SHOULD declare a surface block, and
+    // SHOULD NOT inject a stray bundleUrl. Both made ada's coach plugins
+    // ship broken yesterday — surface missing meant the host rendered behind
+    // the chat bar; bundleUrl injection competed with the platform bundle API
+    // and made the mobile loader fall back to iframe HTML.
+    //
+    // STRICT_PLUGIN_VALIDATION env controls severity:
+    //   - "error" (recommended in prod): both findings block the deploy
+    //   - "warn"  (default for grace period): findings flagged in warnings[]
+    //   - "off":  silent (back-compat, today's behavior)
+    // See docs/DESIGN_plugin-validator-hardening_2026-05-15.md.
+    const STRICT_MODE = (process.env.STRICT_PLUGIN_VALIDATION || 'warn').toLowerCase();
+    const PUSH_STRICT = (finding) => {
+      if (STRICT_MODE === 'error') errors.push(finding);
+      else if (STRICT_MODE === 'warn') warnings.push(finding);
+      // 'off' → silent
+    };
+
     function validateSurface(plugin, ctx) {
       const surface = plugin?.surface;
-      if (!surface || typeof surface !== 'object') return; // back-compat: no surface = legacy tab placement
+
+      // Hardening check 1: surface block required (severity depends on STRICT_MODE).
+      // The host needs surface.type to decide WHERE to render the plugin. Without
+      // it, drawer-style plugins end up rendered behind the chat input (ada's
+      // 2026-05-15 coach incident).
+      if (!surface || typeof surface !== 'object') {
+        PUSH_STRICT({
+          check: 'ui_plugin_surface_missing_block',
+          message: `UI plugin "${plugin.id}"${ctx} has no "surface" block. ` +
+            `The mobile host needs surface.type (drawer/fullscreen/card/...) to decide how to render. ` +
+            `Without it the plugin renders inline behind the chat input. ` +
+            `Add a surface block (see docs/HOST_VS_SOLUTION_HANDOFF.md) or set STRICT_PLUGIN_VALIDATION=off if intentional.`,
+          plugin: plugin.id,
+        });
+        return; // can't validate further fields if the block is absent
+      }
+
+      // Hardening check 2: render.reactNative.bundleUrl should NOT be present.
+      // The platform serves plugin bundles via /api/ui-plugins/<id>/bundle.js;
+      // injecting a competing URL causes the mobile loader to fail and fall
+      // back to iframe HTML (silent breakage). This bit ada's coach plugins
+      // because the MCP-introspection auto-gen path emitted bundleUrl.
+      const rnConfig = plugin?.render?.reactNative;
+      if (rnConfig && rnConfig.bundleUrl) {
+        PUSH_STRICT({
+          check: 'ui_plugin_bundleurl_injection',
+          message: `UI plugin "${plugin.id}"${ctx} has render.reactNative.bundleUrl="${rnConfig.bundleUrl}". ` +
+            `Remove it — the platform serves bundles at /api/ui-plugins/<id>/bundle.js. ` +
+            `An injected bundleUrl competes with the canonical URL and makes the mobile loader fall back to iframe HTML.`,
+          plugin: plugin.id,
+          bundle_url: rnConfig.bundleUrl,
+        });
+      }
 
       // type — required when surface block is present
       if (!surface.type) {
