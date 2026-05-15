@@ -307,21 +307,36 @@ async function uploadMcpCode(connectorId, files) {
  * Returns { exists: bool, status: number } — no auth needed (static file route).
  */
 async function checkUiAsset(tenant, connectorId, assetPath) {
+  // /mcp-ui/* route on Core requires HMAC-signed URLs or JWT Bearer auth.
+  // The probe has neither (it's a service-to-service health check), so an
+  // HTTP HEAD probe with shared-secret auth always returns 401 — false
+  // positive for every iframe asset on every solution.
+  //
+  // Cleanest solution: check the filesystem directly. The skill-builder
+  // backend container shares /tenants and /connectors mounts with Core.
   // iframeUrl convention: "/ui/<plugin>/<ver>/index.html"
-  // Core route /mcp-ui/:tenant/:connectorId/* maps filePath → ui-dist/<filePath>
-  // So strip leading "/ui/" to avoid double "ui-dist/ui/" path.
+  // Strip leading "/ui/" — the file lives in ui-dist/<plugin>/<ver>/index.html
+  // (or just ui-dist/<plugin>/index.html if unversioned).
   const cleanPath = assetPath.replace(/^\/?(ui\/)?/, '');
-  const url = `${BASE_URL}/mcp-ui/${tenant}/${connectorId}/${cleanPath}`;
-  try {
-    const res = await fetch(url, {
-      method: 'HEAD',
-      headers: headers(),  // service auth via x-adas-token, else 401
-      signal: AbortSignal.timeout(5000),
-    });
-    return { exists: res.ok, status: res.status };
-  } catch (err) {
-    return { exists: false, error: err.message };
+
+  // Two possible locations depending on whether this is a platform or
+  // solution-owned connector. Try platform first, then tenant-scoped.
+  //   - /tenants/connectors/<id>/ui-dist/<path>  — platform connector copies
+  //     (some platforms are mirrored here for Builder access)
+  //   - /tenants/<tenant>/mcp-store/<id>/ui-dist/<path>  — solution-owned
+  const candidates = [
+    `/tenants/connectors/${connectorId}/ui-dist/${cleanPath}`,
+    `/tenants/${tenant}/mcp-store/${connectorId}/ui-dist/${cleanPath}`,
+  ];
+
+  const fs = await import('fs/promises');
+  for (const p of candidates) {
+    try {
+      await fs.access(p);
+      return { exists: true, status: 200, path: p };
+    } catch { /* try next */ }
   }
+  return { exists: false, status: 404 };
 }
 
 /**
