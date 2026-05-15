@@ -160,10 +160,26 @@ async function synthesizeHandoffWhenForSkill(skill) {
     return { cached: true, source_hash: hash };
   }
 
+  // Fail fast when no LLM key is configured. Previously this fell through
+  // to createAdapter which called the LLM, which hung on missing key
+  // until the deploy timed out (25+ minutes). 2026-05-15 incident: ada
+  // had routing_mode:"auto" + 9 workers without handoff_when + no
+  // OPENAI_API_KEY → every deploy hung.
+  const provider = process.env.LLM_PROVIDER || "openai";
+  const keyVar = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+  if (!process.env[keyVar]) {
+    throw new Error(
+      `Phase 6 (handoff_when synthesis) requires ${keyVar}, which is unset. ` +
+      `Either set ${keyVar} on the skill-builder-backend container, or ` +
+      `set solution.routing_mode != "auto" to skip orchestrator regen ` +
+      `(if the orchestrator persona is hand-authored).`
+    );
+  }
+
   // createAdapter throws on missing creds / misconfig — propagate. The
   // deploy should fail loudly if the LLM is unreachable rather than
   // silently producing description-fallback triggers.
-  const adapter = createAdapter(process.env.LLM_PROVIDER || "openai");
+  const adapter = createAdapter(provider);
 
   const systemPrompt = `You write ONE-LINE routing triggers for skill handoffs in a multi-skill AI agent platform.
 
