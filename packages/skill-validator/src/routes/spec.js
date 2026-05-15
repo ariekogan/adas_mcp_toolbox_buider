@@ -3368,9 +3368,16 @@ function buildSolutionSpec() {
       // ── Platform Connectors ──
       platform_connectors: {
         type: 'array', required: false,
-        description: 'Infrastructure-level MCP connectors the solution needs',
+        description: 'MCP connectors the solution depends on — both platform-shared (default) and solution-owned (source:"solution"). Solution-owned connectors have their source code in connectors/<id>/ inside the solution\'s GitHub repo; platform-shared connectors are deployed and maintained by the A-Team platform.',
         item_schema: {
           id: { type: 'string', required: true, description: 'Connector ID' },
+          source: {
+            type: 'enum',
+            required: false,
+            values: ['platform', 'solution'],
+            default: 'platform',
+            description: 'Ownership: "platform" = shared infra, source lives in A-Team images; "solution" = owned by this solution, source lives in connectors/<id>/ of the solution repo. Default "platform" for back-compat. Tools that classify (e.g. the auto-generated CLAUDE.md generator) should read this field rather than guessing from folder presence.',
+          },
           required: { type: 'boolean', description: 'Is this connector required for the solution to work?' },
           description: { type: 'string' },
           used_by: { type: 'string[]', required: false, description: 'Which skill IDs use this connector' },

@@ -279,6 +279,36 @@ export function validateSolution(solution, context) {
     const solutionConnectorIds = (solution.solution_connectors || []).map(c => c.id);
     const connectorIds = new Set([...connectors.map(c => c.id), ...platformConnectorIds, ...solutionConnectorIds]);
 
+    // ─── 8a. Connector source-vs-filesystem drift (2026-05-15) ──
+    // The schema's platform_connectors[i].source field declares ownership:
+    //   "platform"  — source lives in A-Team images (no files in this solution)
+    //   "solution"  — source lives in connectors/<id>/ of this solution's repo
+    // When the declared `source` and actual mcp_store contents disagree, every
+    // downstream consumer (auto-generated CLAUDE.md, deploy pipeline, ownership
+    // queries) guesses ownership differently and they disagree. This bit ada
+    // on 2026-05-15 — solution-owned connectors were declared without a source
+    // field, the auto-generated CLAUDE.md classified them as platform, and the
+    // misclassification cascaded.
+    for (const pc of (solution.platform_connectors || [])) {
+      const declaredSource = pc.source || 'platform';
+      const hasFiles = Array.isArray(mcpStore[pc.id]) && mcpStore[pc.id].length > 0;
+      if (declaredSource === 'solution' && !hasFiles) {
+        warnings.push({
+          check: 'connector_source_solution_no_files',
+          message: `Connector "${pc.id}" is declared source:"solution" but has no files in mcp_store / connectors/<id>/. ` +
+            `Either add the source code, or correct source to "platform" if it's actually a platform-shared connector.`,
+          connector: pc.id,
+        });
+      } else if (declaredSource === 'platform' && hasFiles) {
+        warnings.push({
+          check: 'connector_source_platform_with_files',
+          message: `Connector "${pc.id}" is declared source:"platform" (default) but has files in mcp_store / connectors/<id>/. ` +
+            `If this solution owns the source, set source:"solution" explicitly so the CLAUDE.md generator and other consumers classify ownership correctly.`,
+          connector: pc.id,
+        });
+      }
+    }
+
     // Check mcp_bridge tools reference declared connectors
     for (const skill of fullSkills) {
       for (const tool of (skill.tools || [])) {
