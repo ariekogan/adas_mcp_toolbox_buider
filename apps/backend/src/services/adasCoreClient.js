@@ -315,6 +315,7 @@ async function checkUiAsset(tenant, connectorId, assetPath) {
   try {
     const res = await fetch(url, {
       method: 'HEAD',
+      headers: headers(),  // service auth via x-adas-token, else 401
       signal: AbortSignal.timeout(5000),
     });
     return { exists: res.ok, status: res.status };
@@ -336,6 +337,7 @@ async function checkPluginBundle(pluginId) {
   try {
     const res = await fetch(url, {
       method: 'HEAD',
+      headers: headers(),  // service auth via x-adas-token, else 401
       signal: AbortSignal.timeout(5000),
     });
     return { exists: res.ok, status: res.status };
