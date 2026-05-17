@@ -13,6 +13,175 @@ import { classifyToolList, applyExclusions } from "./toolSecurityClassifier.js";
 import { synthesizeIntentsForSkill } from "./intentSynthesizer.js";
 import { resolveEngine } from "./engineCompiler.js";
 import { autoImportToolsForSkill } from "./connectorTools.js";
+import { getMemoryRoot } from "../utils/tenantContext.js";
+import path from "path";
+import fsSync from "fs";
+import crypto from "crypto";
+
+/**
+ * Compute a stable source hash for a connector's mcp-store dir.
+ * Hash captures server.js + package.json + every file under rn-bundle/.
+ * Excludes node_modules, ui-dist (rebuilt server-side), tests, dotfiles.
+ * Stable across hosts because it reads bytes directly — no metadata.
+ */
+function _computeConnectorSourceHash(codeSourceDir) {
+  if (!codeSourceDir || !fsSync.existsSync(codeSourceDir)) return null;
+  const hashOf = (p) => {
+    try { return crypto.createHash('sha256').update(fsSync.readFileSync(p)).digest('hex'); }
+    catch { return ''; }
+  };
+  const parts = [];
+  const serverJs = path.join(codeSourceDir, 'server.js');
+  if (fsSync.existsSync(serverJs)) parts.push('server.js:' + hashOf(serverJs));
+  const pkg = path.join(codeSourceDir, 'package.json');
+  if (fsSync.existsSync(pkg)) parts.push('package.json:' + hashOf(pkg));
+  const rnBundleDir = path.join(codeSourceDir, 'rn-bundle');
+  if (fsSync.existsSync(rnBundleDir)) {
+    for (const f of fsSync.readdirSync(rnBundleDir).sort()) {
+      parts.push(`rn-bundle/${f}:` + hashOf(path.join(rnBundleDir, f)));
+    }
+  }
+  if (parts.length === 0) return null;
+  return crypto.createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 16);
+}
+
+/**
+ * Pre-sync a list of connectors to ADAS Core in ONE pass, deduplicating shared
+ * connectors across all skills in a bulk deploy.
+ *
+ * Why this exists:
+ *   The bulk-deploy path used to call deploySkillToADAS in Promise.all over
+ *   N skills, and each call ran its own connector-sync loop over that skill's
+ *   linked connectors. When the same connector was linked by M skills, it got
+ *   Stop+Upload+Restart M times in parallel — racing against itself. Symptom:
+ *   `personal-assistant-ui-mcp` (linked by 6 skills on ada) was uploaded 4-6×
+ *   per deploy, crashing mid-cycle with `ENOENT: uv_cwd` because the previous
+ *   upload deleted its working directory while it was still running.
+ *
+ * Contract: call this ONCE at the deploy level with the UNION of all skills'
+ * connector lists. Pass `skipConnectorSync: true` to every deploySkillToADAS
+ * call after this so per-skill loops don't fight over the same connectors.
+ *
+ * Behavior per connector:
+ *   1. Look up local catalog (PREBUILT + imported). Resolve transport, mcp-store path.
+ *   2. Compute source hash from FS bytes (server.js + package.json + rn-bundle/*).
+ *   3. Query Core: is connector connected with >0 tools AND .deployed_hash matches?
+ *      → log "unchanged ... skip", record success.
+ *   4. Otherwise: stop → upload → restart. Persist new hash sidecar on success.
+ *
+ * @param {string} solutionId
+ * @param {string[]} connectorIds — full deduplicated list across all skills
+ * @param {object} log — console-compatible logger
+ * @returns {Promise<Array<{id, ok, tools, source?, error?}>>}
+ */
+export async function preSyncConnectors(solutionId, connectorIds, log) {
+  if (!connectorIds || connectorIds.length === 0) return [];
+
+  const solution = await solutionsStore.load(solutionId);
+  const solutionName = solution?.name || solutionId;
+  const mcpStoreBase = path.join(getMemoryRoot(), 'solution-packs', solutionName, 'mcp-store');
+  const tenantConnectorsDir = path.join(process.env.TENANTS_ROOT || '/memory', 'connectors');
+  const allConnectors = getAllPrebuiltConnectors();
+
+  log.info(`[Pre-Sync] Syncing ${connectorIds.length} unique connector(s) once: ${connectorIds.join(', ')}`);
+
+  const results = [];
+  // Serial loop on purpose — parallel was the bug. Each iteration takes a few
+  // seconds at worst when a connector actually needs re-upload; healthy
+  // matches return in <100ms via the Core health check.
+  for (const connectorId of connectorIds) {
+    try {
+      // 1. Resolve source directory (mcp-store first, then cross-tenant fallback)
+      const inMcpStore = fsSync.existsSync(path.join(mcpStoreBase, connectorId, 'server.js'));
+      const inCrossTenant = fsSync.existsSync(path.join(tenantConnectorsDir, connectorId, 'server.js'));
+      const codeSourceDir = inMcpStore
+        ? path.join(mcpStoreBase, connectorId)
+        : (inCrossTenant ? path.join(tenantConnectorsDir, connectorId) : null);
+
+      // 2. Compute current source hash (null = no FS source)
+      const sourceHash = _computeConnectorSourceHash(codeSourceDir);
+      const hashFile = codeSourceDir ? path.join(codeSourceDir, '.deployed_hash') : null;
+      const lastHash = hashFile && fsSync.existsSync(hashFile)
+        ? fsSync.readFileSync(hashFile, 'utf-8').trim()
+        : null;
+
+      // 3. Query Core health
+      let core;
+      try { core = await adasCore.getConnector(connectorId); } catch { core = null; }
+      const coreStatus = core?.status || 'unknown';
+      const coreTools = core?.tools?.length || 0;
+      const coreHealthy = core && coreStatus === 'connected' && coreTools > 0;
+
+      // 4. Skip if healthy + hash matches (or no FS source to compare)
+      if (coreHealthy && sourceHash && lastHash === sourceHash) {
+        log.info(`[Pre-Sync] "${connectorId}" healthy (${coreTools} tools, hash=${sourceHash.slice(0, 8)} matches) — SKIP`);
+        results.push({ id: connectorId, ok: true, tools: coreTools, source: 'already_running' });
+        continue;
+      }
+      if (coreHealthy && !sourceHash) {
+        // No FS source (e.g. platform connector). If it's connected with tools, trust Core.
+        log.info(`[Pre-Sync] "${connectorId}" healthy (${coreTools} tools, no FS source) — SKIP`);
+        results.push({ id: connectorId, ok: true, tools: coreTools, source: 'no_fs_source' });
+        continue;
+      }
+
+      // 5. Need to (re)deploy. Stop existing, upload, restart.
+      if (!codeSourceDir) {
+        // No FS source AND not healthy in Core — try a bare restart.
+        log.info(`[Pre-Sync] "${connectorId}" no FS source, not healthy in Core (status=${coreStatus}) — restart only`);
+        try {
+          const startResult = await startConnectorInADAS(connectorId, { transport: core?.transport || 'stdio' });
+          const tools = startResult?.tools?.length || 0;
+          results.push({ id: connectorId, ok: tools > 0, tools, source: 'restart_only' });
+        } catch (err) {
+          results.push({ id: connectorId, ok: false, tools: 0, error: err.message });
+        }
+        continue;
+      }
+
+      log.info(`[Pre-Sync] "${connectorId}" needs upload (hash=${sourceHash?.slice(0, 8) || 'none'}, was=${lastHash?.slice(0, 8) || 'none'}, healthy=${coreHealthy}) — stop+upload+restart`);
+      try { await stopConnectorInADAS(connectorId); } catch { /* may not be running */ }
+      await uploadMcpCodeToADAS(connectorId, codeSourceDir);
+
+      // sync metadata if we have a catalog entry (HTTP transport, env vars, etc.)
+      const catalogEntry = allConnectors[connectorId];
+      if (catalogEntry) {
+        try {
+          const payload = buildConnectorPayload({ id: connectorId, ...catalogEntry });
+          await syncConnectorToADAS(payload);
+        } catch (err) {
+          log.warn(`[Pre-Sync] "${connectorId}" syncConnectorToADAS failed (continuing): ${err.message}`);
+        }
+      }
+
+      const transport = catalogEntry?.transport
+        || core?.transport
+        || (catalogEntry?.command ? 'stdio' : 'http');
+      const startResult = await startConnectorInADAS(connectorId, { transport });
+      const tools = startResult?.tools?.length || 0;
+
+      // Persist new hash on successful start
+      if (sourceHash && hashFile && tools > 0) {
+        try { fsSync.writeFileSync(hashFile, sourceHash, 'utf-8'); } catch { /* best effort */ }
+      }
+
+      if (startResult?.ok === false || tools === 0) {
+        log.warn(`[Pre-Sync] "${connectorId}" started with ${tools} tools (FAILED or initializing)`);
+        results.push({ id: connectorId, ok: tools > 0, tools, source: 'restarted', warning: startResult?.message });
+      } else {
+        log.info(`[Pre-Sync] "${connectorId}" started: ${tools} tools`);
+        results.push({ id: connectorId, ok: true, tools, source: 'restarted' });
+      }
+    } catch (err) {
+      log.error(`[Pre-Sync] "${connectorId}" FAILED: ${err.message}`);
+      results.push({ id: connectorId, ok: false, tools: 0, error: err.message });
+    }
+  }
+
+  const healthy = results.filter(r => r.ok).length;
+  log.info(`[Pre-Sync] Done: ${healthy}/${results.length} connector(s) healthy`);
+  return results;
+}
 
 /**
  * Pre-deploy guard for the single-skill paths (per-skill redeploy, import,

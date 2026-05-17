@@ -14,7 +14,7 @@
 import { Router } from 'express';
 import solutionsStore from '../store/solutions.js';
 import skillsStore from '../store/skills.js';
-import { deploySkillToADAS, deployIdentityToADAS } from '../services/exportDeploy.js';
+import { deploySkillToADAS, deployIdentityToADAS, preSyncConnectors } from '../services/exportDeploy.js';
 import adasCore from '../services/adasCoreClient.js';
 import gitSync, { verifyConsistency } from '../services/gitSync.js';
 import { enrichPluginList } from '../services/uiActionsAutoDefaults.js';
@@ -501,15 +501,40 @@ router.post('/solution', async (req, res, next) => {
         log.info(`[Deploy] UI plugins deployed: ${uiPluginResult.count || solution.ui_plugins.length} plugin(s)`);
       }
 
+      // Pre-sync connectors ONCE for the whole deploy.
+      //
+      // Why this happens BEFORE the parallel skill loop, not inside it:
+      //   Each skill's connector list is a subset of solution.connectors. With
+      //   N skills sharing M connectors (avg 6× shared on ada), running the
+      //   per-skill connector-sync block under Promise.all caused the SAME
+      //   connector to be Stop+Upload+Restart'd M times concurrently — a race
+      //   condition that crashed `personal-assistant-ui-mcp` mid-deploy with
+      //   `ENOENT: uv_cwd` because one upload deleted the working directory
+      //   out from under another's running process. Also wasted 3-5 min per
+      //   deploy thrashing connectors that didn't need to change.
+      //
+      //   Pre-sync the DEDUPLICATED union once (serial, fast — most are
+      //   already healthy with matching source hash), then skip per-skill
+      //   connector sync below.
+      const skillsToDeploy = skills.filter(s => savedSkills.includes(s.id));
+      const uniqueConnectorIds = Array.from(new Set(
+        skillsToDeploy.flatMap(s => s.connectors || [])
+      ));
+      if (uniqueConnectorIds.length > 0) {
+        log.info(`[Deploy] Pre-syncing ${uniqueConnectorIds.length} unique connector(s) before parallel skill deploys`);
+        await preSyncConnectors(solution.id, uniqueConnectorIds, log);
+      }
+
       // Deploy skills in parallel — 9 skills × 15s sequential = 135s, parallel = ~15s
       // skipGuard:true — route-level guard already ran (above).
-      const skillsToDeploy = skills.filter(s => savedSkills.includes(s.id));
+      // skipConnectorSync:true — pre-sync above handled connectors once for the
+      // whole deploy; running it again per-skill would re-introduce the race.
       log.info(`[Deploy] Deploying ${skillsToDeploy.length} skill(s) in parallel...`);
       const deployedSkills = await Promise.all(
         skillsToDeploy.map(async (skill) => {
           try {
             log.info(`[Deploy] Deploying skill "${skill.id}" to A-Team Core...`);
-            const result = await deploySkillToADAS(solution.id, skill.id, log, undefined, { skipGuard: true });
+            const result = await deploySkillToADAS(solution.id, skill.id, log, undefined, { skipGuard: true, skipConnectorSync: true });
             log.info(`[Deploy] Skill "${skill.id}" deployed successfully`);
             return { id: skill.id, status: 'deployed', result };
           } catch (err) {
