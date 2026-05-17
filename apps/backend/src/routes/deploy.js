@@ -431,43 +431,49 @@ router.post('/solution', async (req, res, next) => {
       }
     }
 
-    // Step 3.5: Upload connector source code to ADAS Core and register connectors
-    // This ensures connectors exist before skill deployment tries to sync them.
-    const connectorResults = [];
-    for (const [connId, files] of Object.entries(mcp_store)) {
-      // Errors propagate — connector upload/sync/start failures all
-      // ship a broken runtime. Per-connector try/catch was the kind of
-      // swallow that hid Phase 2b regressions all day.
-      log.info(`[Deploy] Uploading source code for connector "${connId}" to ADAS Core...`);
-      await adasCore.uploadMcpCode(connId, files);
-      log.info(`[Deploy] Source code uploaded for "${connId}"`);
-
-      const connMeta = connectors.find(c => c.id === connId) || {};
-      await adasCore.syncConnector({
-        id: connId,
-        name: connMeta.name || connId,
-        type: 'mcp',
-        transport: connMeta.transport || 'stdio',
-        config: {
-          command: 'node',
-          args: ['server.js'],
-          env: connMeta.env || {},
-        },
-      });
-      log.info(`[Deploy] Connector "${connId}" registered in ADAS Core`);
-
-      // Stop old process before starting with new code. "Not running"
-      // is the legitimate prior-state we tolerate; other errors propagate.
-      try {
-        await adasCore.stopConnector(connId);
-      } catch (e) {
-        if (!/not running|not found|404/i.test(e.message || "")) throw e;
+    // Step 3.5: Upload connector source code to ADAS Core and register connectors.
+    //
+    // Was: a per-connector loop that unconditionally Stop+Upload+Start'd every
+    // connector in mcp_store on every deploy. With ada's 7 connectors and most
+    // of them shared across multiple skills, this added ~3-5 min per warm deploy
+    // for source bytes that hadn't changed since the previous deploy. It also
+    // raced with deploySkillToADAS's per-skill connector-sync loop, which fired
+    // again for each skill's linked connectors — `personal-assistant-ui-mcp`
+    // got Stop+Upload+Start'd 4-6× per deploy, and the concurrent uploads
+    // crashed it mid-cycle with `ENOENT: uv_cwd`.
+    //
+    // Now: a single call to preSyncConnectors. Source-hash skip means healthy
+    // connectors whose bytes match the last successful deploy return in ~50ms
+    // each. Serial loop means no concurrent-upload races. Pre-sync covers
+    // every connector in mcp_store, so the per-skill loop in deploySkillToADAS
+    // is wholly redundant — we pass skipConnectorSync:true below.
+    const allConnectorIds = Object.keys(mcp_store);
+    let connectorResults = [];
+    if (allConnectorIds.length > 0) {
+      log.info(`[Deploy] Pre-syncing ${allConnectorIds.length} connector(s) to ADAS Core...`);
+      // Register catalog metadata (transport, env) for each connector — first
+      // deploy creates the Core-side record; subsequent deploys are no-ops.
+      // We do this BEFORE preSyncConnectors so a brand-new connector exists
+      // in Core's catalog by the time preSync queries its health.
+      for (const connId of allConnectorIds) {
+        const connMeta = connectors.find(c => c.id === connId) || {};
+        try {
+          await adasCore.syncConnector({
+            id: connId,
+            name: connMeta.name || connId,
+            type: 'mcp',
+            transport: connMeta.transport || 'stdio',
+            config: {
+              command: 'node',
+              args: ['server.js'],
+              env: connMeta.env || {},
+            },
+          });
+        } catch (err) {
+          log.warn(`[Deploy] Connector "${connId}" syncConnector failed (continuing): ${err.message}`);
+        }
       }
-
-      const startResult = await adasCore.startConnector(connId);
-      const toolCount = startResult?.tools?.length || 0;
-      connectorResults.push({ id: connId, ok: toolCount > 0, tools: toolCount });
-      log.info(`[Deploy] Connector "${connId}" started (${toolCount} tools)`);
+      connectorResults = await preSyncConnectors(solution.id, allConnectorIds, log);
     }
 
     // Step 4: Deploy to ADAS Core
@@ -501,34 +507,13 @@ router.post('/solution', async (req, res, next) => {
         log.info(`[Deploy] UI plugins deployed: ${uiPluginResult.count || solution.ui_plugins.length} plugin(s)`);
       }
 
-      // Pre-sync connectors ONCE for the whole deploy.
-      //
-      // Why this happens BEFORE the parallel skill loop, not inside it:
-      //   Each skill's connector list is a subset of solution.connectors. With
-      //   N skills sharing M connectors (avg 6× shared on ada), running the
-      //   per-skill connector-sync block under Promise.all caused the SAME
-      //   connector to be Stop+Upload+Restart'd M times concurrently — a race
-      //   condition that crashed `personal-assistant-ui-mcp` mid-deploy with
-      //   `ENOENT: uv_cwd` because one upload deleted the working directory
-      //   out from under another's running process. Also wasted 3-5 min per
-      //   deploy thrashing connectors that didn't need to change.
-      //
-      //   Pre-sync the DEDUPLICATED union once (serial, fast — most are
-      //   already healthy with matching source hash), then skip per-skill
-      //   connector sync below.
-      const skillsToDeploy = skills.filter(s => savedSkills.includes(s.id));
-      const uniqueConnectorIds = Array.from(new Set(
-        skillsToDeploy.flatMap(s => s.connectors || [])
-      ));
-      if (uniqueConnectorIds.length > 0) {
-        log.info(`[Deploy] Pre-syncing ${uniqueConnectorIds.length} unique connector(s) before parallel skill deploys`);
-        await preSyncConnectors(solution.id, uniqueConnectorIds, log);
-      }
-
       // Deploy skills in parallel — 9 skills × 15s sequential = 135s, parallel = ~15s
       // skipGuard:true — route-level guard already ran (above).
-      // skipConnectorSync:true — pre-sync above handled connectors once for the
-      // whole deploy; running it again per-skill would re-introduce the race.
+      // skipConnectorSync:true — Step 3.5 above pre-synced every connector in
+      // mcp_store via preSyncConnectors with hash-skip + dedup. Running the
+      // per-skill connector-sync block again under Promise.all would only
+      // re-introduce the concurrent-Stop+Upload+Start race we just eliminated.
+      const skillsToDeploy = skills.filter(s => savedSkills.includes(s.id));
       log.info(`[Deploy] Deploying ${skillsToDeploy.length} skill(s) in parallel...`);
       const deployedSkills = await Promise.all(
         skillsToDeploy.map(async (skill) => {
