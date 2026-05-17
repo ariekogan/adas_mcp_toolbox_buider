@@ -2452,6 +2452,11 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
     const hashSidecarPath = _pathMod.join(hashSidecarDir, `${solutionId}__${connectorId}`);
     let lastDeployedHash = null;
     try { lastDeployedHash = _fsMod.readFileSync(hashSidecarPath, 'utf-8').trim(); } catch { /* no sidecar — first deploy */ }
+    if (!lastDeployedHash) {
+      console.log(`[Connector Upload] "${connectorId}" no prior hash sidecar (first deploy after rebuild?) — full deploy`);
+    } else if (lastDeployedHash !== sourceHash) {
+      console.log(`[Connector Upload] "${connectorId}" source changed (was=${lastDeployedHash.slice(0, 8)}, now=${sourceHash.slice(0, 8)}) — full deploy`);
+    }
     if (lastDeployedHash === sourceHash) {
       // Hash unchanged. Verify the connector is currently healthy in Core
       // before claiming "no-op" — a crashed connector still needs restart.
@@ -2521,20 +2526,24 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
     }
     console.log(`[Connector Upload] Restarted "${connectorId}": ${toolCount} tools`);
 
-    // Persist source hash for next deploy's skip-check — but ONLY if the
-    // connector came up healthy. A crashed connector should keep the OLD
-    // hash so the next deploy re-attempts (instead of silently skipping
-    // a broken state).
-    if (toolCount > 0) {
-      try {
-        _fsMod.mkdirSync(hashSidecarDir, { recursive: true });
-        _fsMod.writeFileSync(hashSidecarPath, sourceHash);
-      } catch (err) {
-        console.warn(`[Connector Upload] Failed to write hash sidecar for "${connectorId}": ${err.message}`);
-      }
-    } else {
-      // Wipe the sidecar so next deploy doesn't skip a crashed connector.
-      try { _fsMod.unlinkSync(hashSidecarPath); } catch { /* ok if missing */ }
+    // Persist source hash for next deploy's skip-check.
+    //
+    // We write the sidecar whenever the upload+restart sequence ran without
+    // throwing. tools=0 here is NOT a reliable failure signal — the start
+    // endpoint returns before the connector has finished initializing, and
+    // tools load asynchronously. Using `toolCount > 0` as the write guard
+    // never fired in practice (we always saw 0 tools at this point), which
+    // is why the skip-check never matched on subsequent deploys.
+    //
+    // The next deploy's skip-check verifies health via /api/connectors/:id
+    // (after the connector has had time to settle), so a "wrote sidecar but
+    // connector is actually broken" state self-heals: hash matches but
+    // health check fails → falls through to full re-deploy.
+    try {
+      _fsMod.mkdirSync(hashSidecarDir, { recursive: true });
+      _fsMod.writeFileSync(hashSidecarPath, sourceHash);
+    } catch (err) {
+      console.warn(`[Connector Upload] Failed to write hash sidecar for "${connectorId}": ${err.message}`);
     }
 
     const allWarnings = [...(antiPatterns.warnings || []), ...(rnWarnings || [])];
