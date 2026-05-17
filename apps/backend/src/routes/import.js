@@ -35,7 +35,7 @@ import {
   deleteAllConnectorsFromADAS,
   deleteAllSkillsFromADAS
 } from '../services/adasConnectorSync.js';
-import { deploySkillToADAS, deployIdentityToADAS } from '../services/exportDeploy.js';
+import { deploySkillToADAS, deployIdentityToADAS, preSyncConnectors } from '../services/exportDeploy.js';
 import { deriveEndpoint, buildConnectorPayload, buildCatalogEntry } from '../utils/connectorPayload.js';
 
 // Multer config: store uploaded files in /tmp, accept .tar.gz up to 50MB
@@ -1135,95 +1135,72 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
       }
     }
 
-    // ── Phase 0.5: Clean ADAS Core ────────────────────────────────
-    // Selective cleanup: only delete connectors we're about to re-deploy.
-    // This preserves existing connectors when doing a skills-only redeploy
-    // (no mcp_store). Skills are always wiped since they're always in the package.
-    sendEvent('cleanup_progress', { status: 'starting', message: 'Cleaning ADAS Core...' });
+    // ── Phase 0.5: Clean ADAS Core (skills only) ──────────────────
+    //
+    // Was: also deleted every connector in pkg.mcps via
+    // `deleteConnectorFromADAS(mcp.id)`, then Phase 1 re-created them all
+    // from scratch on every deploy. With ada's 7 connectors averaging
+    // ~30-60s each to delete+re-create, this was ~3-5min of pure waste on
+    // every warm deploy — even when no connector source had changed.
+    //
+    // Now: skills are still wiped (they're cheap, and ensures clean state),
+    // but connectors are reconciled by preSyncConnectors below (Phase 1),
+    // which keeps healthy connectors with matching source hashes in place
+    // and only stops+uploads+restarts the ones whose source actually
+    // changed. The wipe-and-recreate behavior was structurally redundant
+    // with preSync's reconciliation.
+    sendEvent('cleanup_progress', { status: 'starting', message: 'Cleaning skills from ADAS Core...' });
     // Errors propagate — if pre-import cleanup fails, the import would
-    // ship stale skills/connectors alongside the new ones. Per-connector
-    // 404 ("not yet registered") is the legitimate skip; everything else
-    // aborts the import so the operator sees it.
+    // ship stale skills alongside the new ones.
+    await deleteAllSkillsFromADAS();
+    sendEvent('cleanup_progress', { status: 'done', message: 'Skills cleaned (connectors reconciled by pre-sync)' });
+
+    // ── Phase 1: Pre-sync connectors (hash-skip, dedup, serial) ────
+    //
+    // One call covers all connectors in the package. preSyncConnectors does:
+    //   - Register catalog metadata via syncConnectorToADAS (idempotent)
+    //   - Compute source hash from FS bytes
+    //   - Skip if Core reports connected + tools>0 + hash matches sidecar
+    //   - Otherwise: stop, uploadMcpCodeToADAS, startConnectorInADAS, persist hash
+    //
+    // SSE: we lose the per-step "uploading_code / registering / connecting"
+    // granularity since preSync runs as a unit. Emit one connector_progress
+    // event per connector summarizing the result instead.
     if (pkg.mcps.length > 0) {
+      sendEvent('connector_progress', { status: 'deploying', step: 'pre_sync_start', total: totalConnectors, message: `Pre-syncing ${totalConnectors} connector(s)...` });
+
+      // Register catalog metadata for every connector FIRST so Core has the
+      // record before preSync queries health/status. syncConnectorToADAS is
+      // idempotent — no-op if already registered with the same payload.
       for (const mcp of pkg.mcps) {
         try {
-          await deleteConnectorFromADAS(mcp.id);
-          console.log(`[Deploy] Deleted connector "${mcp.id}" from ADAS Core (will re-register)`);
-        } catch (e) {
-          if (!/not found|404/i.test(e.message || "")) throw e;
-          console.log(`[Deploy] Connector "${mcp.id}" not in ADAS Core (skip delete)`);
+          await syncConnectorToADAS(buildConnectorPayload(mcp));
+        } catch (err) {
+          console.warn(`[Deploy] Connector "${mcp.id}" syncConnectorToADAS failed (continuing): ${err.message}`);
+        }
+      }
+
+      const connectorIds = pkg.mcps.map(m => m.id);
+      const presyncResults = await preSyncConnectors(solutionId, connectorIds, console);
+
+      // Re-emit per-connector SSE events from the pre-sync results so the
+      // streaming UI doesn't go blank during the reconciliation.
+      for (let i = 0; i < pkg.mcps.length; i++) {
+        const mcp = pkg.mcps[i];
+        const result = presyncResults.find(r => r.id === mcp.id) || { id: mcp.id, ok: false, tools: 0 };
+        if (result.ok && (result.source === 'already_running' || result.source === 'no_fs_source')) {
+          connectorResults.push({ id: mcp.id, ok: true, tools: result.tools, source: result.source });
+          sendEvent('connector_progress', { connectorId: mcp.id, name: mcp.name, index: i + 1, total: totalConnectors, status: 'done', step: 'unchanged', tools: result.tools, message: `${result.tools} tools (unchanged)` });
+        } else if (result.ok) {
+          connectorResults.push({ id: mcp.id, ok: true, tools: result.tools, source: result.source });
+          sendEvent('connector_progress', { connectorId: mcp.id, name: mcp.name, index: i + 1, total: totalConnectors, status: 'done', step: 'done', tools: result.tools, message: `${result.tools} tools (${result.source || 'updated'})` });
+        } else {
+          connectorResults.push({ id: mcp.id, ok: false, tools: 0, error: result.error, diagnostic: result.diagnostic || null });
+          sendEvent('connector_progress', { connectorId: mcp.id, name: mcp.name, index: i + 1, total: totalConnectors, status: 'error', step: 'error', error: result.error, message: result.error || 'failed' });
         }
       }
     } else {
-      console.log('[Deploy] No connectors in package — preserving existing ADAS Core connectors');
-    }
-    await deleteAllSkillsFromADAS();
-    sendEvent('cleanup_progress', { status: 'done', message: 'ADAS Core cleaned' });
-
-    // ── Phase 1: Deploy connectors ──────────────────────────────────
-    for (let i = 0; i < totalConnectors; i++) {
-      const mcp = pkg.mcps[i];
-      sendEvent('connector_progress', { connectorId: mcp.id, name: mcp.name, index: i + 1, total: totalConnectors, status: 'deploying', step: 'starting', message: 'Starting...' });
-
-      try {
-        // Upload MCP code if we have it
-        if (pkg.mcp_store_included && pkg.mcpStorePath) {
-          const mcpCodeDir = path.join(pkg.mcpStorePath, mcp.id);
-          if (fs.existsSync(mcpCodeDir)) {
-            sendEvent('connector_progress', { connectorId: mcp.id, status: 'deploying', step: 'uploading_code', message: 'Uploading code...' });
-            await uploadMcpCodeToADAS(mcp.id, mcpCodeDir);
-          }
-        }
-
-        // Build connector payload — pass through manifest data as-is
-        const connectorPayload = buildConnectorPayload(mcp);
-
-        sendEvent('connector_progress', { connectorId: mcp.id, status: 'deploying', step: 'registering', message: 'Registering in ADAS...' });
-        await syncConnectorToADAS(connectorPayload);
-
-        sendEvent('connector_progress', { connectorId: mcp.id, status: 'deploying', step: 'connecting', message: 'Connecting...' });
-
-        // Pass transport hint for 0-tools detection
-        const transport = connectorPayload.transport || (mcp.command ? 'stdio' : 'http');
-        const startResult = await startConnectorInADAS(mcp.id, { transport });
-        const toolCount = startResult?.tools?.length || 0;
-
-        // Check if startConnectorInADAS flagged a failure (0 tools on stdio)
-        if (startResult?.ok === false) {
-          connectorResults.push({
-            id: mcp.id, ok: false, tools: 0,
-            error: startResult.error || 'connector_start_failed',
-            message: startResult.message,
-            diagnostic: startResult.diagnostic || null,
-          });
-          sendEvent('connector_progress', {
-            connectorId: mcp.id, status: 'error', step: 'zero_tools',
-            tools: 0, error: startResult.error,
-            message: startResult.message,
-            diagnostic: startResult.diagnostic || null,
-          });
-        } else if (startResult?.warning === 'zero_tools') {
-          connectorResults.push({ id: mcp.id, ok: true, tools: 0, warning: startResult.message });
-          sendEvent('connector_progress', {
-            connectorId: mcp.id, status: 'warning', step: 'done',
-            tools: 0, warning: startResult.message, message: `0 tools (may still be starting)`,
-          });
-        } else {
-          connectorResults.push({ id: mcp.id, ok: true, tools: toolCount });
-          sendEvent('connector_progress', { connectorId: mcp.id, status: 'done', step: 'done', tools: toolCount, message: `${toolCount} tools` });
-        }
-
-      } catch (err) {
-        connectorResults.push({
-          id: mcp.id, ok: false, error: err.message,
-          diagnostic: err.diagnostic || null,
-        });
-        sendEvent('connector_progress', {
-          connectorId: mcp.id, status: 'error', step: 'error',
-          error: err.message, message: err.message,
-          diagnostic: err.diagnostic || null,
-        });
-      }
+      console.log('[Deploy] No connectors in package — skipping connector phase');
     }
 
     // ── Phase 2: Deploy skills (direct call, no self-referential HTTP) ──
@@ -1249,11 +1226,16 @@ router.post('/packages/:packageName/deploy-all', async (req, res) => {
       sendEvent('skill_progress', { skillId: skillRef.id, skillId, name: skillRef.name, index: i + 1, total: totalSkills, status: 'deploying', step: 'starting', message: 'Starting...' });
 
       try {
-        // Deploy directly using the shared function (no HTTP self-call)
-        // deploySkillToADAS auto-generates MCP if server.py is missing
+        // Deploy directly using the shared function (no HTTP self-call).
+        // deploySkillToADAS auto-generates MCP if server.py is missing.
+        // skipConnectorSync:true — Phase 1 above already pre-synced every
+        // connector in pkg.mcps via preSyncConnectors. Running the per-skill
+        // connector-sync block again under this loop would re-introduce the
+        // duplicate-upload race that crashed personal-assistant-ui-mcp with
+        // ENOENT: uv_cwd (concurrent Stop+Upload+Restart on the same conn).
         const deployResult = await deploySkillToADAS(solutionId, skillId, console, (step, message) => {
           sendEvent('skill_progress', { skillId: skillRef.id, status: 'deploying', step, message });
-        });
+        }, { skipConnectorSync: true });
 
         skillResults.push({
           id: skillRef.id, skillId, ok: true,
