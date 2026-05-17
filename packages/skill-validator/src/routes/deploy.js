@@ -2428,6 +2428,57 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
     if (coreMcpSecret) coreHeaders['x-adas-token'] = coreMcpSecret;
     if (tenant) coreHeaders['X-ADAS-TENANT'] = tenant;
 
+    // Source-hash skip — if the bytes we'd upload match what we last deployed
+    // AND the connector is currently healthy, the full Stop→Upload→Restart
+    // cycle is busywork (~30-60s per connector × 7 connectors = ~5 min). Hash
+    // every file path+content into a stable SHA-256; compare against the
+    // sidecar from last successful deploy. Connectors that crashed don't skip
+    // (no sidecar OR Core reports unhealthy → fall through to full cycle).
+    //
+    // Sidecar lives at: <TENANTS_ROOT>/<tenant>/.connector-deploy-hashes/<solutionId>__<connectorId>
+    // Cache write happens AFTER a successful Restart returns >0 tools, so a
+    // failed deploy never poisons the cache.
+    const _cryptoMod = await import('crypto');
+    const _pathMod = await import('path');
+    const _fsMod = await import('fs');
+    const sortedFiles = [...files].sort((a, b) => a.path.localeCompare(b.path));
+    const sourceHash = _cryptoMod
+      .createHash('sha256')
+      .update(sortedFiles.map(f => `${f.path}\0${f.content}`).join('\n'))
+      .digest('hex')
+      .slice(0, 16);
+    const _tenantsRoot = process.env.TENANTS_ROOT || _pathMod.join(process.cwd(), 'data', 'tenants');
+    const hashSidecarDir = _pathMod.join(_tenantsRoot, tenant || 'default', '.connector-deploy-hashes');
+    const hashSidecarPath = _pathMod.join(hashSidecarDir, `${solutionId}__${connectorId}`);
+    let lastDeployedHash = null;
+    try { lastDeployedHash = _fsMod.readFileSync(hashSidecarPath, 'utf-8').trim(); } catch { /* no sidecar — first deploy */ }
+    if (lastDeployedHash === sourceHash) {
+      // Hash unchanged. Verify the connector is currently healthy in Core
+      // before claiming "no-op" — a crashed connector still needs restart.
+      try {
+        const healthResp = await fetch(`${adasCoreUrl}/api/connectors/${connectorId}`, {
+          headers: coreHeaders, signal: AbortSignal.timeout(5000),
+        });
+        const healthResult = await healthResp.json().catch(() => ({}));
+        const liveTools = healthResult.tools?.length || 0;
+        const isHealthy = healthResp.ok && healthResult.status === 'connected' && liveTools > 0;
+        if (isHealthy) {
+          console.log(`[Connector Upload] "${connectorId}" unchanged (hash=${sourceHash.slice(0, 8)}) and healthy (${liveTools} tools) — SKIP`);
+          return res.json({
+            ok: true,
+            connector_id: connectorId,
+            files_uploaded: 0,
+            tools: liveTools,
+            unchanged: true,
+            ...((antiPatterns.warnings || []).length > 0 && { warnings: antiPatterns.warnings }),
+          });
+        }
+        console.log(`[Connector Upload] "${connectorId}" hash matches but connector unhealthy (tools=${liveTools}, status=${healthResult.status || 'unknown'}) — proceeding with re-deploy`);
+      } catch (err) {
+        console.warn(`[Connector Upload] Could not verify "${connectorId}" health (${err.message}) — proceeding with re-deploy`);
+      }
+    }
+
     // Stop old connector
     try {
       await fetch(`${adasCoreUrl}/api/connectors/${connectorId}/stop`, {
@@ -2470,12 +2521,29 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
     }
     console.log(`[Connector Upload] Restarted "${connectorId}": ${toolCount} tools`);
 
+    // Persist source hash for next deploy's skip-check — but ONLY if the
+    // connector came up healthy. A crashed connector should keep the OLD
+    // hash so the next deploy re-attempts (instead of silently skipping
+    // a broken state).
+    if (toolCount > 0) {
+      try {
+        _fsMod.mkdirSync(hashSidecarDir, { recursive: true });
+        _fsMod.writeFileSync(hashSidecarPath, sourceHash);
+      } catch (err) {
+        console.warn(`[Connector Upload] Failed to write hash sidecar for "${connectorId}": ${err.message}`);
+      }
+    } else {
+      // Wipe the sidecar so next deploy doesn't skip a crashed connector.
+      try { _fsMod.unlinkSync(hashSidecarPath); } catch { /* ok if missing */ }
+    }
+
     const allWarnings = [...(antiPatterns.warnings || []), ...(rnWarnings || [])];
     res.json({
       ok: true,
       connector_id: connectorId,
       files_uploaded: files.length,
       tools: toolCount,
+      source_hash: sourceHash,
       ...(allWarnings.length > 0 && { warnings: allWarnings }),
     });
   } catch (err) {
