@@ -2242,7 +2242,9 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
       files = [];
       for (const f of connFiles) {
         try {
-          const data = await github.readFile(tenant, solutionId, f.path);
+          // Use readFileBySha — listFiles above already gave us the SHA,
+          // so unchanged blobs cost 0 API quota via the SHA-keyed cache.
+          const data = await github.readFileBySha(tenant, solutionId, f.path, f.sha);
           const relPath = f.path.split('/').slice(2).join('/');
           files.push({ path: relPath, content: data.content });
         } catch (err) {
@@ -3331,14 +3333,26 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
     // 2. Read individual files from repo — they override export.json
     // Agents use github_patch to edit skills/*/skill.json and solution.json directly,
     // but export.json is only updated on github_push. So individual files are authoritative.
+    //
+    // All reads below use readFileBySha — listFiles() above gave us the SHA
+    // of every blob in 1 API call, and the SHA-keyed blob cache means
+    // unchanged files cost 0 quota. Without this, every github_pull burns
+    // ~80 PAT calls and exhausts the 5000/hr limit after a handful of pulls.
     const connectorSources = {};
+    let _ghReads = 0, _ghCacheHits = 0;
     try {
       const allFiles = await github.listFiles(tenant, solId);
+      const _findSha = (path) => allFiles.find(x => x.path === path)?.sha;
+      const _readByPath = async (path) => {
+        const fileData = await github.readFileBySha(tenant, solId, path, _findSha(path));
+        if (fileData._cached) _ghCacheHits++; else _ghReads++;
+        return fileData;
+      };
 
       // 2a. Override solution definition from solution.json (if it exists)
       if (allFiles.some(f => f.path === 'solution.json')) {
         try {
-          const solFile = await github.readFile(tenant, solId, 'solution.json');
+          const solFile = await _readByPath('solution.json');
           const solData = JSON.parse(solFile.content);
           bundle.solution = solData;
           console.log(`[GitHub Pull] Overrode solution definition from solution.json`);
@@ -3353,7 +3367,7 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
         const updatedSkills = [];
         for (const f of skillFiles) {
           try {
-            const skillFile = await github.readFile(tenant, solId, f.path);
+            const skillFile = await _readByPath(f.path);
             const skillData = JSON.parse(skillFile.content);
             updatedSkills.push(skillData);
           } catch (err) {
@@ -3421,7 +3435,7 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
         // root cause of the "ateam_github_pull skips subdirectory files"
         // bug (rn-bundle/index.bundle.js stayed stale on Core for weeks).
         try {
-          const fileData = await github.readFile(tenant, solId, f.path);
+          const fileData = await _readByPath(f.path);
           connectorSources[connId].push({ path: filePath, content: fileData.content });
         } catch (err) {
           connectorReadErrors++;
@@ -3431,6 +3445,7 @@ router.post('/solutions/:solutionId/github/pull', async (req, res) => {
       if (connectorReadErrors > 0) {
         console.warn(`[GitHub Pull] ⚠️ ${connectorReadErrors} connector file(s) failed to read — Core may end up with stale code. See per-file warnings above.`);
       }
+      console.log(`[GitHub Pull] api=${_ghReads} cache=${_ghCacheHits} total=${_ghReads + _ghCacheHits}`);
     } catch (err) {
       console.warn(`[GitHub] Could not list repo files: ${err.message}`);
     }
@@ -3585,8 +3600,12 @@ router.post('/solutions/:solutionId/github/pull-connectors', async (req, res) =>
       return res.json({ ok: true, mcp_store: {}, reason: 'No connector files in repo' });
     }
 
-    // Group by connector ID and read content
+    // Group by connector ID and read content.
+    // Uses readFileBySha — the listFiles() tree above already gave us the blob
+    // SHA of every file in one API call. SHA-keyed cache hits cost 0 API
+    // quota; only files whose content has actually changed hit the API.
     const mcpStore = {};
+    let _ghReads = 0, _ghCacheHits = 0;
     for (const f of connectorFiles) {
       const parts = f.path.split('/');
       if (parts.length < 3) continue;
@@ -3594,12 +3613,14 @@ router.post('/solutions/:solutionId/github/pull-connectors', async (req, res) =>
       const filePath = parts.slice(2).join('/');
       if (!mcpStore[connId]) mcpStore[connId] = [];
       try {
-        const fileData = await github.readFile(tenant, solId, f.path);
+        const fileData = await github.readFileBySha(tenant, solId, f.path, f.sha);
+        if (fileData._cached) _ghCacheHits++; else _ghReads++;
         mcpStore[connId].push({ path: filePath, content: fileData.content });
       } catch (err) {
         console.warn(`[GitHub PullBundle] Could not read ${f.path}: ${err.message} (file dropped from mcp_store)`);
       }
     }
+    console.log(`[GitHub PullBundle/connectors] api=${_ghReads} cache=${_ghCacheHits}`);
 
     res.json({
       ok: true,
@@ -3646,9 +3667,23 @@ router.post('/solutions/:solutionId/github/pull-bundle', async (req, res) => {
 
     const result = { ok: true };
 
+    // All reads below use readFileBySha — listFiles() above gave us the blob
+    // SHA of every path in 1 API call, and the SHA-keyed blob cache means
+    // unchanged files cost 0 API quota. Before this change, a "no source
+    // changes" deploy on ada burned 82+ API calls and exhausted the 5000/hr
+    // PAT limit; after this change it should be 1 (just the listFiles tree).
+    let _ghReads = 0, _ghCacheHits = 0;
+    const _readByPath = async (path) => {
+      const f = allFiles.find(x => x.path === path);
+      const sha = f?.sha;
+      const fileData = await github.readFileBySha(tenant, solId, path, sha);
+      if (fileData._cached) _ghCacheHits++; else _ghReads++;
+      return fileData;
+    };
+
     // 1. Read solution.json
     try {
-      const solFile = await github.readFile(tenant, solId, 'solution.json');
+      const solFile = await _readByPath('solution.json');
       result.solution = JSON.parse(solFile.content);
     } catch {
       // solution.json not in repo — caller must provide it
@@ -3660,7 +3695,7 @@ router.post('/solutions/:solutionId/github/pull-bundle', async (req, res) => {
       result.skills = [];
       for (const f of skillFiles) {
         try {
-          const skillData = await github.readFile(tenant, solId, f.path);
+          const skillData = await _readByPath(f.path);
           result.skills.push(JSON.parse(skillData.content));
         } catch (err) {
           console.warn(`[GitHub PullBundle] Could not read skill ${f.path}: ${err.message} (skill dropped from bundle)`);
@@ -3688,7 +3723,7 @@ router.post('/solutions/:solutionId/github/pull-bundle', async (req, res) => {
         const filePath = parts.slice(2).join('/');
         if (!mcpStore[connId]) mcpStore[connId] = [];
         try {
-          const fileData = await github.readFile(tenant, solId, f.path);
+          const fileData = await _readByPath(f.path);
           mcpStore[connId].push({ path: filePath, content: fileData.content });
         } catch (err) {
           console.warn(`[GitHub PullBundle/connector] Could not read ${f.path}: ${err.message} (file dropped)`);
@@ -3697,6 +3732,7 @@ router.post('/solutions/:solutionId/github/pull-bundle', async (req, res) => {
       result.mcp_store = mcpStore;
       result.connectors_found = Object.keys(mcpStore).length;
     }
+    console.log(`[GitHub PullBundle] api=${_ghReads} cache=${_ghCacheHits} total=${_ghReads + _ghCacheHits}`);
 
     result.skills_found = result.skills?.length || 0;
     result.files_loaded = connectorFiles.length;

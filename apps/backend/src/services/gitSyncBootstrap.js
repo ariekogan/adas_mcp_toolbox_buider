@@ -35,6 +35,7 @@ import {
   listTenantRepos,
   listFiles,
   readFile as githubReadFile,
+  readFileBySha as githubReadFileBySha,
   repoName,
 } from '@adas/skill-validator/src/services/githubService.js';
 
@@ -86,14 +87,23 @@ async function reconcileSolution(tenant, solutionId) {
   }
 
   // 2. Pre-read solution.json from GH so we know the solution.name (used for connector pack dir name)
+  // Uses readFileBySha so a no-changes boot sync costs 0 PAT quota for this file.
+  const _ghSolJson = ghFiles.find(f => f.path === 'solution.json');
   let solutionName = null;
   try {
-    const solJson = await githubReadFile(tenant, solutionId, 'solution.json');
+    const solJson = _ghSolJson
+      ? await githubReadFileBySha(tenant, solutionId, 'solution.json', _ghSolJson.sha)
+      : await githubReadFile(tenant, solutionId, 'solution.json');
     const parsed = JSON.parse(solJson.content);
     solutionName = parsed.name || null;
   } catch { /* will be handled as a normal file below */ }
 
   // 3. Walk each GH file
+  // Each iteration uses readFileBySha — listFiles above already gave us the
+  // blob SHA, so unchanged files (the common case across reboots) cost 0 API
+  // quota via the on-disk SHA-keyed cache. Boot sync used to fire ~80 reads
+  // per tenant on every container restart; now it fires ~1 (just the tree).
+  let _ghApi = 0, _ghCache = 0;
   for (const gf of ghFiles) {
     const targets = resolveFsTarget(gf.path, solutionId, solutionName);
     if (!targets) {
@@ -103,7 +113,8 @@ async function reconcileSolution(tenant, solutionId) {
 
     let ghContent;
     try {
-      const data = await githubReadFile(tenant, solutionId, gf.path);
+      const data = await githubReadFileBySha(tenant, solutionId, gf.path, gf.sha);
+      if (data._cached) _ghCache++; else _ghApi++;
       ghContent = data.content;
     } catch (err) {
       log('warn', `read ${gf.path} failed: ${err.message}`);
@@ -171,6 +182,7 @@ async function reconcileSolution(tenant, solutionId) {
       log('log', `overwrote ${fsTarget} (no timestamp; GH authoritative)`);
     }
   }
+  log('log', `gh_quota: api=${_ghApi} cache=${_ghCache} total=${_ghApi + _ghCache}`);
 
   // 4. Detect FS-only files for this solution (for solution.json and each slug from linked_skills)
   //    We do not auto-delete; we only log.

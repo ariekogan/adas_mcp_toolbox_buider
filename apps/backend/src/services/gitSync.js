@@ -31,6 +31,7 @@ import {
   repoName,
   listFiles,
   readFile as githubReadFile,
+  readFileBySha as githubReadFileBySha,
 } from '@adas/skill-validator/src/services/githubService.js';
 import {
   getCurrentTenant,
@@ -410,13 +411,20 @@ export async function verifyConsistency(solutionId) {
   // 2. Pre-read solution.json so we know the solution name (used to resolve
   //    connector pack dir on FS). Failure is fine — connector files just
   //    won't resolve, and they'll show up as drift below.
+  // Uses readFileBySha so a no-changes verifyConsistency burns 0 PAT quota.
+  const _ghSolJson = ghFiles.find(f => f.path === 'solution.json');
   let solutionName = null;
   try {
-    const r = await githubReadFile(tenant, solutionId, 'solution.json');
+    const r = _ghSolJson
+      ? await githubReadFileBySha(tenant, solutionId, 'solution.json', _ghSolJson.sha)
+      : await githubReadFile(tenant, solutionId, 'solution.json');
     solutionName = JSON.parse(r.content).name || null;
   } catch { /* fall through */ }
 
   // 3. Walk each GH file and check FS counterpart.
+  // readFileBySha → blob-SHA cache: unchanged files cost 0 API quota. Without
+  // this, the pre-deploy verifyConsistency reads all ~80 files for every
+  // deploy, doubling the PAT pressure on every build.
   const ghSkillSlugs = new Set();
   for (const gf of ghFiles) {
     const skillMatch = gf.path.match(/^skills\/([^/]+)\/skill\.json$/);
@@ -427,7 +435,7 @@ export async function verifyConsistency(solutionId) {
 
     let ghContent;
     try {
-      const r = await githubReadFile(tenant, solutionId, gf.path);
+      const r = await githubReadFileBySha(tenant, solutionId, gf.path, gf.sha);
       ghContent = r.content;
     } catch (err) {
       drifts.push({ path: gf.path, kind: 'gh_read_error', error: err.message });

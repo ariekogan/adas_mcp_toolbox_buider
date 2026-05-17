@@ -93,7 +93,73 @@ function cacheBustRepo(tenant, solutionId) {
 
 /** Diagnostic — exposed via the gitsync health endpoint. */
 export function getReadCacheStats() {
-  return { ..._cacheStats, size: _readCache.size, ttlMs: READ_CACHE_TTL_MS };
+  return {
+    ..._cacheStats,
+    size: _readCache.size,
+    ttlMs: READ_CACHE_TTL_MS,
+    blobCache: { ..._blobCacheStats, dir: BLOB_CACHE_DIR },
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Content-addressable blob cache (SHA → content) — on-disk, survives restart
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Why: a github-mode build_and_run does N readFile calls — one per file in the
+// repo (~80 for a real solution). With a 5000/hour PAT quota, a few back-to-back
+// deploys exhaust the limit (observed: 95 rate-limit-exceeded errors in a single
+// 9-minute deploy on ada).
+//
+// But the Trees API listFiles() returns the git blob SHA of every file in ONE
+// call. Git blob SHAs are content-deterministic (sha1("blob " + size + "\0" +
+// content)), so they uniquely identify content across any repo, branch, or
+// tenant. If we've ever fetched a blob with SHA X, we have its content forever.
+//
+// Cache shape:
+//   <BLOB_CACHE_DIR>/<sha[0:2]>/<sha[2:]>   ← raw file content
+//
+// Hit rate: ~100% for unchanged files, which is the common case for repeated
+// build_and_run cycles. A typical "no source changes" deploy drops from 80+
+// API calls to 1 (just the listFiles tree fetch).
+//
+// Invalidation: never — SHA is a hash of content, content with the same SHA
+// is guaranteed identical bytes.
+import { mkdirSync, existsSync as _existsSync, readFileSync as _readFileSync, writeFileSync as _writeFileSync, statSync as _statSync } from 'fs';
+import { tmpdir } from 'os';
+import { join as _join, dirname as _dirname } from 'path';
+
+const BLOB_CACHE_DIR = process.env.GH_BLOB_CACHE_DIR || _join(tmpdir(), 'gh-blob-cache');
+let _blobCacheStats = { hits: 0, misses: 0, writes: 0, errors: 0 };
+
+function _blobCachePath(sha) {
+  return _join(BLOB_CACHE_DIR, sha.slice(0, 2), sha.slice(2));
+}
+
+function blobCacheGet(sha) {
+  if (!sha) { _blobCacheStats.misses++; return null; }
+  try {
+    const content = _readFileSync(_blobCachePath(sha), 'utf-8');
+    _blobCacheStats.hits++;
+    return content;
+  } catch {
+    _blobCacheStats.misses++;
+    return null;
+  }
+}
+
+function blobCacheSet(sha, content) {
+  if (!sha) return;
+  try {
+    const p = _blobCachePath(sha);
+    mkdirSync(_dirname(p), { recursive: true });
+    _writeFileSync(p, content);
+    _blobCacheStats.writes++;
+  } catch (err) {
+    _blobCacheStats.errors++;
+    // Don't throw — cache write is best-effort. A failed write just means
+    // the next read of this blob will hit the API again.
+    console.warn(`[GitHub] Blob cache write failed for ${sha?.slice(0, 8)}: ${err.message}`);
+  }
 }
 
 function headers() {
@@ -428,6 +494,8 @@ export async function readFile(tenant, solutionId, filePath, branch = 'main') {
   }
 
   const content = Buffer.from(data.content, 'base64').toString('utf-8');
+  // Populate blob cache (keyed by content SHA — durable across restarts).
+  blobCacheSet(data.sha, content);
   const result = {
     path: filePath,
     content,
@@ -436,6 +504,42 @@ export async function readFile(tenant, solutionId, filePath, branch = 'main') {
   };
   cacheSet(cacheKey, result);
   return result;
+}
+
+/**
+ * Read a file by its known git blob SHA — uses the SHA-keyed blob cache as a
+ * fast path. Falls back to readFile (which burns 1 API quota) only on miss.
+ *
+ * Callers should obtain the SHA from listFiles() (1 API call gives the whole
+ * tree with SHAs). The typical pattern:
+ *
+ *   const tree = await listFiles(tenant, solId);          // 1 API call
+ *   for (const f of tree) {
+ *     const file = await readFileBySha(tenant, solId, f.path, f.sha);
+ *     // ^ free if we've ever seen f.sha; 1 API call only for changed/new files
+ *   }
+ *
+ * This eliminates the "fan-out readFile per path" anti-pattern that exhausted
+ * the PAT rate limit on every github-mode build_and_run.
+ *
+ * @returns {{ path, content, sha, size, _cached: boolean }}
+ */
+export async function readFileBySha(tenant, solutionId, filePath, sha, branch = 'main') {
+  if (sha) {
+    const cached = blobCacheGet(sha);
+    if (cached !== null) {
+      return {
+        path: filePath,
+        content: cached,
+        sha,
+        size: Buffer.byteLength(cached, 'utf-8'),
+        _cached: true,
+      };
+    }
+  }
+  // Miss — fall through to the normal API path, which also populates the cache.
+  const result = await readFile(tenant, solutionId, filePath, branch);
+  return { ...result, _cached: false };
 }
 
 /**
@@ -560,9 +664,12 @@ export async function listFiles(tenant, solutionId, branch = 'main') {
 
   const tree = await gh('GET', `/repos/${fullName}/git/trees/${branch}?recursive=1`);
 
+  // Keep `sha` — callers use it for the SHA-keyed blob cache fast path
+  // (readFileBySha). Without it, every file fetch costs 1 API call even when
+  // the content hasn't changed since last fetch.
   const result = tree.tree
     .filter(t => t.type === 'blob')
-    .map(t => ({ path: t.path, size: t.size }));
+    .map(t => ({ path: t.path, size: t.size, sha: t.sha }));
   cacheSet(cacheKey, result);
   return result;
 }
