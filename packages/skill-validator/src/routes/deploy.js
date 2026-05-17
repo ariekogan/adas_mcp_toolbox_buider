@@ -2460,13 +2460,20 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
     if (lastDeployedHash === sourceHash) {
       // Hash unchanged. Verify the connector is currently healthy in Core
       // before claiming "no-op" — a crashed connector still needs restart.
+      //
+      // Core's /api/connectors/:id wraps the connector in a `connector` field:
+      //   { ok: true, connector: { id, status, tools: [...], ... } }
+      // The `|| healthResult` fallback handles older/flat responses if the
+      // API ever changes. Reading `.tools` as an array (it's a list of tool
+      // names) and `.status === 'connected'` is the canonical liveness signal.
       try {
         const healthResp = await fetch(`${adasCoreUrl}/api/connectors/${connectorId}`, {
           headers: coreHeaders, signal: AbortSignal.timeout(5000),
         });
         const healthResult = await healthResp.json().catch(() => ({}));
-        const liveTools = healthResult.tools?.length || 0;
-        const isHealthy = healthResp.ok && healthResult.status === 'connected' && liveTools > 0;
+        const conn = healthResult.connector || healthResult;
+        const liveTools = Array.isArray(conn.tools) ? conn.tools.length : (conn.tools_count || 0);
+        const isHealthy = healthResp.ok && conn.status === 'connected' && liveTools > 0;
         if (isHealthy) {
           console.log(`[Connector Upload] "${connectorId}" unchanged (hash=${sourceHash.slice(0, 8)}) and healthy (${liveTools} tools) — SKIP`);
           return res.json({
@@ -2478,7 +2485,7 @@ router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req,
             ...((antiPatterns.warnings || []).length > 0 && { warnings: antiPatterns.warnings }),
           });
         }
-        console.log(`[Connector Upload] "${connectorId}" hash matches but connector unhealthy (tools=${liveTools}, status=${healthResult.status || 'unknown'}) — proceeding with re-deploy`);
+        console.log(`[Connector Upload] "${connectorId}" hash matches but connector unhealthy (tools=${liveTools}, status=${conn.status || 'unknown'}) — proceeding with re-deploy`);
       } catch (err) {
         console.warn(`[Connector Upload] Could not verify "${connectorId}" health (${err.message}) — proceeding with re-deploy`);
       }
