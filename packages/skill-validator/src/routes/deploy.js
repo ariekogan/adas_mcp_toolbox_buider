@@ -1298,32 +1298,31 @@ router.post('/solution', async (req, res) => {
       console.log(`[Deploy] Voice config pushed: ${JSON.stringify(voiceDeploy.summary)}`);
     }
 
-    // ── Restart connectors so running stdio processes pick up new code ──
-    // Belt-and-suspenders: the MCP tool also does this in Phase 2.5, but
-    // doing it here ensures ANY deploy path (MCP tool, direct API, UI) restarts connectors.
+    // ── Connector restart is handled by preSyncConnectors in deploy-all ──
+    //
+    // Was: an unconditional Stop+Start loop over every connector in mcp_store
+    // — "belt-and-suspenders" insurance to make sure stdio processes picked up
+    // new code regardless of which deploy path ran. The unconditional part was
+    // the bug: it fired AFTER consumeDeploySSE completed, restarting all 7
+    // connectors with no hash check. mycoach's Phase 2b tool refresh (called
+    // earlier during parallel skill deploys) then raced against coach-mcp's
+    // restart and received 0 tools, failing the entire deploy.
+    //
+    // Now: preSyncConnectors inside deploy-all handles connector restarts
+    // properly — only restarts connectors whose .deployed_hash sidecar
+    // doesn't match the FS source hash. Unchanged connectors stay running.
+    // Removed the duplicate restart loop. If a future deploy path bypasses
+    // deploy-all entirely, it needs to call preSyncConnectors itself.
     let connectorRestart = null;
-    if (mcp_store && typeof mcp_store === 'object' && Object.keys(mcp_store).length > 0) {
-      const adasCoreUrlRestart = process.env.ADAS_CORE_URL || process.env.ADAS_API_URL || 'http://ai-dev-assistant-backend-1:4000';
-      const restartResults = [];
-      for (const connId of Object.keys(mcp_store)) {
-        try {
-          // Stop old process
-          await fetch(`${adasCoreUrlRestart}/api/connectors/${encodeURIComponent(connId)}/stop`, {
-            method: 'POST', headers: sbHeaders(req), signal: AbortSignal.timeout(10000),
-          });
-          // Start fresh
-          const startResp = await fetch(`${adasCoreUrlRestart}/api/connectors/${encodeURIComponent(connId)}/start`, {
-            method: 'POST', headers: sbHeaders(req), signal: AbortSignal.timeout(30000),
-          });
-          const startData = await startResp.json().catch(() => ({}));
-          restartResults.push({ id: connId, ok: true, tools: startData.tools?.length || 0 });
-          console.log(`[Deploy] Restarted connector "${connId}": ${startData.tools?.length || 0} tools`);
-        } catch (err) {
-          restartResults.push({ id: connId, ok: false, error: err.message });
-          console.warn(`[Deploy] Failed to restart connector "${connId}": ${err.message}`);
-        }
-      }
-      connectorRestart = { restarted: restartResults.filter(r => r.ok).length, total: restartResults.length, details: restartResults };
+    if (Array.isArray(deployResult?.deploy?.connectorResults)) {
+      // Surface the pre-sync's per-connector results so the deploy response
+      // still has a connectorRestart summary (for the MCP tool to display).
+      const results = deployResult.deploy.connectorResults;
+      connectorRestart = {
+        restarted: results.filter(r => r.ok).length,
+        total: results.length,
+        details: results.map(r => ({ id: r.id, ok: r.ok, tools: r.tools || 0 })),
+      };
     }
 
     // ── GitHub workflow: ASYNC, non-blocking ──
