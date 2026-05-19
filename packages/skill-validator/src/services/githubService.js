@@ -227,6 +227,73 @@ async function gh(method, path, body) {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 /**
+ * Verify a ref (branch/tag/sha) exists in the repo. Throws a workflow-aware
+ * error if it doesn't, so callers get an actionable message instead of a
+ * terse "404 Not Found".
+ *
+ * Called at the top of every ref-accepting operation (pushFiles, readFile,
+ * patchFile, getLog, getDiff, etc.) so the error surfaces BEFORE any
+ * side-effects (blob uploads, partial commits).
+ *
+ * Returns the resolved commit SHA on success.
+ */
+async function assertRefExists(fullName, ref, ctx = {}) {
+  const isWrite = ctx.operation === 'write';
+  try {
+    // Try as branch first
+    const r = await gh('GET', `/repos/${fullName}/git/ref/heads/${encodeURIComponent(ref)}`);
+    return r.object.sha;
+  } catch (branchErr) {
+    if (branchErr.status !== 404) throw branchErr;
+    // Not a branch — try as tag
+    try {
+      const r = await gh('GET', `/repos/${fullName}/git/ref/tags/${encodeURIComponent(ref)}`);
+      // Annotated tag: resolve to the commit it points to
+      if (r.object.type === 'tag') {
+        const t = await gh('GET', `/repos/${fullName}/git/tags/${r.object.sha}`);
+        return t.object.sha;
+      }
+      return r.object.sha;
+    } catch (tagErr) {
+      if (tagErr.status !== 404) throw tagErr;
+      // Not a tag — try as direct commit SHA
+      try {
+        const c = await gh('GET', `/repos/${fullName}/git/commits/${encodeURIComponent(ref)}`);
+        return c.sha;
+      } catch (shaErr) {
+        // All three lookups failed → ref truly doesn't exist.
+        // Build a helpful, workflow-aware error.
+        const lines = [
+          `Ref "${ref}" not found in ${fullName} (not a branch, tag, or commit SHA).`,
+          '',
+          'Valid options:',
+          '  • "dev"  — active work branch (default target for writes)',
+          '  • "main" — production branch (default target for reads + ateam_build_and_run)',
+          '  • A tag from ateam_github_list_versions() — e.g. "prod-2026-05-19-001"',
+          '  • A commit SHA (e.g. "a1b2c3d")',
+          '',
+          'Workflow reminder:',
+          '  1. Edit files → ateam_github_patch(..., ref:"dev") — writes default to dev',
+          '  2. Preview     → ateam_github_diff (compares dev vs main)',
+          '  3. Promote     → ateam_github_promote (merges dev→main + auto-tags prod-*)',
+          '  4. Deploy      → ateam_build_and_run (deploys main)',
+        ];
+        if (isWrite && ref === 'master') {
+          lines.push('', `(Did you mean "main"? Note: this project uses 'main', not 'master'.)`);
+        }
+        if (isWrite && ref !== 'dev' && ref !== 'main') {
+          lines.push('', `If you intended to create a new branch "${ref}", do it via git directly (it can't be auto-created through this API).`);
+        }
+        const err = new Error(lines.join('\n'));
+        err.status = 404;
+        err.refNotFound = true;
+        throw err;
+      }
+    }
+  }
+}
+
+/**
  * Create blobs in parallel batches.
  * @returns {Array<{ path, mode, type, sha }>} tree items
  */
@@ -369,6 +436,11 @@ export async function pushFiles(tenant, solutionId, files, message = 'Update sol
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
+  // Validate ref BEFORE uploading blobs — gives a clear, workflow-aware
+  // error if the user passed e.g. "master" or "production" by mistake,
+  // without wasting blob uploads on a deploy that's going to fail.
+  await assertRefExists(fullName, branch, { operation: 'write' });
+
   // Create blobs ONCE — they're content-addressable, surviving every retry.
   const treeItems = await createBlobsBatch(fullName, files);
 
@@ -487,7 +559,22 @@ export async function readFile(tenant, solutionId, filePath, branch = 'main') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  const data = await gh('GET', `/repos/${fullName}/contents/${encodePath(filePath)}?ref=${branch}`);
+  let data;
+  try {
+    data = await gh('GET', `/repos/${fullName}/contents/${encodePath(filePath)}?ref=${branch}`);
+  } catch (err) {
+    // If the ref itself is missing, surface a workflow-aware error instead
+    // of "GitHub 404 on .../contents/<path>?ref=<branch>". Otherwise let the
+    // file-not-found 404 pass through.
+    if (err.status === 404) {
+      try {
+        await assertRefExists(fullName, branch, { operation: 'read' });
+      } catch (refErr) {
+        if (refErr.refNotFound) throw refErr;
+      }
+    }
+    throw err;
+  }
 
   if (data.type !== 'file') {
     throw new Error(`${filePath} is a ${data.type}, not a file`);
@@ -633,7 +720,16 @@ export async function getLog(tenant, solutionId, limit = 10, branch = 'main') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  const commits = await gh('GET', `/repos/${fullName}/commits?sha=${branch}&per_page=${limit}`);
+  let commits;
+  try {
+    commits = await gh('GET', `/repos/${fullName}/commits?sha=${branch}&per_page=${limit}`);
+  } catch (err) {
+    if (err.status === 404 || err.status === 422) {
+      try { await assertRefExists(fullName, branch, { operation: 'read' }); }
+      catch (refErr) { if (refErr.refNotFound) throw refErr; }
+    }
+    throw err;
+  }
 
   const result = {
     repo_url: `https://github.com/${fullName}`,
@@ -846,6 +942,14 @@ export async function getDiff(tenant, solutionId, base = 'main', head = 'dev') {
   try {
     compare = await gh('GET', `/repos/${fullName}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`);
   } catch (err) {
+    // 404 on /compare means one of the refs doesn't exist. Probe each to
+    // give the user a workflow-aware error pointing at the bad one.
+    if (err.status === 404) {
+      try { await assertRefExists(fullName, base, { operation: 'read' }); }
+      catch (refErr) { if (refErr.refNotFound) throw new Error(`base="${base}" — ${refErr.message}`); }
+      try { await assertRefExists(fullName, head, { operation: 'read' }); }
+      catch (refErr) { if (refErr.refNotFound) throw new Error(`head="${head}" — ${refErr.message}`); }
+    }
     throw new Error(`Cannot compare ${base}...${head}: ${err.message}`);
   }
   return {
