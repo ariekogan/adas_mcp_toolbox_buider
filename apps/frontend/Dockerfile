@@ -1,6 +1,6 @@
 # --- build stage ---
 FROM node:22-alpine AS build
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@8.15.6 --activate
 WORKDIR /app
 
 ARG VITE_API_URL
