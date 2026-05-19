@@ -755,9 +755,20 @@ export async function deleteDirectory(tenant, solutionId, dirPath, message = `De
 export const pushToDev = pushFiles;
 
 /**
- * Create a safe checkpoint (tag) on current main HEAD.
- * Tags format: safe-YYYY-MM-DD-NNN
- * Use rollback() to revert to a checkpoint if something breaks.
+ * Create a prod checkpoint (tag) on current main HEAD.
+ *
+ * Tag format: prod-YYYY-MM-DD-NNN
+ *
+ * Auto-created by `promote()` after a successful dev→main merge. Can also
+ * be called directly via the deprecated /promote-old route or future
+ * `ateam_github_checkpoint` tool.
+ *
+ * Back-compat: counter computation looks at BOTH `prod-*` and the legacy
+ * `safe-*` tags from the same day so the NNN never collides during the
+ * transition. listCheckpoints() returns both prefixes too.
+ *
+ * Use rollback(target) to revert main to any tag (prod-* or safe-*) or
+ * commit SHA. Rollback is additive — history is preserved.
  */
 export async function checkpoint(tenant, solutionId, label = '') {
   const name = repoName(tenant, solutionId);
@@ -772,25 +783,31 @@ export async function checkpoint(tenant, solutionId, label = '') {
     throw new Error('Main branch not found.');
   }
 
-  // 2. Create date-based safe tag
+  // 2. Create date-based prod tag. Counter includes legacy safe-* tags
+  // from the same day to avoid collisions during the rename transition.
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
 
   let tagCounter = 1;
   try {
     const tags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
-    const todayTags = tags.filter(t => t.ref.startsWith(`refs/tags/safe-${dateStr}-`));
+    const todayTags = tags.filter(t =>
+      t.ref.startsWith(`refs/tags/prod-${dateStr}-`) ||
+      t.ref.startsWith(`refs/tags/safe-${dateStr}-`),
+    );
     if (todayTags.length > 0) {
-      const lastTag = todayTags[todayTags.length - 1];
-      const lastCounter = parseInt(lastTag.ref.split('-').pop());
-      tagCounter = lastCounter + 1;
+      // Each tag ends with -NNN; take the max counter and add 1.
+      const counters = todayTags
+        .map(t => parseInt(t.ref.split('-').pop()))
+        .filter(n => !isNaN(n));
+      if (counters.length > 0) tagCounter = Math.max(...counters) + 1;
     }
   } catch { /* no tags yet */ }
 
-  const tagName = `safe-${dateStr}-${String(tagCounter).padStart(3, '0')}`;
+  const tagName = `prod-${dateStr}-${String(tagCounter).padStart(3, '0')}`;
   const tagMessage = label
-    ? `Safe checkpoint: ${label}`
-    : `Safe checkpoint: ${tagName}`;
+    ? `Prod checkpoint: ${label}`
+    : `Prod checkpoint: ${tagName}`;
 
   try {
     await gh('POST', `/repos/${fullName}/git/tags`, {
@@ -939,7 +956,12 @@ export async function promote(tenant, solutionId, options = {}) {
 }
 
 /**
- * List all safe checkpoints for a solution.
+ * List all promotion checkpoints (tags) for a solution.
+ *
+ * Returns both new `prod-*` tags (from current promote() flow) and legacy
+ * `safe-*` tags (from older promote/checkpoint calls before the rename).
+ * Both are valid rollback targets — `rollback(target)` accepts any tag
+ * regardless of prefix.
  */
 export async function listCheckpoints(tenant, solutionId) {
   const name = repoName(tenant, solutionId);
@@ -947,16 +969,17 @@ export async function listCheckpoints(tenant, solutionId) {
 
   try {
     const tags = await gh('GET', `/repos/${fullName}/git/refs/tags`);
-    const safeTags = tags
-      .filter(t => t.ref.startsWith('refs/tags/safe-'))
+    const checkpointTags = tags
+      .filter(t => t.ref.startsWith('refs/tags/prod-') || t.ref.startsWith('refs/tags/safe-'))
       .sort()
       .reverse();
 
-    const checkpoints = safeTags.map(t => {
+    const checkpoints = checkpointTags.map(t => {
       const tagName = t.ref.replace('refs/tags/', '');
-      const parts = tagName.split('-'); // safe-YYYY-MM-DD-NNN
+      const parts = tagName.split('-'); // prod-YYYY-MM-DD-NNN or safe-YYYY-MM-DD-NNN
       return {
         tag: tagName,
+        prefix: parts[0], // 'prod' (new) or 'safe' (legacy)
         date: `${parts[1]}-${parts[2]}-${parts[3]}`,
         counter: parseInt(parts[4]),
         commit_sha: t.object.sha,
