@@ -637,6 +637,10 @@ export async function patchFile(tenant, solutionId, filePath, content, message =
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
+  // Validate ref BEFORE the existence check — workflow-aware error if user
+  // passed a bad branch (e.g. "master" instead of "main", or a typo).
+  await assertRefExists(fullName, branch, { operation: 'write' });
+
   // Check if file exists on the target branch (need SHA for update)
   let existingSha = null;
   try {
@@ -673,6 +677,10 @@ export async function patchFile(tenant, solutionId, filePath, content, message =
 export async function searchReplacePatchFile(tenant, solutionId, filePath, search, replace, message, branch = 'main') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
+
+  // Validate ref BEFORE the read — workflow-aware error if user passed a
+  // bad branch (typo, "master" vs "main", etc.).
+  await assertRefExists(fullName, branch, { operation: 'write' });
 
   // Read current file from target branch
   const existing = await gh('GET', `/repos/${fullName}/contents/${encodePath(filePath)}?ref=${branch}`);
