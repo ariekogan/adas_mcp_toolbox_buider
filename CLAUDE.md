@@ -1,5 +1,39 @@
 # A-Team Skill Builder
 
+## 🚀 PRODUCTION ACCESS (Hetzner) — read this before debugging prod
+
+The Skill Builder runs in TWO environments. Each Builder is bound to its local ADAS Core via Docker networking (`ADAS_CORE_URL=http://adas-backend:4000`). You don't pick env in the Builder UI — you pick it by URL.
+
+| Env | Builder UI | Where it lives | Talks to Core |
+|---|---|---|---|
+| **Prod** | `https://builder.ateam-ai.com` | Hetzner VM, `ssh prod` (= `root@178.105.128.76`) | Hetzner Core |
+| **Dev** | `https://dev-builder.ateam-ai.com` | mac1, `ssh mac1` | mac1 Core |
+
+> ⚠️ Set `GITHUB_ENABLED=false` on dev's `.env` to avoid auto-pushing dev edits to GitHub `main` (where prod reads from).
+
+**Repo locations on prod:**
+
+| What | Path on Hetzner |
+|---|---|
+| Builder clone (this repo) | `/srv/adas/adas_mcp_toolbox_builder/` — note the GitHub repo URL is `adas_mcp_toolbox_buider` (missing one 'l' — historical typo, kept for backcompat). Local dir uses the correct spelling. |
+| ai-dev-assistant (Core) | `/srv/adas/repo/` |
+| ateam-mcp | `/srv/adas/ateam-mcp/` |
+| Mongo data | `/srv/adas/mongo-data/` |
+
+**Common debug:**
+
+```bash
+ssh prod                                              # shell into prod VM
+ssh prod 'docker ps | grep skill-builder'
+ssh prod 'docker logs -f repo-skill-builder-backend-1'
+ssh prod 'docker logs --tail 50 repo-skill-builder-frontend-1'
+ssh prod 'cd /srv/adas/repo && su - adas -c "cd /srv/adas/repo && docker compose restart skill-builder-backend skill-builder-frontend"'
+```
+
+Compose project name on prod is `repo`, so container names start with `repo-`.
+
+**Builder source updates** ship via [`07-promote-builder.sh`](https://github.com/ariekogan/ai-dev-assistant/blob/main/scripts/prod/07-promote-builder.sh) in the ai-dev-assistant repo — tag this repo `builder-prod-YYYYMMDD-NNN`, push, then run the promote script from the laptop. See ai-dev-assistant's [`Docs/PLATFORM_PROMOTION.md`](https://github.com/ariekogan/ai-dev-assistant/blob/main/Docs/PLATFORM_PROMOTION.md).
+
 ## CRITICAL ARCHITECTURE RULE — READ FIRST
 
 **There are TWO systems. They have DIFFERENT storage. Do NOT confuse them.**
