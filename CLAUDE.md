@@ -1,5 +1,29 @@
 # A-Team Skill Builder
 
+## 🌳 BRANCHING MODEL — read this BEFORE writing any code
+
+```
+dev branch  ──── active work. Deployed to mac1 (dev-builder.ateam-ai.com).
+                   │
+                   ▼  PR + merge when ready
+                   │
+main branch ───── what's in production (Hetzner, builder.ateam-ai.com).
+                  Tagged builder-prod-YYYYMMDD-NNN and promoted via
+                  scripts/prod/07-promote-builder.sh in ai-dev-assistant.
+```
+
+- Default branch for all work = `dev`. Never commit directly to `main`.
+- `main` is read-only — only PRs from `dev` may land there.
+- Promote to prod:
+  ```bash
+  # On laptop, after merging PR dev→main:
+  git checkout main && git pull
+  git tag builder-prod-$(date +%Y%m%d)-001 && git push --tags
+  # Then run from ai-dev-assistant:
+  TARGET_SSH=root@178.105.128.76 \
+    ./scripts/prod/07-promote-builder.sh builder-prod-$(date +%Y%m%d)-001
+  ```
+
 ## 🚀 PRODUCTION ACCESS (Hetzner) — read this before debugging prod
 
 The Skill Builder runs in TWO environments. Each Builder is bound to its local ADAS Core via Docker networking (`ADAS_CORE_URL=http://adas-backend:4000`). You don't pick env in the Builder UI — you pick it by URL.
