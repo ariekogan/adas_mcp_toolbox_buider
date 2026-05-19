@@ -365,7 +365,7 @@ export async function ensureRepo(tenant, solutionId, description = '') {
  */
 const PUSH_MAX_RETRIES = 4;
 
-export async function pushFiles(tenant, solutionId, files, message = 'Update solution') {
+export async function pushFiles(tenant, solutionId, files, message = 'Update solution', branch = 'main') {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
@@ -378,12 +378,12 @@ export async function pushFiles(tenant, solutionId, files, message = 'Update sol
     //    advanced it since the previous try).
     let headSha, treeSha;
     try {
-      const ref = await gh('GET', `/repos/${fullName}/git/ref/heads/main`);
+      const ref = await gh('GET', `/repos/${fullName}/git/ref/heads/${branch}`);
       headSha = ref.object.sha;
       const commit = await gh('GET', `/repos/${fullName}/git/commits/${headSha}`);
       treeSha = commit.tree.sha;
     } catch (err) {
-      throw new Error(`Cannot get HEAD for ${fullName}: ${err.message}`);
+      throw new Error(`Cannot get HEAD for ${fullName}@${branch}: ${err.message}`);
     }
 
     // 2. Create tree on top of the current HEAD's tree.
@@ -403,7 +403,7 @@ export async function pushFiles(tenant, solutionId, files, message = 'Update sol
     //    lands between step 1 and step 4 makes our parents stale, so the
     //    server rejects with 422.
     try {
-      await gh('PATCH', `/repos/${fullName}/git/refs/heads/main`, {
+      await gh('PATCH', `/repos/${fullName}/git/refs/heads/${branch}`, {
         sha: commit.sha,
       });
       // Bust the read cache for this repo — the freshly-pushed content
@@ -818,8 +818,125 @@ export async function checkpoint(tenant, solutionId, label = '') {
   };
 }
 
-/** @deprecated Use checkpoint instead. Kept for backward compatibility. */
-export const promote = checkpoint;
+/**
+ * Compare two branches/refs. Returns commit list + files changed.
+ * Used as pre-flight for `promote` to show what's about to ship.
+ */
+export async function getDiff(tenant, solutionId, base = 'main', head = 'dev') {
+  const name = repoName(tenant, solutionId);
+  const fullName = `${OWNER}/${name}`;
+  let compare;
+  try {
+    compare = await gh('GET', `/repos/${fullName}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`);
+  } catch (err) {
+    throw new Error(`Cannot compare ${base}...${head}: ${err.message}`);
+  }
+  return {
+    ahead_by: compare.ahead_by || 0,
+    behind_by: compare.behind_by || 0,
+    status: compare.status,
+    commits: (compare.commits || []).map(c => ({
+      sha: c.sha,
+      message: (c.commit?.message || '').split('\n')[0].slice(0, 200),
+      author: c.commit?.author?.name || c.author?.login || 'unknown',
+      date: c.commit?.author?.date || null,
+    })),
+    files: (compare.files || []).map(f => ({
+      path: f.filename,
+      status: f.status,
+      additions: f.additions || 0,
+      deletions: f.deletions || 0,
+    })),
+  };
+}
+
+/**
+ * Merge `head` branch into `base` via GitHub's /merges API.
+ * Returns null if base is already up-to-date.
+ * Throws on conflict (409) — caller must resolve manually on GitHub.
+ */
+export async function mergeBranch(tenant, solutionId, base = 'main', head = 'dev', commit_message = '') {
+  const name = repoName(tenant, solutionId);
+  const fullName = `${OWNER}/${name}`;
+  const message = commit_message || `Merge ${head} into ${base}`;
+  let result;
+  try {
+    result = await gh('POST', `/repos/${fullName}/merges`, { base, head, commit_message: message });
+  } catch (err) {
+    // GitHub returns 204 for "already merged" — gh() returns null for that
+    // 409 = merge conflict — let caller see the real error
+    throw new Error(`Merge ${head} → ${base} failed: ${err.message}`);
+  }
+  cacheBustRepo(tenant, solutionId);
+  if (!result) {
+    return { ok: true, already_up_to_date: true, merge_commit_sha: null };
+  }
+  return {
+    ok: true,
+    already_up_to_date: false,
+    merge_commit_sha: result.sha,
+    merge_commit_url: result.html_url,
+  };
+}
+
+/**
+ * Promote: merge `dev` → `main` and auto-tag the new main HEAD.
+ * Returns the diff summary + tag.
+ *
+ * This is the NEW semantics. Was previously an alias for `checkpoint` (just
+ * tagged the current main HEAD). The naming was misleading — "promote" should
+ * mean "move dev work into the main/prod branch", which is what it does now.
+ *
+ * For the old behavior (tag without merge), call `checkpoint` directly.
+ */
+export async function promote(tenant, solutionId, options = {}) {
+  const { label = '', skipTag = false } = options;
+
+  // 1. Diff first so the caller sees what's about to ship
+  const diff = await getDiff(tenant, solutionId, 'main', 'dev');
+  if (diff.ahead_by === 0) {
+    return {
+      ok: true,
+      already_up_to_date: true,
+      merged_commits: 0,
+      _hint: 'dev is not ahead of main — nothing to promote.',
+    };
+  }
+
+  // 2. Merge
+  const merge = await mergeBranch(
+    tenant,
+    solutionId,
+    'main',
+    'dev',
+    `Promote: merge dev → main (${diff.ahead_by} commits across ${diff.files.length} files)`,
+  );
+
+  // 3. Auto-tag the new main HEAD (best-effort — non-fatal on failure)
+  let tag = null;
+  if (!skipTag) {
+    try {
+      const tagResult = await checkpoint(tenant, solutionId, label || `promote ${diff.ahead_by}-commits`);
+      tag = tagResult.tag;
+    } catch (err) {
+      console.warn(`[promote] Auto-tag failed (promote itself succeeded): ${err.message}`);
+    }
+  }
+
+  return {
+    ok: true,
+    already_up_to_date: false,
+    merged_commits: diff.ahead_by,
+    files_changed: diff.files.length,
+    merge_commit_sha: merge.merge_commit_sha,
+    merge_commit_url: merge.merge_commit_url,
+    tag,
+    files: diff.files.slice(0, 20), // first 20 for context, rest truncated
+    _hint: tag
+      ? `Promoted ${diff.ahead_by} commit(s) to main. Tagged as ${tag}. Run ateam_build_and_run() to deploy main.`
+      : `Promoted ${diff.ahead_by} commit(s) to main. Run ateam_build_and_run() to deploy main.`,
+  };
+}
 
 /**
  * List all safe checkpoints for a solution.
@@ -856,42 +973,27 @@ export async function listCheckpoints(tenant, solutionId) {
 export const listDevVersions = listCheckpoints;
 
 /**
- * Rollback main to a previous checkpoint tag.
- * DESTRUCTIVE — force-resets main to a specific commit.
+ * Rollback main to a previous checkpoint tag or commit SHA.
+ *
+ * ADDITIVE (git revert semantics): does NOT force-reset main. Instead, creates
+ * a new commit on top of current main whose tree equals the target's tree.
+ * Result: main contains the OLD state but the history of everything in
+ * between is preserved.
+ *
+ * Why additive: a force-reset destroys the commits between target and current
+ * main, including anything someone might want to recover. The additive
+ * pattern is the standard "git revert <tag>" approach — same end state on
+ * disk, no history loss.
  */
-export async function rollback(tenant, solutionId, tagName) {
+export async function rollback(tenant, solutionId, target) {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
-  // Auto-checkpoint current state before rollback (skip if HEAD is already a checkpoint)
-  let autoCheckpoint = null;
-  try {
-    // Get current main HEAD
-    const mainRef = await gh('GET', `/repos/${fullName}/git/refs/heads/main`);
-    const currentSha = mainRef.object.sha;
-
-    // Check if any safe-* tag already points at this exact commit
-    let alreadyTagged = false;
-    try {
-      const tags = await gh('GET', `/repos/${fullName}/tags?per_page=10`);
-      alreadyTagged = tags.some(t => t.name.startsWith('safe-') && t.commit.sha === currentSha);
-    } catch { /* ignore — be safe and create checkpoint */ }
-
-    if (!alreadyTagged) {
-      autoCheckpoint = await checkpoint(tenant, solutionId, `before-rollback-to-${tagName}`);
-      console.log(`[GitHub] Auto-checkpoint created: ${autoCheckpoint.tag} (before rollback to ${tagName})`);
-    } else {
-      console.log(`[GitHub] Skipping auto-checkpoint — current HEAD already has a safe-* tag`);
-    }
-  } catch (cpErr) {
-    console.warn(`[GitHub] Could not auto-checkpoint before rollback: ${cpErr.message}`);
-    // Continue with rollback anyway — user explicitly requested it
-  }
-
+  // 1. Resolve target to a commit SHA. Accepts: tag name, sha, or branch ref.
   let targetSha = null;
   try {
-    const tagRef = await gh('GET', `/repos/${fullName}/git/refs/tags/${tagName}`);
-    // Handle both annotated and lightweight tags
+    // Try as tag first
+    const tagRef = await gh('GET', `/repos/${fullName}/git/refs/tags/${target}`);
     if (tagRef.object.type === 'tag') {
       const tagObj = await gh('GET', `/repos/${fullName}/git/tags/${tagRef.object.sha}`);
       targetSha = tagObj.object.sha;
@@ -899,27 +1001,77 @@ export async function rollback(tenant, solutionId, tagName) {
       targetSha = tagRef.object.sha;
     }
   } catch {
-    throw new Error(`Checkpoint not found: ${tagName}. Use ateam_github_list_versions to see available checkpoints.`);
+    // Not a tag — try as commit SHA directly
+    try {
+      const commit = await gh('GET', `/repos/${fullName}/git/commits/${target}`);
+      targetSha = commit.sha;
+    } catch {
+      throw new Error(`Cannot resolve "${target}" to a tag or commit SHA. Use ateam_github_list_versions to see available checkpoints.`);
+    }
   }
 
+  // 2. Get current main HEAD
+  let currentSha;
   try {
-    await gh('PATCH', `/repos/${fullName}/git/refs/heads/main`, {
-      sha: targetSha,
-      force: true,
+    const mainRef = await gh('GET', `/repos/${fullName}/git/refs/heads/main`);
+    currentSha = mainRef.object.sha;
+  } catch (err) {
+    throw new Error(`Cannot read main branch: ${err.message}`);
+  }
+
+  // No-op if main already at target
+  if (currentSha === targetSha) {
+    return {
+      ok: true,
+      already_at: target,
+      no_op: true,
+      main_commit_sha: currentSha,
+      _hint: `main is already at ${target} — nothing to do.`,
+    };
+  }
+
+  // 3. Get target's tree (what the old state's files looked like)
+  let targetTree;
+  try {
+    const targetCommit = await gh('GET', `/repos/${fullName}/git/commits/${targetSha}`);
+    targetTree = targetCommit.tree.sha;
+  } catch (err) {
+    throw new Error(`Cannot read target commit ${targetSha}: ${err.message}`);
+  }
+
+  // 4. Create a new commit on top of current main with the OLD tree.
+  // Parent = current main HEAD → fast-forward update is safe (no force needed).
+  let revertCommit;
+  try {
+    revertCommit = await gh('POST', `/repos/${fullName}/git/commits`, {
+      message: `Rollback main to ${target}\n\nReverts the tree to commit ${targetSha.slice(0, 7)}.\nHistory between is preserved as commits ${currentSha.slice(0, 7)}..${revertCommit?.sha || 'this'}.`,
+      tree: targetTree,
+      parents: [currentSha],
     });
   } catch (err) {
-    throw new Error(`Cannot rollback: ${err.message}`);
+    throw new Error(`Cannot create rollback commit: ${err.message}`);
   }
 
+  // 5. Update main to point at the new commit. Fast-forward — NO force flag.
+  try {
+    await gh('PATCH', `/repos/${fullName}/git/refs/heads/main`, {
+      sha: revertCommit.sha,
+    });
+  } catch (err) {
+    throw new Error(`Cannot update main: ${err.message}`);
+  }
+
+  cacheBustRepo(tenant, solutionId);
+
   return {
-    rolled_back: true,
-    tag: tagName,
-    main_commit_sha: targetSha,
+    ok: true,
+    rolled_back_to: target,
+    target_commit_sha: targetSha,
+    revert_commit_sha: revertCommit.sha,
+    revert_commit_url: revertCommit.html_url,
+    previous_main_sha: currentSha,
     main_branch_url: `https://github.com/${fullName}/tree/main`,
     rolled_back_at: new Date().toISOString(),
-    ...(autoCheckpoint && { auto_checkpoint: autoCheckpoint.tag }),
-    _hint: autoCheckpoint
-      ? `Pre-rollback state saved as ${autoCheckpoint.tag}. To undo: ateam_github_rollback(solution_id, tag: "${autoCheckpoint.tag}")`
-      : 'Warning: could not save pre-rollback state.',
+    _hint: `main now contains state from ${target} as a new commit. History preserved. Run ateam_build_and_run() to deploy. To go back to the previous main, ateam_github_rollback(solution_id, target: "${currentSha.slice(0, 7)}").`,
   };
 }

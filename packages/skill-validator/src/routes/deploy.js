@@ -3219,8 +3219,13 @@ router.post('/solutions/:solutionId/github/patch', async (req, res) => {
     const tenant = req.headers['x-adas-tenant'];
     if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
 
-    const { path: filePath, content, search, replace, message } = req.body || {};
+    const { path: filePath, content, search, replace, message, ref, branch: branchArg } = req.body || {};
     if (!filePath) return res.status(400).json({ ok: false, error: 'Missing path in body' });
+
+    // Resolve target branch — accepts `ref` (new spec) or `branch` (legacy).
+    // Default to 'dev' for writes so agents don't accidentally edit prod.
+    // Caller who wants prod-direct write must pass ref='main' explicitly.
+    const targetBranch = ref || branchArg || 'dev';
 
     // Step 1: push to GitHub (search/replace OR full-content mode).
     let result;
@@ -3228,12 +3233,12 @@ router.post('/solutions/:solutionId/github/patch', async (req, res) => {
     let mode;
     if (search !== undefined) {
       if (replace === undefined) return res.status(400).json({ ok: false, error: 'Missing replace in body (required with search)' });
-      result = await github.searchReplacePatchFile(tenant, req.params.solutionId, filePath, search, replace, message);
+      result = await github.searchReplacePatchFile(tenant, req.params.solutionId, filePath, search, replace, message, targetBranch);
       mode = 'search_replace';
       // For FS mirror, we need the post-replace content. Re-read from GH so
       // FS gets the same bytes that were just committed.
       try {
-        const fresh = await github.readFile(tenant, req.params.solutionId, filePath);
+        const fresh = await github.readFile(tenant, req.params.solutionId, filePath, targetBranch);
         effectiveContent = fresh.content;
       } catch (readErr) {
         console.warn(`[GitHub Patch] could not re-read ${filePath} for FS mirror: ${readErr.message}`);
@@ -3241,7 +3246,7 @@ router.post('/solutions/:solutionId/github/patch', async (req, res) => {
       }
     } else {
       if (content === undefined) return res.status(400).json({ ok: false, error: 'Missing content (or search+replace) in body' });
-      result = await github.patchFile(tenant, req.params.solutionId, filePath, content, message);
+      result = await github.patchFile(tenant, req.params.solutionId, filePath, content, message, targetBranch);
       mode = 'full_content';
     }
 
@@ -3307,9 +3312,12 @@ router.post('/solutions/:solutionId/github/patch', async (req, res) => {
     res.json({
       ok: true,
       mode,
+      branch: targetBranch,
       ...result,
       ...(fsMirror && { fs_mirror: fsMirror }),
-      _hint: 'Committed to main. Create a checkpoint with ateam_github_promote() before risky changes.',
+      _hint: targetBranch === 'main'
+        ? 'Committed directly to main (prod). To follow the safe workflow, write to dev and use ateam_github_promote().'
+        : `Committed to ${targetBranch}. Use ateam_github_promote() to merge into main when ready.`,
     });
   } catch (err) {
     console.error('[GitHub] Patch error:', err.message);
@@ -3886,13 +3894,23 @@ router.post('/voice-test', async (req, res) => {
 
 /**
  * POST /solutions/:solutionId/promote
- * Create a checkpoint (safe point) on the current main HEAD.
- * Tags the current state with safe-YYYY-MM-DD-NNN for rollback.
+ *
+ * NEW SEMANTICS (2026-05-19): Merge dev → main and auto-tag.
+ *
+ * This is the "ship to prod" operation:
+ *   1. Diff dev vs main to see what's about to ship
+ *   2. Merge dev into main via GitHub's merge API
+ *   3. Auto-tag the new main HEAD as safe-YYYY-MM-DD-NNN
  *
  * Request body:
- * {
- *   "label": "before refactor"  // Optional: human-readable label
- * }
+ *   {
+ *     "label": "before refactor"  // Optional: human-readable label on the tag
+ *     "dry_run": true             // Optional: just show the diff, don't merge
+ *     "skip_tag": true            // Optional: merge without auto-tag
+ *   }
+ *
+ * Was: just tagged current main HEAD. See githubService.checkpoint() if you
+ * still want to tag-only without merging.
  */
 router.post('/solutions/:solutionId/promote', async (req, res) => {
   try {
@@ -3900,27 +3918,70 @@ router.post('/solutions/:solutionId/promote', async (req, res) => {
     if (!tenant) return;
 
     const { solutionId } = req.params;
-    const { tag: specifiedTag } = req.body || {};
+    const { label = '', dry_run = false, skip_tag = false } = req.body || {};
 
     if (!solutionId) {
       return res.status(400).json({ ok: false, error: 'Solution ID required' });
     }
 
-    // Check GitHub is enabled
     if (!github.isEnabled()) {
       return res.status(503).json({ ok: false, error: 'GitHub integration not configured' });
     }
 
-    // Create checkpoint (safe point) on main
-    const label = specifiedTag || req.body?.label || '';
-    const result = await github.checkpoint(tenant, solutionId, label);
+    // Dry-run path: just show the diff, don't merge.
+    if (dry_run) {
+      const diff = await github.getDiff(tenant, solutionId, 'main', 'dev');
+      return res.json({
+        ok: true,
+        dry_run: true,
+        would_merge_commits: diff.ahead_by,
+        files_changed: diff.files.length,
+        commits: diff.commits,
+        files: diff.files,
+        _hint: diff.ahead_by === 0
+          ? 'dev is not ahead of main. Nothing to promote.'
+          : `${diff.ahead_by} commit(s) across ${diff.files.length} file(s) would merge. Call again without dry_run to execute.`,
+      });
+    }
 
+    // Real promote
+    const result = await github.promote(tenant, solutionId, { label, skipTag: skip_tag });
     res.json({ ok: true, ...result });
   } catch (e) {
-    console.error('[Deploy] checkpoint error:', e.message);
+    console.error('[Deploy] promote error:', e.message);
     const enriched = await explainGhNotFound(e, req.headers['x-adas-tenant'], req.params.solutionId);
     if (enriched) return res.status(404).json(enriched);
-    res.status(400).json({ ok: false, error: `Checkpoint failed: ${e.message}` });
+    // 409 Conflict for merge conflicts so the caller can show the right hint
+    const isConflict = /conflict|409/i.test(e.message);
+    res.status(isConflict ? 409 : 400).json({
+      ok: false,
+      error: `Promote failed: ${e.message}`,
+      ...(isConflict && { hint: 'Merge conflict between dev and main. Resolve manually on GitHub (open a PR or use the web UI), then retry.' }),
+    });
+  }
+});
+
+/**
+ * GET /solutions/:solutionId/github/diff?base=main&head=dev
+ * Show what's about to be promoted (or any branch diff).
+ */
+router.get('/solutions/:solutionId/github/diff', async (req, res) => {
+  try {
+    if (!github.isEnabled()) {
+      return res.status(503).json({ ok: false, error: 'GitHub integration disabled' });
+    }
+    const tenant = req.headers['x-adas-tenant'];
+    if (!tenant) return res.status(400).json({ ok: false, error: 'Missing X-ADAS-TENANT header' });
+
+    const base = req.query.base || 'main';
+    const head = req.query.head || 'dev';
+    const diff = await github.getDiff(tenant, req.params.solutionId, base, head);
+    res.json({ ok: true, base, head, ...diff });
+  } catch (err) {
+    console.error('[GitHub] Diff error:', err.message);
+    const enriched = await explainGhNotFound(err, req.headers['x-adas-tenant'], req.params.solutionId);
+    if (enriched) return res.status(404).json(enriched);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -3983,34 +4044,26 @@ router.post('/solutions/:solutionId/rollback', async (req, res) => {
     if (!tenant) return;
 
     const { solutionId } = req.params;
-    const { tag } = req.body || {};
+    // Accept both `target` (new spec — can be tag/sha/branch) and `tag` (legacy)
+    const target = req.body?.target || req.body?.tag;
 
     if (!solutionId) {
       return res.status(400).json({ ok: false, error: 'Solution ID required' });
     }
 
-    if (!tag) {
-      return res.status(400).json({ ok: false, error: 'Tag required for rollback' });
+    if (!target) {
+      return res.status(400).json({ ok: false, error: 'Target required (tag or commit SHA to roll back to)' });
     }
 
-    // Check GitHub is enabled
     if (!github.isEnabled()) {
       return res.status(503).json({ ok: false, error: 'GitHub integration not configured' });
     }
 
-    // Confirm action (require explicit 'confirm' parameter)
-    const { confirm: confirmRollback } = req.body;
-    if (confirmRollback !== true) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Rollback requires explicit confirmation. Set confirm: true in request body.',
-        destructive: true,
-        warning: 'This will reset main branch to the specified tag. Current main will be lost.'
-      });
-    }
-
-    // Rollback
-    const result = await github.rollback(tenant, solutionId, tag);
+    // NEW SEMANTICS: rollback is now ADDITIVE (creates a new commit on top
+    // of main with the target's tree). No `confirm: true` gate needed
+    // because history is preserved — the previous main commits are still
+    // reachable. Anyone can re-roll forward by passing the prior SHA.
+    const result = await github.rollback(tenant, solutionId, target);
 
     res.json({ ok: true, ...result });
   } catch (e) {
