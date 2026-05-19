@@ -54,7 +54,13 @@ export function validateSolution(solution, context) {
   const actorTypes = identity.actor_types || [];
   const actorTypeKeys = new Set(actorTypes.map(a => a.key));
 
-  if (actorTypes.length === 0) {
+  // Only warn when the solution has chosen an identity_mode that actually
+  // needs multiple actor types. Single-owner solutions (the common case)
+  // have one implicit actor and don't need an explicit actor_types list —
+  // warning them creates noise they can't fix without inventing stub data.
+  const identityMode = solution.identity_mode || identity.mode || null;
+  const requiresActorTypes = identityMode && identityMode !== 'single-owner';
+  if (requiresActorTypes && actorTypes.length === 0) {
     warnings.push({
       check: 'identity_actor_types',
       message: 'No actor types defined. Define the user types for your solution in the Identity tab.',
