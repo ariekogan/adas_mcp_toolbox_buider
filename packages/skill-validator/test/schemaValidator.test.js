@@ -71,4 +71,105 @@ describe('schemaValidator', () => {
     const errors = validateSchema(skill).filter(i => i.code === 'INVALID_MAX_ITERATIONS');
     expect(errors).toHaveLength(1);
   });
+
+  // ── fast_path / execution_contract ──
+  // CORE owns runtime enforcement of execution_contract.required_tools
+  // (finalizationGate.js → REQUIRED_TOOL_NOT_EXECUTED). The Builder's job
+  // is purely shape validation: catch misformed fields early so authors
+  // don't ship a typo that makes the gate silently never fire.
+
+  it('valid fast_path with required_tools → no errors', () => {
+    const skill = makeValidSkill();
+    skill.intents.fast_path = {
+      rules: [
+        {
+          pattern: '/^(build|make|create) me .* widget/i',
+          intent: 'create_widget',
+          mission_kind: 'generate',
+          execution_contract: {
+            requires_external_effect: true,
+            required_tools: ['acs.widget.store'],
+          },
+        },
+      ],
+    };
+    const errors = validateSchema(skill).filter(i => i.severity === 'error' && i.path?.startsWith('intents.fast_path'));
+    expect(errors).toHaveLength(0);
+  });
+
+  it('fast_path.rules not array → INVALID_FAST_PATH_RULES', () => {
+    const skill = makeValidSkill();
+    skill.intents.fast_path = { rules: 'oops not an array' };
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_FAST_PATH_RULES');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('fast_path rule missing pattern → MISSING_FAST_PATH_PATTERN', () => {
+    const skill = makeValidSkill();
+    skill.intents.fast_path = { rules: [{ intent: 'create_widget' }] };
+    const errors = validateSchema(skill).filter(i => i.code === 'MISSING_FAST_PATH_PATTERN');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('fast_path rule missing intent → MISSING_FAST_PATH_INTENT', () => {
+    const skill = makeValidSkill();
+    skill.intents.fast_path = { rules: [{ pattern: '/^x/' }] };
+    const errors = validateSchema(skill).filter(i => i.code === 'MISSING_FAST_PATH_INTENT');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('fast_path invalid mission_kind → INVALID_FAST_PATH_MISSION_KIND', () => {
+    const skill = makeValidSkill();
+    skill.intents.fast_path = {
+      rules: [{ pattern: '/^x/', intent: 'i1', mission_kind: 'invent' }],
+    };
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_FAST_PATH_MISSION_KIND');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('required_tools not array → INVALID_REQUIRED_TOOLS', () => {
+    const skill = makeValidSkill();
+    skill.intents.fast_path = {
+      rules: [{
+        pattern: '/^x/', intent: 'i1',
+        execution_contract: { required_tools: 'acs.widget.store' },
+      }],
+    };
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_REQUIRED_TOOLS');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('required_tools entry not string → INVALID_REQUIRED_TOOL_NAME', () => {
+    const skill = makeValidSkill();
+    skill.intents.fast_path = {
+      rules: [{
+        pattern: '/^x/', intent: 'i1',
+        execution_contract: { required_tools: ['acs.widget.store', 42, ''] },
+      }],
+    };
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_REQUIRED_TOOL_NAME');
+    // 42 and '' both fail; valid 'acs.widget.store' passes
+    expect(errors).toHaveLength(2);
+  });
+
+  it('requires_external_effect non-boolean → INVALID_REQUIRES_EXTERNAL_EFFECT', () => {
+    const skill = makeValidSkill();
+    skill.intents.fast_path = {
+      rules: [{
+        pattern: '/^x/', intent: 'i1',
+        execution_contract: { requires_external_effect: 'yes' },
+      }],
+    };
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_REQUIRES_EXTERNAL_EFFECT');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('execution_contract is array (wrong shape) → INVALID_EXECUTION_CONTRACT', () => {
+    const skill = makeValidSkill();
+    skill.intents.fast_path = {
+      rules: [{ pattern: '/^x/', intent: 'i1', execution_contract: [] }],
+    };
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_EXECUTION_CONTRACT');
+    expect(errors).toHaveLength(1);
+  });
 });

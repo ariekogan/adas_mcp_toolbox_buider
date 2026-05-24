@@ -871,8 +871,12 @@ function buildEnums() {
 
 function buildSkillSpec() {
   return {
-    spec_version: '1.0.0',
+    spec_version: '1.1.0',
     description: 'Complete A-Team skill definition specification. A skill is an autonomous AI agent with tools, policies, and workflows.',
+    changelog: [
+      { version: '1.1.0', changes: ['Added intents.fast_path.rules[].execution_contract.required_tools (optional, additive). CORE\'s finalization gate fails with REQUIRED_TOOL_NOT_EXECUTED if any listed tool did not run successfully. Use ONLY when the goal is producing a specific named artifact that one specific tool is the canonical producer of.'] },
+      { version: '1.0.0', changes: ['Initial published spec.'] },
+    ],
 
     auto_expand: {
       description: 'A skill can be VERY small. The author writes prose + connector picks; the platform fills in the rest at deploy time. This is the §20 v2.3 schema strip — about 68% of what authors used to write is now platform-generated.',
@@ -1034,6 +1038,59 @@ function buildSkillSpec() {
               action: { type: 'enum', values: ['redirect', 'reject', 'escalate'] },
               message: { type: 'string', description: 'Message to show user' },
               suggest_domains: { type: 'string[]', description: 'Other skill IDs that might handle this' },
+            },
+          },
+          fast_path: {
+            type: 'object', required: false,
+            description: 'Regex-based zero-LLM intent shortcut. When a user message matches a rule\'s `pattern`, detectIntent skips the LLM classification and uses the rule\'s declared intent + execution_contract directly. Use sparingly — only for unambiguous phrasings the LLM might otherwise misclassify.',
+            fields: {
+              rules: {
+                type: 'array', required: false,
+                description: 'Ordered list of regex shortcut rules. First match wins.',
+                item_schema: {
+                  pattern: {
+                    type: 'string', required: true,
+                    description: 'JavaScript regex literal (e.g., "/^(build|make|create) me .* widget/i"). Tested against the raw user message.',
+                  },
+                  intent: { type: 'string', required: true, description: 'Intent ID to assign on match (must appear in intents.supported[].id).' },
+                  mission_kind: {
+                    type: 'enum', required: false,
+                    values: ['generate', 'retrieve', 'execute', 'converse', 'configure'],
+                    description: 'Hint to the planner about what kind of work this intent represents. Generates a "specific named artifact" → "generate"; calls a remote API → "execute"; etc.',
+                  },
+                  execution_contract: {
+                    type: 'object', required: false,
+                    description: 'Finalization-gate contract for this fast-path intent. CORE enforces these signals at the end of the chain; failure short-circuits the response with the matching gate error.',
+                    fields: {
+                      requires_external_effect: {
+                        type: 'boolean', required: false,
+                        description: 'When true, finalization is blocked unless at least one tool with side-effects (write/network/IO) ran successfully. Use for "must do something in the world" goals like sending an email or creating a calendar event.',
+                      },
+                      required_tools: {
+                        type: 'string[]', required: false,
+                        description: 'List of fully-qualified tool names (e.g. ["acs.widget.store"]) that MUST execute successfully for the goal to be considered satisfied. Use ONLY when the goal is producing a SPECIFIC NAMED ARTIFACT that one specific tool is the canonical producer of. Catches the class of bugs where the agent ran a tangentially-related tool (e.g. sys.trigger created a cron) but the goal actually demanded a different tool (e.g. acs.widget.store for a UI widget). Gate behavior: REQUIRED_TOOL_NOT_EXECUTED if any tool in this list is missing from the chain\'s successful execution set. Validator does NOT verify the tool names exist — CORE checks at runtime since the available tool surface depends on connector inventory at deploy time.',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            example: {
+              description: 'Fast-path rule that pins widget-creation requests to a specific producer tool.',
+              yaml: [
+                'intents:',
+                '  fast_path:',
+                '    rules:',
+                '      - pattern: "/^(build|make|create) me .* widget/i"',
+                '        intent: "create_widget"',
+                '        mission_kind: "generate"',
+                '        execution_contract:',
+                '          requires_external_effect: true',
+                '          required_tools: ["acs.widget.store"]',
+              ].join('\n'),
+              behavior: 'When the user says "build me a weather widget", detectIntent skips the LLM and routes to create_widget. The chain runs as usual. At finalization time, the gate scans the successful-tool set: if acs.widget.store didn\'t run, the response is rejected with REQUIRED_TOOL_NOT_EXECUTED (the agent gets one retry to actually call the right tool).',
+              when_to_use: 'A goal produces a specific named artifact, AND there is exactly one tool that is the canonical producer of that artifact, AND you have observed the agent silently running a different tool and claiming success.',
+              when_NOT_to_use: 'General "must do something external" cases — use requires_external_effect: true alone for those. Multiple acceptable producer tools — required_tools is AND-logic; all listed tools must run.',
             },
           },
         },
