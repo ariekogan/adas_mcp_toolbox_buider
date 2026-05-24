@@ -486,12 +486,48 @@ export function findStaleOrchestratorIds(skills) {
     .map(s => s.id);
 }
 
-export async function generateOrchestratorIfNeeded(solution, skills) {
-  const decision = shouldGenerateOrchestrator(solution, skills);
+// ─────────────────────────────────────────────────────────────────────
+// PHASE 2 KILL SWITCH (2026-05-24)
+//
+// The auto-orchestrator is now a CORE/KERNEL platform skill. It lives in
+// Core's platform-skill registry as the canonical definition. The Builder
+// must NOT re-synthesize it on deploy — doing so would shadow the kernel
+// version with a Builder-generated copy and silently regress Phase 2.
+//
+// We hard-disable the synthesis path here rather than relying on the
+// `routing_mode !== "auto"` gate in shouldGenerateOrchestrator() because
+// a future change (someone re-adding routing_mode:"auto", a migration
+// bug, a different tenant defaulting it on) would flip the gate and
+// resurrect the old behavior. Hard-disable closes that door.
+//
+// Why not delete the function entirely:
+//   - shouldGenerateOrchestrator + buildOrchestratorSkill are still
+//     exported and may be referenced by tests / docs / inspection tools.
+//     Hard-disabling at the IfNeeded entry point keeps the deploy path
+//     deterministic without ripping out the whole module yet.
+//   - If Phase 2 is ever rolled back, flipping this constant is one line.
+//
+// Stale-orchestrator cleanup is preserved — if a previous deploy left
+// an auto-orchestrator record in the tenant Mongo, the
+// `stale_orchestrator_ids` list returned here still lets the caller
+// drop it so the platform skill becomes the sole source of truth.
+// ─────────────────────────────────────────────────────────────────────
+const PHASE2_KERNEL_OWNS_ORCHESTRATOR = true;
 
+export async function generateOrchestratorIfNeeded(solution, skills) {
   // Identify stale auto-generated orchestrators (renamed-from records).
   // Marker-based detection — never deletes author-written skills.
   const stale_orchestrator_ids = findStaleOrchestratorIds(skills);
+
+  if (PHASE2_KERNEL_OWNS_ORCHESTRATOR) {
+    return {
+      generated: false,
+      reason: "platform_skill_owns_orchestrator",
+      stale_orchestrator_ids,
+    };
+  }
+
+  const decision = shouldGenerateOrchestrator(solution, skills);
 
   if (!decision.generate) {
     return { generated: false, reason: decision.reason, stale_orchestrator_ids };
