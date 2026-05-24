@@ -41,6 +41,10 @@ export const COVERAGE = [
   { section: 'intents', field: 'intents.supported[].entities[].name', check: 'Has name', type: 'schema' },
   { section: 'intents', field: 'intents.supported[].entities[].type', check: 'Valid data type', type: 'schema' },
   { section: 'intents', field: 'intents.out_of_skill.action', check: 'Valid enum (redirect/reject/escalate)', type: 'schema' },
+  { section: 'intents', field: 'intents.fast_path.rules[].pattern', check: 'Has regex pattern string', type: 'schema' },
+  { section: 'intents', field: 'intents.fast_path.rules[].intent', check: 'Has intent ID', type: 'schema' },
+  { section: 'intents', field: 'intents.fast_path.rules[].mission_kind', check: 'Valid enum (generate/retrieve/execute/converse/configure)', type: 'schema' },
+  { section: 'intents', field: 'intents.fast_path.rules[].execution_contract.required_tools[]', check: 'Each is non-empty string (tool name; existence checked by CORE at runtime)', type: 'schema' },
 
   // Tools
   { section: 'tools', field: 'tools[].id', check: 'Has ID', type: 'schema' },
@@ -394,6 +398,102 @@ function validateIntentsConfig(intents) {
         severity: 'error',
         path: 'intents.out_of_skill.action',
         message: `Invalid out-of-skill action: ${intents.out_of_skill.action}. Must be one of: ${validActions.join(', ')}`,
+      });
+    }
+  }
+
+  // Validate fast_path rules (additive — CORE owns runtime enforcement; we
+  // only catch shape errors so authors get a fast useful error instead of
+  // a runtime "REQUIRED_TOOL_NOT_EXECUTED never fires because the field
+  // was mistyped").
+  if (intents.fast_path?.rules) {
+    if (!Array.isArray(intents.fast_path.rules)) {
+      issues.push({
+        code: 'INVALID_FAST_PATH_RULES',
+        severity: 'error',
+        path: 'intents.fast_path.rules',
+        message: 'intents.fast_path.rules must be an array',
+      });
+    } else {
+      intents.fast_path.rules.forEach((rule, i) => {
+        const rulePath = `intents.fast_path.rules[${i}]`;
+        if (!rule || typeof rule !== 'object') {
+          issues.push({
+            code: 'INVALID_FAST_PATH_RULE',
+            severity: 'error',
+            path: rulePath,
+            message: 'fast_path rule must be an object',
+          });
+          return;
+        }
+        if (!rule.pattern || typeof rule.pattern !== 'string') {
+          issues.push({
+            code: 'MISSING_FAST_PATH_PATTERN',
+            severity: 'error',
+            path: `${rulePath}.pattern`,
+            message: 'fast_path rule.pattern is required (regex literal string, e.g. "/^build me/i")',
+          });
+        }
+        if (!rule.intent || typeof rule.intent !== 'string') {
+          issues.push({
+            code: 'MISSING_FAST_PATH_INTENT',
+            severity: 'error',
+            path: `${rulePath}.intent`,
+            message: 'fast_path rule.intent is required (must match an id in intents.supported[])',
+          });
+        }
+        if (rule.mission_kind !== undefined) {
+          const validMissionKinds = ['generate', 'retrieve', 'execute', 'converse', 'configure'];
+          if (!validMissionKinds.includes(rule.mission_kind)) {
+            issues.push({
+              code: 'INVALID_FAST_PATH_MISSION_KIND',
+              severity: 'error',
+              path: `${rulePath}.mission_kind`,
+              message: `Invalid mission_kind: ${rule.mission_kind}. Must be one of: ${validMissionKinds.join(', ')}`,
+            });
+          }
+        }
+        if (rule.execution_contract !== undefined) {
+          const ec = rule.execution_contract;
+          if (!ec || typeof ec !== 'object' || Array.isArray(ec)) {
+            issues.push({
+              code: 'INVALID_EXECUTION_CONTRACT',
+              severity: 'error',
+              path: `${rulePath}.execution_contract`,
+              message: 'execution_contract must be an object',
+            });
+          } else {
+            if (ec.requires_external_effect !== undefined && typeof ec.requires_external_effect !== 'boolean') {
+              issues.push({
+                code: 'INVALID_REQUIRES_EXTERNAL_EFFECT',
+                severity: 'error',
+                path: `${rulePath}.execution_contract.requires_external_effect`,
+                message: 'execution_contract.requires_external_effect must be a boolean',
+              });
+            }
+            if (ec.required_tools !== undefined) {
+              if (!Array.isArray(ec.required_tools)) {
+                issues.push({
+                  code: 'INVALID_REQUIRED_TOOLS',
+                  severity: 'error',
+                  path: `${rulePath}.execution_contract.required_tools`,
+                  message: 'execution_contract.required_tools must be an array of fully-qualified tool name strings (e.g. ["acs.widget.store"]). CORE\'s finalization gate fails the response with REQUIRED_TOOL_NOT_EXECUTED if any listed tool did not run successfully in the chain.',
+                });
+              } else {
+                ec.required_tools.forEach((t, j) => {
+                  if (typeof t !== 'string' || !t.trim()) {
+                    issues.push({
+                      code: 'INVALID_REQUIRED_TOOL_NAME',
+                      severity: 'error',
+                      path: `${rulePath}.execution_contract.required_tools[${j}]`,
+                      message: 'each required_tools entry must be a non-empty string (fully-qualified tool name like "acs.widget.store"). Tool existence is NOT checked here — CORE validates at runtime against the deployed connector tool surface.',
+                    });
+                  }
+                });
+              }
+            }
+          }
+        }
       });
     }
   }
