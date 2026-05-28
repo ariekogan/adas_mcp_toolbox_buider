@@ -172,4 +172,44 @@ describe('schemaValidator', () => {
     const errors = validateSchema(skill).filter(i => i.code === 'INVALID_EXECUTION_CONTRACT');
     expect(errors).toHaveLength(1);
   });
+
+  // ── engine.include_read_evidence_in_gate ──
+  // CORE owns runtime behavior (see ai-dev-assistant
+  // apps/backend/worker/finalizationGate.js → isReadEvidenceEnabled).
+  // The Builder only validates shape: must be boolean if present.
+
+  it('engine.include_read_evidence_in_gate=true → no errors (valid opt-in)', () => {
+    const skill = makeValidSkill();
+    skill.engine.include_read_evidence_in_gate = true;
+    const errors = validateSchema(skill).filter(i => i.severity === 'error' && i.path?.includes('include_read_evidence_in_gate'));
+    expect(errors).toHaveLength(0);
+  });
+
+  it('engine.include_read_evidence_in_gate=false → no errors (explicit default)', () => {
+    const skill = makeValidSkill();
+    skill.engine.include_read_evidence_in_gate = false;
+    const errors = validateSchema(skill).filter(i => i.severity === 'error' && i.path?.includes('include_read_evidence_in_gate'));
+    expect(errors).toHaveLength(0);
+  });
+
+  it('engine.include_read_evidence_in_gate omitted → no errors (default behavior)', () => {
+    const skill = makeValidSkill();
+    delete skill.engine.include_read_evidence_in_gate;
+    const errors = validateSchema(skill).filter(i => i.severity === 'error' && i.path?.includes('include_read_evidence_in_gate'));
+    expect(errors).toHaveLength(0);
+  });
+
+  it('engine.include_read_evidence_in_gate=string → INVALID_INCLUDE_READ_EVIDENCE_IN_GATE', () => {
+    const skill = makeValidSkill();
+    skill.engine.include_read_evidence_in_gate = 'yes';
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_INCLUDE_READ_EVIDENCE_IN_GATE');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('engine.include_read_evidence_in_gate=1 → INVALID_INCLUDE_READ_EVIDENCE_IN_GATE', () => {
+    const skill = makeValidSkill();
+    skill.engine.include_read_evidence_in_gate = 1;
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_INCLUDE_READ_EVIDENCE_IN_GATE');
+    expect(errors).toHaveLength(1);
+  });
 });
