@@ -856,9 +856,10 @@ function buildEnums() {
 
 function buildSkillSpec() {
   return {
-    spec_version: '1.1.0',
+    spec_version: '1.2.0',
     description: 'Complete A-Team skill definition specification. A skill is an autonomous AI agent with tools, policies, and workflows.',
     changelog: [
+      { version: '1.2.0', changes: ['Added engine.include_read_evidence_in_gate (boolean, optional, additive, default false). Opt-in to the finalization verifier\'s READ EVIDENCE channel. Solution-level inheritance supported via the new solution.engine block. Mirrors the CORE worker/finalizationGate.js flag introduced 2026-05-28 — see Docs/specs/VERIFIER_EVIDENCE_CHANNELS.md (in ai-dev-assistant) for the rollout policy.'] },
       { version: '1.1.0', changes: ['Added intents.fast_path.rules[].execution_contract.required_tools (optional, additive). CORE\'s finalization gate fails with REQUIRED_TOOL_NOT_EXECUTED if any listed tool did not run successfully. Use ONLY when the goal is producing a specific named artifact that one specific tool is the canonical producer of.'] },
       { version: '1.0.0', changes: ['Initial published spec.'] },
     ],
@@ -1575,6 +1576,10 @@ function buildSkillSpec() {
               enabled: { type: 'boolean', description: 'Validate responses before sending (default: true)' },
               max_retries: { type: 'number', description: 'Retry count (0-10, default: 2)' },
             },
+          },
+          include_read_evidence_in_gate: {
+            type: 'boolean', required: false,
+            description: 'Opt-in to the READ EVIDENCE channel of the finalization verifier (default: false). When true, the gate prompt receives a section with the text returned by successful read-scope tool calls in the chain (effect_scope === "internal", excluding sys.askAnySkill). The verifier weighs response claims against those reads as evidence. Use when a skill makes claims grounded in read results that the verifier would otherwise mark as ungrounded ("you already have widgets X, Y, Z" sourced from a read whose payload the gate never saw — the original "going in circles" failure mode). Solution-level fallback supported: set the same field on the solution and every skill inherits it unless overridden. See Docs/specs/VERIFIER_EVIDENCE_CHANNELS.md (in ai-dev-assistant) for the trust hierarchy, staleness annotation behavior, and the rollout policy.',
           },
           internal_error: {
             type: 'object', required: false, description: 'Internal error handling and RESOLUTION mode',
@@ -3423,6 +3428,22 @@ function buildSolutionSpec() {
       },
 
       // ── Platform Connectors ──
+      // ── Engine (solution-level overrides) ──
+      // Solution-wide reasoning/gate overrides. Skills inherit these unless
+      // they set the same field at engine.<key> in their own definition.
+      // Skill-level value wins over solution-level. This block is OPTIONAL —
+      // omit it and each skill keeps its own engine config independently.
+      engine: {
+        type: 'object', required: false,
+        description: 'Solution-wide engine/finalization-gate overrides. Skills inherit fields unless they declare the same field at the skill level. Use sparingly — most engine tuning belongs on the skill, not the solution. The intended use is tenant-wide rollouts of verifier-evolution flags (e.g. include_read_evidence_in_gate).',
+        fields: {
+          include_read_evidence_in_gate: {
+            type: 'boolean', required: false,
+            description: 'Tenant-wide opt-in to the READ EVIDENCE channel of the finalization verifier (default: false). When set, every skill in this solution inherits the flag UNLESS the skill overrides it with its own engine.include_read_evidence_in_gate. See the skill-level field for the full description of behavior. Use this for tenant-wide rollout once per-skill A/B observation completes (see Docs/specs/VERIFIER_EVIDENCE_CHANNELS.md in ai-dev-assistant for the rollout policy).',
+          },
+        },
+      },
+
       platform_connectors: {
         type: 'array', required: false,
         description: 'MCP connectors the solution depends on — both platform-shared (default) and solution-owned (source:"solution"). Solution-owned connectors have their source code in connectors/<id>/ inside the solution\'s GitHub repo; platform-shared connectors are deployed and maintained by the A-Team platform.',

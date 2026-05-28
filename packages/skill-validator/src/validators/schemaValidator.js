@@ -74,6 +74,7 @@ export const COVERAGE = [
   { section: 'engine', field: 'engine.rv2.max_iterations', check: 'At least 1', type: 'schema' },
   { section: 'engine', field: 'engine.hlr.critic.strictness', check: 'Valid enum (low/medium/high)', type: 'schema' },
   { section: 'engine', field: 'engine.autonomy.level', check: 'Valid enum (autonomous/supervised/restricted)', type: 'schema' },
+  { section: 'engine', field: 'engine.include_read_evidence_in_gate', check: 'Boolean (opt-in to verifier READ EVIDENCE channel; CORE owns runtime)', type: 'schema' },
   { section: 'engine', field: 'engine.finalization_gate.enabled', check: 'Is boolean', type: 'schema' },
   { section: 'engine', field: 'engine.finalization_gate.max_retries', check: 'Number 0-10', type: 'schema' },
   { section: 'engine', field: 'engine.internal_error.enabled', check: 'Is boolean', type: 'schema' },
@@ -640,6 +641,20 @@ function validateEngine(engine) {
         });
       }
     }
+  }
+
+  // Validate include_read_evidence_in_gate (opt-in to verifier READ EVIDENCE
+  // channel — kernel default is false, skill-level wins over solution-level).
+  // Builder only checks the type; CORE owns the runtime behavior (see
+  // ai-dev-assistant apps/backend/worker/finalizationGate.js → isReadEvidenceEnabled).
+  if (engine.include_read_evidence_in_gate !== undefined &&
+      typeof engine.include_read_evidence_in_gate !== 'boolean') {
+    issues.push({
+      code: 'INVALID_INCLUDE_READ_EVIDENCE_IN_GATE',
+      severity: 'error',
+      path: 'engine.include_read_evidence_in_gate',
+      message: 'engine.include_read_evidence_in_gate must be a boolean (opt-in to the finalization verifier\'s READ EVIDENCE channel). Default false. See VERIFIER_EVIDENCE_CHANNELS.md for the rollout policy.',
+    });
   }
 
   // Validate internal_error (RV2 Sprint)
