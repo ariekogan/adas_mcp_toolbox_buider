@@ -212,4 +212,67 @@ describe('schemaValidator', () => {
     const errors = validateSchema(skill).filter(i => i.code === 'INVALID_INCLUDE_READ_EVIDENCE_IN_GATE');
     expect(errors).toHaveLength(1);
   });
+
+  // ── engine.default_* per-skill overrides ──
+  // CORE reads these on the target (or both caller and target for delegation
+  // depth) at sys.askAnySkill time. Builder validates shape only — CORE
+  // clamps at runtime, so the Builder doesn't need to know the safe range.
+
+  it('engine.default_sub_job_seconds=480 → no errors', () => {
+    const skill = makeValidSkill();
+    skill.engine.default_sub_job_seconds = 480;
+    const errors = validateSchema(skill).filter(i => i.severity === 'error' && i.path?.includes('default_sub_job_seconds'));
+    expect(errors).toHaveLength(0);
+  });
+
+  it('engine.default_sub_job_seconds=0 → INVALID_DEFAULT_SUB_JOB_SECONDS (must be positive)', () => {
+    const skill = makeValidSkill();
+    skill.engine.default_sub_job_seconds = 0;
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_DEFAULT_SUB_JOB_SECONDS');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('engine.default_sub_job_seconds="300" → INVALID_DEFAULT_SUB_JOB_SECONDS (string rejected)', () => {
+    const skill = makeValidSkill();
+    skill.engine.default_sub_job_seconds = '300';
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_DEFAULT_SUB_JOB_SECONDS');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('engine.default_max_idle_seconds=120 → no errors (the ada cherry-picked case)', () => {
+    const skill = makeValidSkill();
+    skill.engine.default_max_idle_seconds = 120;
+    const errors = validateSchema(skill).filter(i => i.severity === 'error' && i.path?.includes('default_max_idle_seconds'));
+    expect(errors).toHaveLength(0);
+  });
+
+  it('engine.default_max_idle_seconds=-5 → INVALID_DEFAULT_MAX_IDLE_SECONDS', () => {
+    const skill = makeValidSkill();
+    skill.engine.default_max_idle_seconds = -5;
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_DEFAULT_MAX_IDLE_SECONDS');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('engine.default_max_delegation_depth=6 → no errors (Skill Factory case)', () => {
+    const skill = makeValidSkill();
+    skill.engine.default_max_delegation_depth = 6;
+    const errors = validateSchema(skill).filter(i => i.severity === 'error' && i.path?.includes('default_max_delegation_depth'));
+    expect(errors).toHaveLength(0);
+  });
+
+  it('engine.default_max_delegation_depth=NaN → INVALID_DEFAULT_MAX_DELEGATION_DEPTH', () => {
+    const skill = makeValidSkill();
+    skill.engine.default_max_delegation_depth = NaN;
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_DEFAULT_MAX_DELEGATION_DEPTH');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('all three default_* fields omitted → no errors (CORE defaults apply)', () => {
+    const skill = makeValidSkill();
+    delete skill.engine.default_sub_job_seconds;
+    delete skill.engine.default_max_idle_seconds;
+    delete skill.engine.default_max_delegation_depth;
+    const errors = validateSchema(skill).filter(i => i.severity === 'error' && /default_(sub_job|max_idle|max_delegation)/.test(i.path || ''));
+    expect(errors).toHaveLength(0);
+  });
 });
