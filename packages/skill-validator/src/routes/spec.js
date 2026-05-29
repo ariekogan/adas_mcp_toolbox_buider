@@ -871,9 +871,10 @@ function buildEnums() {
 
 function buildSkillSpec() {
   return {
-    spec_version: '1.3.0',
+    spec_version: '1.4.0',
     description: 'Complete A-Team skill definition specification. A skill is an autonomous AI agent with tools, policies, and workflows.',
     changelog: [
+      { version: '1.4.0', changes: ['Added engine.loop_streak_threshold (number, optional, additive). Per-skill override for the generic loop-breaker streak threshold. CORE default 3, clamped to [1, 20] at runtime. Raise for multi-step workers whose stable script produces the same engine-signal fingerprint across iterations (Skill Factory workers are the motivating case). CORE read path: worker/mainloop.js → resolveLoopStreakThreshold.'] },
       { version: '1.3.0', changes: ['Documented engine.default_sub_job_seconds, engine.default_max_idle_seconds (both pre-existing in CORE but undocumented in Builder), and engine.default_max_delegation_depth (new — added to CORE sys.askAnySkill.js 2026-05-28). All three are per-skill ceiling overrides read by CORE\'s sys.askAnySkill at delegation time. Default-undeclared keeps CORE\'s built-in defaults (300s / 60s / depth 3). Set higher on long-running workers or deep-fan-out skills.'] },
       { version: '1.2.0', changes: ['Added engine.include_read_evidence_in_gate (boolean, optional, additive, default false). Opt-in to the finalization verifier\'s READ EVIDENCE channel. Solution-level inheritance supported via the new solution.engine block. Mirrors the CORE worker/finalizationGate.js flag introduced 2026-05-28 — see Docs/specs/VERIFIER_EVIDENCE_CHANNELS.md (in ai-dev-assistant) for the rollout policy.'] },
       { version: '1.1.0', changes: ['Added intents.fast_path.rules[].execution_contract.required_tools (optional, additive). CORE\'s finalization gate fails with REQUIRED_TOOL_NOT_EXECUTED if any listed tool did not run successfully. Use ONLY when the goal is producing a specific named artifact that one specific tool is the canonical producer of.'] },
@@ -1608,6 +1609,10 @@ function buildSkillSpec() {
           default_max_delegation_depth: {
             type: 'number', required: false,
             description: 'Per-skill delegation-chain depth override. CORE default is 3 (handles user → orchestrator → specialist → helper). Set higher (e.g. 6) when this skill belongs to a deeper fan-out (e.g. skill-factory-conversation → skill-factory-builder → tool-builder + ui-builder + qa already needs 4-5). CORE reads BOTH caller and target declarations and takes MAX(default=3, caller, target), so any skill in the chain can extend the limit. CORE read path: sys.askAnySkill.js — engine.default_max_delegation_depth on both caller and target.',
+          },
+          loop_streak_threshold: {
+            type: 'number', required: false,
+            description: 'Per-skill override for the generic loop-breaker streak threshold. CORE default is 3 — pause after 3 consecutive identical engine-signal fingerprints (the loop-breaker is tool/skill/domain-agnostic; it operates on engine facts, not tool names). Raise this for skills that legitimately run a stable multi-step script that can produce the same fingerprint across iterations without being stuck — Skill Factory workers (sys.step → run_python_script → callAI → X.report → sys.finalizePlan) are the motivating case. CORE clamps to [1, 20] (Math.trunc applied, runaway guard). Recommended values: 3 = generic user-facing skills (default); 6 = multi-step orchestrators with a stable script (e.g. skill-factory-qa); 8+ = long synthesis flows (skill-factory-builder, tool-builder, ui-builder). CORE read path: worker/mainloop.js — resolveLoopStreakThreshold(job) reads job.__skill.engine.loop_streak_threshold.',
           },
           internal_error: {
             type: 'object', required: false, description: 'Internal error handling and RESOLUTION mode',

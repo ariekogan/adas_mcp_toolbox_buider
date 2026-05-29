@@ -275,4 +275,54 @@ describe('schemaValidator', () => {
     const errors = validateSchema(skill).filter(i => i.severity === 'error' && /default_(sub_job|max_idle|max_delegation)/.test(i.path || ''));
     expect(errors).toHaveLength(0);
   });
+
+  // ── engine.loop_streak_threshold ──
+  // Per-skill override for the generic loop-breaker streak threshold added
+  // to CORE worker/mainloop.js 2026-05-28. CORE default 3; runtime clamps
+  // to [1, 20]. Builder validates shape only.
+
+  it('engine.loop_streak_threshold=8 → no errors (Skill Factory builder case)', () => {
+    const skill = makeValidSkill();
+    skill.engine.loop_streak_threshold = 8;
+    const errors = validateSchema(skill).filter(i => i.severity === 'error' && i.path?.includes('loop_streak_threshold'));
+    expect(errors).toHaveLength(0);
+  });
+
+  it('engine.loop_streak_threshold=6 → no errors (Skill Factory QA case)', () => {
+    const skill = makeValidSkill();
+    skill.engine.loop_streak_threshold = 6;
+    const errors = validateSchema(skill).filter(i => i.severity === 'error' && i.path?.includes('loop_streak_threshold'));
+    expect(errors).toHaveLength(0);
+  });
+
+  it('engine.loop_streak_threshold=0 → INVALID_LOOP_STREAK_THRESHOLD (must be positive)', () => {
+    const skill = makeValidSkill();
+    skill.engine.loop_streak_threshold = 0;
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_LOOP_STREAK_THRESHOLD');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('engine.loop_streak_threshold="6" → INVALID_LOOP_STREAK_THRESHOLD (string rejected)', () => {
+    const skill = makeValidSkill();
+    skill.engine.loop_streak_threshold = '6';
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_LOOP_STREAK_THRESHOLD');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('engine.loop_streak_threshold omitted → no errors (CORE default 3 applies)', () => {
+    const skill = makeValidSkill();
+    delete skill.engine.loop_streak_threshold;
+    const errors = validateSchema(skill).filter(i => i.severity === 'error' && i.path?.includes('loop_streak_threshold'));
+    expect(errors).toHaveLength(0);
+  });
+
+  // CORE clamps to [1, 20] at runtime — Builder doesn't pin the upper bound,
+  // so values like 100 pass the shape check (CORE will clamp). This documents
+  // that the Builder is intentionally NOT the source of truth for the range.
+  it('engine.loop_streak_threshold=100 → no errors (Builder is shape-only; CORE clamps at runtime)', () => {
+    const skill = makeValidSkill();
+    skill.engine.loop_streak_threshold = 100;
+    const errors = validateSchema(skill).filter(i => i.code === 'INVALID_LOOP_STREAK_THRESHOLD');
+    expect(errors).toHaveLength(0);
+  });
 });
