@@ -856,9 +856,10 @@ function buildEnums() {
 
 function buildSkillSpec() {
   return {
-    spec_version: '1.2.0',
+    spec_version: '1.3.0',
     description: 'Complete A-Team skill definition specification. A skill is an autonomous AI agent with tools, policies, and workflows.',
     changelog: [
+      { version: '1.3.0', changes: ['Documented engine.default_sub_job_seconds, engine.default_max_idle_seconds (both pre-existing in CORE but undocumented in Builder), and engine.default_max_delegation_depth (new — added to CORE sys.askAnySkill.js 2026-05-28). All three are per-skill ceiling overrides read by CORE\'s sys.askAnySkill at delegation time. Default-undeclared keeps CORE\'s built-in defaults (300s / 60s / depth 3). Set higher on long-running workers or deep-fan-out skills.'] },
       { version: '1.2.0', changes: ['Added engine.include_read_evidence_in_gate (boolean, optional, additive, default false). Opt-in to the finalization verifier\'s READ EVIDENCE channel. Solution-level inheritance supported via the new solution.engine block. Mirrors the CORE worker/finalizationGate.js flag introduced 2026-05-28 — see Docs/specs/VERIFIER_EVIDENCE_CHANNELS.md (in ai-dev-assistant) for the rollout policy.'] },
       { version: '1.1.0', changes: ['Added intents.fast_path.rules[].execution_contract.required_tools (optional, additive). CORE\'s finalization gate fails with REQUIRED_TOOL_NOT_EXECUTED if any listed tool did not run successfully. Use ONLY when the goal is producing a specific named artifact that one specific tool is the canonical producer of.'] },
       { version: '1.0.0', changes: ['Initial published spec.'] },
@@ -1580,6 +1581,18 @@ function buildSkillSpec() {
           include_read_evidence_in_gate: {
             type: 'boolean', required: false,
             description: 'Opt-in to the READ EVIDENCE channel of the finalization verifier (default: false). When true, the gate prompt receives a section with the text returned by successful read-scope tool calls in the chain (effect_scope === "internal", excluding sys.askAnySkill). The verifier weighs response claims against those reads as evidence. Use when a skill makes claims grounded in read results that the verifier would otherwise mark as ungrounded ("you already have widgets X, Y, Z" sourced from a read whose payload the gate never saw — the original "going in circles" failure mode). Solution-level fallback supported: set the same field on the solution and every skill inherits it unless overridden. See Docs/specs/VERIFIER_EVIDENCE_CHANNELS.md (in ai-dev-assistant) for the trust hierarchy, staleness annotation behavior, and the rollout policy.',
+          },
+          default_sub_job_seconds: {
+            type: 'number', required: false,
+            description: 'Per-skill ceiling (seconds) for total sub-job runtime when this skill is called via sys.askAnySkill. Used as the fallback ceiling when the caller didn\'t pass hard_ceiling_seconds. CORE clamps to [5, 600] and falls back to 300 if undeclared. Set higher than 300 for long-running workers (e.g. ui-builder ~600, ui-companion ~480). Set lower than 300 for short-fetch helpers to fail fast. CORE read path: sys.askAnySkill.js — engine.default_sub_job_seconds on the TARGET skill.',
+          },
+          default_max_idle_seconds: {
+            type: 'number', required: false,
+            description: 'Per-skill idle window (seconds) before sys.askAnySkill considers the sub-job stuck. CORE clamps to [5, hard_ceiling] and falls back to 60 if undeclared. Raise above 60 for skills with legitimately slow planner cycles (sandbox validates + bundle writes + post-validate LLM calls can combine to >60s in ui-builder). CORE read path: sys.askAnySkill.js — engine.default_max_idle_seconds on the TARGET skill.',
+          },
+          default_max_delegation_depth: {
+            type: 'number', required: false,
+            description: 'Per-skill delegation-chain depth override. CORE default is 3 (handles user → orchestrator → specialist → helper). Set higher (e.g. 6) when this skill belongs to a deeper fan-out (e.g. skill-factory-conversation → skill-factory-builder → tool-builder + ui-builder + qa already needs 4-5). CORE reads BOTH caller and target declarations and takes MAX(default=3, caller, target), so any skill in the chain can extend the limit. CORE read path: sys.askAnySkill.js — engine.default_max_delegation_depth on both caller and target.',
           },
           internal_error: {
             type: 'object', required: false, description: 'Internal error handling and RESOLUTION mode',

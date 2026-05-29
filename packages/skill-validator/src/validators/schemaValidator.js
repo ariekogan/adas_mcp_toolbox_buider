@@ -75,6 +75,9 @@ export const COVERAGE = [
   { section: 'engine', field: 'engine.hlr.critic.strictness', check: 'Valid enum (low/medium/high)', type: 'schema' },
   { section: 'engine', field: 'engine.autonomy.level', check: 'Valid enum (autonomous/supervised/restricted)', type: 'schema' },
   { section: 'engine', field: 'engine.include_read_evidence_in_gate', check: 'Boolean (opt-in to verifier READ EVIDENCE channel; CORE owns runtime)', type: 'schema' },
+  { section: 'engine', field: 'engine.default_sub_job_seconds', check: 'Positive number (per-skill sub-job ceiling; CORE clamps at runtime)', type: 'schema' },
+  { section: 'engine', field: 'engine.default_max_idle_seconds', check: 'Positive number (per-skill idle threshold; CORE clamps at runtime)', type: 'schema' },
+  { section: 'engine', field: 'engine.default_max_delegation_depth', check: 'Positive number (per-skill delegation depth override; CORE default 3)', type: 'schema' },
   { section: 'engine', field: 'engine.finalization_gate.enabled', check: 'Is boolean', type: 'schema' },
   { section: 'engine', field: 'engine.finalization_gate.max_retries', check: 'Number 0-10', type: 'schema' },
   { section: 'engine', field: 'engine.internal_error.enabled', check: 'Is boolean', type: 'schema' },
@@ -655,6 +658,28 @@ function validateEngine(engine) {
       path: 'engine.include_read_evidence_in_gate',
       message: 'engine.include_read_evidence_in_gate must be a boolean (opt-in to the finalization verifier\'s READ EVIDENCE channel). Default false. See VERIFIER_EVIDENCE_CHANNELS.md for the rollout policy.',
     });
+  }
+
+  // Per-skill ceiling overrides read by CORE's sys.askAnySkill at delegation
+  // time. Shape-only validation here — CORE clamps to safe ranges at runtime.
+  // Builder doesn't know each field's exact range (it could change in CORE
+  // without coordination), so we just enforce "positive finite number."
+  // Each override has the same shape contract: number > 0.
+  const ceilingFields = [
+    { key: 'default_sub_job_seconds',       code: 'INVALID_DEFAULT_SUB_JOB_SECONDS',       hint: 'sub-job ceiling in seconds (CORE clamps to [5, 600], default 300)' },
+    { key: 'default_max_idle_seconds',      code: 'INVALID_DEFAULT_MAX_IDLE_SECONDS',      hint: 'idle threshold in seconds (CORE clamps to [5, hard_ceiling], default 60)' },
+    { key: 'default_max_delegation_depth',  code: 'INVALID_DEFAULT_MAX_DELEGATION_DEPTH',  hint: 'delegation chain depth (CORE default 3; takes MAX(default, caller, target))' },
+  ];
+  for (const { key, code, hint } of ceilingFields) {
+    if (engine[key] === undefined) continue;
+    if (typeof engine[key] !== 'number' || !Number.isFinite(engine[key]) || engine[key] <= 0) {
+      issues.push({
+        code,
+        severity: 'error',
+        path: `engine.${key}`,
+        message: `engine.${key} must be a positive finite number — ${hint}. Got ${JSON.stringify(engine[key])}.`,
+      });
+    }
   }
 
   // Validate internal_error (RV2 Sprint)
