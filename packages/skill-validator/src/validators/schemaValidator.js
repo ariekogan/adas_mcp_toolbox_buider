@@ -78,6 +78,7 @@ export const COVERAGE = [
   { section: 'engine', field: 'engine.default_sub_job_seconds', check: 'Positive number (per-skill sub-job ceiling; CORE clamps at runtime)', type: 'schema' },
   { section: 'engine', field: 'engine.default_max_idle_seconds', check: 'Positive number (per-skill idle threshold; CORE clamps at runtime)', type: 'schema' },
   { section: 'engine', field: 'engine.default_max_delegation_depth', check: 'Positive number (per-skill delegation depth override; CORE default 3)', type: 'schema' },
+  { section: 'engine', field: 'engine.loop_streak_threshold', check: 'Positive number (per-skill loop-breaker streak threshold; CORE default 3; runtime-clamped to [1, 20])', type: 'schema' },
   { section: 'engine', field: 'engine.finalization_gate.enabled', check: 'Is boolean', type: 'schema' },
   { section: 'engine', field: 'engine.finalization_gate.max_retries', check: 'Number 0-10', type: 'schema' },
   { section: 'engine', field: 'engine.internal_error.enabled', check: 'Is boolean', type: 'schema' },
@@ -669,6 +670,7 @@ function validateEngine(engine) {
     { key: 'default_sub_job_seconds',       code: 'INVALID_DEFAULT_SUB_JOB_SECONDS',       hint: 'sub-job ceiling in seconds (CORE clamps to [5, 600], default 300)' },
     { key: 'default_max_idle_seconds',      code: 'INVALID_DEFAULT_MAX_IDLE_SECONDS',      hint: 'idle threshold in seconds (CORE clamps to [5, hard_ceiling], default 60)' },
     { key: 'default_max_delegation_depth',  code: 'INVALID_DEFAULT_MAX_DELEGATION_DEPTH',  hint: 'delegation chain depth (CORE default 3; takes MAX(default, caller, target))' },
+    { key: 'loop_streak_threshold',         code: 'INVALID_LOOP_STREAK_THRESHOLD',         hint: 'loop-breaker streak threshold (CORE default 3; clamped to [1, 20] at runtime; recommended: 3 generic / 6 orchestrators / 8+ synthesis flows)' },
   ];
   for (const { key, code, hint } of ceilingFields) {
     if (engine[key] === undefined) continue;
