@@ -137,6 +137,7 @@ const WORKFLOWS = buildWorkflows();
 const MOBILE_CONNECTOR_SPEC = buildMobileConnectorSpec();
 const UI_PLUGINS_SPEC = buildUIPluginsSpec();
 const MULTI_USER_CONNECTOR_SPEC = buildMultiUserConnectorSpec();
+const PYTHON_HELPERS_SPEC = buildPythonHelpersSpec();
 const INDEX = buildIndex();
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -286,6 +287,16 @@ const res = await llm.call({ prompt: "Summarize: ...", max_tokens: 200 });`,
     '/spec/skill \u2014 skill definition reference',
   ],
 }));
+
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// /spec/python_helpers \u2014 adas.* helper namespace for run_python_script
+//
+// Surfaces the canonical Python orchestration API to external agents.
+// Without this reference, agents designing personas miss the helpers and
+// emit 5-10x larger / brittler scripts that hand-roll JSON parsing, sub-
+// skill delegation, scratchpad I/O, and pipeline checkpoints.
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+router.get('/python_helpers', (_req, res) => res.set(CACHE_HEADERS).json(PYTHON_HELPERS_SPEC));
 
 // Live platform connector catalog with tool schemas
 router.get('/platform-connectors', async (_req, res) => {
@@ -550,6 +561,10 @@ function buildIndex() {
       '/spec/sdk': {
         method: 'GET',
         description: '@ateam/sdk runtime API reference — platform, context, memory, progress, log, llm modules. Used by custom connectors and skill code to access platform capabilities.',
+      },
+      '/spec/python_helpers': {
+        method: 'GET',
+        description: 'Python orchestration helpers — the adas.* namespace auto-injected into run_python_script. Read this when designing a persona that orchestrates logic via Python (read state → call tool → checkpoint → status). Without these helpers, agents emit 5-10x bigger / brittler scripts that hand-roll JSON parsing and tool delegation.',
       },
       '/spec/examples': {
         method: 'GET',
@@ -5416,6 +5431,182 @@ await server.connect(transport);`,
       '5. Scope every query by actor_id',
       '6. Test with ateam_test_skill',
       '7. Deploy via ateam_github_patch + ateam_build_and_run(github: true)',
+    ],
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// PYTHON HELPERS — adas.* namespace inside run_python_script
+//
+// This is the public reference for external agents (Claude, ChatGPT,
+// etc.) who design Python-orchestration personas via ateam-mcp. Without
+// it, agents emit 5-10x bigger scripts that hand-roll JSON parsing and
+// scratchpad I/O. The helpers compress that boilerplate to one-liners.
+//
+// Source of truth for the API surface: ai-dev-assistant
+// apps/backend/runtime/python/adas/ (where the helpers actually run).
+// Keep this spec in sync when CORE adds a new helper module.
+// ─────────────────────────────────────────────────────────────────────
+function buildPythonHelpersSpec() {
+  return {
+    spec_version: '1.0.0',
+    title: 'Python orchestration helpers — adas.*',
+    audience: 'External agents (Claude, ChatGPT, etc.) designing skill personas that orchestrate logic via run_python_script.',
+    one_liner: 'An auto-injected helper namespace inside run_python_script. Compresses 5-10 KB of tool-call boilerplate (defensive JSON parsing, sub-skill delegation, scratchpad reads/writes, checkpoints, pipeline calls) into 500-800 bytes.',
+
+    why_it_matters: [
+      'Smaller scripts (500-800 B vs 5-10 KB) — faster to generate, less likely to time out.',
+      'Less brittle — defensive JSON parsing, sub-call timeouts, slot pointers all handled.',
+      'Replaces the ${last.X.result.Y} template-fragility class with real Python values.',
+      'Errors surface as Python exceptions with full tracebacks, not silent undefined templates.',
+      'The 15 KB code cap stops being a concern — agents stop inlining data and start using scratchpads.',
+    ],
+
+    when_to_use: {
+      pattern: 'Persona orchestrates: "read prior state → call another tool → checkpoint result → print stage status."',
+      verdict: 'Write Python that uses adas.* instead of emitting one tool call per planner iteration. This is the Python-as-orchestrator pattern.',
+      anti_pattern: 'Designing a persona that emits N raw tool calls and stitches results via ${last.X.result.Y} templates. Migrate to a single Python script using adas.* helpers.',
+    },
+
+    activation: 'The adas module is auto-injected — no import needed. Just write `adas.state.read(...)` etc. inside the code: argument of run_python_script.',
+
+    api: {
+      state: {
+        purpose: 'Scratchpad state — per-job and chain-scoped. Replaces the verbose sys.step name="..." mode=read/write boilerplate.',
+        helpers: [
+          { call: 'adas.state.read(name, default=None)', returns: 'Parsed JSON dict / list / scalar, or default if absent.', notes: 'No json.loads needed — the helper parses for you.' },
+          { call: 'adas.state.write(name, value, visible=True)', returns: 'None', notes: 'Accepts any JSON-serializable value.' },
+          { call: 'adas.state.persist(name, value, visible=True)', returns: 'None', notes: 'CAS-backed for large blobs. Slot keeps {hash, uri, size} pointer instead of the raw value.' },
+          { call: 'adas.state.slot_uri(name)', returns: "The slot's CAS URI string, or None.", notes: 'Pulls the URI from the slot record when state was persisted.' },
+        ],
+      },
+
+      artifacts: {
+        purpose: 'Skill-Factory build artifacts — wraps the build_artifacts.* slot family. Useful when your skill talks to the Skill Factory.',
+        helpers: [
+          { call: 'adas.artifacts.tool_wrapper(cap_id)', returns: 'Dict from build_artifacts.tools.<cap_id> with {tool_def, cap_id, uri, ...}' },
+          { call: 'adas.artifacts.tool_uri(cap_id)', returns: 'Just the CAS URI string for the wrapper.' },
+          { call: 'adas.artifacts.candidate()', returns: 'Dict from build_artifacts.candidate (an assembled skill_definition).' },
+        ],
+      },
+
+      skills: {
+        purpose: 'Cross-skill delegation — wraps sys.askAnySkill.',
+        helpers: [
+          {
+            call: 'adas.skills.ask(target_skill, question, timeout_s=180)',
+            returns: 'The standard skill result dict ({ok, sub_outcome, ...}).',
+            notes: 'Synchronous. Default 180s timeout sized for sub-skill builds. ONE delegation per script — see caveats.',
+          },
+        ],
+      },
+
+      ai: {
+        purpose: 'LLM completions — wraps sys.callAI.',
+        helpers: [
+          {
+            call: "adas.ai.complete(prompt, model_type='fast')",
+            returns: 'Dict {ok, content, ...}',
+            notes: "model_type: 'fast' (default; short prose), 'normal' (analysis), 'deep' (reasoning).",
+          },
+        ],
+      },
+
+      build: {
+        purpose: 'Skill-Factory build pipeline — wraps the canonical sb.* steps for skills that build or refine other skills.',
+        helpers: [
+          {
+            call: 'adas.build.checkpoint(cap_id, kind, ok, build_session_id=None, artifact=None, failure=None)',
+            returns: 'Phase-3 sb.recordCheckpoint result.',
+            notes: 'ok=True writes artifact; ok=False writes failure_reason. build_session_id=None silently no-ops.',
+          },
+          { call: 'adas.build.plan(spec, previous_checkpoints=None)', returns: 'sb.planBuild result.' },
+          { call: 'adas.build.load_checkpoints(build_session_id)', returns: 'sb.loadCheckpoints result. Returns {} if no session.' },
+          { call: 'adas.build.assemble(spec, generated_tools=None, generated_widgets=None, generated_persona=None)', returns: 'sb.assemble result.' },
+          { call: 'adas.build.deploy(skill_definition, build_session_id=None)', returns: 'sb.deploy result.' },
+          { call: 'adas.build.report(hint, plan=None, assemble=None, verify=None, deploy=None)', returns: 'sb.report result.' },
+        ],
+      },
+
+      job: {
+        purpose: 'Goal access + stage status + finalize. The everyday glue around a script.',
+        helpers: [
+          { call: 'adas.goal()', returns: "The job's natural-language goal string." },
+          { call: 'adas.spec_from_goal()', returns: 'Dict extracted from a json … block in the goal (§4.9 spec), or None.' },
+          {
+            call: 'adas.stage(num, **payload)',
+            returns: 'None',
+            notes: 'Prints a standardized stage-status JSON line. The planner reads this on the next iteration. Pass all_done=True when a stage iteration loop completes.',
+          },
+          {
+            call: 'adas.finalize(content)',
+            returns: 'sys.finalizePlan result.',
+            notes: 'Accepts strings or dicts (auto-JSON-encodes).',
+          },
+        ],
+      },
+    },
+
+    common_patterns: [
+      {
+        title: 'Reading state',
+        before: "spec_slot = adas_call_tool('sys.step', {'name': 'bld.spec', 'mode': 'read'})\nspec = json.loads(spec_slot['content']) if isinstance(spec_slot.get('content'), str) else spec_slot.get('content', {})",
+        after: "spec = adas.state.read('bld.spec', default={})",
+        note: 'One line, dict ready to use.',
+      },
+      {
+        title: 'Delegating to another skill',
+        code: "r = adas.skills.ask('skill-factory-tool-builder', question)\nif r.get('ok') and (r.get('sub_outcome') or {}).get('ok'):\n    print('sub-skill succeeded')",
+      },
+      {
+        title: 'Recording a Phase-3 checkpoint',
+        code: "adas.build.checkpoint(\n    cap_id='length_convert',\n    kind='tool',\n    ok=True,\n    build_session_id=bsid,\n    artifact={'tool_name': 'length_convert', 'code_uri': '...', },\n)",
+      },
+      {
+        title: 'Pre-stage iteration with progress reporting',
+        code: "plan_tasks = adas.state.read('bld.plan_tasks', [])\ndone       = adas.state.read('bld.tool_results', [])\nnext_task = next((t for t in plan_tasks if t['cap_id'] not in {d['cap_id'] for d in done}), None)\nif not next_task:\n    adas.stage(2, all_done=True, total=len(done))\n    raise SystemExit\n# … do the work for next_task, append to done, write back …\nadas.state.write('bld.tool_results', done)\nadas.stage(2, cap_id=next_task['cap_id'], all_done=False, completed=len(done))",
+      },
+    ],
+
+    caveats: [
+      {
+        title: 'One sub-skill delegation per script',
+        why: 'Each adas.skills.ask call is 60-120 seconds. Looping over multiple delegations in one script exceeds the per-script wall-clock budget and gets SIGKILL\'d.',
+        do: 'Iterate at the planner level — each script handles ONE delegation, prints all_done:false, the planner re-enters the same stage until all_done:true.',
+      },
+      {
+        title: 'The 15 KB code cap is a safety net',
+        why: 'With adas.*, the cap is rarely an issue. If you bump it, you\'re inlining data.',
+        do: 'Read scratchpads with adas.state.read() instead of inlining payloads.',
+      },
+      {
+        title: 'Errors surface as Python exceptions',
+        why: 'When adas.skills.ask(…) or adas.build.checkpoint(…) errors out, you get a real Python traceback in stderr.',
+        do: 'Read the traceback directly. Don\'t wrap in defensive try/except blocks that hide the error class.',
+      },
+      {
+        title: 'adas.* is the canonical orchestration API',
+        why: 'Don\'t fall back to raw adas_call_tool unless you\'re calling a tool not yet covered by a helper.',
+        do: 'If something useful is missing, file an issue — the helpers grow as patterns emerge.',
+      },
+    ],
+
+    migration: {
+      indicator: 'If a persona\'s plan-step pattern emits one tool call per planner iteration, it\'s a candidate for migration to Python orchestration.',
+      steps: [
+        '1. Identify the orchestration loop in the persona (read state → call tool → checkpoint → status).',
+        '2. Replace per-step tool calls with adas.* helpers inside a single run_python_script.',
+        '3. Replace ${last.X.result.Y} templates with real Python values (adas.state.read or direct return values).',
+        '4. Use adas.stage(n, all_done=...) to drive iteration at the planner level.',
+        '5. Test with ateam_test_skill — verify size dropped and behavior preserved.',
+      ],
+    },
+
+    related_specs: [
+      '/spec/skill — full skill definition reference (where the persona using these helpers lives)',
+      '/spec/solution — solution definition reference',
+      '/spec/sdk — @ateam/sdk runtime API (for custom connectors/skill code outside run_python_script)',
+      '/spec/platform-connectors — available connectors + tool catalog',
     ],
   };
 }
