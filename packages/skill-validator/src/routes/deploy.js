@@ -2225,33 +2225,101 @@ router.delete('/solutions/:solutionId/connectors/:connectorId', async (req, res)
  */
 router.post('/solutions/:solutionId/connectors/:connectorId/upload', async (req, res) => {
   const { solutionId, connectorId } = req.params;
-  const { github: fromGithub, files: bodyFiles } = req.body || {};
+  const {
+    github: fromGithub,
+    files: bodyFiles,
+    ref: refArg,
+    branch: branchArg,          // legacy alias
+    replace: replaceArg,
+  } = req.body || {};
   const tenant = req.headers['x-adas-tenant'];
+
+  // Resolve target branch. Default: 'dev' (matches ateam_github_patch and
+  // agent workflow). Old callers that relied on the silent-main default
+  // must pass ref:'main' explicitly, OR promote dev → main first.
+  const refBranch = refArg || branchArg || 'dev';
+  // Replace mode: nuke connector dir + write only the provided files. The
+  // historical (pre-2026-06-05) behavior. Default OFF — partial-file
+  // uploads now MERGE with the GitHub state at refBranch so sending one
+  // file doesn't wipe the connector. Set replace:true for explicit
+  // full-replace.
+  const replaceMode = replaceArg === true;
 
   try {
     let files = bodyFiles;
 
-    // If github=true, read files from the repo
-    if (fromGithub && tenant) {
-      const allFiles = await github.listFiles(tenant, solutionId).catch(() => []);
+    // Helper: read all files for this connector from GitHub at refBranch.
+    // Returns Map<relPath, {path, content}>.
+    async function readConnectorFromGitHub() {
+      const allFiles = await github.listFiles(tenant, solutionId, refBranch).catch(() => []);
       const connFiles = allFiles.filter(f => f.path.startsWith(`connectors/${connectorId}/`));
-      if (connFiles.length === 0) {
-        return res.status(404).json({ ok: false, error: `No files found for connector "${connectorId}" in GitHub repo` });
-      }
-      files = [];
+      const out = new Map();
       for (const f of connFiles) {
         try {
           // Use readFileBySha — listFiles above already gave us the SHA,
           // so unchanged blobs cost 0 API quota via the SHA-keyed cache.
-          const data = await github.readFileBySha(tenant, solutionId, f.path, f.sha);
+          const data = await github.readFileBySha(tenant, solutionId, f.path, f.sha, refBranch);
           const relPath = f.path.split('/').slice(2).join('/');
-          files.push({ path: relPath, content: data.content });
+          out.set(relPath, { path: relPath, content: data.content });
         } catch (err) {
           // #4 Silent-catch audit: log instead of dropping.
           console.warn(`[Deploy] Could not read connector file ${f.path}: ${err.message}`);
         }
       }
+      return out;
     }
+
+    // Three modes:
+    //   1. github:true alone           → GitHub state at refBranch as-is.
+    //   2. files:[] + github:true      → GitHub state as BASE, overlay files (incoming wins).
+    //   3. files:[] alone (no github)  → MERGE with GitHub state by default so
+    //      a partial upload doesn't nuke the connector. Set replace:true to
+    //      opt back into the historical replace-all behavior.
+    if (fromGithub && tenant) {
+      const ghMap = await readConnectorFromGitHub();
+      if (ghMap.size === 0) {
+        return res.status(404).json({ ok: false, error: `No files found for connector "${connectorId}" in GitHub repo on ref "${refBranch}"` });
+      }
+      // Overlay incoming files (if any) on top of the GitHub base.
+      if (Array.isArray(bodyFiles)) {
+        for (const f of bodyFiles) {
+          if (f && typeof f.path === 'string') ghMap.set(f.path, { path: f.path, content: f.content });
+        }
+      }
+      files = Array.from(ghMap.values());
+    } else if (Array.isArray(bodyFiles) && bodyFiles.length > 0 && !replaceMode && tenant) {
+      // Default merge: read GitHub state at refBranch, overlay incoming files.
+      // Prevents the "sent 2 files, lost the other 50" trap that broke
+      // nutrition's ui-dist + server.js on 2026-06-06.
+      try {
+        const ghMap = await readConnectorFromGitHub();
+        if (ghMap.size === 0) {
+          // No GitHub base AND replace not set — refuse rather than silently nuke.
+          return res.status(409).json({
+            ok: false,
+            error: `Partial-file upload to connector "${connectorId}" without a GitHub base on ref "${refBranch}". Refusing to nuke the connector. Either: (a) set replace:true to confirm intentional full replacement, or (b) push the full connector to GitHub first via ateam_github_patch / ateam_github_write.`,
+            hint: 'Default merge requires a GitHub base. Use replace:true to opt into the historical wipe-and-write behavior.',
+          });
+        }
+        for (const f of bodyFiles) {
+          if (f && typeof f.path === 'string') ghMap.set(f.path, { path: f.path, content: f.content });
+        }
+        const baseCount = ghMap.size - bodyFiles.length;
+        files = Array.from(ghMap.values());
+        console.log(`[Deploy] Merge mode: ${bodyFiles.length} incoming overlaid on ${baseCount} GitHub-base files (ref="${refBranch}")`);
+      } catch (err) {
+        console.warn(`[Deploy] Merge mode failed to load GitHub base: ${err.message}`);
+        return res.status(502).json({
+          ok: false,
+          error: `Could not read GitHub base for merge: ${err.message}. Set replace:true to bypass merge protection, or retry once GitHub is reachable.`,
+        });
+      }
+    } else if (Array.isArray(bodyFiles) && bodyFiles.length > 0 && replaceMode) {
+      // Explicit replace — historical behavior. Use bodyFiles as-is.
+      files = bodyFiles;
+      console.log(`[Deploy] Replace mode (explicit): ${bodyFiles.length} files, no GitHub merge.`);
+    }
+    // else: bodyFiles undefined and no github:true → empty-files error below.
 
     if (!Array.isArray(files) || files.length === 0) {
       return res.status(400).json({ ok: false, error: 'No files provided. Pass files in body or set github=true.' });
