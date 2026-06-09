@@ -74,6 +74,14 @@ const SKILL_DEFAULTS = {
   version: '0.1.0',
   phase: 'PROBLEM_DISCOVERY',
 
+  // When true, this skill's replies never get UI-action chips. Used by
+  // authoring skills (e.g. Skill Factory) whose replies describe a skill being
+  // BUILT, not the user's existing data — where the chip-picker would mine a
+  // draft spec's content and attach unrelated existing-plugin chips. Read by
+  // the Core polisher (apps/backend/utils/polishRenderer.js). Default false =
+  // skills produce chips normally.
+  dontProduceChips: false,
+
   problem: {
     statement: '',
     context: '',
