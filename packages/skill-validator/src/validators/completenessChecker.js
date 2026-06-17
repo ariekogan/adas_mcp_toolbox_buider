@@ -82,8 +82,13 @@ export function isRoleComplete(skill) {
   const { role } = skill;
   if (!role) return false;
 
-  // Role needs name and persona at minimum
-  return Boolean(role.name && role.name.length > 0 && role.persona && role.persona.length > 0);
+  // Role needs a name and instruction content. Content lives in role.persona OR,
+  // for a Staged Skill (Staged Skill Mode), in role.stages[] (the per-stage bodies;
+  // the fixed persona may be short). Either satisfies completeness.
+  const hasName = Boolean(role.name && role.name.length > 0);
+  const hasPersona = Boolean(role.persona && role.persona.length > 0);
+  const hasStages = Array.isArray(role.stages) && role.stages.length > 0;
+  return hasName && (hasPersona || hasStages);
 }
 
 /**

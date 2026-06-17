@@ -326,3 +326,51 @@ describe('schemaValidator', () => {
     expect(errors).toHaveLength(0);
   });
 });
+
+// Staged Skill Mode (role.stages[]) — design-time gate-graph soundness so a staged
+// skill can never deadlock at runtime. See Docs/WIP/STAGED_SKILL_MODE_2026-06-17.md.
+describe('schemaValidator — Staged Skill Mode (role.stages)', () => {
+  const stageCodes = (skill) =>
+    validateSchema(skill).filter(i => String(i.code).startsWith('STAGE') || i.code === 'INVALID_STAGES').map(i => i.code);
+
+  it('valid stage graph → no STAGE errors', () => {
+    const skill = makeValidSkill();
+    skill.role.stages = [
+      { id: 'a', after: [], body: 'do a' },
+      { id: 'b', after: ['a'], body: 'do b' },
+    ];
+    expect(stageCodes(skill)).toEqual([]);
+  });
+
+  it('non-staged skill (no role.stages) → no STAGE errors (backward-compat)', () => {
+    expect(stageCodes(makeValidSkill())).toEqual([]);
+  });
+
+  it('forward reference → STAGE_AFTER_NOT_EARLIER (forbids cycles)', () => {
+    const skill = makeValidSkill();
+    skill.role.stages = [
+      { id: 'a', after: ['b'], body: 'do a' },
+      { id: 'b', after: [], body: 'do b' },
+    ];
+    expect(stageCodes(skill)).toContain('STAGE_AFTER_NOT_EARLIER');
+  });
+
+  it('dup id + missing body + unknown after-ref are all reported', () => {
+    const skill = makeValidSkill();
+    skill.role.stages = [
+      { id: 'a', body: 'x' },
+      { id: 'a', body: 'y' },
+      { id: 'c', after: ['zzz'] },
+    ];
+    const codes = stageCodes(skill);
+    expect(codes).toContain('STAGE_DUP_ID');
+    expect(codes).toContain('STAGE_MISSING_BODY');
+    expect(codes).toContain('STAGE_AFTER_UNKNOWN');
+  });
+
+  it('empty stages array → INVALID_STAGES', () => {
+    const skill = makeValidSkill();
+    skill.role.stages = [];
+    expect(stageCodes(skill)).toContain('INVALID_STAGES');
+  });
+});

@@ -538,12 +538,24 @@
  */
 
 /**
+ * One stage of a Staged Skill (Staged Skill Mode). The engine feeds the planner
+ * `role.persona` (fixed) + only the CURRENT stage's `body`, and owns the cursor
+ * advance — entering a stage only once its `after` prerequisites are done.
+ * @typedef {Object} Stage
+ * @property {string} id - unique stage id
+ * @property {string} [title] - human label (defaults to id)
+ * @property {string[]} [after] - prerequisite stage ids; each MUST reference an EARLIER stage (no forward refs / cycles)
+ * @property {string} body - the per-stage instructions / script
+ */
+
+/**
  * @typedef {Object} Role
  * @property {string} name
- * @property {string} persona
+ * @property {string} persona - fixed shared text (identity, rules); for a staged skill, the per-stage content lives in `stages`
  * @property {string[]} goals
  * @property {string[]} limitations
  * @property {CommunicationStyle} [communication_style]
+ * @property {Stage[]} [stages] - Staged Skill Mode: ordered per-stage bodies; presence opts the skill into deterministic stage-gating
  */
 
 /**

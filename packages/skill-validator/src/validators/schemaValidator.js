@@ -345,6 +345,64 @@ function validateRole(role) {
     }
   }
 
+  // Staged Skill Mode (optional): role.stages[] = [{ id, title?, after?, body }].
+  // Design-time guarantee the gate graph is sound so a staged skill can never
+  // deadlock at runtime — mirrors apps/backend/worker/stageMachine.js parseStages.
+  // Soundness rule: every `after` entry must reference an EARLIER-declared stage
+  // id, which forbids forward refs AND cycles by construction.
+  if (role.stages !== undefined) {
+    issues.push(...validateStages(role.stages));
+  }
+
+  return issues;
+}
+
+/**
+ * Validate role.stages[] (Staged Skill Mode). Optional field; when present it
+ * must be a non-empty array of { id, body } with unique ids and an acyclic
+ * `after` graph (each after-ref points to an earlier stage).
+ * @param {any} stages
+ * @returns {ValidationIssue[]}
+ */
+function validateStages(stages) {
+  const issues = [];
+  if (!Array.isArray(stages) || stages.length === 0) {
+    issues.push({
+      code: 'INVALID_STAGES',
+      severity: 'error',
+      path: 'role.stages',
+      message: 'role.stages, when present, must be a non-empty array of { id, body }',
+    });
+    return issues;
+  }
+  const orderById = new Map();
+  stages.forEach((s, i) => {
+    const id = s && typeof s.id === 'string' ? s.id.trim() : '';
+    if (!id) {
+      issues.push({ code: 'STAGE_MISSING_ID', severity: 'error', path: `role.stages[${i}].id`, message: `stage[${i}] is missing a string id` });
+      return;
+    }
+    if (orderById.has(id)) {
+      issues.push({ code: 'STAGE_DUP_ID', severity: 'error', path: `role.stages[${i}].id`, message: `duplicate stage id "${id}"` });
+      return;
+    }
+    if (typeof s.body !== 'string' || !s.body.trim()) {
+      issues.push({ code: 'STAGE_MISSING_BODY', severity: 'error', path: `role.stages[${i}].body`, message: `stage "${id}" is missing a non-empty body` });
+    }
+    orderById.set(id, i);
+  });
+  stages.forEach((s, i) => {
+    const id = s && typeof s.id === 'string' ? s.id.trim() : '';
+    if (!id || !Array.isArray(s.after)) return;
+    for (const dep of s.after) {
+      if (typeof dep !== 'string') continue;
+      if (!orderById.has(dep)) {
+        issues.push({ code: 'STAGE_AFTER_UNKNOWN', severity: 'error', path: `role.stages[${i}].after`, message: `stage "${id}" after references unknown stage "${dep}"` });
+      } else if (orderById.get(dep) >= i) {
+        issues.push({ code: 'STAGE_AFTER_NOT_EARLIER', severity: 'error', path: `role.stages[${i}].after`, message: `stage "${id}" after "${dep}" must reference an EARLIER stage (forbids forward refs + cycles)` });
+      }
+    }
+  });
   return issues;
 }
 
