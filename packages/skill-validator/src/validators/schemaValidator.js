@@ -30,6 +30,10 @@ export const COVERAGE = [
   { section: 'role', field: 'role', check: 'Section exists', type: 'schema' },
   { section: 'role', field: 'role.communication_style.tone', check: 'Valid enum (formal/casual/technical/warm)', type: 'schema' },
   { section: 'role', field: 'role.communication_style.verbosity', check: 'Valid enum (concise/balanced/detailed)', type: 'schema' },
+  { section: 'role', field: 'role.stages', check: 'Optional. When present: non-empty array of { id, body }. Engine-owned deterministic state machine (Staged Skill Mode).', type: 'schema' },
+  { section: 'role', field: 'role.stages[].id', check: 'Required string. Unique within this skill.', type: 'schema' },
+  { section: 'role', field: 'role.stages[].body', check: 'Required non-empty string. Per-stage persona appended to role.persona.', type: 'schema' },
+  { section: 'role', field: 'role.stages[].after', check: 'Optional string[]. Each entry MUST reference an EARLIER-declared stage id (soundness rule — forbids forward refs + cycles).', type: 'schema' },
 
   // Intents
   { section: 'intents', field: 'intents', check: 'Section exists', type: 'schema' },
