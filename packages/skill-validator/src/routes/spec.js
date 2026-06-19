@@ -871,9 +871,10 @@ function buildEnums() {
 
 function buildSkillSpec() {
   return {
-    spec_version: '1.4.0',
+    spec_version: '1.5.0',
     description: 'Complete A-Team skill definition specification. A skill is an autonomous AI agent with tools, policies, and workflows.',
     changelog: [
+      { version: '1.5.0', changes: ['Documented role.stages[] — Staged Skill Mode. Opt-in deterministic multi-step persona: a skill that declares role.stages[] runs as a finite state machine where the engine (not the LLM) decides stage transitions from each stage\'s reported status. Validator-enforced soundness rule: every `after` entry must reference an EARLIER stage id, which forbids forward refs + cycles by construction. Pre-existing CORE implementation (apps/backend/worker/stageMachine.js, validator validateStages, 2026-06-17) — just needed to be discoverable via the public spec so external agents can build staged skills.'] },
       { version: '1.4.0', changes: ['Added engine.loop_streak_threshold (number, optional, additive). Per-skill override for the generic loop-breaker streak threshold. CORE default 3, clamped to [1, 20] at runtime. Raise for multi-step workers whose stable script produces the same engine-signal fingerprint across iterations (Skill Factory workers are the motivating case). CORE read path: worker/mainloop.js → resolveLoopStreakThreshold.'] },
       { version: '1.3.0', changes: ['Documented engine.default_sub_job_seconds, engine.default_max_idle_seconds (both pre-existing in CORE but undocumented in Builder), and engine.default_max_delegation_depth (new — added to CORE sys.askAnySkill.js 2026-05-28). All three are per-skill ceiling overrides read by CORE\'s sys.askAnySkill at delegation time. Default-undeclared keeps CORE\'s built-in defaults (300s / 60s / depth 3). Set higher on long-running workers or deep-fan-out skills.'] },
       { version: '1.2.0', changes: ['Added engine.include_read_evidence_in_gate (boolean, optional, additive, default false). Opt-in to the finalization verifier\'s READ EVIDENCE channel. Solution-level inheritance supported via the new solution.engine block. Mirrors the CORE worker/finalizationGate.js flag introduced 2026-05-28 — see Docs/specs/VERIFIER_EVIDENCE_CHANNELS.md (in ai-dev-assistant) for the rollout policy.'] },
@@ -966,7 +967,7 @@ function buildSkillSpec() {
         description: 'The agent persona and behavioral constraints. Auto-generated from problem + tools + guardrails if omitted when sent to validate or deploy.',
         fields: {
           name: { type: 'string', required: true, description: 'Role name (e.g., "Identity Assurance Manager")' },
-          persona: { type: 'string', required: true, description: 'Detailed persona description — how the agent should behave' },
+          persona: { type: 'string', required: true, description: 'Detailed persona description — how the agent should behave. In Staged Skill Mode (see role.stages below) persona stays as the FIXED shared text and each stage body is appended on top per stage.' },
           goals: { type: 'string[]', required: false, description: 'What the agent tries to achieve' },
           limitations: { type: 'string[]', required: false, description: 'What the agent must NOT do' },
           communication_style: {
@@ -974,6 +975,69 @@ function buildSkillSpec() {
             fields: {
               tone: { type: 'enum', values: ['formal', 'casual', 'technical', 'warm'], description: 'Communication tone' },
               verbosity: { type: 'enum', values: ['concise', 'balanced', 'detailed'], description: 'Response detail level' },
+            },
+          },
+          stages: {
+            type: 'array', required: false,
+            description:
+              'STAGED SKILL MODE — opt-in deterministic multi-step persona. A skill with role.stages[] runs as a finite state machine: role.persona stays the FIXED shared text; each stage body is the per-stage instruction appended on top. The engine (not the LLM) decides the next stage from the stage\'s reported status — so the sequence is reproducible across runs and never deadlocks by construction.\n\n' +
+              'WHEN TO USE:\n' +
+              '  • The skill has a known, ordered pipeline (plan → assemble → verify → deploy → report).\n' +
+              '  • You want each step to read a focused mini-persona, not a wall of text.\n' +
+              '  • You want replays and HLR jumps to be predictable — the same stage with the same inputs always produces the same body.\n\n' +
+              'WHEN NOT TO USE:\n' +
+              '  • Conversational skills where the next step genuinely depends on user input — leave stages omitted and use the standard single-persona mode.\n\n' +
+              'RUNTIME CONTRACT (engine-owned cursor, see apps/backend/worker/stageMachine.js):\n' +
+              '  • Cursor starts at stages[0].\n' +
+              '  • Each stage reports status: "done" | "in_progress" | "not_ready" (optionally + next).\n' +
+              '      done        → mark stage complete; cursor advances to the next stage in declaration order whose `after` prereqs are met. When all stages are done, the skill finalizes.\n' +
+              '      not_ready   → C1 GATE redirect. Cursor jumps to the stage\'s `next` (if reported and valid) or to the first unmet `after` prerequisite. Never forward-skips an unmet gate.\n' +
+              '      in_progress → stay on the current stage.\n' +
+              '  • HLR/HLP can request a jump to ANY stage (typically backward, e.g. "re-run assemble after a tool change"). The jump is gated: the target\'s `after` prereqs must be met. Jumping back invalidates the target and every later stage (they re-hold their gates until re-run).\n\n' +
+              'SOUNDNESS RULE (validator-enforced): every `after` entry MUST reference an EARLIER-declared stage id. That single constraint forbids forward refs AND cycles by construction, so a staged skill can never deadlock at runtime. Forward refs error STAGE_AFTER_NOT_EARLIER. Missing refs error STAGE_AFTER_UNKNOWN.\n\n' +
+              'VALIDATION ERRORS (see schemaValidator.validateStages):\n' +
+              '  • INVALID_STAGES — role.stages, when present, must be a non-empty array of { id, body }\n' +
+              '  • STAGE_MISSING_ID — stage[i] is missing a string id\n' +
+              '  • STAGE_DUP_ID — duplicate stage id\n' +
+              '  • STAGE_MISSING_BODY — stage is missing a non-empty body\n' +
+              '  • STAGE_AFTER_UNKNOWN — after references an unknown stage id\n' +
+              '  • STAGE_AFTER_NOT_EARLIER — after references a same/later stage (forbidden)\n\n' +
+              'See Docs/WIP/STAGED_SKILL_MODE_2026-06-17.md (in ai-dev-assistant) for the full design + reference implementation: skill-factory-builder uses this with 7 stages (plan → tools → widgets → persona → assemble → verify → deploy).',
+            item_schema: {
+              id: { type: 'string', required: true, description: 'Unique stage id within this skill (e.g. "plan", "assemble").' },
+              title: { type: 'string', required: false, description: 'Optional display title. Defaults to id if omitted.' },
+              after: { type: 'string[]', required: false, description: 'Optional list of stage ids that must complete before this stage can be entered. Each entry MUST reference an EARLIER-declared stage id (soundness rule). Omit for the first stage or any stage with no prereqs.' },
+              body: { type: 'string', required: true, description: 'The per-stage persona instructions appended to role.persona while the cursor is on this stage. Make it focused — what this stage does, the tools it should call, the report shape it should emit ({status, next?}).' },
+            },
+            example: {
+              description: 'Skill-Factory Builder uses 7 stages with a strict prereq DAG. Each stage emits status:"done" when its work is reported; "not_ready" if a prereq slot is empty (cursor backs off to the unmet gate).',
+              yaml: [
+                'role:',
+                '  persona: "You are the Skill Factory builder. Across all stages: never invent tool names; always cite cap_id."',
+                '  stages:',
+                '    - id: "plan"',
+                '      body: "Read the spec. Emit a plan with cap_ids and order. Report {status:\\\"done\\\"}."',
+                '    - id: "tools"',
+                '      after: ["plan"]',
+                '      body: "For each cap_id in the plan, delegate to skill-factory-tool-builder via adas.skills.ask. On its checkpoint, advance."',
+                '    - id: "widgets"',
+                '      after: ["plan"]',
+                '      body: "For each ui cap_id, delegate to skill-factory-ui-builder."',
+                '    - id: "persona"',
+                '      after: ["plan"]',
+                '      body: "Synthesize the candidate skill\'s persona from the spec + glossary."',
+                '    - id: "assemble"',
+                '      after: ["tools", "widgets", "persona"]',
+                '      body: "Call sb.assemble with generated_tools + generated_widgets + generated_persona. If any prereq slot is empty, report {status:\\\"not_ready\\\", next:\\\"<the empty one>\\\"}."',
+                '    - id: "verify"',
+                '      after: ["assemble"]',
+                '      body: "Delegate to skill-factory-qa. If qa surfaces blockers, report {status:\\\"not_ready\\\", next:\\\"assemble\\\"} so HLR can replan."',
+                '    - id: "deploy"',
+                '      after: ["verify"]',
+                '      body: "Call sb.deploy. Report {status:\\\"done\\\"} only on a successful deploy; on failure, jump back to assemble."',
+              ].join('\n'),
+              behavior: 'The cursor starts at plan, fans out across tools / widgets / persona (their `after` only requires plan), then converges at assemble (which gates on all three). A backward jump from verify to assemble re-invalidates assemble + deploy — they re-hold their gates until re-run.',
+              when_to_use_this_pattern: 'Pipelines with deterministic order and convergence points. The fan-out gives the agent room to make independent progress; the convergence gate makes "ready to assemble" unambiguous.',
             },
           },
         },
