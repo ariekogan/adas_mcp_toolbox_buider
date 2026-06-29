@@ -71,10 +71,21 @@ async function resolveTenantToken(tenant) {
         return d.token;
       }
     } else if (res.status === 409) {
-      // Tenant hasn't connected GitHub — fall back to PAT (legacy repos).
-      return PAT;
+      // Tenant hasn't connected GitHub. If a legacy PAT exists, use it silently
+      // (migration window). If NOT, fail with an actionable, agent-readable
+      // message + connect URL — never a cryptic GitHub 401. Core's 409 body
+      // carries the guidance (message, connect_url, app_configured).
+      if (PAT) return PAT;
+      const d = await res.json().catch(() => ({}));
+      const e = new Error(d.message || `Tenant "${tenant}" has not connected GitHub.`);
+      e.code = 'github_not_connected';
+      e.connect_url = d.connect_url || null;
+      e.app_configured = d.app_configured ?? null;
+      e.actionable = true;
+      throw e;
     }
   } catch (err) {
+    if (err.code === 'github_not_connected') throw err; // propagate the actionable error
     console.warn(`[GitHub] installation-token fetch failed for "${tenant}": ${err.message} — falling back to PAT`);
   }
   return PAT;
