@@ -21,6 +21,70 @@ const OWNER = process.env.GITHUB_OWNER || 'ariekogan';
 const PAT = process.env.GITHUB_PAT || '';
 const ENABLED = process.env.GITHUB_ENABLED !== 'false';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-tenant GitHub auth — Core owns the credential, the Builder owns the ops.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The GitHub App private key is a PLATFORM secret and lives only in Core
+// (adas_system.global_settings.github_app). The Builder is FS-only and must NOT
+// hold it. So Core mints a short-lived (~1h) per-tenant installation token; the
+// Builder fetches it (service-to-service, shared secret — same pattern as
+// llm/adapter.js) and uses it for all git operations. Falls back to the legacy
+// platform-wide GITHUB_PAT when a tenant hasn't connected (or Core is down).
+//
+// The resolved token is carried in AsyncLocalStorage, set once per public call
+// by withGithubAuth(tenant, …). Race-free across concurrent tenants, and
+// private helpers (assertRefExists, createBlobsBatch) inherit it transparently
+// without threading tenant through their signatures.
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+const CORE_URL = process.env.ADAS_CORE_URL || 'http://adas-backend:4000';
+const CORE_SECRET = process.env.ADAS_MCP_TOKEN || process.env.CORE_MCP_SECRET || '';
+const _ghAuth = new AsyncLocalStorage(); // store: { token }
+const _tokenCache = new Map();           // tenant → { token, expiresAtMs }
+const TOKEN_SKEW_MS = 60_000;
+
+/** Run `fn` with the tenant's GitHub token bound to the async context. */
+async function withGithubAuth(tenant, fn) {
+  const token = await resolveTenantToken(tenant);
+  return _ghAuth.run({ token }, fn);
+}
+
+/**
+ * Resolve the GitHub bearer token for a tenant: a Core-minted installation
+ * token if the tenant has connected, else the legacy PAT. Cached per tenant.
+ */
+async function resolveTenantToken(tenant) {
+  if (!tenant || !CORE_SECRET) return PAT;
+  const cached = _tokenCache.get(tenant);
+  if (cached && cached.expiresAtMs - TOKEN_SKEW_MS > Date.now()) return cached.token;
+  try {
+    const res = await fetch(`${CORE_URL}/api/github/installation-token`, {
+      headers: { 'x-adas-token': CORE_SECRET, 'x-adas-tenant': tenant },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      const d = await res.json();
+      if (d?.ok && d.token) {
+        const expiresAtMs = d.expires_at ? Date.parse(d.expires_at) : Date.now() + 3600_000;
+        _tokenCache.set(tenant, { token: d.token, expiresAtMs });
+        return d.token;
+      }
+    } else if (res.status === 409) {
+      // Tenant hasn't connected GitHub — fall back to PAT (legacy repos).
+      return PAT;
+    }
+  } catch (err) {
+    console.warn(`[GitHub] installation-token fetch failed for "${tenant}": ${err.message} — falling back to PAT`);
+  }
+  return PAT;
+}
+
+/** Drop a tenant's cached token (e.g. after disconnect). */
+export function clearTenantTokenCache(tenant) {
+  if (tenant) _tokenCache.delete(tenant); else _tokenCache.clear();
+}
+
 const GH_TIMEOUT_MS = 15_000;   // 15s per API call
 const GH_RETRIES = 2;           // total attempts = 2
 const GH_BACKOFF_MS = 1000;     // initial backoff between retries
@@ -163,8 +227,11 @@ function blobCacheSet(sha, content) {
 }
 
 function headers() {
+  // Token from the active per-tenant auth context (withGithubAuth); PAT when
+  // called outside a context (legacy callers / not wrapped).
+  const token = _ghAuth.getStore()?.token || PAT;
   return {
-    'Authorization': `Bearer ${PAT}`,
+    'Authorization': `Bearer ${token}`,
     'Accept': 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
     'Content-Type': 'application/json',
@@ -172,7 +239,8 @@ function headers() {
 }
 
 /**
- * Core GitHub API caller with timeout + retry.
+ * Core GitHub API caller with timeout + retry. Auth is the token in the active
+ * withGithubAuth context (per-tenant install token, PAT fallback).
  */
 async function gh(method, path, body) {
   let lastErr = null;
@@ -354,6 +422,7 @@ export function isEnabled() {
  * @returns {Array<{solutionId: string, repo_url: string}>}
  */
 export async function listTenantRepos(tenant) {
+  return withGithubAuth(tenant, async () => {
   const cacheKey = `listTenantRepos::${tenant}`;
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
@@ -368,6 +437,7 @@ export async function listTenantRepos(tenant) {
     }));
   cacheSet(cacheKey, result);
   return result;
+  });
 }
 
 /**
@@ -375,10 +445,12 @@ export async function listTenantRepos(tenant) {
  * @returns {Array<string>} directory names
  */
 export async function listDir(tenant, solutionId, dirPath, branch = 'main') {
+  return withGithubAuth(tenant, async () => {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
   const contents = await gh('GET', `/repos/${fullName}/contents/${encodePath(dirPath)}?ref=${branch}`);
   return contents.filter(c => c.type === 'dir').map(c => c.name);
+  });
 }
 
 /**
@@ -387,6 +459,7 @@ export async function listDir(tenant, solutionId, dirPath, branch = 'main') {
  * @returns {{ repo_url, created }} — created=true if newly created
  */
 export async function ensureRepo(tenant, solutionId, description = '') {
+  return withGithubAuth(tenant, async () => {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
@@ -410,6 +483,7 @@ export async function ensureRepo(tenant, solutionId, description = '') {
   });
 
   return { repo_url: repo.html_url, full_name: `${OWNER}/${name}`, created: true };
+  });
 }
 
 /**
@@ -433,6 +507,7 @@ export async function ensureRepo(tenant, solutionId, description = '') {
 const PUSH_MAX_RETRIES = 4;
 
 export async function pushFiles(tenant, solutionId, files, message = 'Update solution', branch = 'main') {
+  return withGithubAuth(tenant, async () => {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
@@ -502,12 +577,14 @@ export async function pushFiles(tenant, solutionId, files, message = 'Update sol
     }
   }
   throw lastErr || new Error(`pushFiles failed after ${PUSH_MAX_RETRIES} retries`);
+  });
 }
 
 /**
  * Get repo status — existence, latest commit, URL.
  */
 export async function getRepoStatus(tenant, solutionId) {
+  return withGithubAuth(tenant, async () => {
   const cacheKey = `getRepoStatus::${tenant}::${solutionId}`;
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
@@ -545,6 +622,7 @@ export async function getRepoStatus(tenant, solutionId) {
   // Shorter TTL for "exists:false" so a freshly-created repo is detected fast.
   cacheSet(cacheKey, result, result.exists ? READ_CACHE_TTL_MS : 5_000);
   return result;
+  });
 }
 
 /**
@@ -552,6 +630,7 @@ export async function getRepoStatus(tenant, solutionId) {
  * @returns {{ path, content, sha, size }}
  */
 export async function readFile(tenant, solutionId, filePath, branch = 'main') {
+  return withGithubAuth(tenant, async () => {
   const cacheKey = `readFile::${tenant}::${solutionId}::${filePath}::${branch}`;
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
@@ -591,6 +670,7 @@ export async function readFile(tenant, solutionId, filePath, branch = 'main') {
   };
   cacheSet(cacheKey, result);
   return result;
+  });
 }
 
 /**
@@ -612,6 +692,7 @@ export async function readFile(tenant, solutionId, filePath, branch = 'main') {
  * @returns {{ path, content, sha, size, _cached: boolean }}
  */
 export async function readFileBySha(tenant, solutionId, filePath, sha, branch = 'main') {
+  return withGithubAuth(tenant, async () => {
   if (sha) {
     const cached = blobCacheGet(sha);
     if (cached !== null) {
@@ -627,6 +708,7 @@ export async function readFileBySha(tenant, solutionId, filePath, sha, branch = 
   // Miss — fall through to the normal API path, which also populates the cache.
   const result = await readFile(tenant, solutionId, filePath, branch);
   return { ...result, _cached: false };
+  });
 }
 
 /**
@@ -634,6 +716,7 @@ export async function readFileBySha(tenant, solutionId, filePath, sha, branch = 
  * Uses the Contents API (simpler than Trees for single files).
  */
 export async function patchFile(tenant, solutionId, filePath, content, message = `Update ${filePath}`, branch = 'main') {
+  return withGithubAuth(tenant, async () => {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
@@ -665,6 +748,7 @@ export async function patchFile(tenant, solutionId, filePath, content, message =
     commit_url: result.commit.html_url,
     created: !existingSha,
   };
+  });
 }
 
 /**
@@ -675,6 +759,7 @@ export async function patchFile(tenant, solutionId, filePath, content, message =
  * @returns {{ path, commit_sha, commit_url, replacements }}
  */
 export async function searchReplacePatchFile(tenant, solutionId, filePath, search, replace, message, branch = 'main') {
+  return withGithubAuth(tenant, async () => {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
@@ -713,6 +798,7 @@ export async function searchReplacePatchFile(tenant, solutionId, filePath, searc
     commit_url: result.commit.html_url,
     replacements: count,
   };
+  });
 }
 
 /**
@@ -721,6 +807,7 @@ export async function searchReplacePatchFile(tenant, solutionId, filePath, searc
  * @returns {{ commits: Array<{ sha, message, date, author }> }}
  */
 export async function getLog(tenant, solutionId, limit = 10, branch = 'main') {
+  return withGithubAuth(tenant, async () => {
   const cacheKey = `getLog::${tenant}::${solutionId}::${limit}::${branch}`;
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
@@ -752,6 +839,7 @@ export async function getLog(tenant, solutionId, limit = 10, branch = 'main') {
   };
   cacheSet(cacheKey, result);
   return result;
+  });
 }
 
 /**
@@ -759,6 +847,7 @@ export async function getLog(tenant, solutionId, limit = 10, branch = 'main') {
  * @returns {{ path, type, size }[] }
  */
 export async function listFiles(tenant, solutionId, branch = 'main') {
+  return withGithubAuth(tenant, async () => {
   const cacheKey = `listFiles::${tenant}::${solutionId}::${branch}`;
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
@@ -776,6 +865,7 @@ export async function listFiles(tenant, solutionId, branch = 'main') {
     .map(t => ({ path: t.path, size: t.size, sha: t.sha }));
   cacheSet(cacheKey, result);
   return result;
+  });
 }
 
 /**
@@ -790,6 +880,7 @@ export async function listFiles(tenant, solutionId, branch = 'main') {
  * @returns {{ commit_sha, files_deleted }}
  */
 export async function deleteDirectory(tenant, solutionId, dirPath, message = `Delete ${dirPath}`) {
+  return withGithubAuth(tenant, async () => {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
@@ -851,6 +942,7 @@ export async function deleteDirectory(tenant, solutionId, dirPath, message = `De
   const totalDeleted = Object.values(results).reduce((sum, r) => sum + (r.files_deleted || 0), 0);
   if (totalDeleted > 0) cacheBustRepo(tenant, solutionId);
   return { branches: results, total_files_deleted: totalDeleted };
+  });
 }
 
 /**
@@ -875,6 +967,7 @@ export const pushToDev = pushFiles;
  * commit SHA. Rollback is additive — history is preserved.
  */
 export async function checkpoint(tenant, solutionId, label = '') {
+  return withGithubAuth(tenant, async () => {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
@@ -937,6 +1030,7 @@ export async function checkpoint(tenant, solutionId, label = '') {
     created_at: now.toISOString(),
     _hint: `To rollback to this checkpoint: ateam_github_rollback(solution_id, tag='${tagName}')`,
   };
+  });
 }
 
 /**
@@ -944,6 +1038,7 @@ export async function checkpoint(tenant, solutionId, label = '') {
  * Used as pre-flight for `promote` to show what's about to ship.
  */
 export async function getDiff(tenant, solutionId, base = 'main', head = 'dev') {
+  return withGithubAuth(tenant, async () => {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
   let compare;
@@ -977,6 +1072,7 @@ export async function getDiff(tenant, solutionId, base = 'main', head = 'dev') {
       deletions: f.deletions || 0,
     })),
   };
+  });
 }
 
 /**
@@ -985,6 +1081,7 @@ export async function getDiff(tenant, solutionId, base = 'main', head = 'dev') {
  * Throws on conflict (409) — caller must resolve manually on GitHub.
  */
 export async function mergeBranch(tenant, solutionId, base = 'main', head = 'dev', commit_message = '') {
+  return withGithubAuth(tenant, async () => {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
   const message = commit_message || `Merge ${head} into ${base}`;
@@ -1006,6 +1103,7 @@ export async function mergeBranch(tenant, solutionId, base = 'main', head = 'dev
     merge_commit_sha: result.sha,
     merge_commit_url: result.html_url,
   };
+  });
 }
 
 /**
@@ -1019,6 +1117,7 @@ export async function mergeBranch(tenant, solutionId, base = 'main', head = 'dev
  * For the old behavior (tag without merge), call `checkpoint` directly.
  */
 export async function promote(tenant, solutionId, options = {}) {
+  return withGithubAuth(tenant, async () => {
   const { label = '', skipTag = false } = options;
 
   // 1. Diff first so the caller sees what's about to ship
@@ -1065,6 +1164,7 @@ export async function promote(tenant, solutionId, options = {}) {
       ? `Promoted ${diff.ahead_by} commit(s) to main. Tagged as ${tag}. Run ateam_build_and_run() to deploy main.`
       : `Promoted ${diff.ahead_by} commit(s) to main. Run ateam_build_and_run() to deploy main.`,
   };
+  });
 }
 
 /**
@@ -1076,6 +1176,7 @@ export async function promote(tenant, solutionId, options = {}) {
  * regardless of prefix.
  */
 export async function listCheckpoints(tenant, solutionId) {
+  return withGithubAuth(tenant, async () => {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
@@ -1102,6 +1203,7 @@ export async function listCheckpoints(tenant, solutionId) {
   } catch (err) {
     throw new Error(`Cannot list checkpoints: ${err.message}`);
   }
+  });
 }
 
 /** @deprecated Use listCheckpoints instead. */
@@ -1121,6 +1223,7 @@ export const listDevVersions = listCheckpoints;
  * disk, no history loss.
  */
 export async function rollback(tenant, solutionId, target) {
+  return withGithubAuth(tenant, async () => {
   const name = repoName(tenant, solutionId);
   const fullName = `${OWNER}/${name}`;
 
@@ -1209,4 +1312,5 @@ export async function rollback(tenant, solutionId, target) {
     rolled_back_at: new Date().toISOString(),
     _hint: `main now contains state from ${target} as a new commit. History preserved. Run ateam_build_and_run() to deploy. To go back to the previous main, ateam_github_rollback(solution_id, target: "${currentSha.slice(0, 7)}").`,
   };
+  });
 }
