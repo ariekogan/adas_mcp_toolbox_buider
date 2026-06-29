@@ -138,6 +138,7 @@ const MOBILE_CONNECTOR_SPEC = buildMobileConnectorSpec();
 const UI_PLUGINS_SPEC = buildUIPluginsSpec();
 const MULTI_USER_CONNECTOR_SPEC = buildMultiUserConnectorSpec();
 const PYTHON_HELPERS_SPEC = buildPythonHelpersSpec();
+const WIDGETS_SPEC = buildWidgetsSpec();
 const INDEX = buildIndex();
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -297,6 +298,21 @@ const res = await llm.call({ prompt: "Summarize: ...", max_tokens: 200 });`,
 // skill delegation, scratchpad I/O, and pipeline checkpoints.
 // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 router.get('/python_helpers', (_req, res) => res.set(CACHE_HEADERS).json(PYTHON_HELPERS_SPEC));
+
+// ─────────────────────────────────────────────────────────────────────
+// /spec/widgets — framework doc for ready-to-use platform widgets
+//
+// A widget is a UI plugin shipped by an MCP connector and rendered by
+// a host shell. This doc tells external agents (Claude, ChatGPT) what
+// a widget is, how it's identified, how render/surface/uiActions wire
+// together, and the three ways a widget reaches a deployed solution
+// (connector-bundled / solution-declared / skill-declared HTML).
+//
+// Companion to /spec/ui-plugins (the full schema reference). This doc
+// is the "framework + how-to-wire" view; /spec/ui-plugins is the
+// "every-field-of-the-object" view.
+// ─────────────────────────────────────────────────────────────────────
+router.get('/widgets', (_req, res) => res.set(CACHE_HEADERS).json(WIDGETS_SPEC));
 
 // Live platform connector catalog with tool schemas
 router.get('/platform-connectors', async (_req, res) => {
@@ -565,6 +581,10 @@ function buildIndex() {
       '/spec/python_helpers': {
         method: 'GET',
         description: 'Python orchestration helpers — the adas.* namespace auto-injected into run_python_script. Read this when designing a persona that orchestrates logic via Python (read state → call tool → checkpoint → status). Without these helpers, agents emit 5-10x bigger / brittler scripts that hand-roll JSON parsing and tool delegation.',
+      },
+      '/spec/widgets': {
+        method: 'GET',
+        description: 'Widgets framework — what a widget is (UI plugin exposed by an MCP connector), how identity / render / capabilities / uiActions / surface fit together, and the three wiring routes (connector-bundled, solution-declared, skill-declared HTML). Read this when picking ready-to-use widgets for a solution or wiring a custom one. Companion to /spec/ui-plugins (every-field reference) and /spec/host-contract (host/solution boundary).',
       },
       '/spec/examples': {
         method: 'GET',
@@ -871,9 +891,10 @@ function buildEnums() {
 
 function buildSkillSpec() {
   return {
-    spec_version: '1.5.0',
+    spec_version: '1.6.0',
     description: 'Complete A-Team skill definition specification. A skill is an autonomous AI agent with tools, policies, and workflows.',
     changelog: [
+      { version: '1.6.0', changes: ['Added /spec/widgets — framework doc for ready-to-use platform widgets (UI plugins exposed by MCP connectors). Surfaces the identity / render / capabilities / uiActions / surface model and the three wiring routes (connector-bundled, solution-declared, skill-declared HTML) so external agents can wire widgets into a solution without crawling /spec/ui-plugins schema. Companion to /spec/ui-plugins (every-field reference) and /spec/host-contract (host/solution boundary).'] },
       { version: '1.5.0', changes: ['Documented role.stages[] — Staged Skill Mode. Opt-in deterministic multi-step persona: a skill that declares role.stages[] runs as a finite state machine where the engine (not the LLM) decides stage transitions from each stage\'s reported status. Validator-enforced soundness rule: every `after` entry must reference an EARLIER stage id, which forbids forward refs + cycles by construction. Pre-existing CORE implementation (apps/backend/worker/stageMachine.js, validator validateStages, 2026-06-17) — just needed to be discoverable via the public spec so external agents can build staged skills.'] },
       { version: '1.4.0', changes: ['Added engine.loop_streak_threshold (number, optional, additive). Per-skill override for the generic loop-breaker streak threshold. CORE default 3, clamped to [1, 20] at runtime. Raise for multi-step workers whose stable script produces the same engine-signal fingerprint across iterations (Skill Factory workers are the motivating case). CORE read path: worker/mainloop.js → resolveLoopStreakThreshold.'] },
       { version: '1.3.0', changes: ['Documented engine.default_sub_job_seconds, engine.default_max_idle_seconds (both pre-existing in CORE but undocumented in Builder), and engine.default_max_delegation_depth (new — added to CORE sys.askAnySkill.js 2026-05-28). All three are per-skill ceiling overrides read by CORE\'s sys.askAnySkill at delegation time. Default-undeclared keeps CORE\'s built-in defaults (300s / 60s / depth 3). Set higher on long-running workers or deep-fan-out skills.'] },
@@ -5767,6 +5788,391 @@ function buildPythonHelpersSpec() {
       '/spec/solution — solution definition reference',
       '/spec/sdk — @ateam/sdk runtime API (for custom connectors/skill code outside run_python_script)',
       '/spec/platform-connectors — available connectors + tool catalog',
+    ],
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// /spec/widgets — framework doc for ready-to-use platform widgets.
+//
+// A widget = a UI plugin exposed by an MCP connector and rendered by
+// a host shell (mobile app, web shell, kiosk, watch). This doc is the
+// "framework + how-to-wire" view. Use /spec/ui-plugins for the full
+// every-field schema, and /spec/host-contract for the host/solution
+// ownership boundary.
+//
+// Keep this in sync with:
+//   • SOLUTION_SPEC.schema.ui_plugins   (canonical schema)
+//   • SOLUTION_SPEC.host_contract       (host/solution boundary)
+//   • ateam-mobile/src/plugin-sdk/      (reference renderer)
+// ─────────────────────────────────────────────────────────────────────
+function buildWidgetsSpec() {
+  return {
+    spec_version: '1.0.0',
+    title: 'Widgets — ready-to-use platform widgets framework',
+    audience: 'External agents (Claude, ChatGPT) and human builders assembling solutions. Skim before picking widgets for a solution or wiring a custom one.',
+    one_liner: 'A widget is a UI plugin exposed by an MCP connector and rendered by a host shell. This doc covers identity, render modes, capabilities/channels/commands, uiActions, surface placement, the three wiring routes, and the deploy pipeline.',
+
+    related_specs: [
+      '/spec/ui-plugins — full ui_plugins[] schema (every field)',
+      '/spec/platform-connectors — live catalog of connectors and the widgets they ship',
+      '/spec/host-contract — normative boundary between host shells and solutions; covers surface.placement + visibility',
+    ],
+
+    related_tools: {
+      _note: 'These are platform tools agents reach for while wiring widgets. The first two are NEW and will land alongside this spec — agents may call them to discover or read widget metadata.',
+      ateam_get_widget_catalog: 'List all widgets the platform ships, grouped by connector. Each entry includes id, render mode, surface defaults, and the connector that bundles it. Use this to pick ready-to-use widgets instead of inventing them.',
+      ateam_get_spec: 'Fetch a spec topic by name (e.g. "widgets", "ui-plugins", "host-contract"). Returns this doc structure.',
+      ateam_get_examples: 'Fetch worked examples (skill, connector, connector-ui, solution). The connector-ui example is the canonical paste-ready widget connector.',
+    },
+
+    index: [
+      'overview',
+      'identity',
+      'render',
+      'capabilities_channels_commands',
+      'uiActions',
+      'surface',
+      'wiring_routes',
+      'deploy_pipeline',
+      'openers',
+      'host_contract_drift',
+      'glossary',
+    ],
+
+    sections: {
+      overview: {
+        title: 'What a widget is',
+        body: 'A widget is a UI plugin (interactive view) shipped by an MCP connector and rendered by a host shell. The connector owns the code + data; the host owns the rendering + chrome. Widgets are first-class platform objects — they appear in solution.ui_plugins[], get virtual tool wrappers (ui.<id>.<command>) the planner can call, and are placed on the host via the surface field.',
+        examples: [
+          'Memories drawer (memory-mcp ships a "memories-panel" widget).',
+          'Nutrition dashboard (nutrition-mcp ships "nutrition-dashboard").',
+          'Camera capture (a vision connector ships "camera-capture" with capabilities.camera=true).',
+        ],
+        not_a_widget: [
+          'Plain chat replies — those are skill text output, not widgets.',
+          'Notifications — those are sys.notify events, not widgets.',
+          'Connector tool calls returning JSON — that is data, not UI.',
+        ],
+      },
+
+      identity: {
+        title: 'Plugin identity',
+        id_pattern: 'mcp:<connector-id>:<plugin-name>',
+        id_examples: ['mcp:memory-mcp:memories-panel', 'mcp:nutrition-mcp:nutrition-dashboard'],
+        rules: [
+          'id MUST be unique within a solution.',
+          'The <connector-id> segment MUST match an entry in solution.connectors[].id, otherwise the plugin will not load.',
+          'name is a human-readable label shown in chrome — usually "Memory Drawer", "Nutrition Dashboard", etc.',
+          'version follows semver (e.g. "1.0.0"). Bump on breaking schema changes.',
+          'type ∈ { "ui" | "service" | "hybrid" }. Default and most common is "ui". "service" = headless background, "hybrid" = both.',
+          'short_id (optional) is the trailing segment used to build virtual tool names: ui.<short_id>.<command>. If omitted, defaults to <plugin-name>.',
+        ],
+      },
+
+      render: {
+        title: 'Render modes',
+        modes: {
+          iframe: {
+            description: 'Web shell only. The plugin is a self-contained HTML bundle the web shell loads in a sandboxed iframe.',
+            required_fields: ['render.iframeUrl (path under connectors/<id>/ui-dist/)'],
+            example_path: 'connectors/memory-mcp/ui-dist/memories-panel/index.html',
+            protocol: 'postMessage — adas-plugin ↔ adas-host. Cross-connector calls use mcpCall(tool, args, connectorId).',
+          },
+          'react-native': {
+            description: 'Mobile shell only. The plugin is a React Native component bundled with the connector.',
+            required_fields: ['render.reactNative.component (component name as exported from index.tsx)'],
+            example_path: 'connectors/memory-mcp/plugins/memories-panel/index.tsx',
+            export_rule: 'Plain object export — do NOT use PluginSDK.register() (it pollutes the shared registry and causes conflicts across solutions).',
+          },
+          adaptive: {
+            description: 'BOTH platforms. Connector ships an iframe HTML bundle AND a React Native component. Host picks based on its platform.',
+            required_fields: ['render.iframeUrl', 'render.reactNative.component'],
+            recommendation: 'Default to adaptive when you can — it keeps the widget portable across hosts.',
+          },
+        },
+        invariants: [
+          'render.mode is required.',
+          'header / ambient surfaces with render.mode="iframe" trigger a validator warning — too heavy.',
+          'iframe widgets MUST embed default data so they render usefully even when the mobile fallback path activates.',
+        ],
+      },
+
+      capabilities_channels_commands: {
+        title: 'Capabilities, channels, commands',
+        capabilities: {
+          description: 'Native features the widget needs from the host. Hosts may refuse to mount a widget that asks for a capability they do not implement.',
+          enum: ['haptics', 'camera', 'location', 'storage', 'notifications'],
+          example: { haptics: true, camera: true },
+        },
+        channels: {
+          description: 'Which message channels the plugin participates in. Almost always ["command"] — i.e. it can be opened/invoked via host commands.',
+          enum: ['command', 'event', 'progress'],
+        },
+        commands: {
+          description: 'Imperative actions the planner / engine / host can invoke on the widget. Each command becomes a virtual tool the planner can call by name.',
+          virtual_tool_pattern: 'ui.<short_id>.<command_name>',
+          example: {
+            commands: [
+              { name: 'open', description: 'Activate the widget on its surface' },
+              { name: 'show_entity', description: 'Open the widget focused on a specific entity', args: { entity_id: 'string' } },
+            ],
+            virtual_tools: ['ui.memories-panel.open', 'ui.memories-panel.show_entity'],
+          },
+          naming: [
+            'Commands MUST be snake_case.',
+            'Use verbs: open, close, show_entity, toggle_filter, refresh.',
+            'Every widget SHOULD have an "open" command — it is the universal opener (see "openers" section).',
+          ],
+        },
+      },
+
+      uiActions: {
+        title: 'uiActions — intent-to-widget routing',
+        purpose: 'A planner / engine wants to "show the user X" without knowing which widget handles X. uiActions on a widget declare the intents it serves, and the host resolves the right widget at runtime.',
+        intents: {
+          view_entity: 'Show the user a structured entity (memory, note, calendar event). Match by entity type / id.',
+          suggested_action: 'Prompt the user to take a one-tap action.',
+          quick_toggle: 'Toggle a binary state (mute / dnd / lights on/off).',
+          cross_plugin: 'Hand off to a different plugin id explicitly.',
+          open_plugin: 'Just open the named widget on its surface, no entity context.',
+        },
+        resolution_priority: [
+          '1. Explicit ui.<id>.open call from the planner — highest priority.',
+          '2. Exact uiActions match (intent + entity_type both fit).',
+          '3. surface.placement=featured fallback for the host shell.',
+          'Lowest: legacy plugin-tab grid.',
+        ],
+        replace_semantics: 'A widget that declares uiActions.view_entity for "memory" REPLACES any host-shadowed memory view. Hosts MUST yield to the widget — see host_contract_drift.',
+      },
+
+      surface: {
+        title: 'Surface — where the host puts the widget',
+        type_enum: {
+          drawer: 'Side / bottom panel that slides over content.',
+          fullscreen: 'Takes over the full host viewport.',
+          card: 'Inline card in the chat / feed surface.',
+          header: 'Pinned to the top chrome (small, always-visible).',
+          ambient: 'Background HUD (e.g. now-playing pill).',
+          nudge: 'Transient toast / prompt.',
+        },
+        visibility_enum: {
+          always: 'Mounted whether the user asked or not (e.g. header HUDs).',
+          user: 'Default. Visible after the user opens it; collapses otherwise.',
+          engine: 'Only mounted when the engine emits sys.focusUiPlugin. Never user-discoverable from the chrome.',
+        },
+        placement_enum: {
+          featured: 'Show in the prominent menu / launcher slot.',
+          menu: 'Show in the standard menu / drawer list.',
+          omitted: 'Not in any menu. Reachable only via engine focus or explicit opener.',
+        },
+        rules: [
+          { severity: 'error', rule: 'surface.type is required when the surface block is present.' },
+          { severity: 'error', rule: 'visibility="engine" + placement="featured" is forbidden (engine plugins are not user-discoverable).' },
+          { severity: 'warning', rule: 'render.mode="iframe" with surface.type ∈ {header, ambient} — iframe overhead breaks small always-mounted surfaces.' },
+          { severity: 'ok', rule: 'No surface block at all → renders in the legacy plugin-tab grid (full back-compat).' },
+        ],
+      },
+
+      wiring_routes: {
+        title: 'Three ways a widget reaches a deployed solution',
+        connector_bundled: {
+          description: 'Most common. The connector source ships ui-dist/<plugin-name>/ (iframe) and/or plugins/<plugin-name>/index.tsx (RN). At deploy, Phase 5 (pluginDiscovery) reads the connector\'s ui.listPlugins + ui.getPlugin and auto-populates solution.ui_plugins[].',
+          author_writes: 'Connector source only. solution.ui_plugins[] is auto-filled — author may add a surface override.',
+          example: 'memory-mcp ships memories-panel — every solution that includes memory-mcp as a connector gets the widget for free.',
+        },
+        solution_declared: {
+          description: 'The solution author wants a widget that lives in a different connector (or to override surface for a bundled widget). They add an explicit entry to solution.ui_plugins[].',
+          author_writes: 'A full ui_plugins[] entry — id, render, surface, capabilities, commands.',
+          example: 'A health solution wants the nutrition-dashboard widget from nutrition-mcp featured on its menu.',
+          override_rule: 'A solution-declared entry whose id matches a connector-bundled entry REPLACES the auto-discovered one. Useful for surface tweaks.',
+        },
+        skill_declared_html: {
+          description: 'A skill itself owns a one-off HTML widget — usually a custom result view. The skill declares it inline; deploy pipeline materialises it into the solution.',
+          author_writes: 'skill.ui_plugins[] (rare). The HTML / RN component is bundled into the skill\'s package.',
+          when_to_use: 'Single-skill ad-hoc widgets that should NOT outlive the skill (custom report views, one-off configurators).',
+          caveat: 'Prefer connector-bundled or solution-declared for anything reusable. Skill-declared widgets do not appear in other solutions.',
+        },
+      },
+
+      deploy_pipeline: {
+        title: 'How a widget reaches the host',
+        phases: [
+          { phase: 'FS write', detail: 'Builder writes connectors/<id>/ui-dist/... and/or plugins/.../index.tsx to _builder/.' },
+          { phase: 'Phase 2b', detail: 'Connector tool import — ui.listPlugins / ui.getPlugin become callable.' },
+          { phase: 'Phase 5 (pluginDiscovery)', detail: 'For every connector with ui_capable=true, deploy calls ui.listPlugins then ui.getPlugin per plugin. Resulting manifests are merged into solution.ui_plugins[] (connector-bundled route).' },
+          { phase: 'Validator', detail: 'Schema validates each entry — see validation_codes below.' },
+          { phase: 'POST /api/ui-plugins', detail: 'Core API registers the merged ui_plugins[] for the solution. Bundles are served from Core directly (no CDN).' },
+          { phase: 'Host fetch', detail: 'Mobile / web shell pulls the manifest + bundles on session start. Mobile caches with 7-day TTL.' },
+        ],
+        forbidden: [
+          'Hosts MAY NOT hardcode widget ids. They MUST drive the menu/chrome from solution.ui_plugins[] (see host_contract_drift).',
+          'Connectors MAY NOT mutate solution.ui_plugins[] at runtime — it is a deploy-time artifact.',
+        ],
+      },
+
+      openers: {
+        title: 'How to open a widget',
+        primary: {
+          tool: 'ui.<short_id>.open',
+          description: 'The canonical opener. Every widget should expose this command. Planner / persona calls it by name.',
+          args_rule: 'For iframe widgets, args MUST be JSON-serializable scalars or short strings — they cross the postMessage boundary. No closures, no functions.',
+          example: { tool: 'ui.memories-panel.open', args: { focus: 'recent' } },
+        },
+        fallback: {
+          tool: 'sys.focusUiPlugin',
+          description: 'Engine-level opener. Use when the persona does not know the widget short_id but knows the plugin id. Forces the host to activate the surface declared in the manifest (works for visibility="engine" too).',
+          example: { tool: 'sys.focusUiPlugin', args: { pluginId: 'mcp:memory-mcp:memories-panel', props: { focus: 'recent' } } },
+        },
+        choose: 'Prefer ui.<short_id>.open when the widget id is known at design time. Use sys.focusUiPlugin when the engine resolves the widget at runtime (e.g. uiActions match).',
+      },
+
+      host_contract_drift: {
+        title: 'Host contract — no hardcoded widget ids',
+        rule: 'Hosts MUST drive rendering from surface.visibility and surface.placement. They MUST NOT hardcode specific plugin ids in the chrome.',
+        why: 'A host that hardcodes "memories-panel" shadows the widget — the host renders its own view, the platform widget never mounts, and the planner\'s ui.memories-panel.open calls go nowhere. The user gets a phantom UI that the engine cannot drive.',
+        canonical_drift: 'MemoryDrawer in early ateam-mobile shadowed mcp:memory-mcp:memories-panel by calling tool names directly. Reference doc: ateam-mobile/docs/HOST_VS_SOLUTION_HANDOFF.md.',
+        enforcement: 'See /spec/host-contract for the validator drift check. Hosts that ship hardcoded widget ids will fail validation.',
+      },
+
+      glossary: {
+        widget: 'Synonym for "UI plugin" — a renderable, interactive view shipped by a connector. Use "widget" in user-facing prose, "ui_plugin" in code / schema.',
+        ui_plugin: 'The schema-level term. solution.ui_plugins[] is an array of these.',
+        uiActions: 'A widget\'s declaration of which intents it can serve. Drives engine-side widget resolution.',
+        surface: 'The placement + visibility metadata that tells the host WHERE to render the widget.',
+        ACS_widget: 'UNRELATED concept. ACS (Adaptive Card Schema / Skill Factory) "widgets" are build-time artifacts produced by the Skill Factory pipeline (acs.widget.store, build_artifacts.widgets.*). They are NOT UI plugins — do not confuse the two. A platform widget = a UI plugin; an ACS widget = an internal Skill-Factory artifact.',
+      },
+    },
+
+    examples: [
+      {
+        title: 'Connector-bundled widget — nutrition-dashboard',
+        wiring_route: 'connector_bundled',
+        connector_layout: [
+          'connectors/nutrition-mcp/server.js  (declares ui_capable: true; implements ui.listPlugins + ui.getPlugin)',
+          'connectors/nutrition-mcp/ui-dist/nutrition-dashboard/index.html  (iframe bundle)',
+          'connectors/nutrition-mcp/plugins/nutrition-dashboard/index.tsx  (RN component)',
+        ],
+        solution_json_after_phase_5: {
+          ui_plugins: [
+            {
+              id: 'mcp:nutrition-mcp:nutrition-dashboard',
+              name: 'Nutrition Dashboard',
+              version: '1.0.0',
+              type: 'ui',
+              render: {
+                mode: 'adaptive',
+                iframeUrl: '/ui/nutrition-dashboard/index.html',
+                reactNative: { component: 'NutritionDashboard' },
+              },
+              capabilities: { haptics: true },
+              channels: ['command'],
+              commands: [
+                { name: 'open', description: 'Activate the dashboard' },
+                { name: 'show_meal', description: 'Show meal detail', args: { meal_id: 'string' } },
+              ],
+              surface: { type: 'drawer', visibility: 'user', placement: 'featured', icon: '🥗' },
+            },
+          ],
+        },
+        how_to_use: {
+          opener_call: { tool: 'ui.nutrition-dashboard.open', args: {} },
+          persona_phrasing: 'When the user asks "how am I doing on calories?", call ui.nutrition-dashboard.open. Do not paste totals into chat — the widget is the answer.',
+        },
+      },
+      {
+        title: 'Solution-declared widget — memories-panel pinned to header',
+        wiring_route: 'solution_declared',
+        scenario: 'memory-mcp already bundles memories-panel as a drawer. This solution wants it as a header HUD instead.',
+        solution_json_excerpt: {
+          ui_plugins: [
+            {
+              id: 'mcp:memory-mcp:memories-panel',
+              name: 'Memories',
+              version: '1.0.0',
+              type: 'ui',
+              render: { mode: 'react-native', reactNative: { component: 'MemoriesPanel' } },
+              channels: ['command'],
+              commands: [{ name: 'open' }],
+              surface: { type: 'header', visibility: 'always', placement: 'menu', icon: '🧠' },
+            },
+          ],
+        },
+        how_to_use: {
+          opener_call: { tool: 'sys.focusUiPlugin', args: { pluginId: 'mcp:memory-mcp:memories-panel' } },
+          persona_phrasing: 'Memories live in the header chip. When the user asks "what do you remember?", call sys.focusUiPlugin with the memories-panel id — do not summarize memories in chat.',
+          override_note: 'This solution-declared entry REPLACES the bundled drawer surface. Override is in-place.',
+        },
+      },
+      {
+        title: 'Skill-declared HTML widget — one-off custom report',
+        wiring_route: 'skill_declared_html',
+        scenario: 'A reporting skill produces a complex chart that the user views once and dismisses. Not reused across solutions.',
+        skill_json_excerpt: {
+          ui_plugins: [
+            {
+              id: 'mcp:report-skill:weekly-recap',
+              name: 'Weekly Recap',
+              version: '1.0.0',
+              type: 'ui',
+              render: { mode: 'iframe', iframeUrl: '/ui/weekly-recap/index.html' },
+              channels: ['command'],
+              commands: [{ name: 'open' }],
+              surface: { type: 'fullscreen', visibility: 'engine', placement: 'omitted' },
+            },
+          ],
+        },
+        how_to_use: {
+          opener_call: { tool: 'sys.focusUiPlugin', args: { pluginId: 'mcp:report-skill:weekly-recap' } },
+          persona_phrasing: 'After computing the recap, finalize with sys.focusUiPlugin to push the user to the fullscreen view. Do not also paste the recap into chat — the widget is the response.',
+          caveat: 'visibility="engine" + placement="omitted" means the user cannot reach this widget from the chrome — it only mounts when the skill explicitly focuses it.',
+        },
+      },
+    ],
+
+    validation_codes: [
+      {
+        code: 'ui_plugin_id_pattern',
+        severity: 'error',
+        message: 'ui_plugins[i].id must match mcp:<connector-id>:<plugin-name>',
+        fix: 'Rename the id. The connector segment must match an entry in solution.connectors[].id.',
+      },
+      {
+        code: 'ui_plugin_bundleurl_injection',
+        severity: 'error',
+        message: 'ui_plugins[i].render.iframeUrl resolves to a path the deploy pipeline could not bundle (file not found under connectors/<id>/ui-dist/).',
+        fix: 'Ensure the bundle file exists in the connector source tree before deploy.',
+      },
+      {
+        code: 'ui_plugin_surface_missing_block',
+        severity: 'warning',
+        message: 'ui_plugins[i] has no surface block — falls back to legacy plugin-tab grid.',
+        fix: 'Add a surface block with type + visibility + placement. Omit only intentionally (legacy).',
+      },
+      {
+        code: 'ui_plugin_surface_engine_featured_conflict',
+        severity: 'error',
+        message: 'surface.visibility="engine" cannot coexist with surface.placement="featured" — engine plugins are not user-discoverable.',
+        fix: 'Pick visibility="user" + placement="featured" OR visibility="engine" + placement="omitted".',
+      },
+      {
+        code: 'ui_plugin_iframe_on_micro_surface',
+        severity: 'warning',
+        message: 'render.mode="iframe" with surface.type ∈ {header, ambient} — iframe overhead breaks these always-mounted micro-surfaces.',
+        fix: 'Use render.mode="react-native" or "adaptive" for header/ambient widgets.',
+      },
+      {
+        code: 'ui_plugin_connector_missing',
+        severity: 'error',
+        message: 'ui_plugins[i].id references a connector not in solution.connectors[].',
+        fix: 'Add the connector to solution.connectors[], or fix the id.',
+      },
+      {
+        code: 'ui_plugin_command_naming',
+        severity: 'warning',
+        message: 'ui_plugins[i].commands[j].name should be snake_case verb (e.g. "open", "show_entity").',
+        fix: 'Rename command. Virtual tool will be ui.<short_id>.<command_name>.',
+      },
     ],
   };
 }
