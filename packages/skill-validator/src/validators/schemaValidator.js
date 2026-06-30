@@ -956,6 +956,30 @@ function validatePolicy(policy) {
     return issues;
   }
 
+  // Validate access role gate (policy.access.requires_roles)
+  if (policy.access && policy.access.requires_roles !== undefined) {
+    const rr = policy.access.requires_roles;
+    const validRoles = ['viewer', 'member', 'admin', 'owner', 'adas_builder', 'skill_admin'];
+    if (!Array.isArray(rr)) {
+      issues.push({
+        code: 'INVALID_REQUIRES_ROLES',
+        severity: 'error',
+        path: 'policy.access.requires_roles',
+        message: 'policy.access.requires_roles must be an array of role strings',
+      });
+    } else {
+      const bad = rr.filter((r) => !validRoles.includes(r));
+      if (bad.length) {
+        issues.push({
+          code: 'UNKNOWN_REQUIRES_ROLE',
+          severity: 'warning',
+          path: 'policy.access.requires_roles',
+          message: `Unknown role(s): ${bad.join(', ')}. Known: ${validRoles.join(', ')}`,
+        });
+      }
+    }
+  }
+
   // Validate guardrails
   if (policy.guardrails) {
     if (policy.guardrails.never && !Array.isArray(policy.guardrails.never)) {

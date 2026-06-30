@@ -663,7 +663,18 @@
  */
 
 /**
+ * Declarative role gate. The kernel filters the skill out of every routing site
+ * (orchestrator persona, capability index, handoff, askAnySkill) and denies
+ * direct invocation unless the actor holds at least the LOWEST tenant role
+ * listed (ladder: viewer < member < admin < owner). Empty / omitted = no gate
+ * (default-allow, backward compatible). Enforced by canActorReachSkill in Core.
+ * @typedef {Object} AccessConfig
+ * @property {Array<'viewer'|'member'|'admin'|'owner'|'adas_builder'|'skill_admin'>} [requires_roles]
+ */
+
+/**
  * @typedef {Object} PolicyConfig
+ * @property {AccessConfig} [access] - Role-gated routing (policy.access.requires_roles)
  * @property {Guardrails} guardrails
  * @property {ApprovalRule[]} approvals
  * @property {Workflow[]} workflows

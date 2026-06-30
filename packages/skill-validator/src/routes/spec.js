@@ -1523,8 +1523,19 @@ function buildSkillSpec() {
       // ── Policy ──
       policy: {
         type: 'object', required: true,
-        description: 'Guardrails, workflows, approval rules, and escalation',
+        description: 'Access role gate, guardrails, workflows, approval rules, and escalation',
         fields: {
+          access: {
+            type: 'object', required: false,
+            description: 'Declarative role gate for who can REACH this skill (routing-layer, kernel-enforced)',
+            fields: {
+              requires_roles: {
+                type: 'string[]', required: false,
+                values: ['viewer', 'member', 'admin', 'owner', 'adas_builder', 'skill_admin'],
+                description: 'Actor needs AT LEAST the lowest tenant role listed (ladder viewer<member<admin<owner). Empty/omitted = no gate (default-allow). The kernel filters the skill from every routing site and denies direct invocation otherwise. Use for admin-only skills (e.g. solution-builder uses ["admin","owner"]).',
+              },
+            },
+          },
           guardrails: {
             type: 'object', required: true,
             description: 'Hard behavioral constraints',
