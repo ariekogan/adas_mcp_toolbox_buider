@@ -261,15 +261,30 @@ router.get('/:skillId/conversation', async (req, res, next) => {
 router.delete('/:skillId', async (req, res, next) => {
   try {
     const { solutionId, skillId } = req.params;
-    const internalId = await resolveSkillId(skillId);
-    const cleanup = { fs: false, solution_skills: false, linked_skills: false, core: false, core_error: null };
+    // Drift tolerance: if the FS entry is gone but Core still has an orphaned
+    // deployment, we STILL want to reconcile Core (kill the MCP process, drop
+    // the Mongo row). Historically resolveSkillId threw and the 500 aborted
+    // the delete — leaving Core skills orphaned. See v0.4.0 friendly+safe
+    // rollout: the delete tool must be idempotent across drift.
+    let internalId;
+    let fs_missing = false;
+    try {
+      internalId = await resolveSkillId(skillId);
+    } catch {
+      internalId = skillId;
+      fs_missing = true;
+      console.warn(`[DeleteSkill] Skill ${skillId} not found on FS — continuing to Core cleanup (drift-tolerant path).`);
+    }
+    const cleanup = { fs: false, solution_skills: false, linked_skills: false, core: false, core_error: null, fs_missing };
 
     // 1. Remove the skill's files from Builder FS (skill.json, exports, etc.)
-    try {
-      await skillsStore.remove(solutionId, internalId);
-      cleanup.fs = true;
-    } catch (err) {
-      console.warn(`[DeleteSkill] FS removal failed for ${internalId}: ${err.message}`);
+    if (!fs_missing) {
+      try {
+        await skillsStore.remove(solutionId, internalId);
+        cleanup.fs = true;
+      } catch (err) {
+        console.warn(`[DeleteSkill] FS removal failed for ${internalId}: ${err.message}`);
+      }
     }
 
     // 2. Remove from solution.json (both skills[] and linked_skills[])
